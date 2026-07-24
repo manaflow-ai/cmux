@@ -130,6 +130,17 @@ import Testing
         #expect(decision == .reseedBaseline(to: 60))
     }
 
+    @Test func compactionBelowMinimumStillReseeds() {
+        let base = TimeInterval(1_000_000)
+        let compactedCount = config.minTranscriptLines - 1
+        let decision = engine.throttleDecision(
+            snapshot: snapshot(lastTitle: "Fix auth bug", lastLineCount: 500, lastNamedAt: base),
+            transcriptLineCount: compactedCount,
+            now: Date(timeIntervalSince1970: base + config.minInterval + 1)
+        )
+        #expect(decision == .reseedBaseline(to: compactedCount))
+    }
+
     @Test func unexpiredInFlightMarkerSkipsAndExpiredAllowsRetry() {
         let base = TimeInterval(1_000_000)
         let unexpired = engine.throttleDecision(

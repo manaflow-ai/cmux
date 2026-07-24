@@ -73,6 +73,990 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeCompactSessionStartReconcilesWithoutTranscriptShrinkAndRetriesAtNextStop() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-signal")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-signal-session"
+        let transcriptURL = context.root.appendingPathComponent("append-only-compact.jsonl")
+        try [
+            #"{"type":"user","message":{"content":"Fix the auth bug"}}"#,
+            #"{"type":"system","subtype":"compact_boundary"}"#,
+            #"{"type":"user","isCompactSummary":true,"message":{"content":"Authentication work continues"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let unchangedBaseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        let lastNamedAt = now - 60
+        let lastAttemptAt = now - 30
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: unchangedBaseline,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: lastNamedAt,
+            lastAttemptAt: lastAttemptAt,
+            inFlightAt: nil
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
+
+        let retryServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: true
+            )
+        }
+        let stop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        wait(for: [retryServerHandled], timeout: 5)
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
+        XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
+        XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
+    }
+
+    func testClaudeCompactRetriesPendingReconciliationUntilAllTargetsResolve() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-target-retry")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-target-retry-session"
+        let transcriptURL = context.root.appendingPathComponent("compact-target-retry.jsonl")
+        try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let compactedBaseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2,
+            autoNamingPanelApplySkipped: false
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
+
+        let unresolvedServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: false
+            )
+        }
+        let unresolvedStop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        wait(for: [unresolvedServerHandled], timeout: 5)
+        XCTAssertFalse(unresolvedStop.timedOut, unresolvedStop.stderr)
+        XCTAssertEqual(unresolvedStop.status, 0, unresolvedStop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
+
+        let confirmedServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: true
+            )
+        }
+        let confirmedStop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        wait(for: [confirmedServerHandled], timeout: 5)
+        XCTAssertFalse(confirmedStop.timedOut, confirmedStop.stderr)
+        XCTAssertEqual(confirmedStop.status, 0, confirmedStop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedBaseline)
+    }
+
+    func testClaudeCompactManualWorkspaceStillReconcilesAutoPanel() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-manual")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-manual-session"
+        let transcriptURL = context.root.appendingPathComponent("compact-manual.jsonl")
+        try #"{"type":"user","message":{"content":"Keep my manual project name"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let baseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: baseline,
+            lastTitle: "Earlier automatic topic",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2,
+            autoNamingWorkspaceUserOwned: true,
+            autoNamingWorkspaceApplied: false,
+            autoNamingWorkspaceApplySkipped: true,
+            autoNamingPanelApplied: true,
+            autoNamingPanelApplySkipped: false,
+            autoNamingExpectedTitle: "Earlier automatic topic"
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "Earlier automatic topic")
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, baseline)
+
+        let retryServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: false,
+                workspaceApplySkipped: true,
+                panelApplied: true,
+                workspaceUserOwned: true,
+                expectedTitle: "Earlier automatic topic"
+            )
+        }
+        let stop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        wait(for: [retryServerHandled], timeout: 5)
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, baseline)
+    }
+
+    func testClaudeCompactWaitsForAnInFlightFirstTitleThenReplaysIt() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-first-title")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-first-title-session"
+        let transcriptURL = context.root.appendingPathComponent("compact-first-title.jsonl")
+        try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let baseline = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: baseline,
+            lastTitle: nil,
+            lastNamedAt: nil,
+            lastAttemptAt: nil,
+            inFlightAt: now
+        )
+
+        let compact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2
+        )
+        XCTAssertFalse(compact.timedOut, compact.stderr)
+        XCTAssertEqual(compact.status, 0, compact.stderr)
+        XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
+        XCTAssertEqual(record["autoNameInFlightAt"] as? Double, now)
+
+        let completedAt = Date().timeIntervalSince1970
+        try updateClaudeHookSession(sessionId, context: context) { session in
+            session.removeValue(forKey: "autoNameInFlightAt")
+            session["autoNameLastAttemptAt"] = completedAt
+            session["autoNameLastTitle"] = "Fix auth bug"
+            session["autoNameLastLineCount"] = baseline
+            session["autoNameLastNamedAt"] = completedAt
+            session["updatedAt"] = completedAt
+        }
+
+        let retryServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: true
+            )
+        }
+        let stop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        wait(for: [retryServerHandled], timeout: 5)
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
+    }
+
+    func testClaudeCompactGenerationSurvivesOlderAndOverlappingReconciliationFinishers() throws {
+        let context = try makeClaudeHookContext(name: "claude-compact-generations")
+        defer { context.cleanup() }
+
+        let sessionId = "compact-generation-session"
+        let transcriptURL = context.root.appendingPathComponent("compact-generation.jsonl")
+        try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil
+        )
+
+        let firstCompact = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+            expectedConnectionCount: 2
+        )
+        XCTAssertFalse(firstCompact.timedOut, firstCompact.stderr)
+        XCTAssertEqual(firstCompact.status, 0, firstCompact.stderr)
+        let firstGeneration = try XCTUnwrap(
+            readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"] as? String
+        )
+
+        let firstApplyReceived = DispatchSemaphore(value: 0)
+        let allowFirstApplyResponse = DispatchSemaphore(value: 0)
+        startDetachedMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 4
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "workspace.set_auto_title":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["probe"] as? Bool != true,
+                   self.autoNamingApplyRequests(in: context).count == 2 {
+                    firstApplyReceived.signal()
+                    if allowFirstApplyResponse.wait(timeout: .now() + self.processTimeout(5)) == .timedOut {
+                        XCTFail("Timed out waiting to release the older reconciliation")
+                    }
+                }
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplySkipped: true
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        let olderStop = Process()
+        let olderStopStandardInput = Pipe()
+        let olderStopStandardOutput = Pipe()
+        let olderStopStandardError = Pipe()
+        let olderStopExited = DispatchSemaphore(value: 0)
+        olderStop.executableURL = URL(fileURLWithPath: context.cliPath)
+        olderStop.arguments = ["hooks", "claude", "auto-name"]
+        olderStop.environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        olderStop.standardInput = olderStopStandardInput
+        olderStop.standardOutput = olderStopStandardOutput
+        olderStop.standardError = olderStopStandardError
+        olderStop.terminationHandler = { _ in olderStopExited.signal() }
+        try olderStop.run()
+        olderStopStandardInput.fileHandleForWriting.write(
+            Data(#"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#.utf8)
+        )
+        try olderStopStandardInput.fileHandleForWriting.close()
+        defer {
+            allowFirstApplyResponse.signal()
+            if olderStop.isRunning {
+                olderStop.terminate()
+            }
+        }
+
+        XCTAssertEqual(
+            firstApplyReceived.wait(timeout: .now() + processTimeout(5)),
+            .success,
+            "The first Stop never claimed the pending reconciliation"
+        )
+        let firstCompactedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        try [
+            #"{"type":"user","message":{"content":"Fix the auth bug"}}"#,
+            #"{"type":"assistant","message":{"content":"Continue after compaction"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let secondCompactedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        XCTAssertGreaterThan(secondCompactedLineCount, firstCompactedLineCount)
+        XCTAssertLessThan(secondCompactedLineCount, 500)
+        let secondCompact = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(secondCompact.timedOut, secondCompact.stderr)
+        XCTAssertEqual(secondCompact.status, 0, secondCompact.stderr)
+        let secondGeneration = try XCTUnwrap(
+            readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"] as? String
+        )
+        XCTAssertNotEqual(secondGeneration, firstGeneration)
+
+        allowFirstApplyResponse.signal()
+        XCTAssertEqual(olderStopExited.wait(timeout: .now() + processTimeout(5)), .success)
+        let olderStopStdout = String(
+            data: olderStopStandardOutput.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let olderStopStderr = String(
+            data: olderStopStandardError.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertEqual(olderStop.terminationStatus, 0, olderStopStderr)
+        XCTAssertEqual(olderStopStdout, "{}\n")
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameTitleReconciliationGeneration"] as? String, secondGeneration)
+        XCTAssertEqual(
+            record["autoNameLastLineCount"] as? Int,
+            500,
+            "An older reconciliation generation must not commit its stale compacted baseline"
+        )
+
+        let finalStop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(finalStop.timedOut, finalStop.stderr)
+        XCTAssertEqual(finalStop.status, 0, finalStop.stderr)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameTitleReconciliationGeneration"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, secondCompactedLineCount)
+    }
+
+    func testClaudeAutoNamePendingReconciliationRefusesFocusedFallbackSurface() throws {
+        let context = try makeClaudeHookContext(name: "claude-auto-name-fallback")
+        defer { context.cleanup() }
+
+        let sessionId = "auto-name-fallback-session"
+        let recordedSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let pendingGeneration = "pending-generation"
+        let transcriptURL = context.root.appendingPathComponent("fallback.jsonl")
+        try #"{"type":"user","message":{"content":"Keep this topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil,
+            surfaceId: recordedSurfaceId
+        )
+        try updateClaudeHookSession(sessionId, context: context) { session in
+            session["autoNameTitleReconciliationGeneration"] = pendingGeneration
+        }
+
+        startDetachedMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "agent.resolve_delivery_target":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "method_not_found", "message": "resolver unavailable"]
+                )
+            case "workspace.set_auto_title":
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplySkipped: true
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        let autoTitleRequests = context.state.snapshot().filter {
+            jsonObject($0)?["method"] as? String == "workspace.set_auto_title"
+        }
+        XCTAssertTrue(
+            autoTitleRequests.isEmpty,
+            "A focused fallback pane must not receive an auto-title probe or replay"
+        )
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameTitleReconciliationGeneration"] as? String, pendingGeneration)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
+    }
+
+    func testClaudeCompactSignalIgnoresNonCompactNestedAndStaleSessionStarts() throws {
+        func seed(_ context: ClaudeHookContext, sessionId: String, activeSessionId: String? = nil) throws -> URL {
+            let transcriptURL = context.root.appendingPathComponent("\(sessionId).jsonl")
+            try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+            let now = Date().timeIntervalSince1970
+            try seedClaudeAutoNamingStore(
+                context: context,
+                sessionId: sessionId,
+                transcriptURL: transcriptURL,
+                baselineLineCount: try autoNamingGrowthMetric(transcriptURL),
+                lastTitle: "Fix auth bug",
+                lastNamedAt: now - 60,
+                lastAttemptAt: now - 30,
+                inFlightAt: nil,
+                activeSessionId: activeSessionId
+            )
+            return transcriptURL
+        }
+
+        do {
+            let context = try makeClaudeHookContext(name: "claude-noncompact-signal")
+            defer { context.cleanup() }
+            let sessionId = "noncompact-session"
+            let transcriptURL = try seed(context, sessionId: sessionId)
+            let startup = runClaudeHook(
+                context: context,
+                arguments: ["hooks", "claude", "session-start"],
+                standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+                expectedConnectionCount: 2
+            )
+            XCTAssertFalse(startup.timedOut, startup.stderr)
+            XCTAssertEqual(startup.status, 0, startup.stderr)
+            XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
+        }
+
+        do {
+            let context = try makeClaudeHookContext(name: "claude-nested-compact")
+            defer { context.cleanup() }
+            let sessionId = "nested-compact-session"
+            let transcriptURL = try seed(context, sessionId: sessionId)
+            let nested = runClaudeHook(
+                context: context,
+                arguments: ["hooks", "claude", "session-start"],
+                standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+                extraEnvironment: ["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "1"],
+                expectedConnectionCount: 2
+            )
+            XCTAssertFalse(nested.timedOut, nested.stderr)
+            XCTAssertEqual(nested.status, 0, nested.stderr)
+            XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
+        }
+
+        do {
+            let context = try makeClaudeHookContext(name: "claude-stale-compact")
+            defer { context.cleanup() }
+            let sessionId = "stale-compact-session"
+            let transcriptURL = try seed(context, sessionId: sessionId, activeSessionId: "newer-session")
+            let stale = runClaudeHook(
+                context: context,
+                arguments: ["hooks", "claude", "session-start"],
+                standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+                expectedConnectionCount: 2
+            )
+            XCTAssertFalse(stale.timedOut, stale.stderr)
+            XCTAssertEqual(stale.status, 0, stale.stderr)
+            XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+            XCTAssertNil(try readClaudeHookSession(sessionId, context: context)["autoNameTitleReconciliationGeneration"])
+        }
+
+        do {
+            let context = try makeClaudeHookContext(name: "claude-compact-recorded-pane")
+            defer { context.cleanup() }
+            let sessionId = "recorded-pane-compact-session"
+            let transcriptURL = context.root.appendingPathComponent("\(sessionId).jsonl")
+            try #"{"type":"user","message":{"content":"Fix the auth bug"}}"#
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+            let recordedSurfaceId = "99999999-9999-9999-9999-999999999999"
+            let now = Date().timeIntervalSince1970
+            try seedClaudeAutoNamingStore(
+                context: context,
+                sessionId: sessionId,
+                transcriptURL: transcriptURL,
+                baselineLineCount: try autoNamingGrowthMetric(transcriptURL),
+                lastTitle: "Fix auth bug",
+                lastNamedAt: now - 60,
+                lastAttemptAt: now - 30,
+                inFlightAt: nil,
+                surfaceId: recordedSurfaceId
+            )
+
+            let compact = runClaudeHookListingSurfaces(
+                context: context,
+                surfaceIds: [context.surfaceId, recordedSurfaceId],
+                arguments: ["hooks", "claude", "session-start"],
+                standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
+                extraEnvironment: ["CMUX_SURFACE_ID": "", "CMUX_CLAUDE_PID": ""]
+            )
+            XCTAssertFalse(compact.timedOut, compact.stderr)
+            XCTAssertEqual(compact.status, 0, compact.stderr)
+            let apply = try XCTUnwrap(autoNamingApplyRequests(in: context).first)
+            XCTAssertEqual(apply["panel_id"] as? String, recordedSurfaceId)
+            XCTAssertNotEqual(apply["panel_id"] as? String, context.surfaceId)
+        }
+    }
+
+    func testClaudeAutoNameCompactionDedupesWhileReconciliationIsInFlight() throws {
+        let context = try makeClaudeHookContext(name: "claude-auto-name-inflight")
+        defer { context.cleanup() }
+
+        let sessionId = "auto-name-inflight-session"
+        let transcriptURL = context.root.appendingPathComponent("compacted.jsonl")
+        try #"{"type":"user","message":{"content":"Keep the existing topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: now
+        )
+
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            self.autoNamingMockResponse(line: line, context: context, workspaceApplied: true)
+        }
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameInFlightAt"] as? Double, now)
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
+    }
+
+    func testClaudeAutoNameCompactionRetriesUntilReconciliationIsConfirmed() throws {
+        let context = try makeClaudeHookContext(name: "claude-auto-name-retry")
+        defer { context.cleanup() }
+
+        let sessionId = "auto-name-retry-session"
+        let transcriptURL = context.root.appendingPathComponent("compacted.jsonl")
+        try [
+            #"{"type":"user","message":{"content":"Fix the auth bug"}}"#,
+            #"{"type":"assistant","message":{"content":"Working on authentication"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let compactedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        let lastNamedAt = now - 60
+        let lastAttemptAt = now - 30
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: lastNamedAt,
+            lastAttemptAt: lastAttemptAt,
+            inFlightAt: nil
+        )
+
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 5) { line in
+            guard let payload = self.jsonObject(line),
+                  payload["method"] as? String == "workspace.set_auto_title",
+                  let params = payload["params"] as? [String: Any],
+                  params["probe"] as? Bool != true else {
+                return self.autoNamingMockResponse(line: line, context: context, workspaceApplied: true)
+            }
+            let inFlightRecord = try? self.readClaudeHookSession(sessionId, context: context)
+            XCTAssertNotNil(inFlightRecord?["autoNameInFlightAt"] as? Double)
+            XCTAssertEqual(inFlightRecord?["autoNameLastLineCount"] as? Int, 500)
+            XCTAssertEqual(params["title"] as? String, "Fix auth bug")
+            let applyNumber = self.autoNamingApplyRequests(in: context).count
+            switch applyNumber {
+            case 1:
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: false,
+                    panelApplied: false
+                )
+            case 2:
+                return "not-json"
+            case 3:
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplied: nil
+                )
+            default:
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: false,
+                    workspaceApplySkipped: true,
+                    panelApplied: true
+                )
+            }
+        }
+
+        func runReconciliation() -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", "auto-name"],
+                standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+            )
+        }
+
+        for expectedApplyCount in 1...3 {
+            let result = runReconciliation()
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertEqual(autoNamingApplyRequests(in: context).count, expectedApplyCount)
+
+            let record = try readClaudeHookSession(sessionId, context: context)
+            XCTAssertNil(record["autoNameInFlightAt"])
+            XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
+            XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
+            XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
+            XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
+        }
+
+        let confirmed = runReconciliation()
+        XCTAssertFalse(confirmed.timedOut, confirmed.stderr)
+        XCTAssertEqual(confirmed.status, 0, confirmed.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 4)
+
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
+        XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
+        XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
+
+        let afterConfirmation = runReconciliation()
+        XCTAssertFalse(afterConfirmation.timedOut, afterConfirmation.stderr)
+        XCTAssertEqual(afterConfirmation.status, 0, afterConfirmation.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 4)
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
+    }
+
+    func testClaudeAutoNameTranscriptShrinkReconcilesPanelUnderManualWorkspaceWithoutSummarizing() throws {
+        let context = try makeClaudeHookContext(name: "claude-shrink-manual")
+        defer { context.cleanup() }
+
+        let sessionId = "shrink-manual-session"
+        let transcriptURL = context.root.appendingPathComponent("compacted.jsonl")
+        try #"{"type":"user","message":{"content":"Keep the existing topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let compactedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        let lastNamedAt = now - 60
+        let lastAttemptAt = now - 30
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: lastNamedAt,
+            lastAttemptAt: lastAttemptAt,
+            inFlightAt: nil
+        )
+        let summarizerMarker = context.root.appendingPathComponent("summarizer-invoked")
+        let summarizerURL = context.root.appendingPathComponent("fake-claude")
+        try "#!/bin/sh\n/usr/bin/touch \"\(summarizerMarker.path)\"\n/bin/echo 'Unexpected title'\n"
+            .write(to: summarizerURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: summarizerURL.path
+        )
+
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            if method == "surface.list" {
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            }
+            guard method == "workspace.set_auto_title" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if params["probe"] as? Bool == true {
+                return self.v2Response(id: id, ok: true, result: [
+                    "enabled": true,
+                    "workspace_user_owned": true,
+                ])
+            }
+            XCTAssertEqual(params["title"] as? String, "Fix auth bug")
+            XCTAssertEqual(params["expected_workspace_title"] as? String, "Fix auth bug")
+            XCTAssertEqual(params["clear_status_on_apply"] as? Bool, false)
+            return self.v2Response(id: id, ok: true, result: [
+                "workspace_applied": false,
+                "workspace_apply_skipped": true,
+                "panel_applied": true,
+                "panel_apply_skipped": false,
+            ])
+        }
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_CUSTOM_CLAUDE_PATH": summarizerURL.path]
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: summarizerMarker.path))
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
+        XCTAssertEqual(record["autoNameLastNamedAt"] as? Double, lastNamedAt)
+        XCTAssertEqual(record["autoNameLastAttemptAt"] as? Double, lastAttemptAt)
+    }
+
+    func testClaudeAutoNamePersistsNewTitleWhenManualWorkspaceRaceStillAppliesPanel() throws {
+        let context = try makeClaudeHookContext(name: "claude-panel-only-title")
+        defer { context.cleanup() }
+
+        let sessionId = "panel-only-title-session"
+        let transcriptURL = context.root.appendingPathComponent("conversation.jsonl")
+        let transcript = (0..<12).map { index in
+            #"{"type":"user","message":{"content":"Investigate authentication \#(index)"}}"#
+        }.joined(separator: "\n")
+        try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let transcriptLineCount = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 1,
+            lastTitle: "Earlier automatic topic",
+            lastNamedAt: now - 600,
+            lastAttemptAt: now - 600,
+            inFlightAt: nil
+        )
+        let summarizerMarker = context.root.appendingPathComponent("summarizer-invoked")
+        let summarizerURL = context.root.appendingPathComponent("fake-claude")
+        try "#!/bin/sh\n/usr/bin/touch \"\(summarizerMarker.path)\"\n/bin/echo 'New panel topic'\n"
+            .write(to: summarizerURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: summarizerURL.path
+        )
+
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            if method == "surface.list" {
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            }
+            guard method == "workspace.set_auto_title" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if params["probe"] as? Bool == true {
+                return self.v2Response(id: id, ok: true, result: [
+                    "enabled": true,
+                    "workspace_user_owned": false,
+                ])
+            }
+            XCTAssertEqual(params["title"] as? String, "New panel topic")
+            XCTAssertNil(params["expected_workspace_title"])
+            XCTAssertEqual(params["clear_status_on_apply"] as? Bool, true)
+            return self.v2Response(id: id, ok: true, result: [
+                "workspace_applied": false,
+                "workspace_apply_skipped": true,
+                "panel_applied": true,
+                "panel_apply_skipped": false,
+            ])
+        }
+        let result = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_CUSTOM_CLAUDE_PATH": summarizerURL.path]
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: summarizerMarker.path))
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameLastTitle"] as? String, "New panel topic")
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, transcriptLineCount)
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
@@ -814,6 +1798,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "workspace.set_auto_title":
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplySkipped: true
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -8804,9 +9795,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         context: ClaudeHookContext,
         arguments: [String],
         standardInput: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        expectedConnectionCount: Int = 2,
+        autoNamingWorkspaceUserOwned: Bool = false,
+        autoNamingWorkspaceApplied: Bool = true,
+        autoNamingWorkspaceApplySkipped: Bool = false,
+        autoNamingPanelApplied: Bool? = nil,
+        autoNamingPanelApplySkipped: Bool = true,
+        autoNamingExpectedTitle: String = "Fix auth bug"
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: expectedConnectionCount,
+            waitForAllConnections: true
+        ) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -8820,6 +9823,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.v2Response(id: id, ok: true, result: [:])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "workspace.set_auto_title":
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: autoNamingWorkspaceApplied,
+                    workspaceApplySkipped: autoNamingWorkspaceApplySkipped,
+                    panelApplied: autoNamingPanelApplied,
+                    panelApplySkipped: autoNamingPanelApplySkipped,
+                    workspaceUserOwned: autoNamingWorkspaceUserOwned,
+                    expectedTitle: autoNamingExpectedTitle
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -8855,6 +9869,153 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func updateClaudeHookSession(
+        _ sessionId: String,
+        context: ClaudeHookContext,
+        mutation: (inout [String: Any]) -> Void
+    ) throws {
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        var state = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        var sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        mutation(&session)
+        sessions[sessionId] = session
+        state["sessions"] = sessions
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+    }
+
+    private func seedClaudeAutoNamingStore(
+        context: ClaudeHookContext,
+        sessionId: String,
+        transcriptURL: URL,
+        baselineLineCount: Int,
+        lastTitle: String?,
+        lastNamedAt: TimeInterval?,
+        lastAttemptAt: TimeInterval?,
+        inFlightAt: TimeInterval?,
+        activeSessionId: String? = nil,
+        surfaceId: String? = nil
+    ) throws {
+        let now = Date().timeIntervalSince1970
+        let resolvedSurfaceId = surfaceId ?? context.surfaceId
+        var session: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": context.workspaceId,
+            "surfaceId": resolvedSurfaceId,
+            "cwd": context.root.path,
+            "transcriptPath": transcriptURL.path,
+            "startedAt": now,
+            "updatedAt": now,
+            "autoNameLastLineCount": baselineLineCount,
+        ]
+        if let lastTitle {
+            session["autoNameLastTitle"] = lastTitle
+        }
+        if let lastNamedAt {
+            session["autoNameLastNamedAt"] = lastNamedAt
+        }
+        if let lastAttemptAt {
+            session["autoNameLastAttemptAt"] = lastAttemptAt
+        }
+        if let inFlightAt {
+            session["autoNameInFlightAt"] = inFlightAt
+        }
+        let active: [String: Any] = [
+            "sessionId": activeSessionId ?? sessionId,
+            "updatedAt": now,
+        ]
+        var sessions: [String: Any] = [sessionId: session]
+        if let activeSessionId, activeSessionId != sessionId {
+            sessions[activeSessionId] = [
+                "sessionId": activeSessionId,
+                "workspaceId": context.workspaceId,
+                "surfaceId": resolvedSurfaceId,
+                "cwd": context.root.path,
+                "startedAt": now,
+                "updatedAt": now,
+            ]
+        }
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": sessions,
+            "activeSessionsByWorkspace": [context.workspaceId: active],
+            "activeSessionsBySurface": [resolvedSurfaceId: active],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+    }
+
+    private func autoNamingGrowthMetric(_ transcriptURL: URL) throws -> Int {
+        let contents = try String(contentsOf: transcriptURL, encoding: .utf8)
+        let lineCount = contents.split(separator: "\n", omittingEmptySubsequences: false).count
+        let size = try XCTUnwrap(
+            try FileManager.default.attributesOfItem(atPath: transcriptURL.path)[.size] as? NSNumber
+        ).intValue
+        return max(lineCount, size / 128)
+    }
+
+    private func autoNamingApplyRequests(in context: ClaudeHookContext) -> [[String: Any]] {
+        context.state.snapshot().compactMap { line in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "workspace.set_auto_title",
+                  let params = payload["params"] as? [String: Any],
+                  params["probe"] as? Bool != true else {
+                return nil
+            }
+            return params
+        }
+    }
+
+    private func autoNamingMockResponse(
+        line: String,
+        context: ClaudeHookContext,
+        workspaceApplied: Bool,
+        workspaceApplySkipped: Bool = false,
+        panelApplied: Bool? = nil,
+        panelApplySkipped: Bool = false,
+        workspaceUserOwned: Bool = false,
+        expectedTitle: String = "Fix auth bug"
+    ) -> String {
+        guard let payload = jsonObject(line),
+              let id = payload["id"] as? String,
+              let method = payload["method"] as? String else {
+            return malformedRequestResponse(raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+        case "workspace.set_auto_title":
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if params["probe"] as? Bool == true {
+                return v2Response(id: id, ok: true, result: [
+                    "enabled": true,
+                    "workspace_user_owned": workspaceUserOwned,
+                ])
+            }
+            XCTAssertEqual(params["title"] as? String, expectedTitle)
+            XCTAssertEqual(params["expected_workspace_title"] as? String, expectedTitle)
+            XCTAssertEqual(params["clear_status_on_apply"] as? Bool, false)
+            return v2Response(id: id, ok: true, result: [
+                "workspace_applied": workspaceApplied,
+                "workspace_apply_skipped": workspaceApplySkipped,
+                "panel_applied": panelApplied ?? NSNull(),
+                "panel_apply_skipped": panelApplySkipped,
+            ])
+        default:
+            return v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+            )
+        }
     }
 
     private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {

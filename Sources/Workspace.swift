@@ -4148,15 +4148,17 @@ final class Workspace: Identifiable, ObservableObject {
             panelCustomTitles.removeValue(forKey: panelId)
             panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            guard previous != trimmed else {
-                // Same text: a user write still claims ownership so a later
-                // auto write cannot replace a title the user re-confirmed.
+            if previous == trimmed {
+                // A user write still claims ownership. Keep going so an
+                // idempotent write also repairs derived tab chrome.
                 if source == .user { panelCustomTitleSources[panelId] = .user }
-                applyFocusedPanelTitle(panelId: panelId)
-                return true
+                // Remote `%window-renamed` events are authoritative. Reapplying
+                // the stored auto-title must not overwrite that remote choice.
+                if isRemoteTmuxMirror, source == .auto { return true }
+            } else {
+                panelCustomTitles[panelId] = trimmed
+                panelCustomTitleSources[panelId] = source
             }
-            panelCustomTitles[panelId] = trimmed
-            panelCustomTitleSources[panelId] = source
         }
 
         applyFocusedPanelTitle(panelId: panelId)
