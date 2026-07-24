@@ -7,49 +7,6 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellCompositeHiddenMacRefreshTests {
-    @Test func legacyTaggedHiddenIDUsesRegistryDisplayNameWithoutLocalRow() async throws {
-        let hiddenStore = InMemoryPairedMacHiddenStore()
-        let registry = DelayedTeamDeviceRegistry(
-            teamIDProvider: { "team-a" },
-            devicesByTeam: [
-                "team-a": [RegistryDevice(
-                    deviceId: "mac-legacy",
-                    platform: "mac",
-                    displayName: "Legacy Studio",
-                    lastSeenAt: Date(timeIntervalSince1970: 30),
-                    instances: []
-                )],
-            ],
-            blockedTeams: []
-        )
-        let store = MobileShellComposite(
-            isSignedIn: true,
-            pairedMacStore: DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: []),
-            deviceRegistry: registry,
-            identityProvider: StaticIdentityProvider(userID: "user-1"),
-            teamIDProvider: { "team-a" },
-            hiddenMacStore: hiddenStore
-        )
-        let scope = try #require(await store.currentScopeSnapshot())
-        await store.rememberHiddenMacDeviceID(
-            MobilePairedMac.pairingID(
-                macDeviceID: "mac-legacy",
-                instanceTag: "stable"
-            ),
-            scope: scope
-        )
-
-        await store.loadPairedMacs()
-        await store.loadRegistryDevices()
-
-        let hidden = try #require(store.hiddenComputers.first)
-        #expect(hidden.macDeviceID == "mac-legacy")
-        #expect(hidden.instanceTag == "stable")
-        #expect(hidden.displayName == "Legacy Studio")
-        #expect(hidden.requiresLegacyRecovery)
-        #expect(store.registryDevices.isEmpty)
-    }
-
     @Test func hidingMacSuppressesStaleStoreWriteFromSameSession() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

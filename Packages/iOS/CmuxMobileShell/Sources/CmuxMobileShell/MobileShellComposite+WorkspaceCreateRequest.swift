@@ -192,6 +192,7 @@ extension MobileShellComposite {
         guard connectionState == .connected, let remoteClient else { return nil }
         return WorkspaceCreatePinnedContext(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration,
             supportedHostCapabilities: supportedHostCapabilities,
@@ -202,6 +203,7 @@ extension MobileShellComposite {
     private func isCurrentWorkspaceCreateContext(_ context: WorkspaceCreatePinnedContext) -> Bool {
         context.isCurrent(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration
         ) && isSignedIn && connectionState == .connected
