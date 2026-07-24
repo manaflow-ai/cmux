@@ -74,6 +74,10 @@ struct MainThreadHangCaptureRetentionPolicy {
 
 /// Detects main-queue starvation from a background timer and captures a stack
 /// sample without asking the blocked main thread to participate.
+///
+/// `@unchecked Sendable` is safe because mutable monitor state is confined to
+/// `monitorQueue`, while `started` is protected by `startLock`. Future mutable
+/// state must remain confined to one of those synchronization domains.
 final class MainThreadHangWatchdog: @unchecked Sendable {
     static let shared = MainThreadHangWatchdog()
 

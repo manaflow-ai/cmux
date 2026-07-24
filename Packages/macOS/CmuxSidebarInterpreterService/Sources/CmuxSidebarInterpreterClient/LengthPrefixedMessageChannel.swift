@@ -21,14 +21,16 @@ public struct LengthPrefixedMessageChannel: Sendable {
     private let writeFD: Int32
 
     /// Creates a channel that reads from `readFD` and writes to `writeFD`.
-    public init(readFD: Int32, writeFD: Int32) {
+    public init(readFD: Int32, writeFD: Int32) throws {
         self.readFD = readFD
         self.writeFD = writeFD
 #if canImport(Darwin)
         // A worker watchdog can close the read end while this descriptor is
         // blocked in write(2). Report that race as EPIPE to the supervisor
         // instead of delivering process-wide SIGPIPE to the cmux host.
-        _ = fcntl(writeFD, F_SETNOSIGPIPE, 1)
+        guard fcntl(writeFD, F_SETNOSIGPIPE, 1) == 0 else {
+            throw ChannelError.noSigPipeConfigurationFailed(errno: errno)
+        }
 #endif
     }
 
@@ -108,9 +110,12 @@ public struct LengthPrefixedMessageChannel: Sendable {
     }
 }
 
-/// A failure writing to a ``LengthPrefixedMessageChannel`` (a closed or broken
-/// descriptor, typically because the peer process exited).
+/// A failure configuring or writing to a ``LengthPrefixedMessageChannel``.
 public enum ChannelError: Error, Sendable {
+    /// The channel could not suppress process-wide `SIGPIPE` delivery for its
+    /// writer descriptor and therefore refused to start.
+    case noSigPipeConfigurationFailed(errno: Int32)
+    /// The peer closed or broke the writer descriptor.
     case writeFailed
     /// The outbound payload exceeds ``LengthPrefixedMessageChannel/maximumFrameLength``.
     case frameTooLarge

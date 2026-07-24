@@ -157,8 +157,12 @@ import Testing
 
         let workerSurvivedDeadline: Bool = await withCheckedContinuation { continuation in
             let deadlineThread = Thread {
-                Thread.sleep(forTimeInterval: 3)
-                let workerIsAlive = kill(pid_t(workerPID), 0) == 0
+                let deadline = ContinuousClock.now + .seconds(3)
+                var workerIsAlive = kill(pid_t(workerPID), 0) == 0
+                while workerIsAlive, ContinuousClock.now < deadline {
+                    Thread.sleep(forTimeInterval: 0.01)
+                    workerIsAlive = kill(pid_t(workerPID), 0) == 0
+                }
                 if workerIsAlive {
                     kill(pid_t(workerPID), SIGKILL)
                 }

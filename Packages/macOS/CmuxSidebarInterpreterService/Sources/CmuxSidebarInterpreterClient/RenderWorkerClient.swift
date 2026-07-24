@@ -172,16 +172,7 @@ public actor RenderWorkerClient {
         } catch {
             return
         }
-        let gen = generation
-        writer.enqueue(outbound) { [weak self] in
-            guard let self else { return }
-            Task {
-                await self.writeFailed(outbound, generation: gen)
-            }
-        }
-        if let ackSequence = outbound.ackSequence {
-            armAckWatchdog(for: ackSequence)
-        }
+        enqueueOnWriter(writer, outbound: outbound, generation: generation)
     }
 
     private func writeFailed(
@@ -253,7 +244,7 @@ public actor RenderWorkerClient {
                 .merging(extraEnvironment) { _, new in new }
         }
 
-        let channel = LengthPrefixedMessageChannel(
+        let channel = try LengthPrefixedMessageChannel(
             readFD: stdout.fileHandleForReading.fileDescriptor,
             writeFD: stdin.fileHandleForWriting.fileDescriptor
         )

@@ -30,7 +30,9 @@ let stopReading: Bool = {
     return true
 }()
 
-let channel = LengthPrefixedMessageChannel(readFD: 0, writeFD: 1)
+guard let channel = try? LengthPrefixedMessageChannel(readFD: 0, writeFD: 1) else {
+    exit(1)
+}
 let decoder = JSONDecoder()
 let encoder = JSONEncoder()
 

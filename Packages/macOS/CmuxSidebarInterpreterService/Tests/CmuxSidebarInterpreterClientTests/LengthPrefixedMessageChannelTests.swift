@@ -5,7 +5,7 @@ import Testing
 @Suite struct LengthPrefixedMessageChannelTests {
     @Test func roundTripsAFramedMessage() throws {
         let pipe = Pipe()
-        let channel = LengthPrefixedMessageChannel(
+        let channel = try LengthPrefixedMessageChannel(
             readFD: pipe.fileHandleForReading.fileDescriptor,
             writeFD: pipe.fileHandleForWriting.fileDescriptor
         )
@@ -16,7 +16,7 @@ import Testing
 
     @Test func roundTripsAnEmptyMessage() throws {
         let pipe = Pipe()
-        let channel = LengthPrefixedMessageChannel(
+        let channel = try LengthPrefixedMessageChannel(
             readFD: pipe.fileHandleForReading.fileDescriptor,
             writeFD: pipe.fileHandleForWriting.fileDescriptor
         )
@@ -26,7 +26,7 @@ import Testing
 
     @Test func returnsNilWhenWriterClosed() throws {
         let pipe = Pipe()
-        let channel = LengthPrefixedMessageChannel(
+        let channel = try LengthPrefixedMessageChannel(
             readFD: pipe.fileHandleForReading.fileDescriptor,
             writeFD: pipe.fileHandleForWriting.fileDescriptor
         )
@@ -34,16 +34,25 @@ import Testing
         #expect(channel.receiveMessage() == nil)
     }
 
-    @Test func closedPeerReportsWriteFailureWithoutSIGPIPE() {
+    @Test func closedPeerReportsWriteFailureWithoutSIGPIPE() throws {
         let pipe = Pipe()
-        let channel = LengthPrefixedMessageChannel(
+        let channel = try LengthPrefixedMessageChannel(
             readFD: pipe.fileHandleForReading.fileDescriptor,
             writeFD: pipe.fileHandleForWriting.fileDescriptor
         )
-        try? pipe.fileHandleForReading.close()
+        try pipe.fileHandleForReading.close()
 
         #expect(throws: ChannelError.self) {
             try channel.sendMessage(Data("peer exited".utf8))
+        }
+    }
+
+    @Test func rejectsWriterWhenSIGPIPESuppressionCannotBeInstalled() {
+        #expect(throws: ChannelError.self) {
+            try LengthPrefixedMessageChannel(
+                readFD: FileHandle.nullDevice.fileDescriptor,
+                writeFD: -1
+            )
         }
     }
 }
@@ -53,9 +62,10 @@ import Testing
     /// of an allocation the peer controls.
     @Test func oversizedInboundHeaderReadsAsEOF() throws {
         let inbound = Pipe()
-        let channel = LengthPrefixedMessageChannel(
+        let outbound = Pipe()
+        let channel = try LengthPrefixedMessageChannel(
             readFD: inbound.fileHandleForReading.fileDescriptor,
-            writeFD: FileHandle.nullDevice.fileDescriptor
+            writeFD: outbound.fileHandleForWriting.fileDescriptor
         )
         let oversize = UInt32(LengthPrefixedMessageChannel.maximumFrameLength) + 1
         var header = Data(count: 4)
@@ -69,10 +79,10 @@ import Testing
 
     /// An outbound payload beyond the cap throws instead of writing a frame
     /// the peer would reject.
-    @Test func oversizedOutboundPayloadThrows() {
+    @Test func oversizedOutboundPayloadThrows() throws {
         let outbound = Pipe()
-        let channel = LengthPrefixedMessageChannel(
-            readFD: FileHandle.nullDevice.fileDescriptor,
+        let channel = try LengthPrefixedMessageChannel(
+            readFD: outbound.fileHandleForReading.fileDescriptor,
             writeFD: outbound.fileHandleForWriting.fileDescriptor
         )
         let payload = Data(count: LengthPrefixedMessageChannel.maximumFrameLength + 1)
