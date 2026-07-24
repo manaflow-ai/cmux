@@ -224,16 +224,12 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
-            #if DEBUG
-            if let debugRelayOnlyEnabled = model.snapshot.debugRelayOnlyEnabled {
-                SettingsCardDivider()
-                IrohDebugRelayOnlyRow(
-                    isEnabled: debugRelayOnlyEnabled,
-                    isMutating: model.isMutating,
-                    setEnabled: { model.setDebugRelayOnly($0) }
-                )
-            }
-            #endif
+            SettingsCardDivider()
+            IrohRelayOnlyRow(
+                isEnabled: model.snapshot.pathPreference == .relayOnly,
+                isMutating: model.isMutating,
+                setEnabled: { model.setPathPreference($0 ? .relayOnly : .automatic) }
+            )
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
                 exportText: model.diagnosticExportText,
@@ -605,8 +601,7 @@ private struct IrohDiagnosticsReportRows: View {
     }
 }
 
-#if DEBUG
-private struct IrohDebugRelayOnlyRow: View {
+private struct IrohRelayOnlyRow: View {
     let isEnabled: Bool
     let isMutating: Bool
     let setEnabled: @MainActor @Sendable (Bool) -> Void
@@ -614,14 +609,14 @@ private struct IrohDebugRelayOnlyRow: View {
     var body: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:debugRelayOnly",
+            searchAnchorID: "setting:networking:relayOnly",
             String(
-                localized: "settings.networking.debug.relayOnly",
-                defaultValue: "Relay-Only Verification"
+                localized: "settings.networking.relayOnly",
+                defaultValue: "Relay Only"
             ),
             subtitle: String(
-                localized: "settings.networking.debug.relayOnly.subtitle",
-                defaultValue: "Debug builds only. Keeps authenticated Iroh sessions on relays so the relay path can be verified."
+                localized: "settings.networking.relayOnly.subtitle",
+                defaultValue: "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
             )
         ) {
             Toggle(
@@ -633,8 +628,7 @@ private struct IrohDebugRelayOnlyRow: View {
             )
             .labelsHidden()
             .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohDebugRelayOnly")
+            .accessibilityIdentifier("SettingsIrohRelayOnly")
         }
     }
 }
-#endif
