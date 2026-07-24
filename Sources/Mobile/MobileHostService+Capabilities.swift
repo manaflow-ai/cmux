@@ -32,6 +32,7 @@ extension MobileHostService {
             "terminal.artifact.list.v1",
             "workspace.actions.v1",
             "workspace.changes.v1",
+            "workspace.metadata.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
             "workspace.move.v1",

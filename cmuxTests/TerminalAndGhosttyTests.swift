@@ -1041,6 +1041,22 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)
     }
 
+    /// Bounded poll on the main run loop. The first runtime-surface creation for a surface
+    /// waits on the Claude command shim install, which hops through a detached Task and a
+    /// main-actor continuation, so the attempt lands a turn or more after init returns. The
+    /// invariant these tests guard is that the attempt needs no window attach, not that it
+    /// happens synchronously inside init.
+    private func waitUntil(timeout: TimeInterval = 5.0, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
     func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
@@ -1051,9 +1067,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
         )
     }
@@ -1068,9 +1084,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
         )
     }

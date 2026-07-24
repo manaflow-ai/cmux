@@ -83,7 +83,7 @@ public struct UITestConfig {
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
     /// static workspace list with an unread row so layout screenshots can verify
-    /// the avatar column and unread indicator without sign-in or Mac pairing.
+    /// the leading workspace-row indicators without sign-in or Mac pairing.
     /// DEBUG-only.
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG

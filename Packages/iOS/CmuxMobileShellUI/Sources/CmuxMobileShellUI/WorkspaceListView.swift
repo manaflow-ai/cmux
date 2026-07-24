@@ -36,8 +36,6 @@ struct WorkspaceListView: View {
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
-    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
-    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
@@ -46,9 +44,10 @@ struct WorkspaceListView: View {
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
     @Binding var macSelection: WorkspaceMacSelection
-    /// Switch the foreground Mac before applying a machine-scoped title-picker
-    /// filter. `nil` in previews, where the picker remains a pure local filter.
-    var switchMac: (@MainActor (String) async -> Bool)? = nil
+    /// Switch the foreground Mac app instance before applying a machine-scoped
+    /// title-picker filter. `nil` in previews, where the picker remains a pure
+    /// local filter.
+    var switchMac: (@MainActor (String, String?) async -> Bool)? = nil
     /// Cancels a title-picker switch that is still in flight. `nil` in previews,
     /// where no real foreground connection exists.
     var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) async -> Void)? = nil
@@ -77,6 +76,9 @@ struct WorkspaceListView: View {
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    /// Optional: edit a workspace's durable identity on the Mac. Newer hosts
+    /// expose one customization sheet for name, description, color, and pin.
+    var customizeWorkspace: WorkspaceCustomizationAction? = nil
     /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
@@ -137,6 +139,9 @@ struct WorkspaceListView: View {
     /// The workspace whose UIKit context-menu rename action is presenting the
     /// list-scoped SwiftUI rename sheet.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
+    /// The workspace whose UIKit context-menu action is presenting the shared
+    /// customization sheet.
+    @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
@@ -190,6 +195,7 @@ struct WorkspaceListView: View {
         groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
     ) -> Bool {
         workspace.name.localizedCaseInsensitiveContains(query)
+            || workspace.customDescription?.localizedCaseInsensitiveContains(query) == true
             || workspace.previewLine.localizedCaseInsensitiveContains(query)
             || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
             || workspace.macDisplayName?.localizedCaseInsensitiveContains(query) == true
@@ -411,6 +417,14 @@ struct WorkspaceListView: View {
                 }
             }
         }
+        .sheet(isPresented: workspaceCustomizationIsPresented) {
+            if let workspaceID = workspacePendingCustomizationID,
+               let workspace = workspaces.first(where: { $0.id == workspaceID }) {
+                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                    await customizeWorkspace?(workspaceID, initialDraft, submittedDraft) ?? .failure()
+                }
+            }
+        }
         .sheet(item: $changesSheetTarget) { target in
             if let store {
                 WorkspaceChangesSheet(
@@ -487,16 +501,8 @@ struct WorkspaceListView: View {
     }
 
     private func shouldSwitchForMacTitlePickerMachine(_ id: String) -> Bool {
-        guard switchMac != nil, let store else { return false }
-        let scope = macSelectionScope
-        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
-        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
-            return false
-        }
-        return store.displayPairedMacs.contains { mac in
-            let pairedMacIDs = scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID)
-            return !pairedMacIDs.isDisjoint(with: targetIDs)
-        }
+        guard switchMac != nil, store != nil else { return false }
+        return macSelectionScope.shouldSwitch(to: id)
     }
 
     @discardableResult
@@ -552,12 +558,14 @@ struct WorkspaceListView: View {
             macSelection = selection
         case .machine(let id):
             guard isCurrentSwitchRequest() else { return }
-            guard shouldSwitchForMacTitlePickerMachine(id), let switchMac else {
+            guard shouldSwitchForMacTitlePickerMachine(id),
+                  let target = macSelectionScope.switchTarget(for: id),
+                  let switchMac else {
                 macTitlePickerPendingSelection = nil
                 macSelection = selection
                 return
             }
-            let switched = await switchMac(id)
+            let switched = await switchMac(target.macDeviceID, target.instanceTag)
             guard isCurrentSwitchRequest() else { return }
             macTitlePickerPendingSelection = nil
             guard switched else { return }
@@ -692,10 +700,10 @@ struct WorkspaceListView: View {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+            customizeWorkspace: capabilities.supportsWorkspaceActions
+                && capabilities.supportsWorkspaceMetadata ? customizeWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
