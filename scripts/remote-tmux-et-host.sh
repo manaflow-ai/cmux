@@ -25,7 +25,7 @@ if [ -L "$STATE_ROOT" ] || [ -L "$DIR" ]; then
   echo "refusing symlinked et state path" >&2; exit 1
 fi
 umask 077
-mkdir -p "$DIR/logs" "$DIR/tmux"
+mkdir -p "$DIR/logs"
 chmod 700 "$DIR"
 
 # etserver wants a pidfile it can write; /var/run needs root, so keep it local.
@@ -83,7 +83,6 @@ cat <<INFO
 name:       $NAME
 port:       $PORT
 state:      $DIR
-tmux tmpdir:$DIR/tmux
 session:    $SESSION (socket $SOCKET)
 client:     et -p $PORT --macserver -c '<command>' $USER@127.0.0.1
 INFO
