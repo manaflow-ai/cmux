@@ -12,6 +12,10 @@ extension MobileShellComposite {
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
     public var supportsWorkspaceMoveActions: Bool { supportedHostCapabilities.contains(Self.workspaceMoveCapability) && allowsMacScopedWorkspaceMutations }
+    /// Whether the Mac supports workspace pane-content reorder requests.
+    public var supportsWorkspacePaneReorder: Bool {
+        supportedHostCapabilities.contains(Self.workspacePaneReorderCapability)
+    }
     /// Whether the Mac supports workspace group mutation requests.
     public var supportsWorkspaceGroupActions: Bool { supportedHostCapabilities.contains(Self.workspaceGroupActionsCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports creating a workspace directly inside a group.

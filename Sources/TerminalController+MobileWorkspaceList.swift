@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import CmuxWorkspaces
 import Foundation
 
@@ -8,6 +9,7 @@ import Foundation
 // serializing the workspace and group-section payloads, and the mobile-gated
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
+
 extension TerminalController {
     /// Mobile-gated collapse/expand of a workspace group. P1 group support on
     /// iOS is display-only: the phone renders collapsible group sections and can
@@ -209,10 +211,12 @@ extension TerminalController {
             ]
         }
 
+        let layout = workspace.mobileWorkspaceLayoutSnapshot()
+
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
-        return [
+        var payload: [String: Any] = [
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
@@ -239,6 +243,10 @@ extension TerminalController {
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             "terminals": terminals
         ]
+        if let layoutObject = try? MobileSyncFrameCoder().jsonObject(from: layout) {
+            payload["layout"] = layoutObject
+        }
+        return payload
     }
 
     /// Mobile-gated close of one explicit workspace. The Mac remains

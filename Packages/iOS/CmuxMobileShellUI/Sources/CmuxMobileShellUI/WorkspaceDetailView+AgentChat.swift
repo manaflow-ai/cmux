@@ -122,7 +122,7 @@ extension WorkspaceDetailView {
                     .frame(width: 44, height: 44)
                     .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
             }
-            terminalPickerToolbarButton
+            workspaceUtilitiesToolbarButton
                 .frame(width: 44, height: 44)
         }
         .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)

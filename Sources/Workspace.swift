@@ -2274,20 +2274,26 @@ final class Workspace: Identifiable, ObservableObject {
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
 
+    /// Ratio-insensitive signature of the last mobile pane-layout revision.
+    /// Bonsplit delegates compare against it so topology, pane selection, and
+    /// pane focus publish exactly once while divider drags stay quiet.
+    var lastPublishedMobilePaneLayoutTopologyHash: Int?
+
+    /// Defers mobile layout publication while one authoritative mutation performs
+    /// several Bonsplit operations. Nested transactions are supported so every
+    /// delegate callback stays quiet until the outer mutation publishes its final
+    /// reconciled snapshot.
+    var mobilePaneLayoutPublicationSuppressionCount = 0
+
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
         get { paneTree.panels }
         set { paneTree.panels = newValue }
     }
 
-    /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
-    /// order of panels changes without the panel *set* changing — i.e. a pure
-    /// drag-reorder of tabs within or across panes. Membership changes already
-    /// fire `$panels`; pure reorders mutate only `bonsplitController` state, which
-    /// is not `@Published`, so observers (e.g. the mobile workspace-list observer)
-    /// would otherwise never learn about a reorder. We gate the bump on an actual
-    /// change of `orderedPanelIds` so that divider drags and selection-only events
-    /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
+    /// Monotonic counter for the ratio-insensitive mobile pane layout. It bumps
+    /// when split topology, pane membership/order, selected surfaces, or focused
+    /// pane changes. Divider-only geometry changes intentionally do not bump it.
     var paneLayoutVersion: Int {
         get { paneTree.paneLayoutVersion }
         set { paneTree.paneLayoutVersion = newValue }
@@ -12018,8 +12024,12 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
         // Mirror bookkeeping restores selection from its transaction snapshot.
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else {
+            publishMobilePaneLayoutRevisionIfChanged()
+            return
+        }
         applyTabSelection(tabId: tab.id, inPane: pane)
+        publishMobilePaneLayoutRevisionIfChanged()
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
@@ -12097,15 +12107,23 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
         // Mirror bookkeeping restores pane focus without re-running activation.
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
-        // When a pane is focused, focus its selected tab's panel
-        guard let tab = controller.selectedTab(inPane: pane) else { return }
+        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else {
+            publishMobilePaneLayoutRevisionIfChanged()
+            return
+        }
+        // When a pane is focused, focus its selected tab's panel. An empty pane
+        // still changes the mobile layout's focused-pane identity.
+        guard let tab = controller.selectedTab(inPane: pane) else {
+            publishMobilePaneLayoutRevisionIfChanged()
+            return
+        }
 #if DEBUG
         AppDelegate.shared?.focusLog.append(
             "Workspace.didFocusPane paneId=\(pane.id.uuidString) tabId=\(tab.id) focusedPane=\(controller.focusedPaneId?.id.uuidString ?? "nil")"
         )
 #endif
         applyTabSelection(tabId: tab.id, inPane: pane)
+        publishMobilePaneLayoutRevisionIfChanged()
 
         // Apply window background for terminal
         if let panelId = panelIdFromSurfaceId(tab.id),
@@ -12635,13 +12653,10 @@ extension Workspace: BonsplitDelegate {
             object: self,
             userInfo: [GhosttyNotificationKey.tabId: id]
         )
-        // Every order/membership mutation (same-pane reorder, cross-pane move,
-        // split, close) routes through here. A pure reorder mutates only
-        // bonsplit's internal state, which is not `@Published`, so observers
-        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
-        // sequence actually changed, so divider drags and selection-only events
-        // (also routed here) do not fire `objectWillChange` app-wide.
-        surfaceList.registerGeometryChange()
+        // Every order/membership mutation routes through here. Compare the
+        // shared mobile snapshot so reparenting that preserves flat tab order is
+        // still published, while divider-only geometry remains a no-op.
+        publishMobilePaneLayoutRevisionIfChanged()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

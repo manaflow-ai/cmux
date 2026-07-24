@@ -12,6 +12,8 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
     public var supportsGroupActions: Bool
     /// Whether workspace group creation requests are supported.
     public var supportsGroupCreate: Bool
+    /// Whether complete pane-content reorder requests are supported.
+    public var supportsPaneReorder: Bool
 
     /// No workspace actions are supported.
     public static let none = MobileWorkspaceActionCapabilities()
@@ -23,7 +25,8 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
         supportsCloseActions: Bool = false,
         supportsMoveActions: Bool = false,
         supportsGroupActions: Bool = false,
-        supportsGroupCreate: Bool = false
+        supportsGroupCreate: Bool = false,
+        supportsPaneReorder: Bool = false
     ) {
         self.supportsWorkspaceActions = supportsWorkspaceActions
         self.supportsReadStateActions = supportsReadStateActions
@@ -31,5 +34,6 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
         self.supportsMoveActions = supportsMoveActions
         self.supportsGroupActions = supportsGroupActions
         self.supportsGroupCreate = supportsGroupCreate
+        self.supportsPaneReorder = supportsPaneReorder
     }
 }

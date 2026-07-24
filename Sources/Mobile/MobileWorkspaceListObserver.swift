@@ -28,6 +28,10 @@ final class MobileWorkspaceListObserver {
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
+    /// Delivery is injected so callers can observe the observer's published
+    /// updates without reaching into its deduplication state. Production uses
+    /// the legacy invalidation event and the v2 state-sync broadcaster.
+    private let workspaceUpdateEmitter: @MainActor () -> Void
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -56,9 +60,20 @@ final class MobileWorkspaceListObserver {
         return MobileHostService.hasEventSubscribers(topic: "workspace.updated")
     }
 
-    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    init(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore? = nil,
+        workspaceUpdateEmitter: (@MainActor () -> Void)? = nil
+    ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+        self.workspaceUpdateEmitter = workspaceUpdateEmitter ?? {
+            MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+            // v2 phones get per-record deltas instead of the empty invalidation
+            // above. Same tick, same throttle; a no-op diff emits nothing, and the
+            // call returns immediately when no phone subscribed to the delta topic.
+            MobileStateSyncHost.shared.broadcastIfSubscribed()
+        }
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -291,18 +306,15 @@ final class MobileWorkspaceListObserver {
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
-        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
-        // v2 phones get per-record deltas instead of the empty invalidation
-        // above. Same tick, same throttle; a no-op diff emits nothing, and the
-        // call returns immediately when no phone subscribed to the delta topic.
-        MobileStateSyncHost.shared.broadcastIfSubscribed()
+        workspaceUpdateEmitter()
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
     /// panels in spatial order + each panel's displayed (custom-aware) title and
-    /// directory. Mutations that don't show up on the mobile list (pane geometry,
-    /// scrollback content, focus only) don't trip the event, so we don't fan out
-    /// on every keystroke.
+    /// directory + the shared mobile pane topology. The topology includes split
+    /// structure/orientation, pane ids, surface order, selected surfaces, and the
+    /// focused pane. It deliberately excludes split ratios, so divider drags do
+    /// not spam events. Scrollback content remains excluded.
     ///
     /// The panel ids are hashed in `orderedPanelIds` order (not the sorted set),
     /// so a pure drag-reorder, which changes the spatial order but not the id set,
@@ -355,6 +367,7 @@ final class MobileWorkspaceListObserver {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
+            workspace.mobileWorkspaceLayoutSnapshot().hashTopology(into: &hasher)
             hasher.combine(workspace.presentedCurrentDirectory)
             // Todo mutations change the list-facing shape; without these the
             // hash-diff would suppress the re-emit the publishers above fire.

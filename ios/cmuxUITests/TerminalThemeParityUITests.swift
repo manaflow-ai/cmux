@@ -25,6 +25,30 @@ final class TerminalThemeParityUITests: XCTestCase {
     }
 
     @MainActor
+    func testPanePreviewPaddingUsesTheSurfaceEffectiveBackground() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launchEnvironment["CMUX_UITEST_PANES_PREVIEW"] = "1"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
+        app.buttons["MobileSurfaceDeckPaneMap"].tap()
+        let tile = app.buttons["MobilePaneMapTile-preview-claude"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 4))
+
+        let screenshot = app.screenshot()
+        let pixels = try ScreenshotPixels(image: screenshot.image)
+        let sample = pixels.color(
+            xUnit: (tile.frame.maxX - 8) / app.frame.width,
+            yUnit: tile.frame.midY / app.frame.height
+        )
+        XCTAssertEqual(sample.red, 18, accuracy: 2)
+        XCTAssertEqual(sample.green, 52, accuracy: 2)
+        XCTAssertEqual(sample.blue, 86, accuracy: 2)
+    }
+
+    @MainActor
     private func waitForStage(_ stage: String, in app: XCUIApplication) throws {
         XCTAssertTrue(
             app.otherElements["TerminalThemeStage-\(stage)"].waitForExistence(timeout: 10),

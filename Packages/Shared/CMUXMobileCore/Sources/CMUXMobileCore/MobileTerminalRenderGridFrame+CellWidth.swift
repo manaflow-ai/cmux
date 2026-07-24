@@ -28,6 +28,56 @@ extension MobileTerminalRenderGridFrame.RowSpan {
     var gridCellWidth: Int {
         cellWidth ?? max(1, text.renderGridEstimatedCellWidth)
     }
+
+    /// Resolves each grapheme to the producer-reported width of this span.
+    ///
+    /// Unicode's ambiguous-width characters can occupy one or two terminal
+    /// cells depending on the producer. The aggregate ``cellWidth`` is the
+    /// authority; this method distributes that width only when the mapping is
+    /// unambiguous enough to preserve every grapheme's producer column.
+    var resolvedCharacterCellWidths: [Int]? {
+        guard !text.isEmpty, gridCellWidth > 0 else { return nil }
+        var widths: [Int] = []
+        var expandable: [Bool] = []
+        var hasUntrustedExpansionCandidate = false
+        widths.reserveCapacity(text.count)
+        expandable.reserveCapacity(text.count)
+        for character in text {
+            let width = character.renderGridEstimatedCellWidth
+            let canExpand = character.canExpandForAmbiguousRenderGridWidth
+            widths.append(width)
+            expandable.append(canExpand)
+            if width == 1,
+               !canExpand,
+               character.unicodeScalars.contains(where: {
+                   $0.value > 0x7F
+                       && !$0.isRenderGridZeroWidthScalar
+               }) {
+                hasUntrustedExpansionCandidate = true
+            }
+        }
+        let total = widths.reduce(0, +)
+        if total < gridCellWidth {
+            guard !hasUntrustedExpansionCandidate else {
+                return nil
+            }
+            var remaining = gridCellWidth - total
+            for index in widths.indices where remaining > 0 && widths[index] < 2 {
+                guard expandable[index] else { continue }
+                widths[index] += 1
+                remaining -= 1
+            }
+            guard remaining == 0 else { return nil }
+        } else if total > gridCellWidth {
+            var excess = total - gridCellWidth
+            for index in widths.indices.reversed() where excess > 0 && widths[index] > 1 {
+                widths[index] -= 1
+                excess -= 1
+            }
+            guard excess == 0 else { return nil }
+        }
+        return widths
+    }
 }
 
 extension Character {

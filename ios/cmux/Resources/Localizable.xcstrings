@@ -7668,6 +7668,20 @@
         }
       }
     },
+    "mobile.agent.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent needs input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが入力を待っています" } }
+      }
+    },
+    "mobile.agent.status.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent working" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが作業中です" } }
+      }
+    },
     "mobile.altScreenNotice.explanation": {
       "extractionState": "manual",
       "localizations": {
@@ -7700,6 +7714,174 @@
             "value": "全画面ターミナルアプリ"
           }
         }
+      }
+    },
+    "mobile.paneMap.count.onePane.oneTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 pane · 1 tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1ペイン・1タブ" } }
+      }
+    },
+    "mobile.paneMap.count.onePane.otherTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 pane · %d tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1ペイン・%dタブ" } }
+      }
+    },
+    "mobile.paneMap.count.otherPanes.oneTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d panes · 1 tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%dペイン・1タブ" } }
+      }
+    },
+    "mobile.paneMap.count.otherPanes.otherTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d panes · %d tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%dペイン・%dタブ" } }
+      }
+    },
+    "mobile.paneMap.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "mobile.paneMap.focusedOnMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focused on Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでフォーカス中" } }
+      }
+    },
+    "mobile.paneMap.focusedOnMac.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac" } }
+      }
+    },
+    "mobile.paneMap.more.bottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes below" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.more.leading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes to the left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.more.top": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes above" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.more.trailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More panes to the right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右にさらにペインがあります" } }
+      }
+    },
+    "mobile.paneMap.openNamedTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open terminal: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを開く：%@" } }
+      }
+    },
+    "mobile.paneMap.panePosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane %d of %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン%d/%d" } }
+      }
+    },
+    "mobile.paneMap.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "mobile.paneMap.reorderFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t rearrange panes on your Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac上のペインを並べ替えられませんでした。" } }
+      }
+    },
+    "mobile.paneMap.unavailableOnPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unavailable on iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneでは利用できません" } }
+      }
+    },
+    "mobile.surfaceDeck.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェスを追加" } }
+      }
+    },
+    "mobile.surfaceDeck.chip.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、ターミナル" } }
+      }
+    },
+    "mobile.surfaceDeck.chip.terminalInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, terminal, pane %d of %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、ターミナル、ペイン%d/%d" } }
+      }
+    },
+    "mobile.surfaceDeck.chip.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, unavailable on iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、iPhoneでは利用できません" } }
+      }
+    },
+    "mobile.surfaceDeck.chip.unavailableInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, unavailable on iPhone, pane %d of %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、iPhoneでは利用できません、ペイン%d/%d" } }
+      }
+    },
+    "mobile.surfaceDeck.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace surfaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのサーフェス" } }
+      }
+    },
+    "mobile.surfaceDeck.paneMap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane Map" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインマップ" } }
+      }
+    },
+    "mobile.surfaceDeck.terminalsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminals only on iPhone for now" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、iPhoneではターミナルのみ利用できます" } }
       }
     },
     "mobile.terminal.action.alt": {
@@ -11729,6 +11911,13 @@
             "value": "%d 個のターミナル"
           }
         }
+      }
+    },
+    "mobile.workspace.utilitiesMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace Utilities" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースユーティリティ" } }
       }
     },
     "mobile.workspace.unpin": {

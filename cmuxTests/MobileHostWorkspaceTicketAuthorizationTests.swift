@@ -298,6 +298,16 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             ("workspace.action", ["workspace_id": "other-workspace", "action": "rename"], "forbidden"),
             ("workspace.close", ["workspace_id": "workspace"], nil),
             ("workspace.close", ["workspace_id": "other-workspace"], "forbidden"),
+            (
+                "workspace.pane.reorder",
+                ["workspace_id": "workspace", "ordered_pane_ids": "fixture"],
+                nil
+            ),
+            (
+                "workspace.pane.reorder",
+                ["workspace_id": "other-workspace", "ordered_pane_ids": "fixture"],
+                "forbidden"
+            ),
         ]
 
         for testCase in cases {

@@ -14,6 +14,28 @@ private let mobileShellLog = Logger(
 // workspace list after the request returns. That covers success, rejected
 // actions (e.g. attempting to close the last workspace), and dropped push events.
 extension MobileShellComposite {
+    /// Reorder complete pane contents on the owning Mac, then refresh its
+    /// authoritative workspace layout regardless of success or failure.
+    @discardableResult
+    public func reorderWorkspacePanes(
+        id: MobileWorkspacePreview.ID,
+        orderedPaneIDs: [String]
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        guard workspaceActionCapabilities(for: id).supportsPaneReorder else {
+            return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
+        }
+        guard !orderedPaneIDs.isEmpty, Set(orderedPaneIDs).count == orderedPaneIDs.count else {
+            return .failure(.rejected(hostDisplayName: workspaceHostDisplayName(for: id)))
+        }
+        var params = workspaceMutationParams(id: id)
+        params["ordered_pane_ids"] = orderedPaneIDs
+        return await sendWorkspaceMutation(
+            method: "workspace.pane.reorder",
+            params: params,
+            id: id,
+            actionName: "pane_reorder"
+        )
+    }
 
     /// Rename a workspace on the Mac.
     ///

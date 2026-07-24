@@ -179,7 +179,8 @@ final class MobileStateSyncHost {
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
             hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             sortIndex: sortIndex,
-            terminals: terminals
+            terminals: terminals,
+            layout: workspace.mobileWorkspaceLayoutSnapshot()
         )
     }
 

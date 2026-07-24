@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Typed decoder for the `workspace.list` / `mobile.workspace.list` RPC result.
@@ -5,6 +6,9 @@ public import Foundation
 /// The wire shape is snake_case (the Mac side of PR 5079 already emits it); the
 /// `CodingKeys` map it onto camelCase Swift properties without changing the wire.
 public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
+    /// Compatibility name for the shared workspace pane-layout DTO.
+    public typealias Layout = MobileWorkspaceLayout
+
     /// A workspace entry in the list response.
     public struct Workspace: Decodable, Sendable {
         /// Stable workspace identifier.
@@ -41,6 +45,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// The workspace's pane layout, or `nil` when absent or malformed.
+        public let layout: MobileWorkspaceLayout?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,11 +61,45 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case layout
         }
 
-        /// Memberwise construction for callers that assemble a row from an
-        /// already-synced local source (mobile state sync v2 projects its
-        /// record mirror through the same apply path as the wire response).
+        /// Decodes a workspace while isolating optional layout decoding failures.
+        /// - Parameter decoder: The decoder for one workspace object.
+        /// - Throws: A decoding error when a required non-layout workspace field is malformed.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isSelected = try container.decode(Bool.self, forKey: .isSelected)
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+            preview = try container.decodeIfPresent(String.self, forKey: .preview)
+            previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+            lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
+            hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            terminals = try container.decode([Terminal].self, forKey: .terminals)
+            layout = try? container.decode(MobileWorkspaceLayout.self, forKey: .layout)
+        }
+
+        /// Creates a workspace row from an already-synced local record.
+        ///
+        /// - Parameters:
+        ///   - id: The stable workspace identifier.
+        ///   - windowID: The owning Mac window identifier, when reported.
+        ///   - title: The workspace's display title.
+        ///   - currentDirectory: The presented working directory, when reported.
+        ///   - isSelected: Whether the Mac currently has this workspace selected.
+        ///   - isPinned: Whether the workspace is pinned, when reported.
+        ///   - groupID: The owning group identifier, when any.
+        ///   - preview: The latest activity preview, when any.
+        ///   - previewAt: The preview's Unix epoch timestamp, when any.
+        ///   - lastActivityAt: The workspace's last-activity timestamp, when reported.
+        ///   - hasUnread: Whether the workspace has unread activity, when reported.
+        ///   - terminals: Terminal rows belonging to this workspace.
+        ///   - layout: The shared pane-layout snapshot, when available.
         public init(
             id: String,
             windowID: String?,
@@ -72,7 +112,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             previewAt: Double?,
             lastActivityAt: Double?,
             hasUnread: Bool?,
-            terminals: [Terminal]
+            terminals: [Terminal],
+            layout: MobileWorkspaceLayout?
         ) {
             self.id = id
             self.windowID = windowID
@@ -86,6 +127,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.lastActivityAt = lastActivityAt
             self.hasUnread = hasUnread
             self.terminals = terminals
+            self.layout = layout
         }
     }
 
@@ -228,6 +270,5 @@ extension MobileSyncWorkspaceListResponse {
         self.createdTerminalID = createdTerminalID
     }
 }
-
 
 

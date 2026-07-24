@@ -75,6 +75,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var debugPreview: AnyView? {
+        #if os(iOS) && DEBUG
+        return configuredDebugPreview
+        #else
+        return nil
+        #endif
+    }
+
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -233,6 +241,8 @@ struct CMUXMobileRootView: View {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if let debugPreview {
+            debugPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {

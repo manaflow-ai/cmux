@@ -22,6 +22,7 @@ actor LivenessHostRouter {
         var method: String?
         var topics: [String]?
         var workspaceID: String?
+        var surfaceID: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -78,11 +79,17 @@ actor LivenessHostRouter {
         syncFetchResults.append(["__transient_error__": true])
     }
 
-    func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
+    func record(
+        method: String?,
+        topics: [String]?,
+        workspaceID: String? = nil,
+        surfaceID: String? = nil
+    ) {
         recorded.append(RecordedRequest(
             method: method,
             topics: topics,
-            workspaceID: workspaceID
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -178,6 +185,12 @@ actor LivenessHostRouter {
 
     func workspaceIDs(for method: String) -> [String?] {
         recorded.filter { $0.method == method }.map(\.workspaceID)
+    }
+
+    func surfaceIDs(for method: String) -> [String] {
+        recorded
+            .filter { $0.method == method }
+            .compactMap(\.surfaceID)
     }
 
     func setCapabilities(_ capabilities: [String]) {
@@ -520,7 +533,8 @@ actor LivenessTransport: CmxByteTransport {
             await router.record(
                 method: method,
                 topics: topics,
-                workspaceID: params?["workspace_id"] as? String
+                workspaceID: params?["workspace_id"] as? String,
+                surfaceID: params?["surface_id"] as? String
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's

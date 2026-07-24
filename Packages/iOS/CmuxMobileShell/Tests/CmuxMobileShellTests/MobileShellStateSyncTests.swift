@@ -59,6 +59,66 @@ private func syncSnapshotResultData(
     return try JSONEncoder().encode(response)
 }
 
+private func syncSnapshotResultDataWithPaneLayout() -> Data {
+    Data(
+        #"""
+        {
+          "epoch": "epoch-layout",
+          "workspaces": {
+            "mode": "snapshot",
+            "rev": 1,
+            "records": [
+              {
+                "id": "workspace-layout",
+                "window_id": "window-layout",
+                "title": "Pane layout",
+                "is_selected": true,
+                "is_pinned": false,
+                "last_activity_at": 1,
+                "has_unread": false,
+                "sort_index": 0,
+                "terminals": [],
+                "layout": {
+                  "version": 7,
+                  "focused_pane_id": "pane-left",
+                  "root": {
+                    "kind": "split",
+                    "id": "split-root",
+                    "orientation": "horizontal",
+                    "ratio": 0.4,
+                    "first": {
+                      "kind": "pane",
+                      "id": "pane-left",
+                      "selected_surface_id": "surface-shell",
+                      "surfaces": [
+                        {"id": "surface-shell", "type": "terminal", "title": "Shell"}
+                      ]
+                    },
+                    "second": {
+                      "kind": "pane",
+                      "id": "pane-right",
+                      "selected_surface_id": "surface-preview",
+                      "surfaces": [
+                        {"id": "surface-preview", "type": "browser", "title": "Preview"}
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "removed_ids": []
+          },
+          "groups": {
+            "mode": "snapshot",
+            "rev": 1,
+            "records": [],
+            "removed_ids": []
+          }
+        }
+        """#.utf8
+    )
+}
+
 private func syncDeltaEventFrame(
     epoch: String,
     fromRev: UInt64,
@@ -93,6 +153,26 @@ private func workspaceUpdatedEventFrame() throws -> Data {
 
 @MainActor
 struct MobileShellStateSyncTests {
+    @Test func stateSyncSnapshotProjectsPaneLayoutIntoWorkspaceList() async throws {
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchResult(jsonData: syncSnapshotResultDataWithPaneLayout())
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+        let projected = try await pollUntil {
+            store.workspaces.first(where: { $0.id.rawValue == "workspace-layout" })?.layout != nil
+        }
+        #expect(projected, "state sync v2 must preserve the Mac pane layout")
+        let workspace = try #require(
+            store.workspaces.first(where: { $0.id.rawValue == "workspace-layout" })
+        )
+        let layout = try #require(workspace.layout)
+        #expect(layout.version == 7)
+        #expect(layout.focusedPaneID == "pane-left")
+        #expect(layout.orderedPanes.map(\.id) == ["pane-left", "pane-right"])
+    }
+
     @Test func negotiationAppliesSnapshotAndSuppressesLegacyRefetch() async throws {
         let router = LivenessHostRouter()
         await router.scriptSyncFetchResult(

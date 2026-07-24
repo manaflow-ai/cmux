@@ -356,6 +356,7 @@ extension MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
         #expect(capabilities.contains("workspace.move.v1"))
+        #expect(capabilities.contains("workspace.pane_reorder.v1"))
         #expect(capabilities.contains("workspace.group_actions.v1"))
         #expect(Set(capabilities).isSuperset(of: [
             "workspace.task_create.v1",

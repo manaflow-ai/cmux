@@ -1,6 +1,65 @@
 import Foundation
 
 extension TerminalController {
+    /// Mobile-gated pane-content reorder within one workspace split tree.
+    func v2MobileWorkspacePaneReorder(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard let workspaceID = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let orderedPaneIDStrings = params["ordered_pane_ids"] as? [String],
+              !orderedPaneIDStrings.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid ordered_pane_ids", data: nil)
+        }
+        let orderedPaneIDs = orderedPaneIDStrings.compactMap(UUID.init(uuidString:))
+        guard orderedPaneIDs.count == orderedPaneIDStrings.count,
+              Set(orderedPaneIDs).count == orderedPaneIDs.count else {
+            return .err(code: "invalid_params", message: "ordered_pane_ids must be unique UUIDs", data: nil)
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
+
+        var mutationError: V2CallResult?
+        v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                mutationError = .err(
+                    code: "not_found",
+                    message: "Workspace not found",
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+            let authoritativePaneIDs = workspace.spatiallyOrderedPaneIds
+            guard orderedPaneIDs.count == authoritativePaneIDs.count,
+                  Set(orderedPaneIDs) == Set(authoritativePaneIDs) else {
+                mutationError = .err(
+                    code: "conflict",
+                    message: "Pane layout changed before the reorder completed",
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+            guard workspace.applyMobilePaneOrder(orderedPaneIDs) else {
+                mutationError = .err(
+                    code: "rejected",
+                    message: "Pane reorder could not be applied",
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+        }
+        if let mutationError {
+            return mutationError
+        }
+
+        var listParams = params
+        listParams.removeValue(forKey: "ordered_pane_ids")
+        return v2MobileWorkspaceList(params: listParams, tabManager: tabManager)
+    }
+
     /// Mobile-gated workspace reorder/group move.
     func v2MobileWorkspaceMove(params: [String: Any]) -> V2CallResult {
         if let error = mobileWorkspaceIDValidationError(params: params) {

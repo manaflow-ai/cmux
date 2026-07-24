@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 public import CmuxMobileShellModel
 
@@ -18,8 +19,92 @@ extension MobileWorkspacePreview {
             hasUnread: remote.hasUnread ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
-            }
+            },
+            layout: remote.layout.map(MobilePaneLayout.init(remote:))
         )
+    }
+}
+
+private extension MobilePaneLayout {
+    init(remote: MobileWorkspaceLayout) {
+        self.init(
+            version: remote.version,
+            focusedPaneID: remote.focusedPaneID,
+            root: Node(remote: remote.root)
+        )
+    }
+}
+
+private extension MobilePaneLayout.Node {
+    init(remote: MobileWorkspaceLayoutNode) {
+        switch remote {
+        case let .split(split):
+            self = .split(MobilePaneSplit(remote: split))
+        case let .pane(pane):
+            self = .pane(MobilePaneNode(remote: pane))
+        }
+    }
+}
+
+private extension MobilePaneSplit {
+    init(remote: MobileWorkspaceLayoutSplit) {
+        self.init(
+            id: remote.id,
+            orientation: MobilePaneSplitOrientation(remote: remote.orientation),
+            ratio: remote.ratio,
+            first: MobilePaneLayout.Node(remote: remote.first),
+            second: MobilePaneLayout.Node(remote: remote.second)
+        )
+    }
+}
+
+private extension MobilePaneSplitOrientation {
+    init(remote: MobileWorkspaceLayoutOrientation) {
+        switch remote {
+        case .horizontal:
+            self = .horizontal
+        case .vertical:
+            self = .vertical
+        }
+    }
+}
+
+private extension MobilePaneNode {
+    init(remote: MobileWorkspaceLayoutPane) {
+        self.init(
+            id: remote.id,
+            selectedSurfaceID: remote.selectedSurfaceID,
+            surfaces: remote.surfaces.map(MobilePaneSurface.init(remote:))
+        )
+    }
+}
+
+private extension MobilePaneSurface {
+    init(remote: MobileWorkspaceLayoutSurface) {
+        self.init(
+            id: remote.id,
+            type: MobilePaneSurfaceType(remoteRawValue: remote.type),
+            title: remote.title
+        )
+    }
+}
+
+private extension MobilePaneSurfaceType {
+    init(remoteRawValue: String) {
+        switch remoteRawValue {
+        case "terminal": self = .terminal
+        case "browser": self = .browser
+        case "markdown": self = .markdown
+        case "filepreview": self = .filepreview
+        case "rightSidebarTool": self = .rightSidebarTool
+        case "customSidebar": self = .customSidebar
+        case "agentSession": self = .agentSession
+        case "project": self = .project
+        case "extensionBrowser": self = .extensionBrowser
+        case "workspaceTodo": self = .workspaceTodo
+        case "cloudVMLoading": self = .cloudVMLoading
+        default: self = .other(remoteRawValue)
+        }
     }
 }
 
