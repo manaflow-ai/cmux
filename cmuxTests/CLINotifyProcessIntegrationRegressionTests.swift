@@ -79,7 +79,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "inject-resume-args"],
             environment: environment,
-            timeout: 5
+            timeout: 2
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
