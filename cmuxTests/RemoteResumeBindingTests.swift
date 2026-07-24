@@ -422,6 +422,19 @@ struct RemoteResumeBindingTests {
         let setBinding = try #require(setResult["resume_binding"] as? [String: Any])
         #expect(setBinding["updated_at"] as? Double == initialEventTime)
 
+        let untimestampedClear = try v2Result(request: [
+            "id": "untimestamped-resume-clear",
+            "method": "surface.resume.clear",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "checkpoint_id": "ordered-session",
+                "source": "agent-hook",
+            ],
+        ])
+        #expect(untimestampedClear["cleared"] as? Bool == false)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID)?.checkpointId == "ordered-session")
+
         let staleClear = try v2Result(request: [
             "id": "stale-resume-clear",
             "method": "surface.resume.clear",
@@ -448,6 +461,20 @@ struct RemoteResumeBindingTests {
             ],
         ])
         #expect(orderedClear["cleared"] as? Bool == true)
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
+
+        let untimestampedSet = try v2Result(request: [
+            "id": "untimestamped-resume-set-after-clear",
+            "method": "surface.resume.set",
+            "params": [
+                "window_id": windowID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "command": "codex resume untimestamped-session",
+                "checkpoint_id": "untimestamped-session",
+                "source": "agent-hook",
+            ],
+        ])
+        #expect(untimestampedSet["resume_binding"] is NSNull)
         #expect(workspace.surfaceResumeBinding(panelId: surfaceID) == nil)
 
         let staleSet = try v2Result(request: [
