@@ -209,6 +209,30 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "sleep 1\n"
                 ')"\n'
             ),
+            "closing-line-timeout.ts": (
+                "setTimeout(\n"
+                "    resolve, 1\n"
+                "); expect(done).toBe(true)\n"
+            ),
+            "closing-line-task.swift": (
+                "try await Task.sleep(\n"
+                "    nanoseconds: 1\n"
+                "); #expect(done)\n"
+            ),
+            "closing-line-python.py": (
+                "time.sleep(\n"
+                "    0.1\n"
+                "); assert done\n"
+            ),
+            "tsx-closing-tags.tsx": (
+                "const view = <div><span></span>"
+                "{setTimeout(done, 1)}</div>\n"
+                "expect(done).toBe(true)\n"
+            ),
+            "shell-assignment-prefix.sh": (
+                'DELAY=1 sleep "$DELAY"\n'
+                'assert "$actual" "$expected"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -297,6 +321,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     'let source2 = ##"fixture "# '
                     'Thread.sleep(forTimeInterval: 1) "##\n'
                     "#expect(source2.isEmpty == false)\n"
+                ),
+                "closure-shadow.py": (
+                    "def outer():\n"
+                    "    def inner():\n"
+                    "        time.sleep(0.1)\n"
+                    "        assert done\n"
+                    "    time = fake_time\n"
+                    "    inner()\n"
                 ),
                 "cross-language.swift": (
                     "Bun.sleep(1)\n"
