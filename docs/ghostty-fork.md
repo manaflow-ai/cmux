@@ -13,20 +13,41 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
-`manaflow-ai/ghostty` `main`. The cumulative integration landed through
-https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
+`188d31a97733fe6717acf8203f76a8bb20cddc19`, which is on
+`manaflow-ai/ghostty` `main`. The latest renderer scheduling fix landed through
+https://github.com/manaflow-ai/ghostty/pull/135; the cumulative external
+frontend integration landed through
+https://github.com/manaflow-ai/ghostty/pull/128, and the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
 https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
 The resulting main line supplies the external-frontend renderer contract used
 by cmux Browser, exact cursor state for process-separated terminal mirrors,
 mutable-default color reset semantics, and the product-main renderer/link
-fixes described below.
+fixes described below. It also bounds each renderer mailbox drain turn so
+continuous producers cannot starve lifecycle processing or rendering.
 
 Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-188d31a97733fe6717acf8203f76a8bb20cddc19-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Bounded renderer mailbox turns
+
+- Commit: `188d31a97` (fix: bound renderer mailbox drain turns)
+- Files:
+  - `src/datastruct/blocking_queue.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Limits one renderer turn to the mailbox depth observed when the turn
+    begins. Messages added by concurrent producers remain FIFO-ordered for the
+    next turn.
+  - Applies latest-value lifecycle state and performs the pending render after
+    every bounded batch, even when terminal output keeps refilling the mailbox.
+  - Explicitly re-wakes the renderer when work arrived during the batch because
+    producer notifications may have coalesced with the wake being handled.
+  - Conflict note: future renderer-loop changes must preserve bounded progress
+    for lifecycle state and rendering. Do not replace the snapshot drain with
+    an unbounded drain-until-empty loop.
 
 ### External frontend rendering and recovery
 
