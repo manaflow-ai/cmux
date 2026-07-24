@@ -98,9 +98,11 @@ import Testing
         )
         let inlineAttachment = try #require(fixture.inlineAttachments(in: textView).first)
         let location = try #require(fixture.location(of: inlineAttachment, in: textView))
+        let undoManager = try #require(textView.undoManager)
+        undoManager.removeAllActions()
 
         textView.deleteAttachment(at: location)
-        textView.undoManager?.undo()
+        undoManager.undo()
         textView.refreshInlineAttachmentCells(
             font: try #require(textView.font),
             foregroundColor: try #require(textView.textColor)
