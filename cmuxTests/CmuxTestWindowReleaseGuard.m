@@ -35,6 +35,7 @@ static void CmuxSwizzleWindowInitializer(SEL selector) {
                                       NSBackingStoreType, BOOL, NSScreen *);
             NSWindow *window = ((Init)original)(self, selector, rect, style, backing, defer, screen);
             window.releasedWhenClosed = NO;
+            window.animationBehavior = NSWindowAnimationBehaviorNone;
             return window;
         };
     } else {
@@ -44,6 +45,7 @@ static void CmuxSwizzleWindowInitializer(SEL selector) {
                                       NSBackingStoreType, BOOL);
             NSWindow *window = ((Init)original)(self, selector, rect, style, backing, defer);
             window.releasedWhenClosed = NO;
+            window.animationBehavior = NSWindowAnimationBehaviorNone;
             return window;
         };
     }
