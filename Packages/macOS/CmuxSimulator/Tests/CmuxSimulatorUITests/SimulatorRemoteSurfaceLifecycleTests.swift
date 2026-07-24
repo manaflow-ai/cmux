@@ -72,7 +72,6 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             pixel: 0xFF_65_43_21,
             sequence: 2
         ))
-        try await Task.sleep(for: .milliseconds(100))
 
         #expect(!window.isVisible)
         #expect(source.copyCount == 1)
@@ -194,7 +193,6 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(pipeline.displayTick()?.sequence == 1)
         let staticAvailabilityChecks = source.availabilityCheckCount
 
-        try await Task.sleep(for: .milliseconds(100))
         #expect(source.availabilityCheckCount == staticAvailabilityChecks)
 
         source.publish(simulatorFrameSnapshot(
@@ -225,7 +223,9 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         let availabilityChecksBeforeBurst = source.availabilityCheckCount
 
         source.signalPublicationBurst(count: 1_000)
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil {
+            source.availabilityCheckCount - availabilityChecksBeforeBurst == 2
+        }
 
         #expect(source.availabilityCheckCount - availabilityChecksBeforeBurst <= 2)
     }
@@ -251,7 +251,6 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             pixel: 0xFF_65_43_21,
             sequence: 2
         ))
-        try await Task.sleep(for: .milliseconds(50))
         source.releaseCopy()
         try await waitUntil { completionCount == 1 }
 
