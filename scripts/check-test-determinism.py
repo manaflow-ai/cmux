@@ -228,8 +228,13 @@ _BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
 # pipe) keeps it from firing on `"... sleep 5 ..."` substrings.
 _SHELL_BARE_SLEEP = re.compile(
     r"""(?x)
-    (?:^|[;&|]|(?<!\\)\$\(|(?<!\\)`)
+    (?:
+        ^ | [;&|({] | (?<!\\)\$\(| (?<!\\)`
+      | \b(?:if|elif|while|until|then|do|else)\b
+      | (?<!\S)!
+    )
     \s* sleep (?=\s|$)
+  | ^\s* [^;&()]+ (?:\|[^;&()]+)* \) \s* sleep (?=\s|$)
     """
 )
 
@@ -584,14 +589,14 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         return result
 
     def _visit_argument_expressions(self, arguments: ast.arguments) -> None:
-        for argument in self._argument_nodes(arguments):
-            if argument.annotation is not None:
-                self.visit(argument.annotation)
         for default in arguments.defaults:
             self.visit(default)
         for default in arguments.kw_defaults:
             if default is not None:
                 self.visit(default)
+        for argument in self._argument_nodes(arguments):
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
 
     def _visit_function(
         self,
@@ -1130,7 +1135,7 @@ def detect_sleep_then_assert(
         return False
     seen = 0
     for j in range(idx + 1, len(lines)):
-        nxt = _strip_comment(lines[j], path_suffix)
+        nxt = masked_lines[j]
         if not nxt.strip():
             continue
         seen += 1
