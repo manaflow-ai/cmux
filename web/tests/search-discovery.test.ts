@@ -10,6 +10,7 @@ import {
 } from "../app/lib/indexnow";
 import { buildLocalizedBlogRssFeed } from "../app/lib/localized-blog-feed";
 import { POST as submitIndexNowDeployment } from "../app/api/cron/indexnow/route";
+import { lawrenceChen } from "../app/[locale]/components/blog-authors";
 
 describe("search discovery", () => {
   test("publishes a valid RSS channel with canonical blog URLs", () => {
@@ -21,6 +22,7 @@ describe("search discovery", () => {
           title: "Agents & terminals",
           date: "2026-07-17",
           summary: "A <clear> update",
+          author: lawrenceChen,
         },
       ],
       {
@@ -36,6 +38,8 @@ describe("search discovery", () => {
     expect(feed).toContain('<rss version="2.0"');
     expect(feed).toContain("<title>Agents &amp; terminals</title>");
     expect(feed).toContain("<description>A &lt;clear&gt; update</description>");
+    expect(feed).toContain("<dc:creator>Lawrence Chen</dc:creator>");
+    expect(feed).toContain('xmlns:dc="http://purl.org/dc/elements/1.1/"');
     expect(feed).toContain("https://cmux.com/blog/test-post");
     expect(feed).toContain('href="https://cmux.com/feed.xml" rel="self"');
   });
@@ -47,6 +51,15 @@ describe("search discovery", () => {
     expect(feed).toContain("<link>https://cmux.com/ja/blog</link>");
     expect(feed).toContain('href="https://cmux.com/ja/feed.xml"');
     expect(feed).toContain("<title>cmux Forkの紹介</title>");
+    expect(feed).toContain(
+      "<title>スーパーリポとClaude Codeが最良のワークツリー管理ツールである理由</title>",
+    );
+    expect(feed).toContain(
+      "<description>cmuxにまだワークツリーマネージャーがない理由をよく聞かれます。",
+    );
+    expect(feed).not.toContain(
+      "<title>Superrepos and Why Claude Code Is the Best Worktree Manager</title>",
+    );
     expect(feed).not.toContain("/ja/blog/cmux-omo");
   });
 
