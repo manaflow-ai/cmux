@@ -67,7 +67,22 @@ extension MobileShellComposite {
         let generation = UUID()
         connectionAttemptGeneration = generation
         connectionGeneration = generation
+        let previousForegroundID = foregroundMacDeviceID
+        let previousForegroundConnection = previousForegroundID.flatMap {
+            connections[$0]
+        }
+        stopTerminalRefreshPolling()
         cancelRemoteOperationTasks()
+        clearPendingTerminalInputForFocusChange()
+        // Remove both prior server registrations before changing roles. This is
+        // the hard boundary that guarantees only the newly focused Mac can emit
+        // terminal bytes or render grids.
+        await unsubscribeEventStream(on: sub.client, streamID: sub.streamID)
+        if let previousForegroundConnection {
+            await unsubscribeTerminalEventStream(
+                on: previousForegroundConnection.client
+            )
+        }
         let previousForegroundKey = foregroundMacKey
         secondaryMacSubscriptions[macID] = nil
         sub.detachKeepingClient()
@@ -76,9 +91,46 @@ extension MobileShellComposite {
         activeRoute = sub.route
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
-        replaceRemoteClient(with: sub.client)
+        adoptPooledRemoteClient(sub.client)
         foregroundMacDeviceID = macID
         supportedHostCapabilities = sub.supportedHostCapabilities
+        connections[macID] = MacConnection(
+            macDeviceID: macID,
+            ticket: sub.ticket,
+            route: sub.route,
+            client: sub.client,
+            generation: generation,
+            displayName: displayName ?? connectedHostName,
+            instanceTag: activeMacInstanceTag,
+            supportedHostCapabilities: sub.supportedHostCapabilities,
+            actionCapabilities: sub.actionCapabilities
+        )
+        if let previousForegroundID,
+           previousForegroundID != macID,
+           let previousForegroundConnection {
+            let previousControl = SecondaryMacSubscription(
+                macDeviceID: previousForegroundID,
+                client: previousForegroundConnection.client,
+                route: previousForegroundConnection.route,
+                ticket: previousForegroundConnection.ticket,
+                storedInstanceTag: previousForegroundConnection.instanceTag,
+                authenticatedInstanceTag: previousForegroundConnection.instanceTag,
+                supportedHostCapabilities:
+                    previousForegroundConnection.supportedHostCapabilities,
+                actionCapabilities: previousForegroundConnection.actionCapabilities,
+                displayName: previousForegroundConnection.displayName
+            )
+            secondaryMacSubscriptions[previousForegroundID] = previousControl
+            startSecondaryEventConsumer(
+                previousControl,
+                displayName: previousForegroundConnection.displayName
+            )
+            scheduleSecondaryNotificationFeedRefresh(
+                macDeviceID: previousForegroundID,
+                client: previousForegroundConnection.client,
+                displayName: previousForegroundConnection.displayName
+            )
+        }
         // Promotion reuses the live client without a fresh `mobile.host.status`
         // probe, so the previous foreground Mac's update hint would otherwise
         // survive the switch. Recompute against this Mac's capabilities; the
@@ -96,10 +148,11 @@ extension MobileShellComposite {
             status: .connected,
             actionCapabilities: sub.actionCapabilities
         )
+        // The old foreground snapshot remains live through its new control
+        // connection, so `dropStalePreviousForeground` keeps it in the aggregate.
         dropStalePreviousForeground(previousForegroundKey)
         connectionState = .connected
         markMacConnectionHealthy()
-        stopTerminalRefreshPolling()
         startTerminalRefreshPolling()
         scheduleForegroundNotificationFeedRefresh(client: sub.client)
         syncSelectedTerminalForWorkspace()

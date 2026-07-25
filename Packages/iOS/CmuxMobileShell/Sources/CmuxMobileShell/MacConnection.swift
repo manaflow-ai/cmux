@@ -1,16 +1,13 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 
-/// One paired Mac's live connection in the multi-Mac connection pool (P2).
+/// One paired Mac's focused connection in the multi-Mac connection pool.
 ///
 /// The composite holds one entry per connected Mac, keyed by `macDeviceID`.
-/// Today the pool tracks the single foreground connection that drives terminal
-/// I/O and the connected UI; P3 adds read-only connections to the user's other
-/// Macs so their workspaces can be fetched and merged into one list. Keeping
-/// each connection's `generation` lets a per-Mac connection be invalidated
-/// independently of the others, instead of the single global generation that
-/// cancels everything on any attach.
+/// The focused entry drives terminal I/O and render traffic. Control entries use
+/// ``SecondaryMacSubscription`` and remain warm without terminal render topics.
 struct MacConnection {
     /// The stable device id of the Mac this connection targets.
     let macDeviceID: String
@@ -22,4 +19,12 @@ struct MacConnection {
     let client: MobileCoreRPCClient
     /// The connection-attempt generation that established this client.
     let generation: UUID
+    /// Human-readable name shown in per-Mac connection diagnostics.
+    let displayName: String?
+    /// Authenticated or stored app-instance authority for this session.
+    let instanceTag: String?
+    /// Host capabilities retained so a focused session can become control-only.
+    let supportedHostCapabilities: Set<String>
+    /// Workspace command capabilities retained across role changes.
+    let actionCapabilities: MobileWorkspaceActionCapabilities
 }
