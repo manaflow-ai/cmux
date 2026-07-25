@@ -2833,6 +2833,7 @@ final class Workspace: Identifiable, ObservableObject {
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
             chromeColors: chromeColors,
+            tabStyle: TabBarStyleSettings.tabStyle(),
             usesSharedBackdrop: sharesWindowBackdrop
         )
     }
@@ -2858,7 +2859,9 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
-        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
+        let nextTabStyle = TabBarStyleSettings.tabStyle()
+        let tabStyleChanged = currentAppearance.tabStyle != nextTabStyle
+        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged && !tabStyleChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -2884,6 +2887,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if fontSizeChanged {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+        }
+        if tabStyleChanged {
+            bonsplitController.configuration.appearance.tabStyle = nextTabStyle
         }
 
         if GhosttyApp.shared.backgroundLogEnabled {

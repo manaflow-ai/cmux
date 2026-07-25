@@ -30,6 +30,58 @@
       "descriptionKey": "schemaDescriptions.activePaneBorderColor",
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
     },
+    "tabBarActiveBackground": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "description": "Surface tab bar: background color for the selected tab. Unset keeps cmux's derived active-tab background."
+    },
+    "tabBarActiveForeground": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "description": "Surface tab bar: label color for the selected tab. Unset keeps the derived active-tab text color."
+    },
+    "tabBarInactiveBackground": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "description": "Surface tab bar: background color for unselected tabs. Unset leaves unselected tabs transparent over the bar."
+    },
+    "tabBarInactiveForeground": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "description": "Surface tab bar: label color for unselected tabs. Unset keeps the derived secondary text color."
+    },
+    "tabBarHoverBackground": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "description": "Surface tab bar: background color for a hovered, unselected tab. Unset keeps the derived hover tint."
+    },
+    "tabBarDividerColor": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Surface tab bar: color of the thin dividers between tabs, as a #RRGGBB / #RRGGBBAA hex or the literal \"none\" to hide them. Unset keeps the derived separator."
+    },
+    "tabBarActiveIndicatorColor": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "description": "Surface tab bar: color of the accent indicator line on the selected tab. Replaces the macOS system-accent indicator. Unset keeps the system-accent color."
+    },
+    "tabBarActiveIndicatorEdge": {
+      "type": ["string", "null"],
+      "enum": ["top", "bottom", "none", null],
+      "default": null,
+      "description": "Surface tab bar: which edge carries the selected-tab accent indicator, or \"none\" to hide it. Unset keeps the historical top-edge indicator."
+    },
+    "tabBarFontFamily": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Surface tab bar: font family for tab title labels. Unset keeps the system font."
+    },
+    "tabBarFontWeight": {
+      "type": ["string", "null"],
+      "enum": ["ultraLight", "thin", "light", "regular", "medium", "semibold", "bold", "heavy", "black", null],
+      "default": null,
+      "description": "Surface tab bar: font weight for tab title labels. Unset keeps the default weight."
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
