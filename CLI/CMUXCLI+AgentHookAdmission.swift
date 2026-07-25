@@ -61,13 +61,21 @@ extension CMUXCLI {
             }
         }
         let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
-        let admittedPID = environment[pidEnvironmentKey].flatMap(Int.init)
-        if !client.isRelayBacked,
-           admittedPID.map({ $0 > 0 }) != true,
+        if environment[pidEnvironmentKey].flatMap(Int.init).map({ $0 > 0 }) != true,
            let inferredPID = inferredAgentPID() {
             environment[pidEnvironmentKey] = String(inferredPID)
         }
         if client.isRelayBacked {
+            // Resolve remote-only process/TTY evidence while the CLI is still
+            // connected to the remote cmux. The relay rewrites these stable
+            // IDs to their local aliases; remote PIDs and paths are filtered
+            // from the eventual local delivery environment.
+            let remotePID = environment[pidEnvironmentKey].flatMap(Int.init)
+            if let binding = uniqueCallerTerminalBindingByTTY(client: client)
+                ?? resolveAgentProcessTerminalBinding(pid: remotePID, client: client) {
+                environment["CMUX_WORKSPACE_ID"] = binding.workspaceId
+                environment["CMUX_SURFACE_ID"] = binding.surfaceId
+            }
             let relayEnvironmentKeys: Set<String> = [
                 "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
                 "CMUX_AGENT_MANAGED_SUBAGENT",
@@ -87,8 +95,16 @@ extension CMUXCLI {
             }
         }
         let rawPayload = Self.readBoundedAgentHookInput() ?? "{}"
+        let admittedPayload = client.isRelayBacked
+            ? relayEnrichedAgentHookPayload(
+                rawPayload,
+                agent: agent,
+                subcommand: subcommand,
+                processEnvironment: processEnvironment
+            )
+            : rawPayload
         let payload = compactAgentHookPayload(
-            rawPayload,
+            admittedPayload,
             maximumBytes: client.isRelayBacked
                 ? Self.maximumRelayAgentHookPayloadBytes
                 : AgentHookDeliveryPolicy.maximumPayloadBytes,
@@ -112,6 +128,78 @@ extension CMUXCLI {
             responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
         )
         print("{}")
+    }
+
+    /// Converts remote filesystem/process evidence into bounded, portable
+    /// payload fields before the relay admits the event. Local replay must not
+    /// inspect paths or PIDs that belong to the remote host.
+    private func relayEnrichedAgentHookPayload(
+        _ rawPayload: String,
+        agent: String,
+        subcommand: String,
+        processEnvironment: [String: String]
+    ) -> String {
+        let parsed = parseClaudeHookInput(rawInput: rawPayload)
+        guard var object = parsed.rawObject else { return rawPayload }
+        var changed = false
+
+        if agent == "codex",
+           subcommand == "stop",
+           codexHookFailureCandidate(from: parsed.object) == nil,
+           !codexHookStopPayloadHasAssistantMessage(parsed.object),
+           let transcriptPath = parsed.transcriptPath {
+            switch readCodexTranscriptFailure(
+                path: transcriptPath,
+                turnId: parsed.turnId,
+                requireTerminalCompletion: false
+            ) {
+            case .failure(let failure):
+                object["type"] = failure.isStreamError ? "stream_error" : "error"
+                object["message"] = compactQueuedAgentHookString(
+                    failure.message,
+                    maximumLength: 240
+                )
+                if let codexErrorInfo = failure.codexErrorInfo {
+                    object["codex_error_info"] = compactQueuedAgentHookString(
+                        codexErrorInfo,
+                        maximumLength: 240
+                    )
+                }
+                if let additionalDetails = failure.additionalDetails {
+                    object["additional_details"] = compactQueuedAgentHookString(
+                        additionalDetails,
+                        maximumLength: 240
+                    )
+                }
+                changed = true
+            case .unavailable, .pending, .healthy:
+                break
+            }
+        }
+
+        if agent == "rovodev",
+           parsed.sessionId == nil,
+           let sessionID = RovoDevSessionResolver.inferredRovoDevSessionId(
+               cwd: parsed.cwd ?? processEnvironment["PWD"],
+               env: processEnvironment
+            ) {
+            object["session_id"] = compactQueuedAgentHookString(
+                sessionID,
+                maximumLength: 256
+            )
+            changed = true
+        }
+
+        guard changed,
+              JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: object,
+                  options: [.sortedKeys, .withoutEscapingSlashes]
+              ),
+              let payload = String(data: data, encoding: .utf8) else {
+            return rawPayload
+        }
+        return payload
     }
 
     /// Reads only a finite admission envelope before any string materialization

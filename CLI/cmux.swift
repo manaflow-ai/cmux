@@ -25430,7 +25430,7 @@ struct CMUXCLI {
         return resolveTerminalBinding(ttyName: ttyName, client: client)
     }
 
-    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+    func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
         guard let pid else { return nil }
         guard let payload = try? client.sendV2(
             method: "system.top",
@@ -25664,7 +25664,7 @@ struct CMUXCLI {
         let body: String
     }
 
-    private struct CodexHookFailureCandidate {
+    struct CodexHookFailureCandidate {
         let message: String
         let codexErrorInfo: String?
         let additionalDetails: String?
@@ -25681,7 +25681,7 @@ struct CMUXCLI {
         var hasSubagentNotificationRelay = false
     }
 
-    private enum CodexTranscriptFailureReadResult {
+    enum CodexTranscriptFailureReadResult {
         case unavailable
         case pending
         case healthy
@@ -25772,7 +25772,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func readCodexTranscriptFailure(
+    func readCodexTranscriptFailure(
         path: String,
         turnId: String? = nil,
         requireTerminalCompletion: Bool = false
@@ -26257,7 +26257,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func codexHookStopPayloadHasAssistantMessage(_ object: [String: Any]?) -> Bool {
+    func codexHookStopPayloadHasAssistantMessage(_ object: [String: Any]?) -> Bool {
         guard let object,
               let message = firstString(in: object, keys: ["last_assistant_message", "lastAssistantMessage"]) else {
             return false
@@ -26279,7 +26279,7 @@ struct CMUXCLI {
         }
     }
 
-    private func codexHookFailureCandidate(
+    func codexHookFailureCandidate(
         from object: [String: Any]?,
         isStreamError: Bool = false,
         requireFailureSignal: Bool = true
