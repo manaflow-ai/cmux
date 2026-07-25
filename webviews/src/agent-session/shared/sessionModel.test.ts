@@ -193,6 +193,30 @@ test("provider input accepted event appends native submitted user row", () => {
   });
 });
 
+test("provider input accepted event from native submit attaches while idle", () => {
+  const idle = reduceSession(initialState("react"), { type: "context", context });
+  const state = reduceSession(idle, {
+    type: "event",
+    event: {
+      type: "provider.inputAccepted",
+      providerId: "codex",
+      sessionId: "session-3",
+      text: "hello before started event",
+      sentAtMs: 1_850_000_000_001,
+    },
+  });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-3");
+  expect(state.selectedProviderId).toBe("codex");
+  expect(state.log.at(-1)?.text).toBe("Sent 26 chars");
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "user",
+    sentAtMs: 1_850_000_000_001,
+    text: "hello before started event",
+  });
+});
+
 test("rate limit row event updates context", () => {
   const initial = reduceSession(initialState("react"), { type: "context", context });
   const state = reduceSession(initial, {

@@ -402,13 +402,14 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         log: appendLog(state, "info", copyText(state, "providerStarted", "Provider started")),
       };
     case "provider.inputAccepted":
-      if (event.sessionId !== state.runningSessionId) {
+      const inputState = attachProviderEventSession(state, event);
+      if (!inputState) {
         return state;
       }
       return {
-        ...state,
-        log: appendLog(state, "info", formatCopy(state, "sentCharsFormat", "Sent %d chars", event.text.length)),
-        transcript: appendUserTranscript(state, event.text, undefined, event.sentAtMs ?? Date.now()),
+        ...inputState,
+        log: appendLog(inputState, "info", formatCopy(inputState, "sentCharsFormat", "Sent %d chars", event.text.length)),
+        transcript: appendUserTranscript(inputState, event.text, undefined, event.sentAtMs ?? Date.now()),
       };
     case "provider.output":
       if (event.sessionId !== state.runningSessionId) {
@@ -487,6 +488,26 @@ function isCurrentOrPendingStartExit(state: SessionState, event: Extract<AgentEv
     !state.runningSessionId &&
     event.providerId === state.selectedProviderId
   );
+}
+
+function attachProviderEventSession(
+  state: SessionState,
+  event: Extract<AgentEvent, { providerId: ProviderId; sessionId: string }>,
+): SessionState | undefined {
+  if (event.sessionId === state.runningSessionId) {
+    return state;
+  }
+  if (state.runningSessionId || event.sessionId === state.requestedStopSessionId || state.status === "stopping") {
+    return undefined;
+  }
+  return {
+    ...state,
+    runningSessionId: event.sessionId,
+    requestedStopSessionId: undefined,
+    selectedProviderId: event.providerId,
+    seenSessionIds: rememberSessionId(state, event.sessionId),
+    status: "running",
+  };
 }
 
 function rememberSessionId(state: SessionState, sessionId: string): string[] {
