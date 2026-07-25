@@ -148,6 +148,51 @@ struct TerminalArtifactChipCountStateTests {
         #expect(upgraded == .init(count: 12, surfaceGeneration: 5))
     }
 
+    @Test("a failed scan with fresh local evidence drops a held authoritative zero")
+    func failedScanDropsHeldZero() throws {
+        var state = TerminalArtifactChipCountState()
+        let empty = try request(from: state.trigger(
+            localCount: 0,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            empty,
+            galleryRowTotal: 0,
+            sessionTotal: 0,
+            currentSurfaceGeneration: 5,
+            freshestLocalCount: 0
+        ).outcome == .reported(.init(count: 0, surfaceGeneration: 5)))
+
+        // Files appear on screen, but the refresh scan fails: the held zero
+        // must yield to the local evidence instead of hiding the chip until
+        // the transport recovers.
+        let failed = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            failed,
+            galleryRowTotal: nil,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 5,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 3, surfaceGeneration: 5)))
+
+        // The dropped zero stays dropped: later provisional reports show the
+        // local count while the transport is down.
+        guard case .reportAndRequest(let provisional, _) = state.trigger(
+            localCount: 3,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report plus a session request")
+            throw UnexpectedAction()
+        }
+        #expect(provisional == .init(count: 3, surfaceGeneration: 5))
+    }
+
     @Test("reset forgets the remembered session total")
     func resetForgetsSessionTotal() throws {
         var state = TerminalArtifactChipCountState()

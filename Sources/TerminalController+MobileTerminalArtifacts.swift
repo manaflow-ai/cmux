@@ -53,11 +53,16 @@ extension TerminalController {
         let includeDirectories = v2Bool(params, "include_directories") ?? false
         let includeMissing = v2Bool(params, "include_missing") ?? true
         let requestsGalleryRowTotal = params.keys.contains("include_missing")
+        // Count-only refreshes recur on every settled output change, so they
+        // must not capture terminal text up front: `readTerminalTextForSnapshot`
+        // takes the Ghostty surface lock inside `v2MainSync`, and a session
+        // workspace never uses the text for a count. Only the no-session
+        // fallback re-resolves with viewport text below.
         let resolution = await mobileTerminalArtifactContext(
             params: params,
             requiresPath: false,
             includeScrollback: !visibleOnly,
-            includeTerminalText: !countOnly || visibleOnly
+            includeTerminalText: !countOnly
         )
         guard case .success(let context) = resolution else {
             return resolution.failureResult
@@ -69,8 +74,17 @@ extension TerminalController {
                         TerminalArtifactScanResponse(artifacts: [])
                     )
                 }
+                let textResolution = await mobileTerminalArtifactContext(
+                    params: params,
+                    requiresPath: false,
+                    includeScrollback: false,
+                    includeTerminalText: true
+                )
+                guard case .success(let textContext) = textResolution else {
+                    return textResolution.failureResult
+                }
                 let scanned = await Task.detached(priority: .utility) {
-                    context.scan(includeDirectories: includeDirectories)
+                    textContext.scan(includeDirectories: includeDirectories)
                 }.value
                 return TerminalArtifactWire.result(
                     TerminalArtifactScanResponse(

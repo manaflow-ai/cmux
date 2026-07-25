@@ -104,15 +104,11 @@ extension TerminalController {
         ) {
             return cached
         }
-        let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
-            artifacts,
-            indexID: sessionID,
-            generation: generation
-        )
+        // Counting is order-independent, so skip the ordering cache entirely;
+        // the count is a stat-only sweep over the raw snapshot.
         let total = await Task.detached(priority: .utility) {
             ChatArtifactGalleryRowEligibility().defaultRowCount(
                 artifacts,
-                orderedItems: orderedItems,
                 includeDirectories: includeDirectories,
                 includeMissing: includeMissing
             )

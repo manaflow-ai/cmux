@@ -156,6 +156,13 @@ struct TerminalArtifactChipCountState: Sendable {
                 // totals win, while zero falls back to the local viewport count.
                 lastAuthoritativeTotal = sessionTotal > 0 ? sessionTotal : nil
                 lastAuthoritativeSessionID = sessionID ?? lastAuthoritativeSessionID
+            } else if lastAuthoritativeTotal == 0, request.localCount > 0 {
+                // The scan FAILED while fresh local evidence says files are on
+                // screen. A held zero must not keep the chip unmounted until
+                // the transport recovers; drop it so the local count shows
+                // (and stays shown across subsequent failed scans) until a
+                // successful scan re-establishes the authoritative total.
+                lastAuthoritativeTotal = nil
             }
             outcome = .reported(Report(
                 count: displayCount(forLocalCount: request.localCount),

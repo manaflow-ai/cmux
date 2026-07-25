@@ -37,26 +37,38 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
     ///   - includeDirectories: Whether directories are eligible gallery rows.
     ///   - includeMissing: Whether references that fail stat remain as missing rows.
     /// - Returns: The number of rows the default gallery view renders.
+    /// Counting is stat-only: it shares `isEligible` with row building but
+    /// never constructs `ChatArtifactGalleryItem`s and never enumerates
+    /// directory children, so a count over a large session costs one stat per
+    /// reference. Ordering and provenance grouping cannot change a total, so
+    /// `orderedItems` is accepted for call-site symmetry but not required.
     public func defaultRowCount(
         _ items: [ChatArtifactIndexedReference],
         orderedItems: [ChatArtifactIndexedReference]? = nil,
         includeDirectories: Bool,
         includeMissing: Bool
     ) -> Int {
-        let candidates = defaultCandidates(items, orderedItems: orderedItems)
-        return rows(
-            candidates.created,
-            includeDirectories: includeDirectories,
-            includeMissing: includeMissing
-        ).count + rows(
-            candidates.attached,
-            includeDirectories: includeDirectories,
-            includeMissing: includeMissing
-        ).count + rows(
-            candidates.referenced,
-            includeDirectories: includeDirectories,
-            includeMissing: includeMissing
-        ).count
+        (orderedItems ?? items).count { reference in
+            isEligible(
+                reference,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            )
+        }
+    }
+
+    /// The single row-inclusion rule shared by page rows and count-only scans.
+    public func isEligible(
+        _ reference: ChatArtifactIndexedReference,
+        includeDirectories: Bool,
+        includeMissing: Bool
+    ) -> Bool {
+        do {
+            let stat = try ArtifactByteReader().stat(path: reference.path)
+            return includeDirectories || !stat.isDirectory
+        } catch {
+            return includeMissing
+        }
     }
 
     func defaultCandidates(
@@ -80,10 +92,17 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
         includeDirectories: Bool,
         includeMissing: Bool
     ) -> ChatArtifactGalleryItem? {
+        // Inclusion is decided by the shared predicate so page rows and
+        // count-only scans cannot drift. Rows are page-bounded, so the second
+        // stat during item construction below is trivial.
+        guard isEligible(
+            reference,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing
+        ) else { return nil }
         let reader = ArtifactByteReader()
         do {
             let stat = try reader.stat(path: reference.path)
-            guard includeDirectories || !stat.isDirectory else { return nil }
             let children = stat.isDirectory ? directoryChildCount(path: reference.path) : nil
             return ChatArtifactGalleryItem(
                 path: reference.path,
@@ -97,7 +116,6 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
                 provenance: reference.provenance
             )
         } catch {
-            guard includeMissing else { return nil }
             return ChatArtifactGalleryItem(
                 path: reference.path,
                 kind: reader.kind(path: reference.path, isDirectory: false),
