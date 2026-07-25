@@ -247,16 +247,30 @@ final class MobileTerminalRenderObserver {
         } else {
             renderSurfaceIDs = surfaceIDs.union(themeSurfaceIDs)
         }
+        // One registry scan per flush, not per surface: every surface in this
+        // flush sees the same subscriber set. Viewport (v1) mirrors the Mac's
+        // scroll position; screen (v2) anchors to the active area so the phone
+        // owns its local viewport/scrollback. An empty registry (subscribers
+        // predating anchor negotiation) means v1 only.
+        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.shared.activeAnchors()
+        var anchors: [MobileTerminalRenderGridFrame.Anchor] = []
+        if activeAnchors.contains(.viewport) || activeAnchors.isEmpty { anchors.append(.viewport) }
+        if activeAnchors.contains(.screen) { anchors.append(.screen) }
         for surfaceID in renderSurfaceIDs {
             emitRenderGrid(
                 surfaceID: surfaceID,
+                anchors: anchors,
                 forceIncludeTheme: shouldEmitAllThemes
                     || themeSurfaceIDs.contains(surfaceID)
             )
         }
     }
 
-    private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
+    private func emitRenderGrid(
+        surfaceID: UUID,
+        anchors: [MobileTerminalRenderGridFrame.Anchor],
+        forceIncludeTheme: Bool
+    ) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
@@ -274,15 +288,6 @@ final class MobileTerminalRenderObserver {
             || renderGridStatesBySurfaceID[surfaceID]?.values
                 .contains { $0.terminalTheme != nil } != true
             || didReplaceRuntimeSurface
-
-        // Produce one payload per anchor with a live subscriber. Viewport (v1)
-        // mirrors the Mac's scroll position; screen (v2) anchors to the active
-        // area so the phone owns its local viewport/scrollback. An empty
-        // registry (subscribers predating anchor negotiation) means v1 only.
-        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.shared.activeAnchors()
-        var anchors: [MobileTerminalRenderGridFrame.Anchor] = []
-        if activeAnchors.contains(.viewport) || activeAnchors.isEmpty { anchors.append(.viewport) }
-        if activeAnchors.contains(.screen) { anchors.append(.screen) }
 
         runtimeSurfaceGenerationsBySurfaceID[surfaceID] = runtimeGeneration
         // Both anchor variants describe the same terminal state at the same
