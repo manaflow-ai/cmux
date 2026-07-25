@@ -48,22 +48,12 @@ impl From<EnhancedKeyEvent> for KeyboardInput {
 impl KeyboardInput {
     pub fn from_enhanced(event: EnhancedKeyEvent) -> Self {
         // Kitty reports generated text per event, but no consumed-modifier
-        // mask. Text that differs from the active-layout character means Alt
-        // participated in text generation. Matching text keeps genuine Alt
-        // shortcuts active.
-        let active_layout_character = if event.key_event.modifiers.contains(KeyModifiers::SHIFT) {
-            event.shifted_key
-        } else if let KeyCode::Char(character) = event.key_event.code {
-            Some(character)
-        } else {
-            None
-        };
+        // mask. Text that differs from the active-layout text means Alt
+        // participated in text generation. Shift and Caps Lock jointly
+        // select the effective layout level for cased characters.
         let consumed_alt = event.key_event.modifiers.contains(KeyModifiers::ALT)
             && !event.text.is_empty()
-            && active_layout_character.is_none_or(|character| {
-                let mut text = event.text.chars();
-                text.next() != Some(character) || text.next().is_some()
-            });
+            && !text_matches_active_layout(&event);
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
@@ -152,6 +142,27 @@ impl KeyboardInput {
             key_input_from(&self.key_event)
         }
     }
+}
+
+fn text_matches_active_layout(event: &EnhancedKeyEvent) -> bool {
+    let KeyCode::Char(unshifted) = event.key_event.code else {
+        return false;
+    };
+    let shift = event.key_event.modifiers.contains(KeyModifiers::SHIFT);
+    let caps_affects_character = event.key_event.state.contains(KeyEventState::CAPS_LOCK)
+        && !unshifted.to_lowercase().eq(unshifted.to_uppercase());
+    if shift ^ caps_affects_character {
+        if let Some(shifted) = event.shifted_key {
+            return text_is_exact_character(&event.text, shifted);
+        }
+        return caps_affects_character && event.text.chars().eq(unshifted.to_uppercase());
+    }
+    text_is_exact_character(&event.text, unshifted)
+}
+
+fn text_is_exact_character(text: &str, expected: char) -> bool {
+    let mut characters = text.chars();
+    characters.next() == Some(expected) && characters.next().is_none()
 }
 
 fn mods_from(m: KeyModifiers) -> Option<Mods> {
@@ -601,6 +612,23 @@ mod tests {
             assert!(!input.has_consumed_alt(), "{modifiers:?} treated Alt as text-producing");
             assert!(input.shortcut_keys().0.modifiers.contains(KeyModifiers::ALT));
         }
+    }
+
+    #[test]
+    fn caps_lock_still_marks_option_generated_text_as_consuming_alt() {
+        let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new_with_kind_and_state(
+                KeyCode::Char('t'),
+                KeyModifiers::ALT,
+                KeyEventKind::Press,
+                KeyEventState::CAPS_LOCK,
+            ),
+            shifted_key: Some('T'),
+            base_layout_key: Some('t'),
+            text: "\u{2020}".to_string(),
+        });
+
+        assert!(input.has_consumed_alt());
     }
 
     #[test]
