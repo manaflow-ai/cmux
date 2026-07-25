@@ -890,7 +890,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         )
 
     def test_python_parse_failures_keep_direct_sleep_detection(self) -> None:
-        result = self.run_checker(
+        positive = self.run_checker(
             {
                 "unsupported-syntax.py": (
                     "import time\n"
@@ -908,14 +908,34 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
         self.assertIn(
             "fixtures/unsupported-syntax.py:2: sleep-then-assert:",
-            result.stdout,
+            positive.stdout,
         )
         self.assertIn(
             "fixtures/newer-syntax.py:4: sleep-then-assert:",
-            result.stdout,
+            positive.stdout,
+        )
+
+        negative = self.run_checker(
+            {
+                "shadowed-unsupported-syntax.py": (
+                    "time = fake_clock\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                    "match subject:\n"
+                ),
+            }
+        )
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
         )
 
     def test_python_local_shadows_do_not_leak_to_later_scopes(self) -> None:
