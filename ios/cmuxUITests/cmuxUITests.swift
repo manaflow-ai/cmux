@@ -206,6 +206,42 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testSignedOutOnboardingCompletesBeforeShowingSignIn() throws {
+        let app = launchApp(
+            mockData: false,
+            clearAuth: true,
+            launchArguments: [
+                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "welcome",
+            ]
+        )
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(element("MobileOnboardingAgentsScene").waitForExistence(timeout: 8))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
+        XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
+        XCTAssertFalse(app.buttons["signin.apple"].exists)
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+
+        primaryButton.tap()
+
+        XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
+        XCTAssertFalse(element("MobileOnboardingConnectScene").exists)
+    }
+
+    @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [
             "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
