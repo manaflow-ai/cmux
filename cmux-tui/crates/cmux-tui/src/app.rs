@@ -2833,17 +2833,18 @@ pub struct ShortcutHelp {
 }
 
 impl ShortcutHelp {
-    fn resolved_rows(config: &Config) -> Vec<(Action, String)> {
+    fn resolved_rows(config: &Config, surface_only: bool) -> Vec<(Action, String)> {
         config
             .keys
             .resolved_shortcuts()
             .into_iter()
+            .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
             .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
             .collect()
     }
 
-    fn from_config(config: &Config) -> Self {
-        Self { rows: Self::resolved_rows(config), ..Self::default() }
+    fn from_config(config: &Config, surface_only: bool) -> Self {
+        Self { rows: Self::resolved_rows(config, surface_only), ..Self::default() }
     }
 
     fn max_scroll(&self, total_rows: usize) -> usize {
@@ -5464,8 +5465,10 @@ impl App {
     fn reload_config(&mut self) {
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
-        let shortcut_rows =
-            self.shortcut_help.as_ref().map(|_| ShortcutHelp::resolved_rows(&config));
+        let shortcut_rows = self
+            .shortcut_help
+            .as_ref()
+            .map(|_| ShortcutHelp::resolved_rows(&config, self.surface_only.is_some()));
         self.sidebar_plugin_error = None;
         self.sidebar_plugin_retry_after_ms = None;
         self.sidebar_plugin_retry_at = None;
@@ -7945,6 +7948,9 @@ impl App {
         action: Action,
         pane: Option<PaneId>,
     ) -> anyhow::Result<RenderAction> {
+        if !self.action_available(action) {
+            return Ok(RenderAction::Draw);
+        }
         if action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(RenderAction::None);
         }
@@ -8063,7 +8069,7 @@ impl App {
                     None
                 } else {
                     self.finish_active_drag_for_overlay();
-                    Some(ShortcutHelp::from_config(&self.config))
+                    Some(ShortcutHelp::from_config(&self.config, self.surface_only.is_some()))
                 };
                 self.menu = None;
                 self.prompt = None;
@@ -8293,6 +8299,22 @@ impl App {
                 self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
                 return Ok(());
             }
+            MenuAction::NewTab(pane) => {
+                self.run_action_for_pane(Action::NewTab, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::NewBrowserTab(pane) => {
+                self.run_action_for_pane(Action::NewBrowserTab, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::SplitRight(pane) => {
+                self.run_action_for_pane(Action::SplitRight, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::SplitDown(pane) => {
+                self.run_action_for_pane(Action::SplitDown, Some(pane))?;
+                return Ok(());
+            }
             MenuAction::ToggleSidebar { .. } => {
                 self.run_action(Action::ToggleSidebar)?;
                 return Ok(());
@@ -8401,15 +8423,11 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::NewPaneSmart(_) => {
-                unreachable!("shared menu actions return above")
-            }
-            MenuAction::NewTab(id) => {
-                self.new_terminal_tab(Some(id))?;
-            }
-            MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
-            MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
-            MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
+            MenuAction::NewPaneSmart(_)
+            | MenuAction::NewTab(_)
+            | MenuAction::NewBrowserTab(_)
+            | MenuAction::SplitRight(_)
+            | MenuAction::SplitDown(_) => unreachable!("shared menu actions return above"),
             MenuAction::CloseTab(id) => {
                 if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
                     self.session.close_surface(surface);
@@ -10658,7 +10676,18 @@ impl App {
     }
 
     fn menu_group(&self, actions: impl IntoIterator<Item = MenuAction>) -> Vec<MenuItem> {
-        actions.into_iter().map(|action| self.menu_item(action)).collect()
+        actions
+            .into_iter()
+            .filter(|action| {
+                keyboard_action_for_menu(*action)
+                    .is_none_or(|keyboard_action| self.action_available(keyboard_action))
+            })
+            .map(|action| self.menu_item(action))
+            .collect()
+    }
+
+    fn action_available(&self, action: Action) -> bool {
+        action_available_in_mode(action, self.surface_only.is_some())
     }
 
     fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
@@ -11109,6 +11138,20 @@ fn browser_only_action(action: Action) -> bool {
             | Action::BrowserReload
             | Action::BrowserEditUrl
     )
+}
+
+fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
+    !surface_only
+        || !matches!(
+            action,
+            Action::NewTab
+                | Action::NewBrowserTab
+                | Action::NewPaneSmart
+                | Action::SplitRight
+                | Action::SplitDown
+                | Action::NewScreen
+                | Action::NewWorkspace
+        )
 }
 
 fn action_prepares_pty_release(action: Action) -> bool {
