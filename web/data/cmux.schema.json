@@ -56,9 +56,12 @@
       "description": "Surface tab bar: background color for a hovered, unselected tab. Unset keeps the derived hover tint."
     },
     "tabBarDividerColor": {
-      "type": ["string", "null"],
+      "oneOf": [
+        { "$ref": "#/$defs/colorHexOrNull" },
+        { "type": "string", "const": "none" }
+      ],
       "default": null,
-      "description": "Surface tab bar: color of the thin dividers between tabs, as a #RRGGBB / #RRGGBBAA hex or the literal \"none\" to hide them. Unset keeps the derived separator."
+      "description": "Surface tab bar: color of the thin dividers between tabs, as a 6-digit #RRGGBB hex or the literal \"none\" to hide them. Unset keeps the derived separator."
     },
     "tabBarActiveIndicatorColor": {
       "$ref": "#/$defs/colorHexOrNull",

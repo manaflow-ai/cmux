@@ -386,19 +386,9 @@ enum BrowserSettingsFileMapping {
 extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
-    static let supportedSettingsJSONPaths: Set<String> = [
+    static let supportedSettingsJSONPaths: Set<String> = Set([
         PaneChromeSettings.paneBorderColorKey,
         PaneChromeSettings.activePaneBorderColorKey,
-        TabBarStyleSettings.activeBackgroundKey,
-        TabBarStyleSettings.activeForegroundKey,
-        TabBarStyleSettings.inactiveBackgroundKey,
-        TabBarStyleSettings.inactiveForegroundKey,
-        TabBarStyleSettings.hoverBackgroundKey,
-        TabBarStyleSettings.dividerColorKey,
-        TabBarStyleSettings.activeIndicatorColorKey,
-        TabBarStyleSettings.activeIndicatorEdgeKey,
-        TabBarStyleSettings.fontFamilyKey,
-        TabBarStyleSettings.fontWeightKey,
         "app.language",
         "app.appearance",
         "app.appIcon",
@@ -531,5 +521,5 @@ extension CmuxSettingsFileStore {
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
-    ]
+    ]).union(TabBarStyleSettings.supportedKeys)
 }

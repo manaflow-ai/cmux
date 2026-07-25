@@ -14,35 +14,35 @@ import Foundation
 /// derived styling for that attribute, so the feature is fully backward
 /// compatible.
 public struct TabBarStyleCatalogSection: SettingCatalogSection {
-    /// Background color for the selected tab (`#RRGGBB` / `#RRGGBBAA`).
+    /// Background color for the selected tab (6-digit `#RRGGBB`).
     public let activeBackground = DefaultsKey<String>(
         id: "tabBarActiveBackground",
         defaultValue: "",
         userDefaultsKey: "tabBarActiveBackground"
     )
 
-    /// Label color for the selected tab (`#RRGGBB` / `#RRGGBBAA`).
+    /// Label color for the selected tab (6-digit `#RRGGBB`).
     public let activeForeground = DefaultsKey<String>(
         id: "tabBarActiveForeground",
         defaultValue: "",
         userDefaultsKey: "tabBarActiveForeground"
     )
 
-    /// Background color for unselected tabs (`#RRGGBB` / `#RRGGBBAA`).
+    /// Background color for unselected tabs (6-digit `#RRGGBB`).
     public let inactiveBackground = DefaultsKey<String>(
         id: "tabBarInactiveBackground",
         defaultValue: "",
         userDefaultsKey: "tabBarInactiveBackground"
     )
 
-    /// Label color for unselected tabs (`#RRGGBB` / `#RRGGBBAA`).
+    /// Label color for unselected tabs (6-digit `#RRGGBB`).
     public let inactiveForeground = DefaultsKey<String>(
         id: "tabBarInactiveForeground",
         defaultValue: "",
         userDefaultsKey: "tabBarInactiveForeground"
     )
 
-    /// Background color for a hovered, unselected tab (`#RRGGBB` / `#RRGGBBAA`).
+    /// Background color for a hovered, unselected tab (6-digit `#RRGGBB`).
     public let hoverBackground = DefaultsKey<String>(
         id: "tabBarHoverBackground",
         defaultValue: "",
@@ -56,8 +56,8 @@ public struct TabBarStyleCatalogSection: SettingCatalogSection {
         userDefaultsKey: "tabBarDividerColor"
     )
 
-    /// Color for the accent indicator on the selected tab (`#RRGGBB` /
-    /// `#RRGGBBAA`). Replaces the macOS system-accent indicator.
+    /// Color for the accent indicator on the selected tab (6-digit
+    /// `#RRGGBB`). Replaces the macOS system-accent indicator.
     public let activeIndicatorColor = DefaultsKey<String>(
         id: "tabBarActiveIndicatorColor",
         defaultValue: "",
