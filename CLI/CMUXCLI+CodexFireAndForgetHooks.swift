@@ -69,7 +69,9 @@ extension CMUXCLI {
             }), !scriptPath.contains("'''") {
                 command = scriptPath
             } else {
-                command = body
+                // Launch sanitization uses this stable no-op marker to remove
+                // cmux's injected inline fallback before resume/fork capture.
+                command = ": cmux-codex-hook; \(body)"
             }
             // TOML multi-line literal strings preserve bytes verbatim and may
             // contain single quotes. Only a literal triple quote is forbidden.

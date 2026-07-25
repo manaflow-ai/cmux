@@ -414,6 +414,12 @@ extension CMUXCLI {
         if let transcriptPath = parsed.transcriptPath {
             compact["transcript_path"] = transcriptPath
         }
+        if let rawObject = parsed.rawObject {
+            compact.merge(
+                compactClaudeBackgroundWorkEvidence(rawObject),
+                uniquingKeysWith: { _, boundedValue in boundedValue }
+            )
+        }
         var candidates: [String] = []
         if JSONSerialization.isValidJSONObject(compact),
            let compactData = try? JSONSerialization.data(
@@ -494,6 +500,10 @@ extension CMUXCLI {
                     maximumLength: 256
                 )
         }
+        fallback.merge(
+            compactClaudeBackgroundWorkEvidence(rawObject),
+            uniquingKeysWith: { _, boundedValue in boundedValue }
+        )
         if let toolName,
            let compactToolInput = parsed.object?["tool_input"] as? [String: Any],
            let toolSummary = compactQueuedAgentHookToolSummary(
@@ -503,6 +513,32 @@ extension CMUXCLI {
             fallback["tool_input"] = toolSummary
         }
         return fallback
+    }
+
+    /// Reduces Claude's potentially large background-work collections to the
+    /// exact bounded shapes consumed by lifecycle replay. Missing keys remain
+    /// missing for older Claude clients; present-but-idle collections stay
+    /// empty, while active work keeps one representative entry.
+    private func compactClaudeBackgroundWorkEvidence(
+        _ rawObject: [String: Any]
+    ) -> [String: Any] {
+        var evidence: [String: Any] = [:]
+        if let tasks = rawObject["background_tasks"] as? [[String: Any]] {
+            let hasRunningTask = tasks.contains {
+                $0["status"] as? String == "running"
+            }
+            let compactTasks: [[String: String]] = hasRunningTask
+                ? [["status": "running"]]
+                : []
+            evidence["background_tasks"] = compactTasks
+        }
+        if let crons = rawObject["session_crons"] as? [Any] {
+            let compactCrons: [[String: Bool]] = crons.isEmpty
+                ? []
+                : [["pending": true]]
+            evidence["session_crons"] = compactCrons
+        }
+        return evidence
     }
 
     private func compactQueuedAgentHookToolSummary(

@@ -1505,6 +1505,12 @@ final class ClaudeHookSessionStore {
     }
 
     private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+        let stateURL = URL(fileURLWithPath: statePath, isDirectory: false)
+        try fileManager.createDirectory(
+            at: stateURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
