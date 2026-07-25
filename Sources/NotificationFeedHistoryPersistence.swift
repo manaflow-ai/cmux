@@ -19,6 +19,10 @@ nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
 /// work never runs on the main actor. Writes are serialized and stale revisions
 /// are rejected.
 actor NotificationFeedHistoryPersistence {
+    private static let titleByteLimit = 1_024
+    private static let subtitleByteLimit = 1_024
+    private static let bodyByteLimit = 8_192
+
     private let fileURL: URL?
     private let fileManager: FileManager
     private let readRetentionLimit: Int
@@ -58,6 +62,7 @@ actor NotificationFeedHistoryPersistence {
                 notificationFeedPersistenceLogger.error(
                     "Notification feed load rejected oversized file=\(fileURL.path, privacy: .private) limit=\(self.maxSnapshotBytes, privacy: .public)"
                 )
+                allowsWrites = false
                 outcome = .corrupt
                 loadOutcome = outcome
                 return outcome
@@ -70,18 +75,24 @@ actor NotificationFeedHistoryPersistence {
                 loadOutcome = outcome
                 return outcome
             }
-            let normalizedNotifications = Self.normalized(
-                decoded.notifications,
-                readRetentionLimit: readRetentionLimit,
-                totalRetentionLimit: totalRetentionLimit
-            )
-            let snapshot = NotificationFeedHistorySnapshot(
+            let decodedSnapshot = NotificationFeedHistorySnapshot(
                 revision: max(0, decoded.revision),
-                notifications: normalizedNotifications
+                notifications: decoded.notifications
             )
+            guard let fitted = try snapshotAndDataFittingLoadBudget(decodedSnapshot) else {
+                notificationFeedPersistenceLogger.error(
+                    "Notification feed load could not fit decoded file=\(fileURL.path, privacy: .private) limit=\(self.maxSnapshotBytes, privacy: .public)"
+                )
+                allowsWrites = false
+                outcome = .corrupt
+                loadOutcome = outcome
+                return outcome
+            }
+            let snapshot = fitted.snapshot
             compactLoadedSnapshotIfNeeded(
                 snapshot,
-                originalNotifications: decoded.notifications,
+                encodedData: fitted.data,
+                originalSnapshot: decoded,
                 fileURL: fileURL
             )
             lastPersistedRevision = snapshot.revision
@@ -112,15 +123,13 @@ actor NotificationFeedHistoryPersistence {
 
     private func compactLoadedSnapshotIfNeeded(
         _ snapshot: NotificationFeedHistorySnapshot,
-        originalNotifications: [NotificationFeedHistoryRecord],
+        encodedData: Data,
+        originalSnapshot: NotificationFeedHistorySnapshot,
         fileURL: URL
     ) {
-        guard snapshot.notifications != originalNotifications else { return }
+        guard snapshot != originalSnapshot else { return }
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
+            try encodedData.write(to: fileURL, options: .atomic)
         } catch {
             notificationFeedPersistenceLogger.error(
                 "Notification feed compaction failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision) error=\(error.localizedDescription, privacy: .private)"
@@ -135,9 +144,24 @@ actor NotificationFeedHistoryPersistence {
               snapshot.revision > lastPersistedRevision else {
             return
         }
+        let fitted: (snapshot: NotificationFeedHistorySnapshot, data: Data)
+        do {
+            guard let resolved = try snapshotAndDataFittingLoadBudget(snapshot) else {
+                notificationFeedPersistenceLogger.error(
+                    "Notification feed persist skipped because snapshot cannot fit load budget revision=\(snapshot.revision, privacy: .public) limit=\(self.maxSnapshotBytes, privacy: .public)"
+                )
+                return
+            }
+            fitted = resolved
+        } catch {
+            notificationFeedPersistenceLogger.error(
+                "Notification feed persist encode failed revision=\(snapshot.revision, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return
+        }
         guard let fileURL else {
-            lastPersistedRevision = snapshot.revision
-            loadOutcome = .loaded(snapshot)
+            lastPersistedRevision = fitted.snapshot.revision
+            loadOutcome = .loaded(fitted.snapshot)
             return
         }
 
@@ -147,17 +171,97 @@ actor NotificationFeedHistoryPersistence {
                 withIntermediateDirectories: true,
                 attributes: nil
             )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-            lastPersistedRevision = snapshot.revision
-            loadOutcome = .loaded(snapshot)
+            try fitted.data.write(to: fileURL, options: .atomic)
+            lastPersistedRevision = fitted.snapshot.revision
+            loadOutcome = .loaded(fitted.snapshot)
         } catch {
             notificationFeedPersistenceLogger.error(
                 "Notification feed persist failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision) error=\(error.localizedDescription, privacy: .private)"
             )
         }
+    }
+
+    private func snapshotAndDataFittingLoadBudget(
+        _ snapshot: NotificationFeedHistorySnapshot
+    ) throws -> (snapshot: NotificationFeedHistorySnapshot, data: Data)? {
+        let normalizedRecords = Self.normalized(
+            snapshot.notifications.map(Self.recordWithBoundedText),
+            readRetentionLimit: readRetentionLimit,
+            totalRetentionLimit: totalRetentionLimit
+        )
+        return try encodedSnapshot(
+            revision: snapshot.revision,
+            version: snapshot.version,
+            records: normalizedRecords,
+            maxBytes: maxSnapshotBytes
+        )
+    }
+
+    private func encodedSnapshot(
+        revision: Int,
+        version: Int,
+        records: [NotificationFeedHistoryRecord],
+        maxBytes: UInt64
+    ) throws -> (snapshot: NotificationFeedHistorySnapshot, data: Data)? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        func encode(prefixCount: Int) throws -> (NotificationFeedHistorySnapshot, Data) {
+            let snapshot = NotificationFeedHistorySnapshot(
+                revision: revision,
+                notifications: Array(records.prefix(prefixCount)),
+                version: version
+            )
+            return (snapshot, try encoder.encode(snapshot))
+        }
+
+        let full = try encode(prefixCount: records.count)
+        guard UInt64(full.1.count) > maxBytes else { return full }
+
+        var lowerBound = 0
+        var upperBound = records.count
+        var best: (snapshot: NotificationFeedHistorySnapshot, data: Data)?
+        while lowerBound <= upperBound {
+            let candidateCount = (lowerBound + upperBound) / 2
+            let candidate = try encode(prefixCount: candidateCount)
+            if UInt64(candidate.1.count) <= maxBytes {
+                best = candidate
+                lowerBound = candidateCount + 1
+            } else {
+                upperBound = candidateCount - 1
+            }
+        }
+        return best
+    }
+
+    private static func recordWithBoundedText(
+        _ record: NotificationFeedHistoryRecord
+    ) -> NotificationFeedHistoryRecord {
+        NotificationFeedHistoryRecord(
+            id: record.id,
+            tabId: record.tabId,
+            surfaceId: record.surfaceId,
+            panelId: record.panelId,
+            retargetsToLiveSurfaceOwner: record.retargetsToLiveSurfaceOwner,
+            title: string(record.title, limitedToUTF8Bytes: titleByteLimit),
+            subtitle: string(record.subtitle, limitedToUTF8Bytes: subtitleByteLimit),
+            body: string(record.body, limitedToUTF8Bytes: bodyByteLimit),
+            createdAt: record.createdAt,
+            isRead: record.isRead
+        )
+    }
+
+    private static func string(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
+        guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
+        var byteCount = 0
+        var endIndex = value.startIndex
+        while endIndex < value.endIndex {
+            let nextIndex = value.index(after: endIndex)
+            let characterByteCount = value[endIndex..<nextIndex].utf8.count
+            guard byteCount + characterByteCount <= maxBytes else { break }
+            byteCount += characterByteCount
+            endIndex = nextIndex
+        }
+        return String(value[..<endIndex])
     }
 
     private static func normalized(

@@ -11,7 +11,7 @@ struct MobileNotificationFeedAggregationTests {
         let macA = item(mac: "mac-a", id: "same", createdAt: timestamp)
         let newest = item(mac: "mac-a", id: "newest", createdAt: timestamp.addingTimeInterval(1))
 
-        let result = MobileNotificationFeedAggregation().items(from: [[macB], [newest, macA]])
+        let result = MobileNotificationFeedAggregation().items(from: [[macB], [macA, newest]])
 
         #expect(result.map(\.id) == [newest.id, macA.id, macB.id])
         #expect(Set(result.map(\.id)).count == 3)
@@ -37,7 +37,11 @@ struct MobileNotificationFeedAggregationTests {
             )
         }
 
-        let result = MobileNotificationFeedAggregation().items(from: olderSources + [newerItems])
+        let result = MobileNotificationFeedAggregation().items(from:
+            (olderSources + [newerItems]).map { sourceItems in
+                MobileNotificationFeedSourceSnapshot(items: sourceItems)
+            }
+        )
 
         #expect(result.count == cap)
         #expect(result.allSatisfy { $0.macDeviceID == "new" })

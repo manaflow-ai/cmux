@@ -214,11 +214,57 @@ struct NotificationFeedHistoryTests {
         )
 
         #expect(await persistence.load() == .corrupt)
+        await persistence.persist(NotificationFeedHistorySnapshot(revision: 7, notifications: []))
         let decodable = try JSONDecoder().decode(
             NotificationFeedHistorySnapshot.self,
             from: Data(contentsOf: fileURL)
         )
         #expect(decodable.revision == 6)
+    }
+
+    @Test func persistFitsSnapshotToLoadBudgetBeforeWriting() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-persist-budget-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("history.json")
+        let workspaceID = UUID()
+        let largeRecord = NotificationFeedHistoryRecord(notification: notification(
+            workspaceID: workspaceID,
+            title: String(repeating: "t", count: 10_000),
+            body: String(repeating: "b", count: 10_000),
+            date: Date(timeIntervalSince1970: 1_700),
+            isRead: false
+        ))
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: 512
+        )
+
+        await persistence.persist(NotificationFeedHistorySnapshot(
+            revision: 1,
+            notifications: [largeRecord]
+        ))
+
+        let verifier = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: 512
+        )
+        let outcome = await verifier.load()
+        guard case .loaded(let loaded) = outcome else {
+            Issue.record("Expected persisted notification feed to stay loadable")
+            return
+        }
+        #expect(loaded.revision == 1)
+        #expect(loaded.notifications.isEmpty)
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let size = try #require(attributes[.size] as? NSNumber)
+        #expect(size.uint64Value <= 512)
     }
 
     @Test func persistenceReloadsAndRejectsAnOlderRevisionWrite() async throws {

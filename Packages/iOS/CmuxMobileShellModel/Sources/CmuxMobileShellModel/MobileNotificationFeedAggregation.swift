@@ -31,10 +31,30 @@ public struct MobileNotificationFeedAggregation: Sendable {
     ///
     /// Equal timestamps use ``MobileNotificationFeedItemID`` as a deterministic
     /// tie-breaker, so list order never flickers across repeated refreshes.
-    /// - Parameter snapshots: Per-Mac item arrays, already ordered newest first.
+    /// - Parameter snapshots: Per-Mac item arrays in any order.
     /// - Returns: A stable, reverse-chronological cross-Mac feed.
     public func items(from snapshots: [[MobileNotificationFeedItem]]) -> [MobileNotificationFeedItem] {
-        items(from: snapshots.map { MobileNotificationFeedSourceSnapshot(items: $0) })
+        guard Self.maxItemCount > 0 else { return [] }
+
+        var newestByIdentity: [MobileNotificationFeedItemID: MobileNotificationFeedItem] = [:]
+        newestByIdentity.reserveCapacity(min(
+            Self.maxItemCount,
+            snapshots.reduce(0) { partialResult, items in
+                partialResult + items.count
+            }
+        ))
+
+        for item in snapshots.joined() {
+            if let existing = newestByIdentity[item.id],
+               !Self.itemPrecedes(item, existing) {
+                continue
+            }
+            newestByIdentity[item.id] = item
+        }
+
+        let sorted = newestByIdentity.values.sorted(by: Self.itemPrecedes)
+        guard sorted.count > Self.maxItemCount else { return sorted }
+        return Array(sorted.prefix(Self.maxItemCount))
     }
 
     /// Lazily merges newest-first per-Mac snapshots and applies optional
@@ -88,6 +108,16 @@ public struct MobileNotificationFeedAggregation: Sendable {
         }
 
         return result
+    }
+
+    private static func itemPrecedes(
+        _ lhs: MobileNotificationFeedItem,
+        _ rhs: MobileNotificationFeedItem
+    ) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id < rhs.id
     }
 
     private struct Candidate: Sendable {

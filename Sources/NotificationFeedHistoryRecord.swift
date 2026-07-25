@@ -13,6 +13,30 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
     let createdAt: Date
     var isRead: Bool
 
+    init(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
+        title: String,
+        subtitle: String,
+        body: String,
+        createdAt: Date,
+        isRead: Bool
+    ) {
+        self.id = id
+        self.tabId = tabId
+        self.surfaceId = surfaceId
+        self.panelId = panelId
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.isRead = isRead
+    }
+
     init(notification: TerminalNotification) {
         id = notification.id
         tabId = notification.tabId
