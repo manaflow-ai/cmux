@@ -82,6 +82,96 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads() == ["active", "latest-ended"])
     }
 
+    @Test("Terminal lifecycle saturation never evicts another lane's admitted terminal state")
+    func terminalLifecycleDoesNotEvictAnotherLane() async throws {
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["active"])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 3
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: "active",
+            surfaceID: "surface-active"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: "stop-a",
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: "session-end-b",
+            surfaceID: "surface-b"
+        )))
+        #expect(!queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: "session-end-c",
+            surfaceID: "surface-c"
+        )))
+
+        await probe.release(payload: "active")
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [
+            "active", "stop-a", "session-end-b",
+        ])
+    }
+
+    @Test("Best-effort telemetry cannot monopolize resident delivery capacity")
+    func bestEffortTelemetryReservesResidentLifecycleCapacity() async throws {
+        let blockedTools = Set((1...3).map { "tool-\($0)" })
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: blockedTools)
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 4,
+            maximumResidentEvents: 4,
+            maximumIngressEvents: 4
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        for index in 1...3 {
+            #expect(queue.enqueue(try makeEvent(
+                agent: "cursor",
+                subcommand: "shell-exec",
+                payload: "tool-\(index)",
+                surfaceID: "surface-\(index)"
+            )))
+        }
+        try await probe.waitUntilStarted(count: 3)
+
+        #expect(!queue.enqueue(try makeEvent(
+            agent: "cursor",
+            subcommand: "shell-exec",
+            payload: "tool-4",
+            surfaceID: "surface-4"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: "lifecycle",
+            surfaceID: "surface-4"
+        )))
+        try await probe.waitUntilStarted(count: 4)
+        #expect(await probe.startedPayloads().contains("lifecycle"))
+
+        for payload in blockedTools {
+            await probe.release(payload: payload)
+        }
+        try await probe.waitUntilCompleted(count: 4)
+
+        #expect(queue.enqueue(try makeEvent(
+            agent: "cursor",
+            subcommand: "shell-exec",
+            payload: "tool-after-capacity",
+            surfaceID: "surface-4"
+        )))
+        try await probe.waitUntilCompleted(count: 5)
+    }
+
     @Test("Best-effort tool saturation cannot evict terminal lifecycle events")
     func toolIngressReservesTerminalLifecycleCapacityAndPreservesOrder() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["session-start"])
