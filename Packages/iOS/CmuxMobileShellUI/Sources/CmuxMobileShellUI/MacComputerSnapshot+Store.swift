@@ -26,7 +26,10 @@ extension MacComputerSnapshot {
         let connectionStatuses = store.macConnectionStatuses
         var snapshots = store.displayPairedMacs.map { mac in
             let presenceInstanceTag = instanceTag ?? mac.instanceTag
-            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
+            let aliases = store.pairedMacAliasIDs(
+                for: mac.macDeviceID,
+                instanceTag: mac.instanceTag
+            )
             let summary = store.presenceSummary(
                 for: mac.macDeviceID,
                 instanceTag: presenceInstanceTag
