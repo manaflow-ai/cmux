@@ -1,4 +1,5 @@
 import Darwin
+import SQLite3
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
@@ -434,6 +435,117 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCodexIndexedSubagentPublishesParentResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-indexed-subagent")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-indexed-subagent-\(UUID().uuidString)", isDirectory: true)
+        let repo = root.appendingPathComponent("cmuxterm-hq", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let parentSessionId = "019f652f-e1c3-7521-859c-5f57e33b4c80"
+        let childSessionId = "019f8c3d-72d0-7d91-8714-4bf5e541cb4d"
+        let ttyName = "ttys318"
+        let parentRollout = root.appendingPathComponent("rollout-parent-\(parentSessionId).jsonl")
+        let childRollout = root.appendingPathComponent("rollout-child-\(childSessionId).jsonl")
+
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try #"{"type":"session_meta","payload":{"id":"\#(parentSessionId)","source":"cli"}}"#
+            .write(to: parentRollout, atomically: true, encoding: .utf8)
+        try #"{"type":"session_meta","payload":{"id":"\#(childSessionId)","session_id":"\#(parentSessionId)","parent_thread_id":"\#(parentSessionId)","forked_from_id":"\#(parentSessionId)","source":{"subagent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}}"#
+            .write(to: childRollout, atomically: true, encoding: .utf8)
+        try writeCodexThreadIndex(
+            root: root,
+            threads: [
+                (parentSessionId, parentRollout.path, "user"),
+                (childSessionId, childRollout.path, "subagent"),
+            ]
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
+                )
+            case "surface.resume.set", "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["PWD"] = repo.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        for key in [
+            "ANTHROPIC_BASE_URL",
+            "CLAUDE_CONFIG_DIR",
+            "CODEX_HOME",
+            "CMUX_AGENT_LAUNCH_KIND",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+        ] {
+            environment.removeValue(forKey: key)
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(childSessionId)","cwd":"\#(repo.path)","transcript_path":"\#(childRollout.path)","hook_event_name":"UserPromptSubmit","prompt":"keep going"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let commands = state.snapshot()
+        let resumeRequests = commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let resume = try XCTUnwrap(
+            resumeRequests.last,
+            "the indexed child hook should publish its interactive parent: \(commands)"
+        )
+        XCTAssertEqual(resume["checkpoint_id"] as? String, parentSessionId)
+        XCTAssertTrue((resume["command"] as? String)?.contains(parentSessionId) == true)
+        XCTAssertFalse((resume["command"] as? String)?.contains(childSessionId) == true)
+    }
+
     private func writeCodexHookStore(
         root: URL,
         sessionId: String,
@@ -461,5 +573,49 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+    }
+
+    private func writeCodexThreadIndex(
+        root: URL,
+        threads: [(id: String, rolloutPath: String, source: String)]
+    ) throws {
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        var database: OpaquePointer?
+        guard sqlite3_open(codexHome.appendingPathComponent("state_5.sqlite").path, &database) == SQLITE_OK,
+              let database else {
+            throw NSError(domain: "CodexThreadIndexFixture", code: 1)
+        }
+        defer { sqlite3_close(database) }
+        guard sqlite3_exec(
+            database,
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, thread_source TEXT)",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK else {
+            throw NSError(domain: "CodexThreadIndexFixture", code: 2)
+        }
+
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        for thread in threads {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                database,
+                "INSERT INTO threads (id, rollout_path, thread_source) VALUES (?, ?, ?)",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK, let statement else {
+                throw NSError(domain: "CodexThreadIndexFixture", code: 3)
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_text(statement, 1, thread.id, -1, transient)
+            sqlite3_bind_text(statement, 2, thread.rolloutPath, -1, transient)
+            sqlite3_bind_text(statement, 3, thread.source, -1, transient)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw NSError(domain: "CodexThreadIndexFixture", code: 4)
+            }
+        }
     }
 }

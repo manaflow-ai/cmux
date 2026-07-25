@@ -11,7 +11,23 @@ extension CMUXCLI {
         transcriptPath: String?,
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> Bool {
-        guard kind == "codex" else { return true }
+        guard let sessionId = normalizedHookValue(sessionId) else { return false }
+        return agentHookCanonicalResumeSessionId(
+            kind: kind,
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            launchCommand: launchCommand
+        ) == sessionId
+    }
+
+    func agentHookCanonicalResumeSessionId(
+        kind: String,
+        sessionId: String,
+        transcriptPath: String?,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> String? {
+        guard let sessionId = normalizedHookValue(sessionId) else { return nil }
+        guard kind == "codex" else { return sessionId }
         let environment = ProcessInfo.processInfo.environment
         let codexHome = normalizedHookValue(launchCommand?.environment?["CODEX_HOME"])
             ?? normalizedHookValue(environment["CODEX_HOME"])
@@ -23,7 +39,7 @@ extension CMUXCLI {
             sessionId: sessionId,
             transcriptPath: transcriptPath,
             codexHome: codexHome
-        ) != nil
+        )?.sessionId
     }
 
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {

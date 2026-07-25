@@ -18,7 +18,11 @@ struct CodexSessionResumeVerifierTests {
             transcriptPath: nil,
             codexHome: fixture.codexHome.path
         )
-        #expect(evidence == CodexSessionResumeEvidence(rolloutPath: rollout.path, source: .threadIndex))
+        #expect(evidence == CodexSessionResumeEvidence(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            source: .threadIndex
+        ))
     }
 
     @Test func unindexedReviewIdentifierIsNotResumable() throws {
@@ -62,6 +66,49 @@ struct CodexSessionResumeVerifierTests {
         )
 
         #expect(evidence?.rolloutPath == parentRollout.path)
+        #expect(evidence?.sessionId == parentSessionId)
+    }
+
+    @Test func indexedAutomationThreadIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f936f-8626-79a2-8519-5d60f06740cf"
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "automation"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
+    @Test func indexedSubagentWithoutIndexedParentIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let parentSessionId = "019f652f-e1c3-7521-859c-5f57e33b4c80"
+        let childSessionId = "019f8c3d-72d0-7d91-8714-4bf5e541cb4d"
+        let childRollout = try fixture.writeRollout(
+            sessionId: childSessionId,
+            parentSessionId: parentSessionId
+        )
+        try fixture.insertThread(
+            sessionId: childSessionId,
+            rolloutPath: childRollout.path,
+            threadSource: "subagent"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: childSessionId,
+            transcriptPath: childRollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
     }
 
     @Test func legacyRolloutRequiresMatchingSessionMetadata() throws {

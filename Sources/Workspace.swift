@@ -1021,13 +1021,18 @@ extension Workspace {
         _ restorableAgent: SessionRestorableAgentSnapshot?,
         codexResumeVerifier: CodexSessionResumeVerifier
     ) -> SessionRestorableAgentSnapshot? {
-        guard let restorableAgent, restorableAgent.kind == .codex else { return restorableAgent }
-        return codexResumeVerifierOwnsSession(
+        guard var restorableAgent, restorableAgent.kind == .codex else { return restorableAgent }
+        guard let evidence = codexResumeEvidence(
             restorableAgent.sessionId,
             environment: restorableAgent.launchCommand?.environment,
             transcriptPath: restorableAgent.transcriptPath,
             verifier: codexResumeVerifier
-        ) ? restorableAgent : nil
+        ) else {
+            return nil
+        }
+        restorableAgent.sessionId = evidence.sessionId
+        restorableAgent.transcriptPath = evidence.rolloutPath
+        return restorableAgent
     }
 
     nonisolated private static func codexResumeVerifierOwnsSession(
@@ -1036,6 +1041,23 @@ extension Workspace {
         transcriptPath: String? = nil,
         verifier: CodexSessionResumeVerifier
     ) -> Bool {
+        guard let sessionId = normalizedResumeBindingValue(sessionId) else {
+            return false
+        }
+        return codexResumeEvidence(
+            sessionId,
+            environment: environment,
+            transcriptPath: transcriptPath,
+            verifier: verifier
+        )?.sessionId == sessionId
+    }
+
+    nonisolated private static func codexResumeEvidence(
+        _ sessionId: String,
+        environment: [String: String]?,
+        transcriptPath: String? = nil,
+        verifier: CodexSessionResumeVerifier
+    ) -> CodexSessionResumeEvidence? {
         let codexHome = normalizedResumeBindingValue(environment?["CODEX_HOME"])
             ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
                 .appendingPathComponent(".codex", isDirectory: true)
@@ -1044,7 +1066,7 @@ extension Workspace {
             sessionId: sessionId,
             transcriptPath: transcriptPath,
             codexHome: codexHome
-        ) != nil
+        )
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {

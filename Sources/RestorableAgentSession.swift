@@ -1156,18 +1156,21 @@ struct RestorableAgentSessionIndex: Sendable {
                     kind: kind
                 )
                 if kind == .codex, normalizedNonEmptyValue(effectiveRecord.launchCommand?.source)?.lowercased() == "environment", normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CODEX_HOME"]) == nil, (normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil) { effectiveRecord.launchCommand = nil }
+                guard let providerVerifiedRecord = providerVerifiedHookRecord(
+                    effectiveRecord,
+                    kind: kind,
+                    homeDirectory: homeDirectory,
+                    fileManager: fileManager,
+                    claudeTranscriptLookup: claudeTranscriptLookup,
+                    codexResumeVerifier: codexResumeVerifier
+                ) else {
+                    continue
+                }
+                effectiveRecord = providerVerifiedRecord
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
-                      let panelId = UUID(uuidString: effectiveRecord.surfaceId),
-                      hookRecordIsRestorable(
-                          effectiveRecord,
-                          kind: kind,
-                          homeDirectory: homeDirectory,
-                          fileManager: fileManager,
-                          claudeTranscriptLookup: claudeTranscriptLookup,
-                          codexResumeVerifier: codexResumeVerifier
-                      ) else {
+                      let panelId = UUID(uuidString: effectiveRecord.surfaceId) else {
                     continue
                 }
 
@@ -1423,39 +1426,49 @@ struct RestorableAgentSessionIndex: Sendable {
         return launchCommand
     }
 
-    private static func hookRecordIsRestorable(
+    private static func providerVerifiedHookRecord(
         _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         homeDirectory: String,
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache,
         codexResumeVerifier: CodexSessionResumeVerifier
-    ) -> Bool {
+    ) -> RestorableAgentHookSessionRecord? {
         if kind == .codex {
-            guard record.isRestorable != false else { return false }
-            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+            guard record.isRestorable != false else { return nil }
+            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return nil }
             let codexHome = normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"])
                 ?? URL(fileURLWithPath: homeDirectory, isDirectory: true)
                     .appendingPathComponent(".codex", isDirectory: true)
                     .path
-            return codexResumeVerifier.evidence(
+            guard let evidence = codexResumeVerifier.evidence(
                 sessionId: record.sessionId,
                 transcriptPath: record.transcriptPath,
                 codexHome: codexHome,
                 fileManager: fileManager
-            ) != nil
+            ) else {
+                return nil
+            }
+            var resolved = record
+            resolved.sessionId = evidence.sessionId
+            resolved.transcriptPath = evidence.rolloutPath
+            return resolved
         }
         guard kind == .claude else {
-            return record.isRestorable != false
+            return record.isRestorable != false ? record : nil
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
                atPath: (transcriptPath as NSString).expandingTildeInPath,
                fileManager: fileManager
            ) {
-            return true
+            return record
         }
-        return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+        return claudeTranscriptExists(
+            for: record,
+            fileManager: fileManager,
+            lookup: claudeTranscriptLookup
+        ) ? record : nil
     }
 
     private static func resolvedClaudeWorkflowRecord(

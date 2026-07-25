@@ -27692,13 +27692,16 @@ struct CMUXCLI {
         transcriptPath: String? = nil,
         observedPermissionMode: String? = nil
     ) {
-        if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand)
-            || !agentHookProviderOwnsResumeTarget(
+        guard agentHookSessionHasDurableResumeEvidence(
+            kind: kind,
+            launchCommand: launchCommand
+        ),
+              let resumeSessionId = agentHookCanonicalResumeSessionId(
                 kind: kind,
                 sessionId: sessionId,
                 transcriptPath: transcriptPath,
                 launchCommand: launchCommand
-            ) {
+              ) else {
             clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
             return
         }
@@ -27711,7 +27714,7 @@ struct CMUXCLI {
         )
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
-            sessionId: sessionId,
+            sessionId: resumeSessionId,
             launchCommand: launchCommand,
             workingDirectory: resumeWorkingDirectory,
             environment: resumeEnvironment,
@@ -27730,7 +27733,7 @@ struct CMUXCLI {
             "surface_id": surfaceId,
             "name": displayName,
             "kind": kind,
-            "checkpoint_id": sessionId,
+            "checkpoint_id": resumeSessionId,
             "source": "agent-hook",
             "command": command,
             "auto_resume": true

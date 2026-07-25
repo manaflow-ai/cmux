@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -189,6 +190,63 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, repo.path)
     }
 
+    func testIndexedCodexSubagentRecordRestoresInteractiveParent() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-subagent-root-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let repo = root.appendingPathComponent("cmuxterm-hq", isDirectory: true)
+        let parentSessionId = "019f652f-e1c3-7521-859c-5f57e33b4c80"
+        let childSessionId = "019f8c3d-72d0-7d91-8714-4bf5e541cb4d"
+        let parentRollout = root.appendingPathComponent("rollout-parent-\(parentSessionId).jsonl")
+        let childRollout = root.appendingPathComponent("rollout-child-\(childSessionId).jsonl")
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        try #"{"type":"session_meta","payload":{"id":"\#(parentSessionId)","source":"cli"}}"#
+            .write(to: parentRollout, atomically: true, encoding: .utf8)
+        try #"{"type":"session_meta","payload":{"id":"\#(childSessionId)","session_id":"\#(parentSessionId)","parent_thread_id":"\#(parentSessionId)","source":{"subagent":{"thread_spawn":{"parent_thread_id":"\#(parentSessionId)","depth":1}}}}}"#
+            .write(to: childRollout, atomically: true, encoding: .utf8)
+        try writeCodexThreadIndex(
+            root: root,
+            threads: [
+                (parentSessionId, parentRollout.path, "user"),
+                (childSessionId, childRollout.path, "subagent"),
+            ]
+        )
+        try writeHookStore(
+            root: root,
+            sessions: [
+                childSessionId: codexHookRecord(
+                    sessionId: childSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: repo.path,
+                    transcriptPath: childRollout.path,
+                    updatedAt: 10,
+                    launchCommand: [
+                        "launcher": "codex",
+                        "arguments": [],
+                        "workingDirectory": repo.path,
+                        "capturedAt": 10,
+                        "source": "default",
+                    ]
+                ),
+            ]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: workspaceId, panelId: panelId)
+        )
+        XCTAssertEqual(snapshot.sessionId, parentSessionId)
+        XCTAssertEqual(snapshot.transcriptPath, parentRollout.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resumeCommand.contains(parentSessionId), resumeCommand)
+        XCTAssertFalse(resumeCommand.contains(childSessionId), resumeCommand)
+    }
+
     private func codexHookRecord(
         sessionId: String,
         workspaceId: UUID,
@@ -219,5 +277,49 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+    }
+
+    private func writeCodexThreadIndex(
+        root: URL,
+        threads: [(id: String, rolloutPath: String, source: String)]
+    ) throws {
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        var database: OpaquePointer?
+        guard sqlite3_open(codexHome.appendingPathComponent("state_5.sqlite").path, &database) == SQLITE_OK,
+              let database else {
+            throw NSError(domain: "CodexThreadIndexFixture", code: 1)
+        }
+        defer { sqlite3_close(database) }
+        guard sqlite3_exec(
+            database,
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, thread_source TEXT)",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK else {
+            throw NSError(domain: "CodexThreadIndexFixture", code: 2)
+        }
+
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        for thread in threads {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                database,
+                "INSERT INTO threads (id, rollout_path, thread_source) VALUES (?, ?, ?)",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK, let statement else {
+                throw NSError(domain: "CodexThreadIndexFixture", code: 3)
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_text(statement, 1, thread.id, -1, transient)
+            sqlite3_bind_text(statement, 2, thread.rolloutPath, -1, transient)
+            sqlite3_bind_text(statement, 3, thread.source, -1, transient)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw NSError(domain: "CodexThreadIndexFixture", code: 4)
+            }
+        }
     }
 }
