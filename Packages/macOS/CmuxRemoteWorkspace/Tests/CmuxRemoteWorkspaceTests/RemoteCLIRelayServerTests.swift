@@ -32,9 +32,12 @@ private final class RecordingRelayRewriter: RemoteRelayCommandRewriting, @unchec
 /// control socket: reads the request to EOF, records it, writes `response`.
 private final class FakeUnixSocketServer: @unchecked Sendable {
     let path: String
-    private let response: Data
+    private let response: Data?
     private let lock = NSLock()
     private var _request = Data()
+    private let requestReceived = DispatchSemaphore(value: 0)
+    private let clientHangupProbe = DispatchSemaphore(value: 0)
+    private let clientHungUp = DispatchSemaphore(value: 0)
     private let listenFD: Int32
 
     var request: Data {
@@ -43,7 +46,7 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         return _request
     }
 
-    init(response: Data) throws {
+    init(response: Data?) throws {
         self.response = response
         path = NSTemporaryDirectory() + "cmux-relay-test-\(UUID().uuidString.prefix(8)).sock"
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -78,6 +81,16 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         Thread.detachNewThread { [weak self] in
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
+            var noSigPipe: Int32 = 1
+            withUnsafePointer(to: &noSigPipe) { pointer in
+                _ = setsockopt(
+                    client,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    pointer,
+                    socklen_t(MemoryLayout<Int32>.size)
+                )
+            }
             var scratch = [UInt8](repeating: 0, count: 4096)
             while true {
                 let count = Darwin.read(client, &scratch, scratch.count)
@@ -89,11 +102,34 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
                 }
                 break
             }
-            self?.response.withUnsafeBytes { raw in
-                _ = Darwin.write(client, raw.baseAddress, raw.count)
+            self?.requestReceived.signal()
+            if let response = self?.response {
+                response.withUnsafeBytes { raw in
+                    _ = Darwin.write(client, raw.baseAddress, raw.count)
+                }
+            } else {
+                self?.clientHangupProbe.wait()
+                let deadline = Date().addingTimeInterval(2)
+                while Date() < deadline {
+                    var probe: UInt8 = 0
+                    if Darwin.write(client, &probe, 1) <= 0 {
+                        self?.clientHungUp.signal()
+                        break
+                    }
+                    usleep(10_000)
+                }
             }
             Darwin.close(client)
         }
+    }
+
+    func waitForRequest(timeout: TimeInterval = 5) -> Bool {
+        requestReceived.wait(timeout: .now() + timeout) == .success
+    }
+
+    func waitForClientHangup(timeout: TimeInterval = 5) -> Bool {
+        clientHangupProbe.signal()
+        return clientHungUp.wait(timeout: .now() + timeout) == .success
     }
 
     func close() {
@@ -198,6 +234,38 @@ struct RemoteCLIRelayServerTests {
         )
     }
 
+    @Test("relay sessions are capacity bounded")
+    func relaySessionsAreCapacityBounded() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var clients: [RelayTestClient] = []
+        defer {
+            for client in clients {
+                client.cancel()
+            }
+        }
+
+        let expectedSessionCapacity = 16
+        for _ in 0..<expectedSessionCapacity {
+            let client = RelayTestClient(port: port)
+            clients.append(client)
+            #expect(client.wait { data, _ in data.contains(0x0A) })
+        }
+
+        let excessClient = RelayTestClient(port: port)
+        clients.append(excessClient)
+        #expect(
+            excessClient.wait { _, closed in closed },
+            "The relay must reject work above its fixed session capacity"
+        )
+    }
+
     @Test("an invalid relay token hex is rejected at init (code 7)")
     func invalidTokenRejected() {
         #expect(throws: (any Error).self) {
@@ -263,6 +331,38 @@ struct RemoteCLIRelayServerTests {
         #expect(call.surface.isEmpty)
     }
 
+    @Test("stopping the relay interrupts an outstanding local socket wait")
+    func stopInterruptsOutstandingLocalSocketWait() throws {
+        let unixServer = try FakeUnixSocketServer(response: nil)
+        defer { unixServer.close() }
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        try authenticate(client)
+        let decisionRequest = try JSONSerialization.data(withJSONObject: [
+            "id": "feed-decision",
+            "method": "feed.push",
+            "params": ["wait_timeout_seconds": 120],
+        ]) + Data([0x0A])
+        client.send(decisionRequest)
+        #expect(unixServer.waitForRequest())
+
+        server.stop()
+
+        #expect(
+            unixServer.waitForClientHangup(timeout: 2),
+            "Relay teardown must close the local forwarding socket immediately"
+        )
+    }
+
     @Test("a wrong MAC gets ok:false and the connection closed")
     func wrongMACRejected() throws {
         let unixServer = try FakeUnixSocketServer(response: Data())
@@ -285,6 +385,23 @@ struct RemoteCLIRelayServerTests {
 
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"ok\":false") && closed
+        })
+    }
+
+    private func authenticate(_ client: RelayTestClient) throws {
+        #expect(client.wait { data, _ in data.contains(0x0A) })
+        let challenge = try #require(client.receivedJSONLines().first)
+        let nonce = try #require(challenge["nonce"] as? String)
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let message = Data("relay_id=relay-1\nnonce=\(nonce)\nversion=1".utf8)
+        let mac = RemoteCLIRelayServer.Session.authMAC(token: token, message: message)
+        let auth: [String: Any] = [
+            "relay_id": "relay-1",
+            "mac": mac.map { String(format: "%02x", $0) }.joined(),
+        ]
+        client.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+        #expect(client.wait { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"ok\":true")
         })
     }
 }
