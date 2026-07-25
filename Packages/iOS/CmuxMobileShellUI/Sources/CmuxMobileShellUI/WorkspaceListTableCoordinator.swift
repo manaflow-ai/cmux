@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -319,7 +320,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             configuration.items.indices.contains(sourceIndexPath.row),
             configuration.items[sourceIndexPath.row] == draggedItem,
             isMovable(draggedItem)
-        else { return }
+        else {
+            MobileDebugLog.anchormux(
+                "move.performDrop REJECTED reorder=\(configuration.enablesReorder) items=\(coordinator.items.count) source=\(String(describing: coordinator.items.first?.sourceIndexPath?.row)) dest=\(String(describing: coordinator.destinationIndexPath?.row)) dragged=\((coordinator.items.first?.dragItem.localObject as? WorkspaceListTableItem)?.id ?? "nil")"
+            )
+            return
+        }
 
         let chromePrefixCount = chromePrefixCount
         let source = sourceIndexPath.row - chromePrefixCount
@@ -332,7 +338,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             source < movableItemCount,
             destination >= 0,
             destination <= movableItemCount
-        else { return }
+        else {
+            MobileDebugLog.anchormux(
+                "move.performDrop OUT-OF-RANGE source=\(source) dest=\(destination) movable=\(movableItemCount)"
+            )
+            return
+        }
 
         let swiftUIDestination = destination > source
             ? min(destination + 1, movableItemCount)

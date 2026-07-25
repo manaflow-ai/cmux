@@ -3,6 +3,15 @@ import Foundation
 extension TerminalController {
     /// Mobile-gated workspace reorder/group move.
     func v2MobileWorkspaceMove(params: [String: Any]) -> V2CallResult {
+#if DEBUG
+        cmuxDebugLog(
+            "mobile.move request workspace=\(v2RawString(params, "workspace_id") ?? "nil") " +
+            "group=\(v2RawString(params, "group_id") ?? "nil") " +
+            "before=\(v2RawString(params, "before_workspace_id") ?? "nil") " +
+            "window=\(v2RawString(params, "window_id") ?? "nil") " +
+            "moveGroup=\(v2Bool(params, "move_group") ?? false)"
+        )
+#endif
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -129,24 +138,39 @@ extension TerminalController {
             }
 
             if let beforeWorkspaceID {
-                _ = tabManager.reorderWorkspace(tabId: workspaceID, before: beforeWorkspaceID)
+                let applied = tabManager.reorderWorkspace(tabId: workspaceID, before: beforeWorkspaceID)
+#if DEBUG
+                cmuxDebugLog("mobile.move reorder(before:) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6)) before=\(beforeWorkspaceID.uuidString.suffix(6))")
+#endif
             } else if let targetIndex {
-                _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: targetIndex)
+                let applied = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: targetIndex)
+#if DEBUG
+                cmuxDebugLog("mobile.move reorder(toIndex:) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6)) index=\(targetIndex)")
+#endif
             } else if let targetGroupID {
                 let lastMemberIndex = tabManager.tabs.lastIndex {
                     $0.id != workspaceID && $0.groupId == targetGroupID
                 }
                 if let lastMemberIndex {
-                    _ = tabManager.reorderWorkspace(
+                    let applied = tabManager.reorderWorkspace(
                         tabId: workspaceID,
                         toIndex: tabManager.tabs.index(after: lastMemberIndex)
                     )
+#if DEBUG
+                    cmuxDebugLog("mobile.move reorder(groupEnd) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6)) group=\(targetGroupID.uuidString.suffix(6))")
+#endif
                 }
             } else {
-                _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: tabManager.tabs.endIndex)
+                let applied = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: tabManager.tabs.endIndex)
+#if DEBUG
+                cmuxDebugLog("mobile.move reorder(end) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6))")
+#endif
             }
         }
         if let mutationError {
+#if DEBUG
+            cmuxDebugLog("mobile.move REJECTED \(String(describing: mutationError))")
+#endif
             return mutationError
         }
 

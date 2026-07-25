@@ -1,3 +1,4 @@
+import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import Foundation
 import SwiftUI
@@ -119,7 +120,10 @@ extension WorkspaceListView {
     }
 
     func moveGroupedRows(from sourceOffsets: IndexSet, to destination: Int) {
-        guard enablesWorkspaceReorder else { return }
+        guard enablesWorkspaceReorder else {
+            MobileDebugLog.anchormux("move.drop grouped BLOCKED enablesWorkspaceReorder=false")
+            return
+        }
         let sourceItems = displayedGroupedListItems
         let sourceWorkspaces = displayedGroupedWorkspaces
         guard let intent = sourceItems.moveIntent(
@@ -128,8 +132,14 @@ extension WorkspaceListView {
             sourceOffsets: sourceOffsets,
             destination: destination
         ) else {
+            MobileDebugLog.anchormux(
+                "move.drop grouped NO-INTENT source=\(sourceOffsets.first ?? -1) dest=\(destination) items=\(sourceItems.count)"
+            )
             return
         }
+        MobileDebugLog.anchormux(
+            "move.drop grouped source=\(sourceOffsets.first ?? -1) dest=\(destination) -> group=\(intent.groupID?.rawValue.suffix(6) ?? "root") before=\(intent.beforeWorkspaceID?.rawValue.suffix(6) ?? "end") movesGroup=\(intent.movesGroup)"
+        )
         guard let sourceIndex = sourceOffsets.first else {
             return
         }
@@ -212,15 +222,18 @@ extension WorkspaceListView {
             // Same ordering, predecessor-failure, and epoch contract as
             // moveFlatRows.
             if let previousMove, await previousMove.value == false {
+                MobileDebugLog.anchormux("move.chain ABORT predecessor-failed id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
             guard epoch == workspaceMoveEpoch else {
+                MobileDebugLog.anchormux("move.chain ABORT epoch-superseded id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
             let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
             pendingWorkspaceMoveCount -= 1
+            MobileDebugLog.anchormux("move.chain accepted=\(accepted) id=\(movedWorkspaceID.rawValue.suffix(6))")
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
                 pendingWorkspaceMoveTask = nil
