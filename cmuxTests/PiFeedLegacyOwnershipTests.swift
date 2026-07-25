@@ -11,7 +11,7 @@ import Testing
 extension PiFeedOwnershipTests {
     @MainActor
     @Test
-    func acknowledgedLegacyEventPreservesStaleWorkspaceMetadata() async {
+    func acknowledgedLegacyEventPreservesStaleWorkspaceMetadata() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -25,18 +25,13 @@ extension PiFeedOwnershipTests {
             }
             appDelegate.tabManager = nil
             AppDelegate.shared = previousAppDelegate
+            CmuxEventBus.shared.resetForTesting()
         }
 
         let staleWorkspaceId = UUID().uuidString
-        var insertedEvent: WorkstreamEvent?
-        let store = WorkstreamStore(
-            ringCapacity: 10,
-            titleProvider: { event in
-                insertedEvent = event
-                return nil
-            }
-        )
+        let store = WorkstreamStore(ringCapacity: 10)
         FeedCoordinator.shared.install(store: store)
+        CmuxEventBus.shared.resetForTesting()
         let event = WorkstreamEvent(
             sessionId: "codex-legacy-stale-workspace",
             hookEventName: .postToolUse,
@@ -51,9 +46,10 @@ extension PiFeedOwnershipTests {
             Issue.record("legacy non-Pi Feed event with stale ambient metadata was rejected")
             return
         }
+        let receivedPayload = try #require(Self.receivedFeedEventPayloads().first)
         #expect(store.items.count == 1)
-        #expect(insertedEvent?.workspaceId == staleWorkspaceId)
-        #expect(insertedEvent?.surfaceId == nil)
+        #expect(receivedPayload["workspace_id"] as? String == staleWorkspaceId)
+        #expect(receivedPayload["surface_id"] is NSNull)
     }
 
     @MainActor

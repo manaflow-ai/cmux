@@ -30,17 +30,12 @@ struct PiFeedOwnershipTests {
             }
             appDelegate.tabManager = nil
             AppDelegate.shared = previousAppDelegate
+            CmuxEventBus.shared.resetForTesting()
         }
 
-        var insertedEvent: WorkstreamEvent?
-        let store = WorkstreamStore(
-            ringCapacity: 10,
-            titleProvider: { event in
-                insertedEvent = event
-                return nil
-            }
-        )
+        let store = WorkstreamStore(ringCapacity: 10)
         FeedCoordinator.shared.install(store: store)
+        CmuxEventBus.shared.resetForTesting()
 
         let event = WorkstreamEvent(
             sessionId: "pi-live-ownership-test",
@@ -60,9 +55,10 @@ struct PiFeedOwnershipTests {
             return
         }
 
+        let receivedPayload = try #require(Self.receivedFeedEventPayloads().first)
         #expect(store.items.contains(where: { $0.id == itemId }))
-        #expect(insertedEvent?.workspaceId == liveWorkspace.id.uuidString)
-        #expect(insertedEvent?.surfaceId == surfaceId.uuidString)
+        #expect(receivedPayload["workspace_id"] as? String == liveWorkspace.id.uuidString)
+        #expect(receivedPayload["surface_id"] as? String == surfaceId.uuidString)
     }
 
     @MainActor
@@ -121,17 +117,12 @@ struct PiFeedOwnershipTests {
             }
             appDelegate.tabManager = nil
             AppDelegate.shared = previousAppDelegate
+            CmuxEventBus.shared.resetForTesting()
         }
 
-        var insertedEvents: [WorkstreamEvent] = []
-        let store = WorkstreamStore(
-            ringCapacity: 100,
-            titleProvider: { event in
-                insertedEvents.append(event)
-                return nil
-            }
-        )
+        let store = WorkstreamStore(ringCapacity: 100)
         FeedCoordinator.shared.install(store: store)
+        CmuxEventBus.shared.resetForTesting()
         let events = (0..<64).map { index in
             WorkstreamEvent(
                 sessionId: "pi-live-batch-\(index)",
@@ -157,9 +148,14 @@ struct PiFeedOwnershipTests {
         #expect(payload["workspace_id"] as? String == liveWorkspace.id.uuidString)
         #expect(payload["surface_id"] as? String == surfaceId.uuidString)
         #expect(store.items.count == 64)
-        #expect(insertedEvents.count == 64)
-        #expect(insertedEvents.allSatisfy { $0.workspaceId == liveWorkspace.id.uuidString })
-        #expect(insertedEvents.allSatisfy { $0.surfaceId == surfaceId.uuidString })
+        let receivedPayloads = Self.receivedFeedEventPayloads()
+        #expect(receivedPayloads.count == 64)
+        #expect(receivedPayloads.allSatisfy {
+            $0["workspace_id"] as? String == liveWorkspace.id.uuidString
+        })
+        #expect(receivedPayloads.allSatisfy {
+            $0["surface_id"] as? String == surfaceId.uuidString
+        })
     }
 
     @MainActor
@@ -285,19 +281,14 @@ struct PiFeedOwnershipTests {
         let attentionEvents = PiFeedEventRecorder()
         let acceptedEvents = PiFeedEventRecorder()
         let requestId = "pi-live-blocking-request"
-        let store = WorkstreamStore(
-            ringCapacity: 10,
-            titleProvider: { event in
-                insertedEvents.record(event)
-                return nil
-            }
-        )
+        let store = WorkstreamStore(ringCapacity: 10)
         FeedCoordinator.shared.install(store: store)
         FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
             attentionEvents.record(event)
         }
-        FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+        FeedCoordinatorTestHooks.afterBlockingEventIngested = { event, ingestedRequestId in
             guard ingestedRequestId == requestId else { return }
+            insertedEvents.record(event)
             FeedCoordinator.shared.deliverReply(
                 requestId: ingestedRequestId,
                 decision: .permission(.once)
@@ -359,7 +350,7 @@ struct PiFeedOwnershipTests {
             requestId: "pi-unavailable-blocking-request"
         )
         let result = await Task.detached {
-            FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0.01)
+            FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 1)
         }.value
 
         guard case .notFound = result else {
@@ -457,13 +448,11 @@ struct PiFeedOwnershipTests {
             tabManager.closeWorkspace(workspace)
             appDelegate.tabManager = nil
             AppDelegate.shared = previousAppDelegate
+            CmuxEventBus.shared.resetForTesting()
         }
-        var insertedEvent: WorkstreamEvent?
-        let store = WorkstreamStore(ringCapacity: 10) {
-            insertedEvent = $0
-            return nil
-        }
+        let store = WorkstreamStore(ringCapacity: 10)
         FeedCoordinator.shared.install(store: store)
+        CmuxEventBus.shared.resetForTesting()
         let event = WorkstreamEvent(
             sessionId: "pi-live-workspace-only",
             hookEventName: .postToolUse,
@@ -477,11 +466,19 @@ struct PiFeedOwnershipTests {
             Issue.record("live workspace-only claim was not acknowledged")
             return
         }
+        let receivedPayload = try #require(Self.receivedFeedEventPayloads().first)
         #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
         #expect(payload["surface_id"] == nil)
-        #expect(insertedEvent?.workspaceId == workspace.id.uuidString)
-        #expect(insertedEvent?.surfaceId == nil)
+        #expect(receivedPayload["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(receivedPayload["surface_id"] is NSNull)
         #expect(store.items.count == 1)
+    }
+
+    static func receivedFeedEventPayloads() -> [[String: Any]] {
+        CmuxEventBus.shared.retainedSnapshot().compactMap { event in
+            guard event["name"] as? String == "feed.item.received" else { return nil }
+            return event["payload"] as? [String: Any]
+        }
     }
 
     static func ingestAcknowledgedOffMainActor(
