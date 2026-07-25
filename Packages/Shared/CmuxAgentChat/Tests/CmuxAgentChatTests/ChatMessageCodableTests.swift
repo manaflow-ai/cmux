@@ -100,6 +100,60 @@ struct ChatMessageCodableTests {
         #expect(kind["command"] as? String == "ls")
     }
 
+    @Test("attachment aliases preserve preview metadata")
+    func attachmentAliasesPreservePreviewMetadata() throws {
+        let json = """
+        {"id": "m12", "seq": 12, "role": "user",
+         "timestamp": "2026-06-11T00:00:00Z",
+         "kind": {"type": "attachment", "kind": "image",
+                  "fileName": "frame.png", "path": "/tmp/frame.png",
+                  "mediaType": "image/png", "byteCount": 456789,
+                  "pixelWidth": 1600, "pixelHeight": 900}}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decoded = try decoder.decode(ChatMessage.self, from: Data(json.utf8))
+        guard case .attachment(let attachment) = decoded.kind else {
+            Issue.record("Expected attachment, got \(decoded.kind)")
+            return
+        }
+        #expect(attachment.media == .image)
+        #expect(attachment.displayName == "frame.png")
+        #expect(attachment.hostPath == "/tmp/frame.png")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.byteCount == 456_789)
+        #expect(attachment.pixelWidth == 1_600)
+        #expect(attachment.pixelHeight == 900)
+    }
+
+    @Test("attachment media can be inferred from MIME type and dimensions from width aliases")
+    func attachmentMediaInferredFromMetadata() throws {
+        let json = """
+        {"id": "m13", "seq": 13, "role": "user",
+         "timestamp": "2026-06-11T00:00:00Z",
+         "kind": {"type": "attachment",
+                  "displayName": "screenshot.webp", "hostPath": "/tmp/screenshot.webp",
+                  "mime_type": "image/webp", "size": 2048,
+                  "width": 1024, "height": 768}}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decoded = try decoder.decode(ChatMessage.self, from: Data(json.utf8))
+        guard case .attachment(let attachment) = decoded.kind else {
+            Issue.record("Expected attachment, got \(decoded.kind)")
+            return
+        }
+        #expect(attachment.media == .image)
+        #expect(attachment.displayName == "screenshot.webp")
+        #expect(attachment.hostPath == "/tmp/screenshot.webp")
+        #expect(attachment.mimeType == "image/webp")
+        #expect(attachment.byteCount == 2_048)
+        #expect(attachment.pixelWidth == 1_024)
+        #expect(attachment.pixelHeight == 768)
+    }
+
     @Test("unknown kind decodes as unsupported, preserving the raw type")
     func unknownKindFailsOpen() throws {
         let json = """

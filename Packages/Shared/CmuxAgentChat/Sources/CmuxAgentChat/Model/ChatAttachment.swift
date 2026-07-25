@@ -1,3 +1,5 @@
+import Foundation
+
 /// An image or file the user attached to a prompt.
 ///
 /// The binary payload travels out-of-band (image paste RPC); the transcript
@@ -71,16 +73,138 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         case pixelHeight = "pixel_height"
     }
 
+    fileprivate enum AliasCodingKeys: String, CodingKey {
+        case media
+        case kind
+        case displayName
+        case fileName
+        case file_name
+        case name
+        case hostPath
+        case path
+        case file_path
+        case mimeType
+        case mediaType
+        case media_type
+        case byteCount
+        case size
+        case pixelWidth
+        case width
+        case pixelHeight
+        case height
+    }
+
     /// Decodes both current attachment metadata and older payloads that only
-    /// carried media, display name, and host path.
+    /// carried media, display name, and host path. Datasource aliases are
+    /// intentionally normalized here so renderers can reserve image preview
+    /// geometry before thumbnail bytes arrive.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        media = try container.decode(Media.self, forKey: .media)
-        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
-        hostPath = try container.decodeIfPresent(String.self, forKey: .hostPath)
-        mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+        let aliases = try decoder.container(keyedBy: AliasCodingKeys.self)
+
+        let decodedDisplayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+            ?? aliases.decodeString(forKey: .displayName)
+            ?? aliases.decodeString(forKey: .fileName)
+            ?? aliases.decodeString(forKey: .file_name)
+            ?? aliases.decodeString(forKey: .name)
+        let decodedHostPath = try container.decodeIfPresent(String.self, forKey: .hostPath)
+            ?? aliases.decodeString(forKey: .hostPath)
+            ?? aliases.decodeString(forKey: .path)
+            ?? aliases.decodeString(forKey: .file_path)
+        let decodedMimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+            ?? aliases.decodeString(forKey: .mimeType)
+            ?? aliases.decodeString(forKey: .mediaType)
+            ?? aliases.decodeString(forKey: .media_type)
+
+        media = (try? container.decode(Media.self, forKey: .media))
+            ?? aliases.decodeMedia(forKey: .media)
+            ?? aliases.decodeMedia(forKey: .kind)
+            ?? Self.inferredMedia(
+                mimeType: decodedMimeType,
+                displayName: decodedDisplayName,
+                hostPath: decodedHostPath
+            )
+            ?? .file
+        displayName = decodedDisplayName
+        hostPath = decodedHostPath
+        mimeType = decodedMimeType
         byteCount = try container.decodeIfPresent(Int.self, forKey: .byteCount)
+            ?? aliases.decodeInt(forKey: .byteCount)
+            ?? aliases.decodeInt(forKey: .size)
         pixelWidth = try container.decodeIfPresent(Int.self, forKey: .pixelWidth)
+            ?? aliases.decodeInt(forKey: .pixelWidth)
+            ?? aliases.decodeInt(forKey: .width)
         pixelHeight = try container.decodeIfPresent(Int.self, forKey: .pixelHeight)
+            ?? aliases.decodeInt(forKey: .pixelHeight)
+            ?? aliases.decodeInt(forKey: .height)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(media, forKey: .media)
+        try container.encodeIfPresent(displayName, forKey: .displayName)
+        try container.encodeIfPresent(hostPath, forKey: .hostPath)
+        try container.encodeIfPresent(mimeType, forKey: .mimeType)
+        try container.encodeIfPresent(byteCount, forKey: .byteCount)
+        try container.encodeIfPresent(pixelWidth, forKey: .pixelWidth)
+        try container.encodeIfPresent(pixelHeight, forKey: .pixelHeight)
+    }
+
+    private static func inferredMedia(
+        mimeType: String?,
+        displayName: String?,
+        hostPath: String?
+    ) -> Media? {
+        if let media = Media.normalized(from: mimeType) {
+            return media
+        }
+        let candidatePath = displayName ?? hostPath
+        guard let candidatePath else { return nil }
+        let lowercasedExtension = URL(fileURLWithPath: candidatePath).pathExtension.lowercased()
+        switch lowercasedExtension {
+        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff", "webp":
+            return .image
+        default:
+            return nil
+        }
+    }
+}
+
+private extension ChatAttachment.Media {
+    static func normalized(from rawValue: String?) -> Self? {
+        guard let rawValue else { return nil }
+        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let media = Self(rawValue: normalized) {
+            return media
+        }
+        if normalized.hasPrefix("image/") {
+            return .image
+        }
+        if normalized.hasPrefix("application/") || normalized.hasPrefix("text/") || normalized.hasPrefix("video/") {
+            return .file
+        }
+        return nil
+    }
+}
+
+private extension KeyedDecodingContainer where Key == ChatAttachment.AliasCodingKeys {
+    func decodeString(forKey key: Key) -> String? {
+        try? decodeIfPresent(String.self, forKey: key)
+    }
+
+    func decodeInt(forKey key: Key) -> Int? {
+        if let int = try? decodeIfPresent(Int.self, forKey: key) {
+            return int
+        }
+        if let int64 = try? decodeIfPresent(Int64.self, forKey: key),
+           int64 >= Int64(Int.min),
+           int64 <= Int64(Int.max) {
+            return Int(int64)
+        }
+        return nil
+    }
+
+    func decodeMedia(forKey key: Key) -> ChatAttachment.Media? {
+        ChatAttachment.Media.normalized(from: decodeString(forKey: key))
     }
 }
