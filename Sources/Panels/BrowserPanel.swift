@@ -5,7 +5,7 @@ import CmuxFoundation
 import CmuxSettings
 import Combine
 import CmuxAppKitSupportUI
-import WebKit
+@preconcurrency import WebKit
 import AppKit
 import Bonsplit
 import CmuxTerminalCore
@@ -1870,6 +1870,14 @@ final class DiffViewerSchemeTaskLifecycle {
     }
 }
 
+private final class DiffViewerSchemeTaskHandle: @unchecked Sendable {
+    let task: WKURLSchemeTask
+
+    init(_ task: WKURLSchemeTask) {
+        self.task = task
+    }
+}
+
 actor DiffViewerAssetStreamLimiter {
     private struct Waiter {
         let key: UUID
@@ -2249,12 +2257,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // touching a torn-down WKURLSchemeTask.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let registration = taskLifecycle.register(taskID)
+        let schemeTask = DiffViewerSchemeTaskHandle(urlSchemeTask)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
             let query = self.diffViewerQueryItems(from: requestURL)
             guard let repo = query["repo"], !repo.isEmpty else {
-                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadURL)
+                self.failSchemeTask(registration, schemeTask, code: NSURLErrorBadURL)
                 return
             }
             // Thread the request token so the CLI binds refs enumeration to a
@@ -2264,12 +2273,12 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 args += ["--base", base]
             }
             guard let result = self.runBundledDiffViewerCommand(args), result.status == 0 else {
-                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                self.failSchemeTask(registration, schemeTask, code: NSURLErrorCannotConnectToHost)
                 return
             }
             self.respondScheme(
                 registration: registration,
-                urlSchemeTask: urlSchemeTask,
+                schemeTask: schemeTask,
                 requestURL: requestURL,
                 statusCode: 200,
                 headers: [
@@ -2294,6 +2303,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // task.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let registration = taskLifecycle.register(taskID)
+        let schemeTask = DiffViewerSchemeTaskHandle(urlSchemeTask)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
@@ -2301,7 +2311,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let group = query["group"], !group.isEmpty,
                   let repo = query["repo"], !repo.isEmpty,
                   let base = query["base"], !base.isEmpty else {
-                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadURL)
+                self.failSchemeTask(registration, schemeTask, code: NSURLErrorBadURL)
                 return
             }
             // Thread the request token so the CLI binds regeneration to the
@@ -2311,7 +2321,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                   let viewerURLString = String(data: result.stdout, encoding: .utf8)?
                       .trimmingCharacters(in: .whitespacesAndNewlines),
                   !viewerURLString.isEmpty else {
-                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                self.failSchemeTask(registration, schemeTask, code: NSURLErrorCannotConnectToHost)
                 return
             }
             // Defense in depth: the produced viewer URL must be a custom-scheme
@@ -2320,7 +2330,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let viewerURL = URL(string: viewerURLString),
                   viewerURL.scheme == Self.scheme,
                   viewerURL.host == token else {
-                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadServerResponse)
+                self.failSchemeTask(registration, schemeTask, code: NSURLErrorBadServerResponse)
                 return
             }
             // WKURLSchemeTask cannot drive a top-level 302 the browser follows, so
@@ -2338,7 +2348,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             """
             self.respondScheme(
                 registration: registration,
-                urlSchemeTask: urlSchemeTask,
+                schemeTask: schemeTask,
                 requestURL: requestURL,
                 statusCode: 200,
                 headers: [
@@ -2357,7 +2367,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     /// can synchronously remove the task without waiting for background work.
     private func respondScheme(
         registration: DiffViewerSchemeTaskLifecycle.Registration,
-        urlSchemeTask: WKURLSchemeTask,
+        schemeTask: DiffViewerSchemeTaskHandle,
         requestURL: URL,
         statusCode: Int,
         headers: [String: String],
@@ -2374,9 +2384,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard taskLifecycle.deliver(registration, { urlSchemeTask.didReceive(response) }) else { return }
-            guard taskLifecycle.deliver(registration, { urlSchemeTask.didReceive(body) }) else { return }
-            guard taskLifecycle.deliver(registration, { urlSchemeTask.didFinish() }) else { return }
+            guard taskLifecycle.deliver(registration, { schemeTask.task.didReceive(response) }) else { return }
+            guard taskLifecycle.deliver(registration, { schemeTask.task.didReceive(body) }) else { return }
+            guard taskLifecycle.deliver(registration, { schemeTask.task.didFinish() }) else { return }
             taskLifecycle.finish(registration)
         }
     }
@@ -2385,13 +2395,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     /// already been removed, so the late failure becomes a no-op.
     private func failSchemeTask(
         _ registration: DiffViewerSchemeTaskLifecycle.Registration,
-        _ urlSchemeTask: WKURLSchemeTask,
+        _ schemeTask: DiffViewerSchemeTaskHandle,
         code: Int
     ) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             _ = taskLifecycle.deliver(registration, {
-                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
+                schemeTask.task.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
             })
             taskLifecycle.finish(registration)
         }
@@ -2582,6 +2592,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     ) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let registration = taskLifecycle.register(taskID)
+        let schemeTask = DiffViewerSchemeTaskHandle(urlSchemeTask)
         let lifecycle = taskLifecycle
         let streamLimiter = assetStreamLimiter
         let chunkBytes = Self.assetStreamChunkBytes
@@ -2601,7 +2612,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             let admitted = await streamLimiter.withPermit(key: registration.generation) {
                 do {
                     guard await lifecycle.deliver(registration, {
-                        urlSchemeTask.didReceive(response)
+                        schemeTask.task.didReceive(response)
                     }) else { return }
 
                     let reader = try DiffViewerAssetReader(fileURL: file.fileURL)
@@ -2615,24 +2626,24 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                             break
                         }
                         guard await lifecycle.deliver(registration, {
-                            urlSchemeTask.didReceive(data)
+                            schemeTask.task.didReceive(data)
                         }) else { return }
                     }
 
                     guard await lifecycle.deliver(registration, {
-                        urlSchemeTask.didFinish()
+                        schemeTask.task.didFinish()
                     }) else { return }
                     await lifecycle.finish(registration)
                 } catch {
                     guard await lifecycle.deliver(registration, {
-                        urlSchemeTask.didFailWithError(error)
+                        schemeTask.task.didFailWithError(error)
                     }) else { return }
                     await lifecycle.finish(registration)
                 }
             }
             guard !admitted else { return }
             guard await lifecycle.deliver(registration, {
-                urlSchemeTask.didFailWithError(
+                schemeTask.task.didFailWithError(
                     NSError(domain: NSURLErrorDomain, code: NSURLErrorResourceUnavailable)
                 )
             }) else { return }

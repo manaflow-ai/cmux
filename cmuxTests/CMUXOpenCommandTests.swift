@@ -546,29 +546,99 @@ final class CMUXOpenCommandTests: XCTestCase {
     }
 
     func testDiffViewerAssetCacheRepairsMissingFileDespiteCompletionMarker() throws {
+        let cliPath = try bundledCLIPath()
+        let tag = "cache\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(6).lowercased())"
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let appURL = rootURL.appendingPathComponent("cmux DEV cache.app", isDirectory: true)
-        let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
-        let runtimeURL = resourcesURL.appendingPathComponent("bin/cmux", isDirectory: false)
-        let viewerURL = rootURL.appendingPathComponent("viewer/index.html", isDirectory: false)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        let targetCLIURL = homeURL
+            .appendingPathComponent("Library/Developer/Xcode/DerivedData/cmux-\(tag)", isDirectory: true)
+            .appendingPathComponent("Build/Products/Debug/cmux DEV \(tag).app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        let resourcesURL = targetCLIURL.deletingLastPathComponent().deletingLastPathComponent()
+        let patchURL = rootURL.appendingPathComponent("change.patch", isDirectory: false)
+        let socketPath = makeSocketPath("diff-cache")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
 
+        try FileManager.default.createDirectory(
+            at: targetCLIURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: cliPath), to: targetCLIURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: targetCLIURL.path)
         try writeTestDiffViewerAssets(resourcesURL: resourcesURL, appMain: "export const cacheFixture = true;\n")
         try writeTestDiffViewerAssetManifests(resourcesURL: resourcesURL)
-        try FileManager.default.createDirectory(at: viewerURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        diff --git a/file.txt b/file.txt
+        index 1111111..2222222 100644
+        --- a/file.txt
+        +++ b/file.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
 
-        let cli = CMUXCLI(args: [])
-        let initialAssets = try cli.ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtimeURL)
-        let cachedWorker = try XCTUnwrap(initialAssets.files.first { $0.path.hasSuffix("worker-portable.js.deflate") })
-        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedWorker.path))
-        try FileManager.default.removeItem(at: cachedWorker)
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 2
+        ) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "browser.open_split",
+                  let params = payload["params"] as? [String: Any],
+                  let rawURL = params["url"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL]
+            )
+        }
+        let environment = [
+            "HOME": homeURL.path,
+            "CFFIXED_USER_HOME": homeURL.path
+        ]
 
-        let repairedAssets = try cli.ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtimeURL)
-        let repairedWorker = try XCTUnwrap(repairedAssets.files.first { $0.path.hasSuffix("worker-portable.js.deflate") })
-        XCTAssertTrue(FileManager.default.fileExists(atPath: repairedWorker.path))
+        let initial = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["diff", patchURL.path, "--focus", "false"],
+            environmentOverrides: environment
+        )
+        XCTAssertFalse(initial.timedOut, initial.stderr)
+        XCTAssertEqual(initial.status, 0, initial.stderr)
+
+        let initialPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
+        let initialParams = try XCTUnwrap(initialPayload["params"] as? [String: Any])
+        let initialURL = try XCTUnwrap(initialParams["url"] as? String)
+        let initialFiles = try diffViewerAllowedFiles(for: initialURL, from: initialParams)
+        let cachedWorker = try XCTUnwrap(initialFiles.first {
+            ($0["request_path"] as? String)?.hasSuffix("/worker-pool/worker-portable.js") == true
+        })
+        let cachedWorkerPath = try XCTUnwrap(cachedWorker["file_path"] as? String)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedWorkerPath))
+        try FileManager.default.removeItem(atPath: cachedWorkerPath)
+
+        let repaired = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["diff", patchURL.path, "--focus", "false"],
+            environmentOverrides: environment
+        )
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(repaired.timedOut, repaired.stderr)
+        XCTAssertEqual(repaired.status, 0, repaired.stderr)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedWorkerPath))
         XCTAssertEqual(
-            try Data(contentsOf: repairedWorker),
+            try Data(contentsOf: URL(fileURLWithPath: cachedWorkerPath)),
             try Data(contentsOf: resourcesURL
                 .appendingPathComponent("markdown-viewer/diff-viewer/worker-pool/worker-portable.js.deflate"))
         )
@@ -2255,7 +2325,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             "files": logicalPaths.map { ["logicalPath": $0, "storedPath": $0 + ".deflate"] }
         ]
         try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(
-            to: directory.appendingPathComponent(CMUXCLI.diffViewerBundledAssetManifestName),
+            to: directory.appendingPathComponent(".cmux-asset-manifest.json"),
             options: .atomic
         )
     }

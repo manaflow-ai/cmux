@@ -938,6 +938,26 @@ struct RestorableAgentSessionIndex: Sendable {
         let agentProcessIDs: Set<Int>
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
         let hasStructuredHookIdentity: Bool
+
+        init(
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            updatedAt: TimeInterval,
+            processLiveness: RestorableAgentProcessLiveness,
+            processIDs: Set<Int>,
+            agentProcessIDs: Set<Int>,
+            agentProcessIdentities: [Int: AgentPIDProcessIdentity],
+            hasStructuredHookIdentity: Bool = false
+        ) {
+            self.snapshot = snapshot
+            self.lifecycle = lifecycle
+            self.updatedAt = updatedAt
+            self.processLiveness = processLiveness
+            self.processIDs = processIDs
+            self.agentProcessIDs = agentProcessIDs
+            self.agentProcessIdentities = agentProcessIdentities
+            self.hasStructuredHookIdentity = hasStructuredHookIdentity
+        }
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
