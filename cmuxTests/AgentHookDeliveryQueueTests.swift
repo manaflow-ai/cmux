@@ -166,6 +166,44 @@ struct AgentHookDeliveryQueueTests {
         try await probe.waitUntilCompleted(count: ordinaryPayloads.count + 1)
     }
 
+    @Test("Session finalization has reserved admission capacity")
+    func sessionFinalizationHasReservedAdmissionCapacity() async throws {
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["active"])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: "active",
+            surfaceID: "surface-active"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "notification",
+            payload: "ordinary-saturated",
+            surfaceID: "surface-ordinary"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            agent: "hermes-agent",
+            subcommand: "session-finalize",
+            payload: #"{"session_id":"hermes-finalize"}"#,
+            surfaceID: "surface-finalize"
+        )))
+
+        await probe.release(payload: "active")
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [
+            "active",
+            "ordinary-saturated",
+            #"{"session_id":"hermes-finalize"}"#,
+        ])
+    }
+
     @Test("Terminal lifecycle saturation preserves side effects and finalization")
     func terminalLifecycleDoesNotReplaceProtectedWork() async throws {
         let activePayload = #"{"session_id":"session-a","state":"active"}"#

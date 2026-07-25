@@ -76,6 +76,12 @@ final class CodexHookCapturedSocketCommands: @unchecked Sendable {
     }
 }
 
+struct CodexHookMockProcessBinding: Sendable {
+    let processID: Int
+    let workspaceID: String
+    let surfaceID: String
+}
+
 func makeCodexHookSocketPath(_ name: String) -> String {
     let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
     return URL(fileURLWithPath: NSTemporaryDirectory())
@@ -125,7 +131,8 @@ func startCodexHookMockSocketServerAccepting(
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
     connectionLimit: Int,
-    responseDelays: [String: TimeInterval] = [:]
+    responseDelays: [String: TimeInterval] = [:],
+    processBinding: CodexHookMockProcessBinding? = nil
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -147,7 +154,8 @@ func startCodexHookMockSocketServerAccepting(
                     fd: clientFD,
                     commands: commands,
                     surfaceId: surfaceId,
-                    responseDelays: responseDelays
+                    responseDelays: responseDelays,
+                    processBinding: processBinding
                 )
             }
         }
@@ -158,7 +166,8 @@ func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
-    responseDelays: [String: TimeInterval] = [:]
+    responseDelays: [String: TimeInterval] = [:],
+    processBinding: CodexHookMockProcessBinding? = nil
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -181,7 +190,11 @@ func handleCodexHookMockSocketClient(
                delay > 0 {
                 _ = DispatchSemaphore(value: 0).wait(timeout: .now() + delay)
             }
-            let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
+            let response = codexHookMockSocketResponse(
+                for: line,
+                surfaceId: surfaceId,
+                processBinding: processBinding
+            ) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
@@ -189,7 +202,11 @@ func handleCodexHookMockSocketClient(
     }
 }
 
-func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
+func codexHookMockSocketResponse(
+    for line: String,
+    surfaceId: String,
+    processBinding: CodexHookMockProcessBinding? = nil
+) -> String {
     guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
         return "OK"
@@ -200,6 +217,33 @@ func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String 
             ok: true,
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
+    }
+    if payload["method"] as? String == "agent.resolve_delivery_target",
+       let processBinding {
+        let params = payload["params"] as? [String: Any]
+        if params?["pid"] as? Int == processBinding.processID {
+            return codexHookV2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "source": "pid",
+                    "workspace_id": processBinding.workspaceID,
+                    "surface_id": processBinding.surfaceID,
+                ]
+            )
+        }
+        if params?["surface_id"] as? String == processBinding.surfaceID {
+            return codexHookV2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "source": "surface",
+                    "workspace_id": processBinding.workspaceID,
+                    "surface_id": processBinding.surfaceID,
+                ]
+            )
+        }
+        return codexHookV2Response(id: id, ok: false)
     }
     return codexHookV2Response(id: id, ok: true, result: [:])
 }
