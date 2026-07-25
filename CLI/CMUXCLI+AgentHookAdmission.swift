@@ -146,13 +146,9 @@ extension CMUXCLI {
             candidates.append(compactPayload)
         }
 
-        var identity: [String: String] = [:]
-        identity["session_id"] = parsed.sessionId
-        identity["turn_id"] = parsed.turnId
-        identity["cwd"] = parsed.cwd.map { String($0.prefix(512)) }
-        identity["transcript_path"] = parsed.transcriptPath.map { String($0.prefix(512)) }
+        let behavioralFallback = compactAgentHookBehavioralFallback(parsed)
         if let identityData = try? JSONSerialization.data(
-            withJSONObject: identity,
+            withJSONObject: behavioralFallback,
             options: [.sortedKeys, .withoutEscapingSlashes]
         ),
         let identityPayload = String(data: identityData, encoding: .utf8) {
@@ -163,6 +159,103 @@ extension CMUXCLI {
             maximumPayloadBytes: maximumBytes,
             maximumEncodedPayloadBytes: maximumEncodedBytes
         )
+    }
+
+    /// Preserves the fields that determine lifecycle behavior even when a rich
+    /// payload is too large for relay transport. Values are bounded so this
+    /// candidate remains below both the raw and JSON-encoded relay limits.
+    private func compactAgentHookBehavioralFallback(
+        _ parsed: ClaudeHookParsedInput
+    ) -> [String: Any] {
+        var fallback: [String: Any] = [:]
+        fallback["session_id"] = parsed.sessionId.map {
+            compactQueuedAgentHookString($0, maximumLength: 256)
+        }
+        fallback["turn_id"] = parsed.turnId.map {
+            compactQueuedAgentHookString($0, maximumLength: 256)
+        }
+        fallback["cwd"] = parsed.cwd.map {
+            compactQueuedAgentHookString($0, maximumLength: 512)
+        }
+        fallback["transcript_path"] = parsed.transcriptPath.map {
+            compactQueuedAgentHookString($0, maximumLength: 512)
+        }
+
+        guard let rawObject = parsed.rawObject else { return fallback }
+        let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
+        fallback["tool_name"] = toolName.map {
+            compactQueuedAgentHookString($0, maximumLength: 80)
+        }
+        fallback["hook_event_name"] = firstString(
+            in: rawObject,
+            keys: ["hook_event_name", "hookEventName", "event_name", "event"]
+        ).map {
+            compactQueuedAgentHookString($0, maximumLength: 80)
+        }
+        fallback["permission_mode"] = firstString(
+            in: rawObject,
+            keys: ["permission_mode", "permissionMode"]
+        ).map {
+            compactQueuedAgentHookString($0, maximumLength: 80)
+        }
+        if let toolName,
+           let compactToolInput = parsed.object?["tool_input"] as? [String: Any],
+           let toolSummary = compactQueuedAgentHookToolSummary(
+               toolName: toolName,
+               toolInput: compactToolInput
+           ) {
+            fallback["tool_input"] = toolSummary
+        }
+        return fallback
+    }
+
+    private func compactQueuedAgentHookToolSummary(
+        toolName: String,
+        toolInput: [String: Any]
+    ) -> [String: Any]? {
+        if toolName == "AskUserQuestion",
+           let firstQuestion = (toolInput["questions"] as? [[String: Any]])?.first {
+            var question: [String: Any] = [:]
+            for key in ["question", "header"] {
+                if let value = firstQuestion[key] as? String {
+                    question[key] = compactQueuedAgentHookString(
+                        value,
+                        maximumLength: key == "question" ? 180 : 80
+                    )
+                }
+            }
+            if let options = firstQuestion["options"] as? [[String: Any]] {
+                question["options"] = options.prefix(4).compactMap { option -> [String: String]? in
+                    guard let label = option["label"] as? String else { return nil }
+                    return [
+                        "label": compactQueuedAgentHookString(label, maximumLength: 60),
+                    ]
+                }
+            }
+            return question.isEmpty ? nil : ["questions": [question]]
+        }
+
+        if toolName == "ExitPlanMode", let plan = toolInput["plan"] as? String {
+            return [
+                "plan": compactQueuedAgentHookString(plan, maximumLength: 512),
+            ]
+        }
+
+        for key in ["file_path", "command", "pattern", "description", "query", "planFilePath"] {
+            if let value = toolInput[key] as? String {
+                return [
+                    key: compactQueuedAgentHookString(value, maximumLength: 240),
+                ]
+            }
+        }
+        return nil
+    }
+
+    private func compactQueuedAgentHookString(
+        _ value: String,
+        maximumLength: Int
+    ) -> String {
+        truncate(normalizedSingleLine(value), maxLength: maximumLength)
     }
 
     private static func queuedAgentHookDataEnvironmentKeys(agent: String) -> [String] {

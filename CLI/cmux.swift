@@ -23917,8 +23917,8 @@ struct CMUXCLI {
         // Record the hook-observed permission mode (shift+tab auto-accept, plan
         // mode, bypass toggle): it is runtime state that never appears in the
         // captured launch argv, and session restore re-applies it as
-        // `--permission-mode`. Read from rawObject — the compacted hook object
-        // keeps only an allowlist of keys and does not retain permission_mode.
+        // `--permission-mode`. Read from rawObject so both original input and a
+        // transport-compacted canonical permission_mode are handled.
         // https://github.com/manaflow-ai/cmux/issues/8066
         let observedHookPermissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
             ?? (parsedInput.rawObject?["permissionMode"] as? String)
@@ -24781,9 +24781,8 @@ struct CMUXCLI {
                 // the same needs-input state, so we only set the lifecycle here —
                 // doing both would double-ring the notification.
                 //
-                // Read permission_mode from rawObject: the compacted `object`
-                // (compactClaudeHookObject) keeps only an allowlist of keys and does
-                // not retain permission_mode.
+                // Read permission_mode from rawObject, which is either the
+                // original input or the transport-compacted canonical payload.
                 let permissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
                     ?? (parsedInput.rawObject?["permissionMode"] as? String)
                 if permissionMode == "bypassPermissions" {

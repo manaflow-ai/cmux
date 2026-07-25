@@ -15,6 +15,11 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
     ]
 
+    private static let optionalLaunchEnvironmentKeys: Set<String> = [
+        "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
+        "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
+    ]
+
     let agent: String
     let subcommand: String
     let payload: String
@@ -90,19 +95,41 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
             kind: agent
         )
         let pidKey = AgentHookDeliveryPolicy().pidEnvironmentVariable(agentName: agent)
-        var totalBytes = 0
+        var candidates: [(key: String, value: String, isOptional: Bool)] = []
         for (key, value) in environment {
             let isAgentPID = key == pidKey
-            guard allowedHookDataEnvironmentKeys.contains(key) || isAgentPID || replaySafeEnvironment[key] == value,
+            let isReplaySafe = replaySafeEnvironment[key] == value
+            guard allowedHookDataEnvironmentKeys.contains(key) || isAgentPID || isReplaySafe,
                   key.utf8.count <= 128,
-                  value.utf8.count <= 128 * 1024,
                   !key.contains("\0"),
                   !value.contains("\0") else {
                 return nil
             }
-            totalBytes += key.utf8.count + value.utf8.count + 2
-            guard totalBytes <= maximumEnvironmentBytes else { return nil }
+            let isOptional = optionalLaunchEnvironmentKeys.contains(key) || isReplaySafe
+            guard value.utf8.count <= 128 * 1_024 else {
+                if isOptional { continue }
+                return nil
+            }
+            candidates.append((key, value, isOptional))
         }
-        return environment
+        candidates.sort { lhs, rhs in
+            if lhs.isOptional != rhs.isOptional {
+                return !lhs.isOptional
+            }
+            return lhs.key < rhs.key
+        }
+
+        var validated: [String: String] = [:]
+        var totalBytes = 0
+        for candidate in candidates {
+            let entryBytes = candidate.key.utf8.count + candidate.value.utf8.count + 2
+            guard totalBytes + entryBytes <= maximumEnvironmentBytes else {
+                if candidate.isOptional { continue }
+                return nil
+            }
+            validated[candidate.key] = candidate.value
+            totalBytes += entryBytes
+        }
+        return validated
     }
 }
