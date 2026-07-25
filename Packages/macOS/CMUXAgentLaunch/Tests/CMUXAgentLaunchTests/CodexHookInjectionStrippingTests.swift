@@ -164,6 +164,7 @@ struct CodexHookInjectionStrippingTests {
 
         for command in [
             "/bin/true&&/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh",
+            "/bin/true\\Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh",
             "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh*",
         ] {
             let compoundCommandArguments = [
