@@ -187,6 +187,82 @@ struct CLIRelayQueuedHookRegressionTests {
         #expect(sessions[sessionID] != nil)
     }
 
+    @Test("Relay replay strips remote filesystem identity and omits a synthetic local agent PID")
+    func relayReplayUsesOnlyPortableFeedIdentity() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-relay-portable-feed-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let relay = try RelayQueuedHookMockServer(
+            ttyName: "8539",
+            workspaceID: remoteWorkspaceID,
+            surfaceID: remoteSurfaceID
+        )
+        relay.start()
+        defer { relay.close() }
+        let admission = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", relay.endpoint,
+                "hooks", "enqueue", "gemini", "prompt-submit",
+            ],
+            environment: relayEnvironment(
+                home: root,
+                extra: [
+                    "SSH_TTY": "/dev/pts/8539",
+                    "CMUX_GEMINI_PID": "8539",
+                    "CMUX_WORKSPACE_ID": "stale-workspace",
+                    "CMUX_SURFACE_ID": "stale-surface",
+                ]
+            ),
+            standardInput: """
+            {
+              "session_id":"gemini-relay-session",
+              "hook_event_name":"BeforeAgent",
+              "prompt":"portable relay prompt",
+              "cwd":"/remote/repo",
+              "transcript_path":"/remote/transcripts/session.jsonl",
+              "workspacePaths":["/remote/workspace"],
+              "data":{"workingDirectory":"/remote/data","transcriptPath":"/remote/data/session.jsonl"},
+              "context":{"projectDir":"/remote/context"}
+            }
+            """,
+            timeout: 5
+        )
+
+        #expect(!admission.timedOut, Comment(rawValue: admission.stderr))
+        #expect(admission.status == 0, Comment(rawValue: admission.stderr))
+        let params = try admittedParams(from: relay)
+        let payload = try #require(params["payload"] as? String)
+        let portableObject = try #require(
+            JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
+        )
+        #expect(!containsRemoteFilesystemLocation(in: portableObject))
+        #expect(portableObject["session_id"] as? String == "gemini-relay-session")
+        #expect(portableObject["prompt"] as? String == "portable relay prompt")
+
+        let commands = try replay(
+            cliPath: cliPath,
+            root: root,
+            agent: "gemini",
+            subcommand: "prompt-submit",
+            payload: payload,
+            waitingForMethod: "feed.push"
+        )
+        let feedPush = try #require(commands.compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "feed.push"
+        })
+        let feedParams = try #require(feedPush["params"] as? [String: Any])
+        let event = try #require(feedParams["event"] as? [String: Any])
+        #expect(event["cwd"] == nil)
+        #expect(event["transcript_path"] == nil)
+        #expect(event["_ppid"] == nil)
+    }
+
     @Test("Relay replay preserves a Claude fork's parent through start and early end")
     func relayReplayPreservesClaudeForkParentRecord() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
@@ -321,7 +397,8 @@ struct CLIRelayQueuedHookRegressionTests {
         root: URL,
         agent: String,
         subcommand: String,
-        payload: String
+        payload: String,
+        waitingForMethod: String? = nil
     ) throws -> [String] {
         let socketPath = makeCodexHookSocketPath("relay-replay")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
@@ -354,7 +431,40 @@ struct CLIRelayQueuedHookRegressionTests {
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
+        if let waitingForMethod {
+            #expect(waitForCondition(timeout: 2) {
+                captured.snapshot().compactMap(codexHookJSONObject).contains {
+                    $0["method"] as? String == waitingForMethod
+                }
+            })
+        }
         return captured.snapshot()
+    }
+
+    private func containsRemoteFilesystemLocation(in value: Any) -> Bool {
+        let locationKeys: Set<String> = [
+            "cwd",
+            "working_directory",
+            "workingDirectory",
+            "project_dir",
+            "projectDir",
+            "project_path",
+            "projectPath",
+            "workspacePaths",
+            "workspace_paths",
+            "transcript_path",
+            "transcriptPath",
+        ]
+        if let object = value as? [String: Any] {
+            return object.contains { key, nestedValue in
+                locationKeys.contains(key)
+                    || containsRemoteFilesystemLocation(in: nestedValue)
+            }
+        }
+        if let array = value as? [Any] {
+            return array.contains { containsRemoteFilesystemLocation(in: $0) }
+        }
+        return false
     }
 
     private func relayEnvironment(

@@ -738,7 +738,8 @@ struct CLIClaudeHookTimeoutRegressionTests {
             listenerFD: listenerFD,
             commands: capturedCommands,
             surfaceId: surfaceID,
-            connectionLimit: 4
+            connectionLimit: 4,
+            responseDelays: ["agent.hook.barrier": 0.3]
         )
         let result = runCodexHookProcess(
             executablePath: cliPath,
@@ -777,6 +778,21 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(environment["CMUX_WORKSPACE_ID"] as? String == workspaceID)
         #expect(environment["CMUX_SURFACE_ID"] as? String == surfaceID)
         #expect(environment["CMUX_GEMINI_PID"] as? String == "8535")
+        let feedPush = try #require(requests.first {
+            $0["method"] as? String == "feed.push"
+        })
+        let feedParams = try #require(feedPush["params"] as? [String: Any])
+        let waitTimeout = try #require(
+            (feedParams["wait_timeout_seconds"] as? NSNumber)?.doubleValue
+        )
+        #expect(
+            waitTimeout < 113.9,
+            "The barrier elapsed time must come out of the shortest 120s decision-hook deadline"
+        )
+        #expect(
+            waitTimeout > 110,
+            "A short barrier must preserve nearly all of the user's decision window"
+        )
     }
 
     @Test("Direct Codex permission status waits for its queued lifecycle lane")

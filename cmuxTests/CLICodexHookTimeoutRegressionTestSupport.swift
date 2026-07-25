@@ -124,7 +124,8 @@ func startCodexHookMockSocketServerAccepting(
     listenerFD: Int32,
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
-    connectionLimit: Int
+    connectionLimit: Int,
+    responseDelays: [String: TimeInterval] = [:]
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -142,7 +143,12 @@ func startCodexHookMockSocketServerAccepting(
             }
             accepted += 1
             DispatchQueue.global(qos: .userInitiated).async {
-                handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
+                handleCodexHookMockSocketClient(
+                    fd: clientFD,
+                    commands: commands,
+                    surfaceId: surfaceId,
+                    responseDelays: responseDelays
+                )
             }
         }
     }
@@ -151,7 +157,8 @@ func startCodexHookMockSocketServerAccepting(
 func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
-    surfaceId: String
+    surfaceId: String,
+    responseDelays: [String: TimeInterval] = [:]
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -169,6 +176,11 @@ func handleCodexHookMockSocketClient(
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             commands.append(line)
+            if let method = codexHookJSONObject(line)?["method"] as? String,
+               let delay = responseDelays[method],
+               delay > 0 {
+                _ = DispatchSemaphore(value: 0).wait(timeout: .now() + delay)
+            }
             let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
