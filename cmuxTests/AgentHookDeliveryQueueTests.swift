@@ -49,6 +49,39 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads().contains("after-capacity"))
     }
 
+    @Test("Terminal lifecycle admission replaces stale buffered state when saturated")
+    func terminalLifecycleReplacesStaleBufferedState() async throws {
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["active"])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: "active",
+            surfaceID: "surface-a"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: "stale-running",
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: "latest-ended",
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: "active")
+        try await probe.waitUntilCompleted(count: 2)
+        #expect(await probe.completedPayloads() == ["active", "latest-ended"])
+    }
+
     @Test("Best-effort tool saturation cannot evict terminal lifecycle events")
     func toolIngressReservesTerminalLifecycleCapacityAndPreservesOrder() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["session-start"])

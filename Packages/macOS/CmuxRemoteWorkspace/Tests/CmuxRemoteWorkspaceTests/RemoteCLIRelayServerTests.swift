@@ -171,6 +171,33 @@ struct RemoteCLIRelayServerTests {
         )
     }
 
+    @Test("actionable Feed relay timeout covers the decision response budget")
+    func actionableFeedTimeoutOutlivesDecisionWait() throws {
+        let feedRequest = try JSONSerialization.data(withJSONObject: [
+            "id": "feed-decision",
+            "method": "feed.push",
+            "params": ["wait_timeout_seconds": 114],
+        ]) + Data([0x0A])
+        let barrierRequest = try JSONSerialization.data(withJSONObject: [
+            "id": "hook-barrier",
+            "method": "agent.hook.barrier",
+            "params": [:],
+        ]) + Data([0x0A])
+
+        #expect(
+            RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds(
+                for: feedRequest
+            ) >= 119,
+            "Feed waits up to 114 seconds and reserves five seconds for its response"
+        )
+        #expect(
+            RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds(
+                for: barrierRequest
+            ) == RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds,
+            "Non-decision commands keep the bounded default relay timeout"
+        )
+    }
+
     @Test("an invalid relay token hex is rejected at init (code 7)")
     func invalidTokenRejected() {
         #expect(throws: (any Error).self) {
