@@ -30,6 +30,7 @@ public enum TerminalFontSizeCreationPolicy: Equatable, Sendable {
                 guard var template = inheritedConfig else { return nil }
                 template.fontSizeLineage = nil
                 template.fontSizeChangeToken = nil
+                template.fontSizeChangeTokens.removeAll()
                 return template
             }
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()

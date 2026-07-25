@@ -7,6 +7,7 @@ import Testing
         var inherited = CmuxSurfaceConfigTemplate()
         inherited.setFontSize(13, isExplicitOverride: true)
         inherited.fontSizeChangeToken = UUID()
+        inherited.fontSizeChangeTokens = [UUID(), UUID()]
         inherited.workingDirectory = "/tmp/inherited"
         inherited.command = "echo inherited"
         inherited.environmentVariables = ["CMUX_TEST": "inherited"]
@@ -19,6 +20,10 @@ import Testing
 
         #expect(applied.fontSizeLineage == inherited.fontSizeLineage)
         #expect(applied.fontSizeChangeToken == inherited.fontSizeChangeToken)
+        #expect(
+            applied.fontSizeChangeTokens
+                == inherited.fontSizeChangeTokens
+        )
         #expect(applied.workingDirectory == inherited.workingDirectory)
         #expect(applied.command == inherited.command)
         #expect(applied.environmentVariables == inherited.environmentVariables)
@@ -30,6 +35,7 @@ import Testing
         var inherited = CmuxSurfaceConfigTemplate()
         inherited.setFontSize(11, isExplicitOverride: false)
         inherited.fontSizeChangeToken = UUID()
+        inherited.fontSizeChangeTokens = [UUID()]
 
         let applied = try #require(
             TerminalFontSizeCreationPolicy.sessionRestore(overrideBasePoints: 15)
@@ -41,6 +47,7 @@ import Testing
             isExplicitOverride: true
         ))
         #expect(applied.fontSizeChangeToken == nil)
+        #expect(applied.fontSizeChangeTokens.isEmpty)
     }
 
     @Test(arguments: [
@@ -58,6 +65,7 @@ import Testing
         var inherited = CmuxSurfaceConfigTemplate()
         inherited.setFontSize(13, isExplicitOverride: true)
         inherited.fontSizeChangeToken = UUID()
+        inherited.fontSizeChangeTokens = [UUID()]
         inherited.workingDirectory = "/tmp/restored"
         inherited.command = "echo restored"
         inherited.environmentVariables = ["CMUX_TEST": "restored"]
@@ -72,6 +80,7 @@ import Testing
 
         #expect(applied.fontSizeLineage == nil)
         #expect(applied.fontSizeChangeToken == nil)
+        #expect(applied.fontSizeChangeTokens.isEmpty)
         #expect(applied.workingDirectory == inherited.workingDirectory)
         #expect(applied.command == inherited.command)
         #expect(applied.environmentVariables == inherited.environmentVariables)

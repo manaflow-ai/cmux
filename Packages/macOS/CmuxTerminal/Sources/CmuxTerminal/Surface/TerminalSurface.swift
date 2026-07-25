@@ -482,6 +482,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
         self.lastAppliedFontSizeChangeToken =
             configTemplate?.fontSizeChangeToken
+        self.transferReconciledFontSizeChangeTokens =
+            configTemplate?.fontSizeChangeTokens ?? []
         self.followsConfiguredFontSize = configTemplate?.fontSizeLineage == nil
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal
@@ -522,6 +524,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         preparePaneHost(self.paneHost)
         registry.register(self)
         self.paneHost.attachSurface(self)
+        let inheritedFontSizeChangeTokens =
+            transferReconciledFontSizeChangeTokens
+        for token in inheritedFontSizeChangeTokens {
+            markFontSizeChangeReconciledForTransfer(token: token)
+        }
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput

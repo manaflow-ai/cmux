@@ -1,5 +1,6 @@
 import Foundation
 import CmuxFoundation
+import CmuxTerminal
 import CmuxTerminalCore
 
 @MainActor
@@ -160,14 +161,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
     }
 
-    private final class WeakTerminalPanelReference {
-        weak var value: TerminalPanel?
-
-        init(_ value: TerminalPanel) {
-            self.value = value
-        }
-    }
-
     /// Stable identity for one window's Dock, including the interval before
     /// its store is created. Requests keep the slot when workspace ownership
     /// forwards their execution to another window's coordinator.
@@ -227,6 +220,28 @@ final class WorkspaceTerminalFontSizeCoordinator {
         var workspaceOrder: [UUID] = []
     }
 
+    /// An event that joins two independently busy coordinators waits here
+    /// until either prior owner becomes available. The remaining owner then
+    /// appends it to its ledger, preserving both resource orderings.
+    private struct DeferredCoordinatorJoin {
+        let workspaceId: UUID
+        let workspaceReference: WeakWorkspaceReference
+        let windowDockSlot: WindowDockSlot
+        let preferredCoordinator:
+            WorkspaceTerminalFontSizeCoordinator
+        var change: WorkspaceTerminalFontSizeChange
+        var deferFlush: Bool
+
+        func matches(
+            workspace: Workspace,
+            windowDockSlot: WindowDockSlot
+        ) -> Bool {
+            workspaceId == workspace.id
+                && workspaceReference.value === workspace
+                && self.windowDockSlot === windowDockSlot
+        }
+    }
+
     private struct PendingRequestQueue {
         private var storage: [PendingRequest] = []
         private var head = 0
@@ -265,6 +280,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
             storage.removeAll(keepingCapacity: false)
             head = 0
         }
+
+        mutating func removeAll(
+            where shouldRemove: (PendingRequest) -> Bool
+        ) -> [PendingRequest] {
+            var removed: [PendingRequest] = []
+            var retained: [PendingRequest] = []
+            for request in elements {
+                if shouldRemove(request) {
+                    removed.append(request)
+                } else {
+                    retained.append(request)
+                }
+            }
+            storage = retained
+            head = 0
+            return removed
+        }
     }
 
     private struct ActiveRequest {
@@ -295,10 +327,17 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private var pendingEventBatch: PendingEventBatch?
     private var sealedRequests = PendingRequestQueue()
     private var activeRequest: ActiveRequest?
-    private var transferReconciledPanelsByToken:
-        [UUID: [UUID: WeakTerminalPanelReference]] = [:]
+    private var transferReconciledTokens: Set<UUID> = []
     private let schedule: DrainScheduler
     private var cancelScheduledDrain: DrainCancellation?
+
+    private static var deferredCoordinatorJoins:
+        [DeferredCoordinatorJoin] = []
+    private static var deferredCoordinatorJoinHead = 0
+    private static var isPromotingDeferredCoordinatorJoins = false
+    private static var isDeferredCoordinatorJoinPromotionScheduled = false
+    private static var retainedCoordinators:
+        [ObjectIdentifier: WorkspaceTerminalFontSizeCoordinator] = [:]
 
     init(
         tabManager: TabManager,
@@ -365,20 +404,50 @@ final class WorkspaceTerminalFontSizeCoordinator {
               let workspace = tabManager?.workspacesById[workspaceId] else {
             return
         }
+        Self.promoteDeferredCoordinatorJoins()
         let workspaceReference = WeakWorkspaceReference(workspace)
+        if Self.hasDeferredCoordinatorJoin(
+            targeting: workspace,
+            or: windowDockSlot
+        ) {
+            deferCoordinatorJoin(
+                change,
+                workspace: workspace,
+                workspaceReference: workspaceReference,
+                windowDockSlot: windowDockSlot,
+                deferFlush: deferFlush
+            )
+            return
+        }
         let workspaceCoordinator =
             coordinatorOwningWork(for: workspace)
-            ?? coordinatorOwningWork(for: windowDockSlot)
+        let windowDockCoordinator =
+            coordinatorOwningWork(for: windowDockSlot)
+        if let workspaceCoordinator,
+           let windowDockCoordinator,
+           workspaceCoordinator !== windowDockCoordinator {
+            deferCoordinatorJoin(
+                change,
+                workspace: workspace,
+                workspaceReference: workspaceReference,
+                windowDockSlot: windowDockSlot,
+                deferFlush: deferFlush
+            )
+            return
+        }
+        let eventCoordinator =
+            workspaceCoordinator
+            ?? windowDockCoordinator
             ?? self
-        workspaceCoordinator.claimWorkspace(workspace)
-        workspaceCoordinator.claimWindowDockSlot(windowDockSlot)
-        workspaceCoordinator.appendEvent(
+        eventCoordinator.claimWorkspace(workspace)
+        eventCoordinator.claimWindowDockSlot(windowDockSlot)
+        eventCoordinator.appendEvent(
             change,
             workspaceId: workspaceId,
             workspaceReference: workspaceReference,
             windowDockSlot: windowDockSlot
         )
-        workspaceCoordinator.flushOrSchedule(deferFlush: deferFlush)
+        eventCoordinator.flushOrSchedule(deferFlush: deferFlush)
     }
 
     func cancelAll() {
@@ -391,8 +460,70 @@ final class WorkspaceTerminalFontSizeCoordinator {
         activeRequest = nil
         pendingEventBatch = nil
         sealedRequests.removeAll()
+        Self.removeDeferredCoordinatorJoins {
+            $0.preferredCoordinator === self
+        }
         windowDockSlot.pendingLineage = nil
         windowDockSlot.pendingInheritanceContext = nil
+        Self.promoteDeferredCoordinatorJoins()
+        releaseRetentionIfIdle()
+    }
+
+    /// Cancels work whose targets still belong to this closing window while
+    /// allowing requests that followed moved workspaces or foreign Dock slots
+    /// to finish on their surviving owners.
+    func cancelWindowOwnedWork() {
+        invalidateScheduledDrain()
+        let closingManager = tabManager
+        sealPendingEventBatch()
+
+        var removedRequests: [PendingRequest] = []
+        if let activeRequest,
+           requestBelongsToClosingWindow(
+                activeRequest.request,
+                closingManager: closingManager
+           ) {
+            cancelInheritance(for: activeRequest)
+            clearTransferReconciliationMarks(
+                token: activeRequest.token
+            )
+            removedRequests.append(activeRequest.request)
+            self.activeRequest = nil
+        }
+        removedRequests.append(
+            contentsOf: sealedRequests.removeAll {
+                requestBelongsToClosingWindow(
+                    $0,
+                    closingManager: closingManager
+                )
+            }
+        )
+        for request in removedRequests {
+            clearTransferReconciliationMarks(token: request.token)
+            releaseClaimIfIdle(for: request)
+        }
+
+        Self.removeDeferredCoordinatorJoins { join in
+            guard join.preferredCoordinator === self else {
+                return false
+            }
+            guard let workspace = join.workspaceReference.value else {
+                return true
+            }
+            return workspace.owningTabManager === closingManager
+        }
+        if !hasOutstandingWork(for: windowDockSlot) {
+            windowDockSlot.pendingLineage = nil
+            windowDockSlot.pendingInheritanceContext = nil
+            releaseWindowDockClaimIfIdle(windowDockSlot)
+        }
+        Self.promoteDeferredCoordinatorJoins()
+        if activeRequest != nil || hasPendingRequests {
+            retainWhileOutstanding()
+            scheduleDrain(after: 0)
+        } else {
+            releaseRetentionIfIdle()
+        }
     }
 
 #if DEBUG
@@ -430,6 +561,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private var hasPendingRequests: Bool {
         pendingEventBatch != nil || !sealedRequests.isEmpty
+    }
+
+    private func retainWhileOutstanding() {
+        Self.retainedCoordinators[ObjectIdentifier(self)] = self
+    }
+
+    private func releaseRetentionIfIdle() {
+        guard activeRequest == nil,
+              !hasPendingRequests,
+              !Self.hasDeferredCoordinatorJoin(
+                preferredCoordinator: self
+              ) else {
+            return
+        }
+        Self.retainedCoordinators.removeValue(
+            forKey: ObjectIdentifier(self)
+        )
     }
 
     private func attachedWorkspace(
@@ -478,6 +626,154 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return nil
         }
         return coordinator
+    }
+
+    private func deferCoordinatorJoin(
+        _ change: WorkspaceTerminalFontSizeChange,
+        workspace: Workspace,
+        workspaceReference: WeakWorkspaceReference,
+        windowDockSlot: WindowDockSlot,
+        deferFlush: Bool
+    ) {
+        let lastIndex = Self.deferredCoordinatorJoins.indices.last
+        if let lastIndex,
+           lastIndex >= Self.deferredCoordinatorJoinHead,
+           Self.deferredCoordinatorJoins[lastIndex].matches(
+                workspace: workspace,
+                windowDockSlot: windowDockSlot
+           ) {
+            var existing = Self.deferredCoordinatorJoins[lastIndex]
+            append(change, to: &existing.change)
+            existing.deferFlush = existing.deferFlush && deferFlush
+            Self.deferredCoordinatorJoins[lastIndex] = existing
+        } else {
+            Self.deferredCoordinatorJoins.append(
+                DeferredCoordinatorJoin(
+                    workspaceId: workspace.id,
+                    workspaceReference: workspaceReference,
+                    windowDockSlot: windowDockSlot,
+                    preferredCoordinator: self,
+                    change: change,
+                    deferFlush: deferFlush
+                )
+            )
+        }
+    }
+
+    private static func promoteDeferredCoordinatorJoins() {
+        guard !isPromotingDeferredCoordinatorJoins else { return }
+        isPromotingDeferredCoordinatorJoins = true
+        defer { isPromotingDeferredCoordinatorJoins = false }
+
+        var joinVisitCount = 0
+        while deferredCoordinatorJoinHead
+                < deferredCoordinatorJoins.count,
+              joinVisitCount
+                < WorkspaceTerminalFontSizeDrainBudget
+                    .maximumRequestVisitsPerDrain {
+            let join =
+                deferredCoordinatorJoins[deferredCoordinatorJoinHead]
+            joinVisitCount += 1
+            let preferred = join.preferredCoordinator
+            guard let workspace = preferred.attachedWorkspace(
+                id: join.workspaceId,
+                reference: join.workspaceReference
+            ) else {
+                popDeferredCoordinatorJoin()
+                preferred.releaseRetentionIfIdle()
+                continue
+            }
+            let workspaceCoordinator =
+                preferred.coordinatorOwningWork(for: workspace)
+            let windowDockCoordinator =
+                preferred.coordinatorOwningWork(
+                    for: join.windowDockSlot
+                )
+            if let workspaceCoordinator,
+               let windowDockCoordinator,
+               workspaceCoordinator !== windowDockCoordinator {
+                return
+            }
+
+            popDeferredCoordinatorJoin()
+            let eventCoordinator =
+                workspaceCoordinator
+                ?? windowDockCoordinator
+                ?? preferred
+            eventCoordinator.claimWorkspace(workspace)
+            eventCoordinator.claimWindowDockSlot(join.windowDockSlot)
+            eventCoordinator.appendEvent(
+                join.change,
+                workspaceId: join.workspaceId,
+                workspaceReference: join.workspaceReference,
+                windowDockSlot: join.windowDockSlot
+            )
+            eventCoordinator.flushOrSchedule(
+                deferFlush: join.deferFlush
+            )
+            preferred.releaseRetentionIfIdle()
+        }
+        if deferredCoordinatorJoinHead < deferredCoordinatorJoins.count {
+            scheduleDeferredCoordinatorJoinPromotion()
+        }
+    }
+
+    private static func scheduleDeferredCoordinatorJoinPromotion() {
+        guard !isDeferredCoordinatorJoinPromotionScheduled else { return }
+        isDeferredCoordinatorJoinPromotionScheduled = true
+        RunLoop.main.perform(inModes: [.common]) {
+            MainActor.assumeIsolated {
+                isDeferredCoordinatorJoinPromotionScheduled = false
+                promoteDeferredCoordinatorJoins()
+            }
+        }
+    }
+
+    private static func popDeferredCoordinatorJoin() {
+        deferredCoordinatorJoinHead += 1
+        if deferredCoordinatorJoinHead == deferredCoordinatorJoins.count {
+            deferredCoordinatorJoins.removeAll(keepingCapacity: false)
+            deferredCoordinatorJoinHead = 0
+        } else if deferredCoordinatorJoinHead >= 16,
+                  deferredCoordinatorJoinHead * 2
+                    >= deferredCoordinatorJoins.count {
+            deferredCoordinatorJoins.removeFirst(
+                deferredCoordinatorJoinHead
+            )
+            deferredCoordinatorJoinHead = 0
+        }
+    }
+
+    private static func removeDeferredCoordinatorJoins(
+        where shouldRemove: (DeferredCoordinatorJoin) -> Bool
+    ) {
+        let remaining = deferredCoordinatorJoins[
+            deferredCoordinatorJoinHead...
+        ].filter { !shouldRemove($0) }
+        deferredCoordinatorJoins = Array(remaining)
+        deferredCoordinatorJoinHead = 0
+    }
+
+    private static func hasDeferredCoordinatorJoin(
+        preferredCoordinator: WorkspaceTerminalFontSizeCoordinator
+    ) -> Bool {
+        deferredCoordinatorJoins[
+            deferredCoordinatorJoinHead...
+        ].contains {
+            $0.preferredCoordinator === preferredCoordinator
+        }
+    }
+
+    private static func hasDeferredCoordinatorJoin(
+        targeting workspace: Workspace,
+        or windowDockSlot: WindowDockSlot
+    ) -> Bool {
+        deferredCoordinatorJoins[
+            deferredCoordinatorJoinHead...
+        ].contains {
+            $0.workspaceReference.value === workspace
+                || $0.windowDockSlot === windowDockSlot
+        }
     }
 
     private func claimWorkspace(_ workspace: Workspace) {
@@ -567,6 +863,28 @@ final class WorkspaceTerminalFontSizeCoordinator {
         return requestSlot === slot
     }
 
+    private func requestBelongsToClosingWindow(
+        _ request: PendingRequest,
+        closingManager: TabManager?
+    ) -> Bool {
+        switch request.target {
+        case .workspace(_, let reference):
+            guard let workspace = reference.value else { return true }
+            return workspace.owningTabManager === closingManager
+        case .windowDock(let slot, _):
+            return slot === windowDockSlot
+        }
+    }
+
+    private func releaseClaimIfIdle(for request: PendingRequest) {
+        switch request.target {
+        case .workspace(_, let reference):
+            releaseWorkspaceClaimIfIdle(reference.value)
+        case .windowDock(let slot, _):
+            releaseWindowDockClaimIfIdle(slot)
+        }
+    }
+
     private func releaseWorkspaceClaimIfIdle(_ workspace: Workspace?) {
         guard let workspace,
               workspace.terminalFontSizeChangeCoordinator === self,
@@ -574,6 +892,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         workspace.terminalFontSizeChangeCoordinator = nil
+        Self.promoteDeferredCoordinatorJoins()
     }
 
     private func releaseWindowDockClaimIfIdle(_ slot: WindowDockSlot?) {
@@ -586,6 +905,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         if slot.value?.terminalFontSizeChangeCoordinator === self {
             slot.value?.terminalFontSizeChangeCoordinator = nil
         }
+        Self.promoteDeferredCoordinatorJoins()
     }
 
     private func releaseAllClaims() {
@@ -637,6 +957,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         workspaceReference: WeakWorkspaceReference,
         windowDockSlot: WindowDockSlot
     ) {
+        retainWhileOutstanding()
         let windowDockSlotIdentity = ObjectIdentifier(windowDockSlot)
         if let pendingEventBatch,
            pendingEventBatch.windowDockSlotIdentity
@@ -693,12 +1014,19 @@ final class WorkspaceTerminalFontSizeCoordinator {
         _ change: WorkspaceTerminalFontSizeChange,
         to request: inout PendingRequest
     ) {
+        append(change, to: &request.change)
+    }
+
+    private func append(
+        _ change: WorkspaceTerminalFontSizeChange,
+        to existing: inout WorkspaceTerminalFontSizeChange
+    ) {
         switch change {
         case .relative(let transform):
-            request.change.append(transform)
+            existing.append(transform)
         case .resetThen(let transform):
-            request.change.appendReset()
-            request.change.append(transform)
+            existing.appendReset()
+            existing.append(transform)
         }
     }
 
@@ -1030,29 +1358,21 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 .markFontSizeChangeReconciledForTransfer(
                     token: entry.request.token
                 )
-            var panels =
-                transferReconciledPanelsByToken[entry.request.token] ?? [:]
-            panels[terminalPanel.id] =
-                WeakTerminalPanelReference(terminalPanel)
-            transferReconciledPanelsByToken[entry.request.token] = panels
+            transferReconciledTokens.insert(entry.request.token)
         }
     }
 
     private func clearTransferReconciliationMarks(token: UUID) {
-        guard let panels =
-                transferReconciledPanelsByToken.removeValue(
-                    forKey: token
-                ) else {
+        guard transferReconciledTokens.remove(token) != nil else {
             return
         }
-        for reference in panels.values {
-            reference.value?.surface
-                .clearFontSizeChangeReconciledForTransfer(token: token)
-        }
+        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+            token: token
+        )
     }
 
     private func clearAllTransferReconciliationMarks() {
-        let tokens = Array(transferReconciledPanelsByToken.keys)
+        let tokens = Array(transferReconciledTokens)
         for token in tokens {
             clearTransferReconciliationMarks(token: token)
         }
@@ -1345,6 +1665,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
            activeRequest != nil || hasPendingRequests {
             scheduleDrain(after: 0)
         }
+        releaseRetentionIfIdle()
     }
 }
 

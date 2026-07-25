@@ -254,6 +254,34 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         )
     }
 
+    @Test func retiringTransferTokenClearsSourceAndDescendant() {
+        let token = UUID()
+        defer {
+            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+                token: token
+            )
+        }
+        let source = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
+        source.markFontSizeChangeReconciledForTransfer(token: token)
+        let descendant = makeSurface(
+            configTemplate: source.runtimeCreationConfigTemplate()
+        )
+
+        #expect(source.hasAppliedFontSizeChange(token: token))
+        #expect(descendant.hasAppliedFontSizeChange(token: token))
+
+        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+            token: token
+        )
+
+        #expect(!source.hasAppliedFontSizeChange(token: token))
+        #expect(!descendant.hasAppliedFontSizeChange(token: token))
+        #expect(
+            descendant.runtimeCreationConfigTemplate()
+                .fontSizeChangeTokens.isEmpty
+        )
+    }
+
     private func makeSurface(
         configTemplate: CmuxSurfaceConfigTemplate,
         globalFontMagnificationPercent: Int = 100,

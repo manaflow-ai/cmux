@@ -6852,6 +6852,8 @@ final class Workspace: Identifiable, ObservableObject {
                     var config = CmuxSurfaceConfigTemplate()
                     config.fontSizeLineage = inheritedFontSizeLineage
                     config.fontSizeChangeToken = inheritanceContext?.token
+                    config.fontSizeChangeTokens =
+                        surface.fontSizeChangeTokensForInheritance()
                     lastTerminalConfigInheritancePanelId = terminalPanel.id
                     lastTerminalConfigInheritanceFontSizeLineage =
                         inheritedFontSizeLineage
@@ -6867,6 +6869,8 @@ final class Workspace: Identifiable, ObservableObject {
                 config.fontSizeLineage = inheritedFontSizeLineage
             }
             config.fontSizeChangeToken = inheritanceContext?.token
+            config.fontSizeChangeTokens =
+                surface.fontSizeChangeTokensForInheritance()
             // Prevent ARC from releasing panel/surface before the C calls above complete.
             withExtendedLifetime((terminalPanel, surface)) {}
             rememberTerminalConfigInheritanceSource(terminalPanel)
@@ -6940,6 +6944,9 @@ final class Workspace: Identifiable, ObservableObject {
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = fontSizeLineage
         config.fontSizeChangeToken = inheritanceContext?.token
+        config.fontSizeChangeTokens =
+            sourcePanel?.surface.fontSizeChangeTokensForInheritance()
+            ?? []
         return config
     }
 

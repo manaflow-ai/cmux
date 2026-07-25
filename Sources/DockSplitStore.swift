@@ -501,6 +501,10 @@ final class DockSplitStore: BonsplitDelegate {
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = lineage
         config.fontSizeChangeToken = inheritanceContext?.token
+        config.fontSizeChangeTokens =
+            sourceTerminalPanel?.surface
+                .fontSizeChangeTokensForInheritance()
+            ?? []
         return config
     }
 

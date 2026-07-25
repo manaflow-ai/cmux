@@ -13,6 +13,9 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     /// Ephemeral provenance for an in-flight batched font-size request whose
     /// predicted lineage this template already contains.
     public var fontSizeChangeToken: UUID? = nil
+    /// Additional in-flight requests reconciled while a source terminal moved.
+    /// Descendants copy these tokens so each queued request remains exact-once.
+    public var fontSizeChangeTokens: Set<UUID> = []
 
     /// The unscaled base font size in points; `0` means the runtime default.
     ///
@@ -24,6 +27,7 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
         get { fontSizeLineage?.basePoints ?? 0 }
         set {
             fontSizeChangeToken = nil
+            fontSizeChangeTokens.removeAll()
             guard TerminalFontSizePolicy().acceptsPersistedBasePoints(newValue) else {
                 fontSizeLineage = nil
                 return
@@ -64,6 +68,7 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     ///     independently of later terminal config changes.
     public mutating func setFontSize(_ basePoints: Float32, isExplicitOverride: Bool) {
         fontSizeChangeToken = nil
+        fontSizeChangeTokens.removeAll()
         guard TerminalFontSizePolicy().acceptsPersistedBasePoints(basePoints) else {
             fontSizeLineage = nil
             return

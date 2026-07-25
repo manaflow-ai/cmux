@@ -3,6 +3,18 @@ public import Foundation
 internal import GhosttyKit
 
 extension TerminalSurface {
+    private final class WeakFontSizeChangeSurface {
+        weak var value: TerminalSurface?
+
+        init(_ value: TerminalSurface) {
+            self.value = value
+        }
+    }
+
+    @MainActor
+    private static var transferReconciledSurfacesByToken:
+        [UUID: [ObjectIdentifier: WeakFontSizeChangeSurface]] = [:]
+
     /// Marks that a higher-level batched font-size request already contributed
     /// to this surface's lineage. New descendants can carry the same request
     /// provenance without inferring ownership from a colliding point value.
@@ -17,11 +29,48 @@ extension TerminalSurface {
     @MainActor
     public func markFontSizeChangeReconciledForTransfer(token: UUID) {
         transferReconciledFontSizeChangeTokens.insert(token)
+        var surfaces = Self.transferReconciledSurfacesByToken[token] ?? [:]
+        surfaces[ObjectIdentifier(self)] =
+            WeakFontSizeChangeSurface(self)
+        Self.transferReconciledSurfacesByToken[token] = surfaces
     }
 
     @MainActor
     public func clearFontSizeChangeReconciledForTransfer(token: UUID) {
         transferReconciledFontSizeChangeTokens.remove(token)
+        let identity = ObjectIdentifier(self)
+        guard var surfaces =
+                Self.transferReconciledSurfacesByToken[token] else {
+            return
+        }
+        surfaces.removeValue(forKey: identity)
+        Self.transferReconciledSurfacesByToken[token] =
+            surfaces.isEmpty ? nil : surfaces
+    }
+
+    /// Clears one retired transfer token from every source and descendant that
+    /// inherited it while the request was in flight.
+    @MainActor
+    public static func clearFontSizeChangeReconciledForTransfer(
+        token: UUID
+    ) {
+        guard let surfaces =
+                transferReconciledSurfacesByToken.removeValue(
+                    forKey: token
+                ) else {
+            return
+        }
+        for surface in surfaces.values {
+            surface.value?
+                .transferReconciledFontSizeChangeTokens.remove(token)
+        }
+    }
+
+    /// Tokens whose changes are already represented by this surface's lineage
+    /// and must be copied when it seeds a descendant.
+    @MainActor
+    public func fontSizeChangeTokensForInheritance() -> Set<UUID> {
+        transferReconciledFontSizeChangeTokens
     }
 
     /// Returns whether this surface's lineage already includes `token`.
@@ -294,6 +343,8 @@ extension TerminalSurface {
     func runtimeCreationConfigTemplate() -> CmuxSurfaceConfigTemplate {
         var template = configTemplate ?? CmuxSurfaceConfigTemplate()
         template.fontSizeChangeToken = lastAppliedFontSizeChangeToken
+        template.fontSizeChangeTokens =
+            transferReconciledFontSizeChangeTokens
         if followsConfiguredFontSize
             || (
                 lastKnownFontSizeLineage?.isExplicitOverride == false

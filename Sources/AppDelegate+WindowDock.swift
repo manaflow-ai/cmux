@@ -20,7 +20,7 @@ extension AppDelegate.MainWindowContext {
     /// Tears down this context's Dock, closing any live terminals/browsers and
     /// their portals, so no Dock panel outlives its window.
     func teardownWindowDock() {
-        workspaceTerminalFontSizeCoordinator.cancelAll()
+        workspaceTerminalFontSizeCoordinator.cancelWindowOwnedWork()
         guard let dock = windowDock else { return }
         windowDock = nil
         dock.closeAllPanels()
