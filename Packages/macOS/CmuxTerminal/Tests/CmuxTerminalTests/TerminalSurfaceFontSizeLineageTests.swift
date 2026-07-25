@@ -417,6 +417,27 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         )
     }
 
+    @Test func exportingTransferTokensPrunesRetiredStorage() {
+        let surface = makeSurface(
+            configTemplate: CmuxSurfaceConfigTemplate()
+        )
+        for _ in 0..<100 {
+            let token = UUID()
+            surface.markFontSizeChangeReconciledForTransfer(
+                token: token
+            )
+            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+                token: token
+            )
+        }
+
+        #expect(surface.fontSizeChangeTokensForInheritance().isEmpty)
+        #expect(
+            surface.debugTransferReconciliationTokenStorageCount == 0,
+            "Lazy invalidation must remove retired entries from surface storage"
+        )
+    }
+
     private func makeSurface(
         configTemplate: CmuxSurfaceConfigTemplate,
         globalFontMagnificationPercent: Int = 100,

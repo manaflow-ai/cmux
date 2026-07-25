@@ -9,6 +9,11 @@ extension TerminalSurface {
     @MainActor
     static var debugLastTransferTokenRetirementSurfaceVisitCount = 0
 
+    @MainActor
+    var debugTransferReconciliationTokenStorageCount: Int {
+        transferReconciledFontSizeChangeTokens.count
+    }
+
     /// Marks that a higher-level batched font-size request already contributed
     /// to this surface's lineage. New descendants can carry the same request
     /// provenance without inferring ownership from a colliding point value.

@@ -2252,6 +2252,165 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testWorkspaceTransferDoesNotCoverAnotherWorkspacesDockEvent() {
+        let manager = TabManager()
+        guard let firstWorkspace = manager.selectedWorkspace,
+              let firstPanelID = firstWorkspace.focusedPanelId,
+              let firstPanel =
+                firstWorkspace.terminalPanel(for: firstPanelID) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let secondWorkspace = manager.addTab(select: false)
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        guard let dockPane =
+                windowDock.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a Window Dock pane")
+            return
+        }
+        firstPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: firstWorkspace.id,
+            deferFlush: true
+        )
+        coordinator.enqueue(
+            .relative([1]),
+            workspaceId: secondWorkspace.id,
+            deferFlush: true
+        )
+
+        guard let detached = firstWorkspace.detachSurface(
+            panelId: firstPanel.id
+        ),
+        windowDock.attachDetachedSurface(
+            detached,
+            inPane: dockPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected the first workspace terminal to enter the Dock")
+            return
+        }
+
+        XCTAssertEqual(
+            firstPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            20,
+            "The Dock must apply the second workspace's uncovered event"
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            firstPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            20
+        )
+    }
+
+    func testTransferOnlyDockTerminalSeedsTerminalFreeWorkspace() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelID = workspace.focusedPanelId,
+              let workspacePane =
+                workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected an initial workspace pane")
+            return
+        }
+        guard workspace.newBrowserSurface(
+            inPane: workspacePane,
+            url: URL(string: "about:blank"),
+            focus: false,
+            creationPolicy: .restoration
+        ) != nil,
+        workspace.closePanel(firstPanelID, force: true) else {
+            XCTFail("Expected a terminal-free workspace")
+            return
+        }
+
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        guard let dockPane =
+                windowDock.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a Window Dock pane")
+            return
+        }
+        let dockPanel = TerminalPanel(
+            workspaceId: windowDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        dockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard windowDock.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: dockPanel,
+                sourceWorkspaceId: windowDock.workspaceId
+            ),
+            inPane: dockPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a Window Dock terminal")
+            return
+        }
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+        guard let detached = windowDock.detachSurface(
+            panelId: dockPanel.id
+        ) else {
+            XCTFail("Expected the Dock terminal to detach")
+            return
+        }
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        withExtendedLifetime(detached) {}
+
+        guard let inheritedPanel = workspace.newTerminalSurface(
+            inPane: workspacePane,
+            focus: false,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        ) else {
+            XCTFail("Expected an inherited workspace terminal")
+            return
+        }
+        XCTAssertEqual(
+            inheritedPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "Transfer-only Dock participation must seed its adjusted lineage"
+        )
+    }
+
     func testWorkspaceTerminalFontSizeDrainDoesNotDoubleApplyDockMove() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
