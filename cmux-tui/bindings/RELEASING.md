@@ -9,7 +9,7 @@ cmux-sdk-vX.Y.Z
 Historical releases used `mux-sdk-vX.Y.Z`; the publish workflows still accept
 that prefix so old release history remains connected. These tags are separate
 from app release tags such as `vX.Y.Z`. Current SDK package versions are
-`0.1.0`.
+`0.3.0`.
 
 ## One-time registry setup
 

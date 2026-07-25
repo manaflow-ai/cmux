@@ -113,6 +113,7 @@ enum BrowserScreenshotCrop {
         return clamp(imageRect, to: NSRect(origin: .zero, size: imageSize))
     }
 
+    @MainActor
     static func croppedImage(
         from image: NSImage,
         selectionInView selection: NSRect,
@@ -127,15 +128,37 @@ enum BrowserScreenshotCrop {
             throw BrowserScreenshotError.invalidSelection
         }
 
-        let cropped = NSImage(size: cropRect.size)
-        cropped.lockFocus()
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(cropRect.width),
+            pixelsHigh: Int(cropRect.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .calibratedRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+
+        bitmap.size = cropRect.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
         image.draw(
             in: NSRect(origin: .zero, size: cropRect.size),
             from: cropRect,
             operation: .copy,
-            fraction: 1.0
+            fraction: 1.0,
+            respectFlipped: false,
+            hints: nil
         )
-        cropped.unlockFocus()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let cropped = NSImage(size: cropRect.size)
+        cropped.addRepresentation(bitmap)
         return cropped
     }
 

@@ -134,9 +134,9 @@ extension MobileCoreRPCSession {
         if (envelope["ok"] as? Bool) == true {
             let result = envelope["result"] ?? [:]
             if let data = try? JSONSerialization.data(withJSONObject: result) {
-                cont.resume(returning: .success(data))
+                cont.resume(returning: .response(.success(data)))
             } else {
-                cont.resume(returning: .failure(.invalidResponse))
+                cont.resume(returning: .response(.failure(.invalidResponse)))
             }
             return
         }
@@ -145,11 +145,11 @@ extension MobileCoreRPCSession {
         let code = errorPayload?["code"] as? String
         switch code {
         case "unauthorized":
-            cont.resume(returning: .failure(.authorizationFailed(message)))
+            cont.resume(returning: .response(.failure(.authorizationFailed(message))))
         case "account_mismatch":
-            cont.resume(returning: .failure(.accountMismatch(message)))
+            cont.resume(returning: .response(.failure(.accountMismatch(message))))
         default:
-            cont.resume(returning: .failure(.rpcError(code, message)))
+            cont.resume(returning: .response(.failure(.rpcError(code, message))))
         }
     }
 }

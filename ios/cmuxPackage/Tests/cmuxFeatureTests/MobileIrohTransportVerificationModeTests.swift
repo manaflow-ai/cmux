@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import Foundation
 import Testing
@@ -6,6 +7,44 @@ import Testing
 @MainActor
 @Suite
 struct MobileIrohTransportVerificationModeTests {
+    @Test
+    func iosCompositionResolvesTheReleasePathPreferenceAndDebugOverride() throws {
+        let suiteName = "MobileIrohTransportVerificationModeTests.path-preference.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let automatic = MobileIrohRuntimeComposition.initialTransportVerificationMode(
+            defaults: defaults
+        )
+        #expect(automatic == .automatic)
+
+        defaults.set(
+            CmxIrohPathPreference.relayOnly.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        let relayOnly = MobileIrohRuntimeComposition.initialTransportVerificationMode(
+            defaults: defaults
+        )
+        #expect(relayOnly == .relayOnly)
+        #expect(
+            !MobileIrohRuntimeComposition.protocolConfiguration(
+                for: relayOnly
+            ).allowsNATTraversalAfterAdmission
+        )
+
+        #if DEBUG
+        defaults.set(
+            CmxIrohTransportVerificationMode.directOnly.rawValue,
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        #expect(
+            MobileIrohRuntimeComposition.initialTransportVerificationMode(
+                defaults: defaults
+            ) == .directOnly
+        )
+        #endif
+    }
+
     #if DEBUG
     @Test
     func iosCompositionUsesTheSharedVerificationMode() throws {

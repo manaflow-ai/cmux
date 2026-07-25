@@ -23,7 +23,7 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
 /// One persisted checklist item. Raw `state` / `origin` strings (not the
 /// package enums) so a manifest written by a future build with new cases
 /// still decodes here; unknown values degrade to pending/user on restore.
-nonisolated struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
+struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
     var id: UUID
     var text: String
     var state: String

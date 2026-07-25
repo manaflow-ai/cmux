@@ -55,6 +55,8 @@ public struct GhosttyConfig {
     public var theme: String?
     /// The configured `working-directory`, or `nil` when unset.
     public var workingDirectory: String?
+    /// The explicit `command` directive, or `nil` when Ghostty should resolve the login shell.
+    public var command: String?
     /// The scrollback limit. Ghostty measures this in bytes, not lines.
     public var scrollbackLimit: Int = 50_000_000
     /// The opacity (0...1) applied to unfocused split panes.
@@ -543,6 +545,10 @@ public struct GhosttyConfig {
                     }
                 case "working-directory":
                     workingDirectory = value
+                case "command":
+                    if !value.isEmpty {
+                        command = value
+                    }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit

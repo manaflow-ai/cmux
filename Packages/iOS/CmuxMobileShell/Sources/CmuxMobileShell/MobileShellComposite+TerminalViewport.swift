@@ -9,6 +9,15 @@ nonisolated private let terminalViewportLog = Logger(
     category: "mobile-shell"
 )
 
+/// A locally committed viewport generation that can be attached to the first
+/// replay request before the asynchronous viewport RPC starts.
+public struct MobileTerminalViewportPreparation: Sendable {
+    fileprivate let workspaceID: MobileWorkspacePreview.ID
+    fileprivate let surfaceID: String
+    fileprivate let viewportSize: MobileTerminalViewportSize
+    fileprivate let generation: UInt64
+}
+
 extension MobileShellComposite {
     /// Report this device's natural terminal grid to the Mac and return the
     /// effective grid the Mac computed (the smallest across all attached
@@ -19,7 +28,32 @@ extension MobileShellComposite {
         surfaceID: String,
         columns: Int,
         rows: Int
-    ) async -> (columns: Int, rows: Int)? {
+    ) async -> (
+        columns: Int,
+        rows: Int,
+        renderEpoch: String?,
+        renderRevisionFloor: UInt64?
+    )? {
+        guard let preparation = prepareTerminalViewport(
+            surfaceID: surfaceID,
+            columns: columns,
+            rows: rows
+        ) else {
+            return nil
+        }
+        return await updatePreparedTerminalViewport(preparation)
+    }
+
+    /// Commit the viewport locally before output registration starts.
+    ///
+    /// Registering an output sink immediately requests a cold replay. Its
+    /// request snapshots this cache and generation synchronously, so the Mac
+    /// can apply the current phone grid before capturing replay rows.
+    public func prepareTerminalViewport(
+        surfaceID: String,
+        columns: Int,
+        rows: Int
+    ) -> MobileTerminalViewportPreparation? {
         guard columns > 0, rows > 0,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
@@ -41,6 +75,39 @@ extension MobileShellComposite {
         // report after reconnect.
         let requestGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
         viewportReportGenerationsBySurfaceID[surfaceID] = requestGeneration
+        return MobileTerminalViewportPreparation(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            viewportSize: reportedGrid,
+            generation: requestGeneration
+        )
+    }
+
+    /// Send a viewport generation that was committed before output replay was
+    /// registered. A newer report or detach invalidates the preparation.
+    public func updatePreparedTerminalViewport(
+        _ preparation: MobileTerminalViewportPreparation
+    ) async -> (
+        columns: Int,
+        rows: Int,
+        renderEpoch: String?,
+        renderRevisionFloor: UInt64?
+    )? {
+        let preparedWorkspaceID = preparation.workspaceID
+        let surfaceID = preparation.surfaceID
+        let reportedGrid = preparation.viewportSize
+        let columns = reportedGrid.columns
+        let rows = reportedGrid.rows
+        let requestGeneration = preparation.generation
+        let key = MobileTerminalViewportKey(
+            workspaceID: preparedWorkspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
+        guard workspaceID(forTerminalID: surfaceID) == preparedWorkspaceID,
+              reportedViewportSizesByTerminalKey[key] == reportedGrid,
+              viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
+            return nil
+        }
         guard let client = remoteClient else { return nil }
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
@@ -49,7 +116,7 @@ extension MobileShellComposite {
             reportedGrid: reportedGrid
         )
         do {
-            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+            let remoteWorkspaceID = remoteWorkspaceID(for: preparedWorkspaceID)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
                 params: [
@@ -132,7 +199,12 @@ extension MobileShellComposite {
                     reason: "viewport_unchanged"
                 )
             }
-            return (grid.columns, grid.rows)
+            return (
+                columns: grid.columns,
+                rows: grid.rows,
+                renderEpoch: payload.renderEpoch,
+                renderRevisionFloor: payload.renderRevisionFloor
+            )
         } catch {
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.

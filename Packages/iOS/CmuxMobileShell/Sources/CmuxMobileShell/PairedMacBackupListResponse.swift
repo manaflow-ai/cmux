@@ -1,3 +1,4 @@
+internal import CmuxMobilePairedMac
 import Foundation
 
 struct PairedMacBackupListResponse: Decodable {
@@ -20,5 +21,12 @@ struct PairedMacBackupListResponse: Decodable {
         deletedMacDeviceIDs = ((try? c.decodeIfPresent([String].self, forKey: .deletedMacDeviceIDs)) ?? [])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .map { pairingID in
+                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+                return MobilePairedMac.pairingID(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag
+                )
+            }
     }
 }

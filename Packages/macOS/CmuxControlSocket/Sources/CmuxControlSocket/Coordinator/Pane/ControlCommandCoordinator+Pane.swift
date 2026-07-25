@@ -159,6 +159,9 @@ extension ControlCommandCoordinator {
                     dict["cell_height_points"] = .double(height)
                 }
             }
+            if let dockScope = pane.dockScopeRawValue {
+                dict["dock_scope"] = .string(dockScope)
+            }
             return .object(dict)
         }
 
@@ -264,17 +267,21 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Pane or workspace not found", data: nil)
         case let .resolved(snapshot, surfaceRefs, workspaceRef, paneRef, windowRef):
             let surfaces: [JSONValue] = snapshot.surfaces.enumerated().map { index, surface in
-                .object([
+                var item: [String: JSONValue] = [
                     "id": orNull(surface.surfaceID?.uuidString),
                     "ref": surfaceRefs[index],
                     "index": .int(Int64(index)),
                     "title": .string(surface.title),
                     "type": orNull(surface.typeRawValue),
                     "selected": .bool(surface.isSelected),
-                ])
+                ]
+                if let dockScope = surface.dockScopeRawValue {
+                    item["dock_scope"] = .string(dockScope)
+                }
+                return .object(item)
             }
 
-            return .ok(.object([
+            var payload: [String: JSONValue] = [
                 "workspace_id": .string(snapshot.workspaceID.uuidString),
                 "workspace_ref": workspaceRef,
                 "pane_id": .string(snapshot.paneID.uuidString),
@@ -282,7 +289,11 @@ extension ControlCommandCoordinator {
                 "surfaces": .array(surfaces),
                 "window_id": orNull(snapshot.windowID?.uuidString),
                 "window_ref": windowRef,
-            ]))
+            ]
+            if let dockScope = snapshot.dockScopeRawValue {
+                payload["dock_scope"] = .string(dockScope)
+            }
+            return .ok(.object(payload))
         }
     }
 

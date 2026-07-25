@@ -72,6 +72,11 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             nil
         }
     }
+
+    var sourceRenderGridFrame: MobileTerminalRenderGridFrame? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

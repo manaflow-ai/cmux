@@ -21,6 +21,7 @@ extension CmxIrohHostRuntimeTests {
         )
         let endpoint = TestIrohEndpoint(
             identity: fixture.endpointID,
+            directAddresses: ["0.0.0.0:50909", "[::]:54750"],
             pathHintsAfterRelayReplacement: [relayHint]
         )
         let broker = TestIrohHostBroker(
@@ -65,6 +66,14 @@ extension CmxIrohHostRuntimeTests {
         let refreshedHints = try registrationPathHints(registrations[1])
         #expect(initialHints.isEmpty)
         #expect(refreshedHints == [relayHint])
+        let expectedDirectPorts = try CmxIrohDirectPorts(
+            ipv4: 50_909,
+            ipv6: 54_750
+        )
+        let initialDirectPorts = try registrationDirectPorts(registrations[0])
+        let refreshedDirectPorts = try registrationDirectPorts(registrations[1])
+        #expect(initialDirectPorts == expectedDirectPorts)
+        #expect(refreshedDirectPorts == expectedDirectPorts)
 
         let published = await publications.values()
         #expect(published.count == 2)
@@ -243,6 +252,24 @@ private func registrationPathHints(
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     return try decoder.decode([CmxIrohPathHint].self, from: encodedHints)
+}
+
+private func registrationDirectPorts(
+    _ prepared: CmxIrohPreparedRegistration
+) throws -> CmxIrohDirectPorts? {
+    let value = prepared.encodedPayload
+        .replacingOccurrences(of: "-", with: "+")
+        .replacingOccurrences(of: "_", with: "/")
+    let padded = value + String(repeating: "=", count: (4 - value.count % 4) % 4)
+    let payload = try #require(Data(base64Encoded: padded))
+    let object = try #require(
+        JSONSerialization.jsonObject(with: payload) as? [String: Any]
+    )
+    guard let directPorts = object["directPorts"] else { return nil }
+    return try JSONDecoder().decode(
+        CmxIrohDirectPorts.self,
+        from: JSONSerialization.data(withJSONObject: directPorts)
+    )
 }
 
 private actor HostRuntimeSuspensionGate {

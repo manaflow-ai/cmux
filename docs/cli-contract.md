@@ -472,6 +472,14 @@ shared by the sidebar row, the checklist popover, the todo pane, `cmux todo`
 / `cmux workspace status`, and the `workspace.todo.*` / `workspace.status.*`
 socket verbs (all funnel through the same mutation entry points).
 
+Agent policy: the checklist and manual status pins belong to the user.
+Coding agents must not create, edit, complete, remove, or replace checklist
+items, and must not `set`/`cycle` the status, unless the user explicitly
+asks them to manage that surface — a request to manage checklist items or
+a request to manage manual status pins. The status lane already tracks
+agent activity automatically through inference; agents should keep their
+own plans in their internal task tracking.
+
 Item schema (wire and `todo list --json` shape):
 
 | Field | Contract |
@@ -575,6 +583,11 @@ the expected text without connecting to a cmux socket.
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
 - `cmux ssh --help` -> `--forward-agent`
+- `cmux ssh --help` -> `--transport <ssh|mosh>`
+- `cmux mosh --help` -> `Usage: cmux mosh <destination>`
+- `cmux mosh-tmux --help` -> `Usage: cmux mosh-tmux <destination>`
+- `cmux mosh-tmux --help` -> `--session <name>`
+- `cmux ssh --help` -> `--command <text>`
 - `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`
 - `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id>`
 - `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup`

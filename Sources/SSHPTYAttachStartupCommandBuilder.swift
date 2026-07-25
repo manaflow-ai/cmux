@@ -53,10 +53,14 @@ enum SSHPTYAttachStartupCommandBuilder {
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
 
-    static func restoredRemoteShellCommand(relayPort: Int) -> String {
+    static func restoredRemoteShellCommand(
+        relayPort: Int,
+        initialCommand: String? = nil
+    ) -> String {
         RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: relayPort,
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            initialCommand: initialCommand,
             bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "fish/config.fish")

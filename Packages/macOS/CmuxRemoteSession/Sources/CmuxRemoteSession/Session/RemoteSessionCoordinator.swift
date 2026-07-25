@@ -542,55 +542,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         return message.isEmpty ? "remote daemon bootstrap failed" : message
     }
 
-    // MARK: - Subprocess execution (through the runner seam)
-
-    func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> RemoteCommandResult {
-        try runProcess(
-            executable: "/usr/bin/ssh",
-            arguments: arguments,
-            environment: configuration.sshProcessEnvironment,
-            stdin: stdin,
-            timeout: timeout
-        )
-    }
-
-    func scpExec(
-        arguments: [String],
-        timeout: TimeInterval = 30,
-        operation: (any RemoteTransferCancelling)? = nil
-    ) throws -> RemoteCommandResult {
-        try runProcess(
-            executable: "/usr/bin/scp",
-            arguments: arguments,
-            environment: configuration.sshProcessEnvironment,
-            stdin: nil,
-            timeout: timeout,
-            operation: operation
-        )
-    }
-
-    func runProcess(
-        executable: String,
-        arguments: [String],
-        environment: [String: String]? = nil,
-        currentDirectory: URL? = nil,
-        stdin: Data?,
-        timeout: TimeInterval,
-        operation: (any RemoteTransferCancelling)? = nil
-    ) throws -> RemoteCommandResult {
-        try processRunner.run(
-            RemoteProcessRequest(
-                executable: executable,
-                arguments: arguments,
-                environment: environment,
-                currentDirectory: currentDirectory,
-                stdin: stdin,
-                timeout: timeout
-            ),
-            operation: operation
-        )
-    }
-
     // MARK: - Debug logging
 
     func debugLog(_ message: @autoclosure () -> String) {

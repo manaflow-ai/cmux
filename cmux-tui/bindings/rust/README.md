@@ -24,6 +24,15 @@ println!("{}", client.read_screen(surface)?.text);
 `ClientConfig::default()` uses `CMUX_TUI_SOCKET` when set, then legacy
 `CMUX_MUX_SOCKET`, then the default session socket path.
 
+## 0.3 migration
+
+`identify()` keeps the legacy `IdentifyResult` shape. Use `identify_details()`
+and `IdentifyDetails.capabilities` to discover optional server behavior. Gate
+ordered workspace registry commands on `workspace-registry-v1` and initial
+attach dimensions on `attach-initial-size`; do not infer either feature from the
+protocol number. `Tree.workspace_revision` and `Workspace.key` remain optional
+so deserialization stays compatible with older servers.
+
 ## E2E
 
 ```bash

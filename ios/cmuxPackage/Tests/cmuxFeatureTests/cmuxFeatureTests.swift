@@ -904,6 +904,54 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func manualHostPairingRefreshesPairedMacPresentationImmediately() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString,
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let pairedMacStore = try MobilePairedMacStore(
+        databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+    )
+    let attachRoute = try hostPortRoute(
+        kind: .debugLoopback,
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "phone-user",
+            currentUserEmailValue: "phone@example.com"
+        )
+    )
+
+    store.signIn()
+    #expect(store.pairedMacs.isEmpty)
+
+    await store.connectManualHost(
+        name: "",
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+
+    #expect(store.connectionState == .connected)
+    #expect(store.pairedMacs.map(\.macDeviceID) == ["test-mac"])
+}
+
+@MainActor
 @Test func manualHostPairingToLoopbackStillDialsWhileOffline() async throws {
     // Loopback needs no external network path (simulator/dev pairing to
     // 127.0.0.1), so the offline reachability preflight must not block it.
@@ -4191,6 +4239,7 @@ struct InertPushRegistration: PushRegistering {
 
     let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
     #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
+    #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .external)
     #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
     // One-shot: a later layout remount cannot replay a stale push.
     #expect(store.deeplinkWorkspaceNavigationRequest == nil)

@@ -36,9 +36,40 @@ extension MobileHostAuthorizationTests {
 
         await transport.finishReceiving()
         await runTask.value
+        await session.close(reason: "duplicate close after remote EOF")
 
         #expect(await transport.observedConnectCount() == 1)
         #expect(await transport.observedCloseCount() == 1)
+        #expect(await closeRecorder.recordedIDs() == [connectionID])
+    }
+
+    @Test func testMobileHostConnectionCancellationClosesTransportExactlyOnce() async {
+        let connectionID = UUID()
+        let transport = GatedMobileHostByteTransport()
+        let closeRecorder = MobileHostConnectionCloseRecorder()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await closeRecorder.record(id)
+            }
+        )
+
+        let runTask = Task {
+            await session.run()
+        }
+        await transport.waitUntilReceiveStarted()
+
+        runTask.cancel()
+        await runTask.value
+        await session.close(reason: "duplicate close after cancellation")
+
+        #expect(await transport.observedConnectCount() == 1)
+        #expect(await transport.observedCloseCount() == 1)
+        #expect(await transport.observedReceiveCancellation())
         #expect(await closeRecorder.recordedIDs() == [connectionID])
     }
 
@@ -322,15 +353,25 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
         #expect(capabilities.contains("workspace.actions.v1"))
+        #expect(capabilities.contains("workspace.metadata.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
         #expect(capabilities.contains("workspace.move.v1"))
         #expect(capabilities.contains("workspace.group_actions.v1"))
-        #expect(capabilities.contains("terminal.render_grid.v1"))
+        #expect(Set(capabilities).isSuperset(of: [
+            "workspace.task_create.v1",
+            "terminal.render_grid.v1",
+            "notification.feed.v1",
+        ]))
     }
     // MARK: - Mobile workspace.action sub-action gate
-    @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
-        for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
+    @Test func testMobileWorkspaceActionGateAllowsIdentityAndReadStateActions() {
+        for action in [
+            "pin", "unpin", "rename",
+            "set_description", "clear_description", "set_color", "clear_color",
+            "mark_read", "mark_unread",
+            "PIN", "UnPin", "RENAME", "SET_DESCRIPTION", "CLEAR_COLOR", "MARK_READ", "Mark_Unread",
+        ] {
             #expect(
                 TerminalController.mobileAllowsWorkspaceAction(action),
                 "mobile workspace.action '\(action)' should be allowed"
@@ -339,7 +380,6 @@ extension MobileHostAuthorizationTests {
         for action in [
             "move_up", "move-down", "move_top",
             "close_others", "close_above", "close_below",
-            "set_color", "clear_color", "set_description", "clear_description",
             "clear_name", "close", "self_destruct", "",
         ] {
             #expect(
@@ -348,6 +388,7 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(!TerminalController.mobileAllowsWorkspaceAction(nil))
+        #expect(TerminalController.mobileWorkspaceActionKey(" SET-DESCRIPTION ") == "set_description")
     }
 }
 
@@ -357,6 +398,7 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
     private var receiveContinuation: CheckedContinuation<Data?, Never>?
     private var connectCount = 0
     private var closeCount = 0
+    private var receiveCancellationObserved = false
 
     init() {
         let receiveStarted = AsyncStream<Void>.makeStream()
@@ -370,8 +412,19 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
 
     func receive() async -> Data? {
         receiveStartedContinuation.yield()
-        return await withCheckedContinuation { continuation in
-            receiveContinuation = continuation
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    receiveCancellationObserved = true
+                    continuation.resume(returning: nil)
+                    return
+                }
+                receiveContinuation = continuation
+            }
+        } onCancel: {
+            Task {
+                await self.cancelReceive()
+            }
         }
     }
 
@@ -401,6 +454,16 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
 
     func observedCloseCount() -> Int {
         closeCount
+    }
+
+    func observedReceiveCancellation() -> Bool {
+        receiveCancellationObserved
+    }
+
+    private func cancelReceive() {
+        receiveCancellationObserved = true
+        receiveContinuation?.resume(returning: nil)
+        receiveContinuation = nil
     }
 }
 

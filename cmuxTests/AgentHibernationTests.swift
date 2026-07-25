@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 import Bonsplit
@@ -354,6 +355,7 @@ struct AgentHibernationTests {
         let workspaceId = UUID()
         let panelId = UUID()
         let pid = 12_345
+        let identity = AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 42, startMicroseconds: 7)
         let sessionId = "codex-live-hook-pid"
         let jsonObject: [String: Any] = [
             "version": 1,
@@ -364,6 +366,8 @@ struct AgentHibernationTests {
                     "surfaceId": panelId.uuidString,
                     "cwd": "/tmp/repo",
                     "pid": pid,
+                    "pidStartSeconds": identity.startSeconds,
+                    "pidStartMicroseconds": identity.startMicroseconds,
                     "agentLifecycle": "idle",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
@@ -394,6 +398,9 @@ struct AgentHibernationTests {
                         ]
                     )
                     : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == pid ? identity : nil
             }
         )
 
@@ -413,6 +420,7 @@ struct AgentHibernationTests {
         let workspaceId = UUID()
         let panelId = UUID()
         let pid = 23_456
+        let identity = AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 43, startMicroseconds: 8)
         let sessionId = "claude-node-live-hook-pid"
         let transcriptURL = home
             .appendingPathComponent(".claude/projects/-tmp-repo", isDirectory: true)
@@ -437,6 +445,8 @@ struct AgentHibernationTests {
                     "cwd": "/tmp/repo",
                     "transcriptPath": transcriptURL.path,
                     "pid": pid,
+                    "pidStartSeconds": identity.startSeconds,
+                    "pidStartMicroseconds": identity.startMicroseconds,
                     "agentLifecycle": "idle",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
@@ -470,6 +480,9 @@ struct AgentHibernationTests {
                         ]
                     )
                     : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == pid ? identity : nil
             }
         )
 

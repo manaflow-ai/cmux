@@ -68,63 +68,13 @@ extension TerminalController: ControlPaneContext {
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
-        return controlPaneList(workspace: ws, tabManager: tabManager)
-    }
-
-    private func controlDockPaneList(
-        dock: DockSplitStore,
-        tabManager: TabManager
-    ) -> ControlPaneListSnapshot {
-        let focusedPaneId = dock.bonsplitController.focusedPaneId
-        let snapshot = dock.bonsplitController.layoutSnapshot()
-        let geometryByPaneId = Dictionary(
-            snapshot.panes.map { ($0.paneId, $0.frame) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        let panes: [ControlPaneSummary] = dock.bonsplitController.allPaneIds.map { paneId in
-            let tabs = dock.bonsplitController.tabs(inPane: paneId)
-            let surfaceUUIDs: [UUID] = tabs.compactMap { dock.panel(for: $0.id)?.id }
-            let selectedTab = dock.bonsplitController.selectedTab(inPane: paneId)
-            let selectedSurfaceUUID = selectedTab.flatMap { dock.panel(for: $0.id)?.id }
-
-            let pixelFrame: ControlPanePixelFrame? = geometryByPaneId[paneId.id.uuidString].map { frame in
-                ControlPanePixelFrame(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
-            }
-
-            var gridSize: ControlPaneGridSize?
-            if let panelUUID = selectedSurfaceUUID,
-               let panel = dock.panels[panelUUID] as? TerminalPanel,
-               panel.surface.hasLiveSurface,
-               let ghosttySurface = panel.surface.surface {
-                let size = ghostty_surface_size(ghosttySurface)
-                if size.columns > 0 && size.rows > 0 {
-                    let cellPoints = panel.surface.cellSizePoints()
-                    gridSize = ControlPaneGridSize(
-                        columns: Int(size.columns),
-                        rows: Int(size.rows),
-                        cellWidthPx: Int(size.cell_width_px),
-                        cellHeightPx: Int(size.cell_height_px),
-                        cellWidthPoints: cellPoints.map { Double($0.width) },
-                        cellHeightPoints: cellPoints.map { Double($0.height) }
-                    )
-                }
-            }
-
-            return ControlPaneSummary(
-                paneID: paneId.id,
-                isFocused: paneId == focusedPaneId,
-                surfaceIDs: surfaceUUIDs,
-                selectedSurfaceID: selectedSurfaceUUID,
-                pixelFrame: pixelFrame,
-                gridSize: gridSize
-            )
-        }
-
+        let snapshot = ws.bonsplitController.layoutSnapshot()
         return ControlPaneListSnapshot(
-            workspaceID: dock.workspaceId,
-            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
-            panes: panes,
+            workspaceID: ws.id,
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            panes: controlPaneSummaries(workspace: ws, snapshot: snapshot) +
+                controlTopologyDocks(workspace: ws, tabManager: tabManager)
+                .flatMap { controlDockPaneSummaries(dock: $0, includePixelFrames: false) },
             containerWidth: snapshot.containerFrame.width,
             containerHeight: snapshot.containerFrame.height
         )
@@ -163,35 +113,22 @@ extension TerminalController: ControlPaneContext {
             return nil
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            let paneId: PaneID? = {
-                if let paneID {
-                    return dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID })
-                }
-                return dock.bonsplitController.focusedPaneId
-            }()
-            guard let paneId else { return nil }
-
-            let selectedTab = dock.bonsplitController.selectedTab(inPane: paneId)
-            let tabs = dock.bonsplitController.tabs(inPane: paneId)
-
-            let surfaces: [ControlPaneSurfaceSummary] = tabs.map { tab in
-                let panel = dock.panel(for: tab.id)
-                return ControlPaneSurfaceSummary(
-                    surfaceID: panel?.id,
-                    title: tab.title,
-                    typeRawValue: panel?.panelType.rawValue,
-                    isSelected: tab.id == selectedTab?.id
-                )
-            }
-
-            return ControlPaneSurfacesSnapshot(
-                workspaceID: dock.workspaceId,
-                paneID: paneId.id,
-                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
-                surfaces: surfaces
+            return controlDockPaneSurfaces(
+                dock: dock,
+                paneID: paneID,
+                tabManager: tabManager
             )
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
+        if let paneID,
+           let dock = ws._dockSplit,
+           dock.containsPane(paneID) {
+            return controlDockPaneSurfaces(
+                dock: dock,
+                paneID: paneID,
+                tabManager: tabManager
+            )
+        }
 
         return controlPaneSurfaces(workspace: ws, paneID: paneID, tabManager: tabManager)
     }

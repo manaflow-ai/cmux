@@ -189,6 +189,54 @@ import Testing
 @MainActor
 struct MobileHostIrohStartupRetryTests {
     @Test
+    func sameAccountAuthObservationDoesNotSupersedeActivationInFlight() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationDoesNotRestartActiveRuntime() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: "same-account",
+            hasRuntime: true,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationRetriesAfterFailedActivation() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func accountChangeStillSupersedesActivationInFlight() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "next-account",
+            previousAccountID: "previous-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
     func networkPathRetryDoesNotSupersedeActivationInFlight() async {
         let runtime = MobileHostIrohRuntime.shared
         let originalDesiredActive = runtime.desiredActive

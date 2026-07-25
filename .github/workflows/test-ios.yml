@@ -169,6 +169,12 @@ jobs:
           # terminal mirror behavior without relying on local-only SwiftPM runs.
           swift test --package-path Packages/iOS/CmuxMobileShell
 
+      - name: Run CmuxMobileShellModel package tests
+        run: |
+          # Pure shell-model queue and ordering regressions live in this package.
+          # Keep them beside the shell package gate so input framing stays covered.
+          swift test --package-path Packages/iOS/CmuxMobileShellModel
+
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}

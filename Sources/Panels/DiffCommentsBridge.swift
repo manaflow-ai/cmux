@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -314,30 +315,38 @@ extension BrowserPanel {
         )
     }
 
-    @discardableResult
-    func navigateFromCLI(
+    func beginAutomationNavigationFromCLI(
         _ url: String,
         expectedURL: String? = nil,
         expectedOperationID: UUID? = nil
-    ) -> Bool {
+    ) -> (ticket: BrowserAutomationNavigationTicket, targetURL: URL)? {
         guard canAcceptCLINavigation(
             expectedURL: expectedURL,
             expectedOperationID: expectedOperationID
-        ) else { return false }
+        ) else { return nil }
+        let targetURL: URL
         if let internalURL = URL(string: url),
            internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
-            guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return false }
+            guard CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: internalURL) else { return nil }
             if expectedOperationID != nil,
                CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: internalURL)?
                 .requestPath
                 .hasSuffix("-opening.html") == true {
                 diffViewerLoadingOwnedOpeningURL = internalURL.absoluteString
             }
-            navigate(to: internalURL)
+            targetURL = internalURL
         } else {
-            navigateSmart(url)
+            guard let resolvedNavigation = resolveSmartNavigation(from: url) else { return nil }
+            targetURL = resolvedNavigation.url
+            return (
+                beginAutomationNavigation(
+                    to: targetURL,
+                    recordTypedNavigation: resolvedNavigation.recordTypedNavigation
+                ),
+                targetURL
+            )
         }
-        return true
+        return (beginAutomationNavigation(to: targetURL, recordTypedNavigation: false), targetURL)
     }
 
     func canAcceptCLINavigation(expectedURL: String?, expectedOperationID: UUID?) -> Bool {

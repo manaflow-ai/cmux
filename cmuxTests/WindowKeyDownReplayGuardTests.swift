@@ -80,6 +80,9 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -96,6 +99,9 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -113,6 +119,9 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 

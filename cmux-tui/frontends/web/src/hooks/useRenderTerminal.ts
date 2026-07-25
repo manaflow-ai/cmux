@@ -33,6 +33,7 @@ interface RenderTerminalOptions {
   client: CmuxClient | null;
   surface: Id | null;
   active: boolean;
+  focusOnMount?: boolean;
   onError(error: Error): void;
 }
 
@@ -103,7 +104,13 @@ interface RenderTerminalController {
   sendText(text: string, paste?: boolean): void;
 }
 
-export function useRenderTerminal({ client, surface, active, onError }: RenderTerminalOptions) {
+export function useRenderTerminal({
+  client,
+  surface,
+  active,
+  focusOnMount = false,
+  onError,
+}: RenderTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [state, dispatch] = useReducer(renderTerminalViewReducer, initialState);
   const controllerRef = useRef<RenderTerminalController | null>(null);
@@ -438,6 +445,10 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     host.addEventListener("touchmove", handleTouchMove, { passive: true });
     scroller?.addEventListener("scroll", handleScroll, { passive: true });
     document.addEventListener("selectionchange", handleSelectionChange);
+    if (focusOnMount && textarea !== null) {
+      textarea.focus({ preventScroll: true });
+      handleFocus();
+    }
 
     void (async () => {
       try {
@@ -567,7 +578,7 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       if (controllerRef.current === controller) controllerRef.current = null;
       dispatch({ type: "reset", client, surface });
     };
-  }, [client, host, onError, surface]);
+  }, [client, focusOnMount, host, onError, surface]);
 
   const backToLive = useCallback(() => controllerRef.current?.backToLive(), []);
   const sendKey = useCallback((key: string) => controllerRef.current?.sendKey(key), []);

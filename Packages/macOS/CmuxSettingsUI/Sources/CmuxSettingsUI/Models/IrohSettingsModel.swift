@@ -54,16 +54,11 @@ final class IrohSettingsModel {
         }
     }
 
-    #if DEBUG
-    func setDebugRelayOnly(_ enabled: Bool) {
+    func setPathPreference(_ preference: CmxIrohPathPreference) {
         mutate { controller in
-            guard let debugController = controller as? any CmxIrohDebugSettingsControlling else {
-                return
-            }
-            try await debugController.setIrohDebugRelayOnly(enabled)
+            try await controller.setIrohPathPreference(preference)
         }
     }
-    #endif
 
     func upsertCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async -> Bool {
         await mutateAndWait { controller in

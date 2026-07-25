@@ -6,14 +6,21 @@ export class RelayConfigurationError extends Data.TaggedError("RelayConfiguratio
     | "catalog_invalid"
     | "signing_key_not_configured"
     | "signing_key_invalid"
-    | "credential_set_invalid"
-    | "rate_limit_not_configured";
+    | "credential_set_invalid";
 }> {}
 
 export class RelayCatalogRollbackError extends Data.TaggedError("RelayCatalogRollbackError")<{
   readonly configuredSequence: number;
   readonly persistedSequence: number;
-  readonly reason: "sequence_regressed" | "sequence_reused_with_different_catalog";
+  readonly reason:
+    | "sequence_regressed"
+    | "sequence_reused_with_different_catalog"
+    | "previous_catalog_unavailable"
+    | "unsafe_transition";
+}> {}
+
+export class RelayCatalogIntegrityError extends Data.TaggedError("RelayCatalogIntegrityError")<{
+  readonly reason: "persisted_catalog_digest_mismatch";
 }> {}
 
 export class RelayDatabaseError extends Data.TaggedError("RelayDatabaseError")<{
@@ -54,6 +61,7 @@ export class RelaySigningError extends Data.TaggedError("RelaySigningError")<{
 export type RelayServiceError =
   | RelayConfigurationError
   | RelayCatalogRollbackError
+  | RelayCatalogIntegrityError
   | RelayDatabaseError
   | RelayPreferenceValidationError
   | RelayPreferenceConflictError

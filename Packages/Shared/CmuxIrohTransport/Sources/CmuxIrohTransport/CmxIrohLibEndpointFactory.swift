@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 import Foundation
 import IrohLib
 

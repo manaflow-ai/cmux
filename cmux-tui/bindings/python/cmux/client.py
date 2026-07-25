@@ -33,6 +33,13 @@ class TimeoutError(CmuxError):
     pass
 
 
+def _validate_workspace_selector(workspace: Optional[int], key: Optional[str]) -> None:
+    if workspace is None and (key is None or not key.strip()):
+        raise ValueError("workspace or key is required")
+    if key is not None and not key.strip():
+        raise ValueError("workspace key cannot be empty")
+
+
 @dataclass(frozen=True)
 class EmptyResult:
     pass
@@ -51,6 +58,9 @@ class IdentifyResult:
     protocol: int
     session: str
     pid: int
+    build_commit: Optional[str] = None
+    ghostty_commit: Optional[str] = None
+    capabilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -58,6 +68,8 @@ class PingResult:
     ok: bool
     version: str
     protocol: int
+    build_commit: Optional[str] = None
+    ghostty_commit: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +81,30 @@ class ReloadConfigResult:
 @dataclass(frozen=True)
 class SurfaceResult:
     surface: int
+
+
+@dataclass(frozen=True)
+class WorkspacePlacement:
+    workspace: int
+    key: str
+    index: int
+    workspace_revision: int
+
+
+@dataclass(frozen=True)
+class TerminalPlacement:
+    surface: int
+    pane: int
+    screen: int
+    workspace: int
+    key: str
+
+
+@dataclass(frozen=True)
+class WorkspaceMutation:
+    workspace: int
+    key: str
+    workspace_revision: int
 
 
 @dataclass(frozen=True)
@@ -101,6 +137,9 @@ class Layout:
     ratio: Optional[float] = None
     a: Optional["Layout"] = None
     b: Optional["Layout"] = None
+    split: Optional[int] = None
+    panes: Optional[List[int]] = None
+    expanded: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +160,7 @@ class Pane:
     active_tab: int
     tabs: List[Tab]
     dead: bool = False
+    focused_at: int = 0
 
 
 @dataclass(frozen=True)
@@ -139,11 +179,14 @@ class Workspace:
     name: str
     active: bool
     screens: List[Screen]
+    key: str = ""
 
 
 @dataclass(frozen=True)
 class Tree:
     workspaces: List[Workspace]
+    workspace_revision: int = 0
+    pane_revision: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -284,6 +327,7 @@ class CmuxClient:
         self._next_request_id = 1
         self._id_lock = threading.Lock()
         self._protocol: Optional[int] = None
+        self._capabilities: set[str] = set()
 
     def __enter__(self) -> "CmuxClient":
         return self
@@ -327,8 +371,12 @@ class CmuxClient:
             protocol=int(data["protocol"]),
             session=str(data["session"]),
             pid=int(data["pid"]),
+            capabilities=tuple(str(value) for value in data.get("capabilities", [])),
+            build_commit=str(data["build_commit"]) if data.get("build_commit") is not None else None,
+            ghostty_commit=str(data["ghostty_commit"]) if data.get("ghostty_commit") is not None else None,
         )
         self._protocol = result.protocol
+        self._capabilities = set(result.capabilities)
         return result
 
     def ping(self) -> PingResult:
@@ -337,6 +385,8 @@ class CmuxClient:
             ok=bool(data["ok"]),
             version=str(data["version"]),
             protocol=int(data["protocol"]),
+            build_commit=str(data["build_commit"]) if data.get("build_commit") is not None else None,
+            ghostty_commit=str(data["ghostty_commit"]) if data.get("ghostty_commit") is not None else None,
         )
 
     def reload_config(self) -> ReloadConfigResult:
@@ -408,6 +458,58 @@ class CmuxClient:
     ) -> SurfaceResult:
         return SurfaceResult(int(self._request("new-workspace", name=name, cols=cols, rows=rows)["surface"]))
 
+    def create_workspace(
+        self,
+        name: Optional[str] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspacePlacement:
+        self._require_capability("workspace-registry-v1", "workspace registry")
+        data = self._request(
+            "create-workspace",
+            name=name,
+            key=key,
+            expected_revision=expected_revision,
+        )
+        return WorkspacePlacement(
+            workspace=int(data["workspace"]),
+            key=str(data["key"]),
+            index=int(data["index"]),
+            workspace_revision=int(data["workspace_revision"]),
+        )
+
+    def create_terminal(
+        self,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        argv: Optional[List[str]] = None,
+        command: Optional[str] = None,
+        cwd: Optional[str] = None,
+        name: Optional[str] = None,
+        cols: Optional[int] = None,
+        rows: Optional[int] = None,
+    ) -> TerminalPlacement:
+        _validate_workspace_selector(workspace, key)
+        self._require_capability("workspace-registry-v1", "workspace registry")
+        data = self._request(
+            "create-terminal",
+            workspace=workspace,
+            key=key,
+            argv=argv,
+            command=command,
+            cwd=cwd,
+            name=name,
+            cols=cols,
+            rows=rows,
+        )
+        return TerminalPlacement(
+            surface=int(data["surface"]),
+            pane=int(data["pane"]),
+            screen=int(data["screen"]),
+            workspace=int(data["workspace"]),
+            key=str(data["key"]),
+        )
+
     def new_screen(
         self,
         workspace: Optional[int] = None,
@@ -415,6 +517,15 @@ class CmuxClient:
         rows: Optional[int] = None,
     ) -> SurfaceResult:
         return SurfaceResult(int(self._request("new-screen", workspace=workspace, cols=cols, rows=rows)["surface"]))
+
+    def new_pane(
+        self,
+        pane: int,
+        cols: Optional[int] = None,
+        rows: Optional[int] = None,
+    ) -> SurfaceResult:
+        self._require_protocol(9, "new-pane")
+        return SurfaceResult(int(self._request("new-pane", pane=pane, cols=cols, rows=rows)["surface"]))
 
     def split(
         self,
@@ -427,6 +538,11 @@ class CmuxClient:
 
     def set_ratio(self, pane: int, dir: str, ratio: float) -> EmptyResult:
         self._request("set-ratio", pane=pane, dir=dir, ratio=ratio)
+        return EmptyResult()
+
+    def set_split_ratio(self, split: int, ratio: float) -> EmptyResult:
+        self._require_protocol(8, "set-split-ratio")
+        self._request("set-split-ratio", split=split, ratio=ratio)
         return EmptyResult()
 
     def pane_neighbor(self, pane: int, dir: str) -> Dict[str, Any]:
@@ -478,6 +594,22 @@ class CmuxClient:
         self._request("close-workspace", workspace=workspace)
         return EmptyResult()
 
+    def close_workspace_registry(
+        self,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspaceMutation:
+        _validate_workspace_selector(workspace, key)
+        self._require_capability("workspace-registry-v1", "workspace registry")
+        data = self._request(
+            "close-workspace",
+            workspace=workspace,
+            key=key,
+            expected_revision=expected_revision,
+        )
+        return _parse_workspace_mutation(data)
+
     def rename_pane(self, pane: int, name: str) -> EmptyResult:
         self._request("rename-pane", pane=pane, name=name)
         return EmptyResult()
@@ -493,6 +625,24 @@ class CmuxClient:
     def rename_workspace(self, workspace: int, name: str) -> EmptyResult:
         self._request("rename-workspace", workspace=workspace, name=name)
         return EmptyResult()
+
+    def rename_workspace_registry(
+        self,
+        name: str,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspaceMutation:
+        _validate_workspace_selector(workspace, key)
+        self._require_capability("workspace-registry-v1", "workspace registry")
+        data = self._request(
+            "rename-workspace",
+            workspace=workspace,
+            key=key,
+            name=name,
+            expected_revision=expected_revision,
+        )
+        return _parse_workspace_mutation(data)
 
     def resize_surface(self, surface: int, cols: int, rows: int) -> ResizeSurfaceResult:
         data = self._request("resize-surface", surface=surface, cols=cols, rows=rows)
@@ -530,6 +680,24 @@ class CmuxClient:
         self._request("move-workspace", workspace=workspace, index=index)
         return EmptyResult()
 
+    def move_workspace_registry(
+        self,
+        index: int,
+        workspace: Optional[int] = None,
+        key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> WorkspaceMutation:
+        _validate_workspace_selector(workspace, key)
+        self._require_capability("workspace-registry-v1", "workspace registry")
+        data = self._request(
+            "move-workspace",
+            workspace=workspace,
+            key=key,
+            index=index,
+            expected_revision=expected_revision,
+        )
+        return _parse_workspace_mutation(data)
+
     def scroll_surface(self, surface: int, delta: int) -> EmptyResult:
         self._request("scroll-surface", surface=surface, delta=delta)
         return EmptyResult()
@@ -540,13 +708,35 @@ class CmuxClient:
     def subscribe_with_request(self, request: Dict[str, Any]) -> EventStream:
         return EventStream(self, request)
 
-    def attach_surface(self, surface: int) -> AttachStream:
+    def attach_surface(
+        self, surface: int, *, cols: Optional[int] = None, rows: Optional[int] = None
+    ) -> AttachStream:
+        if (cols is None) != (rows is None):
+            raise ValueError("attach-surface cols and rows must be supplied together")
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
-        if protocol > 7:
-            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 7")
         if protocol > 5 and not self.allow_protocol_v6_attach:
-            raise ProtocolError("protocol v6 attach streams require resized replay handling")
-        return AttachStream(self, {"cmd": "attach-surface", "surface": surface})
+            raise ProtocolError("protocol v6+ attach streams require resized replay handling")
+        if (cols is not None or rows is not None) and "attach-initial-size" not in self._capabilities:
+            raise ProtocolError("initial attach sizing is not supported by this server")
+        request: Dict[str, Any] = {"cmd": "attach-surface", "surface": surface}
+        if cols is not None:
+            request["cols"] = cols
+        if rows is not None:
+            request["rows"] = rows
+        return AttachStream(self, request)
+
+    def _require_capability(self, capability: str, feature: str) -> None:
+        if self._protocol is None:
+            self.identify()
+        if capability not in self._capabilities:
+            raise ProtocolError(f"{feature} is not supported by this server")
+
+    def _require_protocol(self, minimum: int, feature: str) -> None:
+        protocol = self._protocol if self._protocol is not None else self.identify().protocol
+        if protocol < minimum:
+            raise ProtocolError(
+                f"{feature} requires protocol {minimum}; server uses protocol {protocol}"
+            )
 
 
 def default_socket_path(session: str) -> str:
@@ -559,7 +749,21 @@ def env_socket_path() -> Optional[str]:
 
 
 def _parse_tree(data: Dict[str, Any]) -> Tree:
-    return Tree(workspaces=[_parse_workspace(item) for item in data.get("workspaces", [])])
+    return Tree(
+        workspaces=[_parse_workspace(item) for item in data.get("workspaces", [])],
+        workspace_revision=int(data.get("workspace_revision", 0)),
+        pane_revision=(
+            int(data["pane_revision"]) if data.get("pane_revision") is not None else None
+        ),
+    )
+
+
+def _parse_workspace_mutation(data: Dict[str, Any]) -> WorkspaceMutation:
+    return WorkspaceMutation(
+        workspace=int(data["workspace"]),
+        key=str(data["key"]),
+        workspace_revision=int(data["workspace_revision"]),
+    )
 
 
 def _parse_workspace(value: Dict[str, Any]) -> Workspace:
@@ -568,6 +772,7 @@ def _parse_workspace(value: Dict[str, Any]) -> Workspace:
         name=str(value.get("name", "")),
         active=bool(value.get("active", False)),
         screens=[_parse_screen(item) for item in value.get("screens", [])],
+        key=str(value.get("key", "")),
     )
 
 
@@ -586,10 +791,17 @@ def _parse_layout(value: Dict[str, Any]) -> Layout:
     if value.get("type") == "split":
         return Layout(
             type="split",
+            split=int(value["split"]) if value.get("split") is not None else None,
             dir=value.get("dir"),
             ratio=float(value.get("ratio", 0.0)),
             a=_parse_layout(value.get("a", {})),
             b=_parse_layout(value.get("b", {})),
+        )
+    if value.get("type") == "stack":
+        return Layout(
+            type="stack",
+            panes=[int(pane) for pane in value.get("panes", [])],
+            expanded=int(value.get("expanded", 0)),
         )
     return Layout(type="leaf", pane=int(value.get("pane", 0)))
 
@@ -603,6 +815,7 @@ def _parse_pane(value: Dict[str, Any]) -> Pane:
         active_tab=int(value.get("active_tab", 0)),
         tabs=[_parse_tab(item) for item in value.get("tabs", [])],
         dead=bool(value.get("dead", False)),
+        focused_at=int(value.get("focused_at", 0)),
     )
 
 

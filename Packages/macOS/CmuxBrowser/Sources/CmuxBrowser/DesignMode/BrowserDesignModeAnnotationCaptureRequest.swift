@@ -1,5 +1,5 @@
 /// A page-runtime request to turn one completed freehand stroke into a snapshot card.
-public nonisolated struct BrowserDesignModeAnnotationCaptureRequest: Codable, Equatable, Sendable {
+public struct BrowserDesignModeAnnotationCaptureRequest: Codable, Equatable, Sendable {
     /// Stable identity for the stroke and its eventual context selection.
     public let id: String
     /// The stroke bounds in CSS viewport points at the reported scroll position.

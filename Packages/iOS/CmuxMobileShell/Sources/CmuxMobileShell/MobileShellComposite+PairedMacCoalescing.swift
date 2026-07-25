@@ -3,6 +3,48 @@ internal import CmuxMobilePairedMac
 internal import CmuxMobileShellModel
 
 extension MobileShellComposite {
+    /// Select one authoritative stored row per physical device identifier.
+    ///
+    /// UUID spellings share a lowercase identity, while opaque identifiers stay
+    /// case-sensitive. The freshest row owns all routes and metadata; no route
+    /// or customization fields are merged from an older alias.
+    static func coalescePairedMacsByCanonicalDeviceID(
+        _ macs: [MobilePairedMac]
+    ) -> [MobilePairedMac] {
+        var selectedByDeviceID: [String: MobilePairedMac] = [:]
+        var deviceOrder: [String] = []
+
+        for mac in macs where !mac.macDeviceID.isEmpty {
+            let canonicalDeviceID = cmxCanonicalDeviceID(mac.macDeviceID)
+            guard let selected = selectedByDeviceID[canonicalDeviceID] else {
+                selectedByDeviceID[canonicalDeviceID] = mac
+                deviceOrder.append(canonicalDeviceID)
+                continue
+            }
+            let shouldReplace: Bool
+            let candidateUsesCanonicalSpelling = mac.macDeviceID == canonicalDeviceID
+            let selectedUsesCanonicalSpelling = selected.macDeviceID == canonicalDeviceID
+            if mac.lastSeenAt != selected.lastSeenAt {
+                shouldReplace = mac.lastSeenAt > selected.lastSeenAt
+            } else if candidateUsesCanonicalSpelling != selectedUsesCanonicalSpelling {
+                shouldReplace = candidateUsesCanonicalSpelling
+            } else if mac.isActive != selected.isActive {
+                shouldReplace = mac.isActive
+            } else {
+                shouldReplace = mac.id < selected.id
+            }
+            if shouldReplace {
+                selectedByDeviceID[canonicalDeviceID] = mac
+            }
+        }
+
+        return deviceOrder.compactMap { deviceID in
+            guard var selected = selectedByDeviceID[deviceID] else { return nil }
+            selected.macDeviceID = deviceID
+            return selected
+        }
+    }
+
     /// Collapse duplicate paired-Mac rows that have the same Mac-reported name
     /// and dial the same host/port.
     ///

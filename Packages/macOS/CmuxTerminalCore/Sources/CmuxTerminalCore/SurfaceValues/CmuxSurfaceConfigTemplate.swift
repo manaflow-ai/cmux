@@ -7,8 +7,28 @@ public import GhosttyKit
 /// command, environment, initial input) either empty for a fresh surface or
 /// copied from a source surface's inherited C config when splitting.
 public struct CmuxSurfaceConfigTemplate: Sendable {
+    /// The font-size lineage applied to the new surface, or nil for the runtime default.
+    public var fontSizeLineage: TerminalFontSizeLineage? = nil
+
     /// The unscaled base font size in points; `0` means the runtime default.
-    public var fontSize: Float32 = 0
+    ///
+    /// Assigning a valid size to a fresh template creates an explicit override.
+    /// Assigning through this property later preserves the lineage's existing
+    /// ownership. Use ``setFontSize(_:isExplicitOverride:)`` for inherited or
+    /// observed sizes that should keep following terminal config.
+    public var fontSize: Float32 {
+        get { fontSizeLineage?.basePoints ?? 0 }
+        set {
+            guard TerminalFontSizePolicy().acceptsPersistedBasePoints(newValue) else {
+                fontSizeLineage = nil
+                return
+            }
+            fontSizeLineage = TerminalFontSizeLineage(
+                basePoints: newValue,
+                isExplicitOverride: fontSizeLineage?.isExplicitOverride ?? true
+            )
+        }
+    }
 
     /// The working directory the spawned shell starts in.
     public var workingDirectory: String?
@@ -28,6 +48,26 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     /// Creates an empty template (runtime defaults for every field).
     public init() {}
 
+    /// Sets the template font size and records whether it is a surface-local override.
+    ///
+    /// Values outside the persistable base-font range clear the font-size
+    /// lineage and restore runtime-default behavior.
+    ///
+    /// - Parameters:
+    ///   - basePoints: The unscaled font size in points.
+    ///   - isExplicitOverride: Whether the new surface should retain this size
+    ///     independently of later terminal config changes.
+    public mutating func setFontSize(_ basePoints: Float32, isExplicitOverride: Bool) {
+        guard TerminalFontSizePolicy().acceptsPersistedBasePoints(basePoints) else {
+            fontSizeLineage = nil
+            return
+        }
+        fontSizeLineage = TerminalFontSizeLineage(
+            basePoints: basePoints,
+            isExplicitOverride: isExplicitOverride
+        )
+    }
+
     /// Creates a template from a ghostty inherited surface config.
     ///
     /// - Parameters:
@@ -39,9 +79,12 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
         cConfig: ghostty_surface_config_s,
         globalFontMagnificationPercent: Int = 100
     ) {
-        fontSize = Self.baseFontSize(
-            fromRuntimePoints: cConfig.font_size,
-            percent: globalFontMagnificationPercent
+        setFontSize(
+            Self.baseFontSize(
+                fromRuntimePoints: cConfig.font_size,
+                percent: globalFontMagnificationPercent
+            ),
+            isExplicitOverride: false
         )
         if let workingDirectory = cConfig.working_directory {
             self.workingDirectory = String(cString: workingDirectory, encoding: .utf8)
@@ -83,7 +126,7 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
         guard runtimePoints.isFinite, runtimePoints > 0 else { return runtimePoints }
         let scale = Float32(GlobalFontMagnification.scale(for: percent))
         guard scale > 0 else { return runtimePoints }
-        return max(1, runtimePoints / scale)
+        return runtimePoints / scale
     }
 
     /// Converts an unscaled base font size into the runtime point size Ghostty
@@ -100,9 +143,11 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     /// - Parameters:
     ///   - basePoints: The unscaled base point size.
     ///   - percent: The global magnification percent used for the conversion.
-    /// - Returns: The runtime point size for `percent`.
+    /// - Returns: The runtime point size for `percent`, clamped to Ghostty's
+    ///   supported native range, or zero to preserve runtime-default behavior.
     public static func runtimeFontSize(fromBasePoints basePoints: Float32, percent: Int) -> Float32 {
-        guard basePoints.isFinite, basePoints > 0 else { return basePoints }
-        return max(1, basePoints * Float32(GlobalFontMagnification.scale(for: percent)))
+        guard basePoints.isFinite, basePoints > 0 else { return 0 }
+        let scaledPoints = basePoints * Float32(GlobalFontMagnification.scale(for: percent))
+        return TerminalFontSizePolicy().clampedRuntimePoints(scaledPoints)
     }
 }

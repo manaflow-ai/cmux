@@ -41,6 +41,23 @@ function resolveDevAPIBaseURL(fallback, override = "") {
   ]);
 }
 
+function removeStaleSocket(socketPath) {
+  return run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+        'cmux_attach_remove_stale_socket "release-gate"',
+      ].join("; "),
+      "mobile-attach-test",
+      validator,
+    ],
+    { CMUX_TEST_SOCKET: socketPath },
+  );
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -91,9 +108,18 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
   fs.mkdirSync(payloadDirectory);
   const payloads = Array.isArray(payload) ? payload : [payload];
   payloads.forEach((value, index) => {
+    const response = value?.cliResponse;
     fs.writeFileSync(
-      path.join(payloadDirectory, `${index + 1}`),
-      value == null ? "" : JSON.stringify(value),
+      path.join(payloadDirectory, `${index + 1}.stdout`),
+      response ? (response.stdout ?? "") : (value == null ? "" : JSON.stringify(value)),
+    );
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}.stderr`),
+      response?.stderr ?? "",
+    );
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}.status`),
+      String(response?.status ?? 0),
     );
   });
   const fakeCLI = path.join(scriptsDir, "cmux-debug-cli.sh");
@@ -105,7 +131,10 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
       'count="$((count + 1))"',
       'printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
       'payload="$CMUX_TEST_PAYLOAD_DIRECTORY/$count"',
-      '[[ -f "$payload" ]] && cat "$payload"',
+      '[[ -f "$payload.stdout" ]] && cat "$payload.stdout"',
+      '[[ -f "$payload.stderr" ]] && cat "$payload.stderr" >&2',
+      'status="$(cat "$payload.status" 2>/dev/null || printf 0)"',
+      'exit "$status"',
       "",
     ].join("\n"),
   );
@@ -140,6 +169,67 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
           ...process.env,
           CMUX_TEST_CALL_COUNTER: callCounterPath,
           CMUX_TEST_PAYLOAD_DIRECTORY: payloadDirectory,
+          CMUX_TEST_SOCKET: socketPath,
+        },
+      },
+    );
+    result.callCount = fs.existsSync(callCounterPath)
+      ? Number.parseInt(fs.readFileSync(callCounterPath, "utf8"), 10)
+      : 0;
+    return result;
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function ensureMacAfterRelaunch() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-ready-test-"));
+  const socketPath = path.join(tempRoot, "mobile.sock");
+  const appPath = path.join(tempRoot, "cmux DEV ready.app");
+  const callCounterPath = path.join(tempRoot, "call-count");
+  fs.mkdirSync(appPath);
+
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        [
+          'source "$1"',
+          'cmux_attach_enable_pairing_host() { :; }',
+          'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+          'cmux_attach_mac_app_path() { printf "%s" "$CMUX_TEST_APP"; }',
+          'cmux_attach__slug() { printf "ready"; }',
+          'cmux_attach_mint_url() {',
+          '  count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
+          '  count="$((count + 1))"',
+          '  printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
+          '  if [[ "$count" -ge 2 ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
+          '  return 1',
+          '}',
+          'pkill() { return 0; }',
+          'open() { return 0; }',
+          'sleep() { return 0; }',
+          'CMUX_ATTACH_ALLOW_RELAUNCH=1 cmux_attach_ensure_mac "ready" "$2" physical_device',
+        ].join("\n"),
+        "mobile-attach-test",
+        validator,
+        tempRoot,
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CMUX_TEST_APP: appPath,
+          CMUX_TEST_CALL_COUNTER: callCounterPath,
           CMUX_TEST_SOCKET: socketPath,
         },
       },
@@ -260,6 +350,43 @@ test("shared dev API origin accepts an explicit trusted backend", () => {
   assert.equal(result.stdout, "https://cmux-staging.vercel.app");
 });
 
+test("tagged stale-socket cleanup removes only the exact Unix socket", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  const neighborPath = path.join(tempRoot, "neighbor.sock");
+  fs.writeFileSync(neighborPath, "keep");
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(socketPath), false);
+    assert.equal(fs.readFileSync(neighborPath, "utf8"), "keep");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("tagged stale-socket cleanup refuses a non-socket path", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  fs.writeFileSync(socketPath, "keep");
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /refusing to remove non-socket/);
+    assert.equal(fs.readFileSync(socketPath, "utf8"), "keep");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("macOS and iOS reloads share the dev API backend override", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
@@ -367,6 +494,31 @@ test("physical-device mint waits for asynchronous Iroh publication", async () =>
   assert.equal(result.callCount, 2);
 });
 
+test("physical-device mint reports a redacted route-readiness timeout", async () => {
+  const result = await mintAttachURL(
+    "physical_device",
+    {
+      cliResponse: {
+        status: 1,
+        stderr: "unavailable: Mobile host routes are not available yet secret-token-value",
+      },
+    },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /attach readiness exhausted: host_routes_unavailable/);
+  assert.doesNotMatch(result.stderr, /secret-token-value/);
+});
+
+test("physical-device mint distinguishes malformed successful output", async () => {
+  const result = await mintAttachURL(
+    "physical_device",
+    { cliResponse: { status: 0, stdout: "not-json secret-payload-value" } },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /attach readiness exhausted: malformed_response/);
+  assert.doesNotMatch(result.stderr, /secret-payload-value/);
+});
+
 test("physical-device mint accepts an encrypted Iroh route", async () => {
   const payload = attachPayload("iroh");
   const result = await mintAttachURL("physical_device", payload);
@@ -420,6 +572,78 @@ test("physical-device mint retries transient empty responses", async () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, payload.attach_url);
   assert.equal(result.callCount, 2);
+});
+
+test("Mac readiness is revalidated after a tagged relaunch", async () => {
+  const result = await ensureMacAfterRelaunch();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.callCount, 2);
+});
+
+test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
+  const launcher = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    "utf8",
+  );
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(
+    launcher,
+    /ATTACH_MINT_MAX_ATTEMPTS="\$\{CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20\}"/,
+  );
+  assert.match(
+    launcher,
+    /cmux_attach_mint_url[^\n]+"\$ATTACH_TARGET" "\$ATTACH_MINT_MAX_ATTEMPTS"/,
+  );
+  assert.match(
+    gate,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
+  );
+  assert.match(
+    gate,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,120}cmux_attach_ensure_mac/,
+  );
+});
+
+test("release gate assigns each mode to its transport proof", () => {
+  const cases = [
+    ["automatic", "app-rpc"],
+    ["relay-only", "app-rpc"],
+    ["relay-expiry", "app-rpc"],
+    ["direct-only", "simulator-direct-transport"],
+    ["private-path", "host-private-path-transport"],
+  ];
+
+  for (const [mode, expectedPlan] of cases) {
+    const result = run("bash", [
+      "scripts/run-iroh-release-gate.sh",
+      "--mode",
+      mode,
+      "--tag",
+      `plan-${mode}`,
+      "--print-plan",
+    ]);
+    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), expectedPlan);
+  }
+});
+
+test("private-path plan ignores the unrelated staging base URL", () => {
+  const result = run("bash", [
+    "scripts/run-iroh-release-gate.sh",
+    "--mode",
+    "private-path",
+    "--tag",
+    "plan-private",
+    "--staging-base-url",
+    "not-a-network-url",
+    "--print-plan",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "host-private-path-transport");
 });
 
 test("mobile launch accepts an explicit no-attach override", () => {
