@@ -200,7 +200,7 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         )
     }
 
-    private static func clearShortcutDefaults() {
+    private nonisolated static func clearShortcutDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(
             forKey: KeyboardShortcutSettings.Action.globalSearch.defaultsKey
@@ -210,7 +210,7 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         )
     }
 
-    private static func restore(_ value: Any?, forKey key: String) {
+    private nonisolated static func restore(_ value: Any?, forKey key: String) {
         if let value {
             UserDefaults.standard.set(value, forKey: key)
         } else {
