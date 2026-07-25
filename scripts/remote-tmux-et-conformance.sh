@@ -29,14 +29,11 @@
 #   ET_CLIENT=/path/to/et ET_SERVER=/path/to/etserver \
 #     ET_TERMINAL=/path/to/etterminal scripts/remote-tmux-et-conformance.sh
 #
-# The client connects to CMUX_ET_HOST (default `cmux-ethost`), which must be an ssh
+# The client connects to CMUX_ET_HOST (default `127.0.0.1`), which must be an ssh
 # destination this machine can log into, because et bootstraps over ssh before its own
-# protocol takes over. A loopback alias is enough:
-#
-#   Host cmux-ethost
-#       HostName 127.0.0.1
-#
-# Set CMUX_ET_HOST to point at a different one.
+# protocol takes over. The loopback default works wherever this machine runs sshd and
+# accepts key auth for the current user; point CMUX_ET_HOST at a different destination
+# (an ssh_config alias, another host) when that is not the case.
 #
 # Exit code is the number of failed checks (0 = every belief holds).
 # ============================================================================
@@ -50,7 +47,7 @@ ET_SERVER="${ET_SERVER:-$(command -v etserver || true)}"
 # hardcoding one of these is itself one of the defects this file exists to prevent.
 ET_TERMINAL="${ET_TERMINAL:-$(command -v etterminal || true)}"
 PORT="${CMUX_ET_PORT:-2041}"
-HOST="${CMUX_ET_HOST:-cmux-ethost}"
+HOST="${CMUX_ET_HOST:-127.0.0.1}"
 SESSION="cmux-conformance-$$"
 
 FAILURES=0
