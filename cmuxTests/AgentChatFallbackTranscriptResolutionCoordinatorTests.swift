@@ -82,6 +82,61 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
         #expect(await probe.callCount() == 1)
     }
 
+    @Test func deadlineReturnsWhileResolverRemainsSuspendedAndCoalesced() async throws {
+        let fixture = try makeCodexFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let probe = AgentChatFallbackResolutionProbe(
+            path: fixture.transcript.path,
+            returnPathAfterCancellation: true,
+            suspendUntilReleased: true
+        )
+        let (record, coordinator) = await MainActor.run {
+            let registry = AgentChatSessionRegistry()
+            let record = registry.noteHookEvent(fixture.hookEvent(.sessionStart))
+            let coordinator = AgentChatFallbackTranscriptResolutionCoordinator(
+                transcriptResolver: AgentChatTranscriptResolver(
+                    homeDirectory: fixture.home,
+                    environment: [:]
+                ),
+                resolver: { record, deadline in
+                    await probe.resolve(record: record, deadline: deadline)
+                },
+                timeout: .milliseconds(50)
+            )
+            return (record, coordinator)
+        }
+
+        let firstCompleted = DispatchSemaphore(value: 0)
+        let firstResolution = Task { @MainActor in
+            let path = await coordinator.resolve(for: record)
+            firstCompleted.signal()
+            return path
+        }
+        await probe.waitUntilStarted()
+        #expect(
+            firstCompleted.wait(timeout: .now() + 1) == .success,
+            "the advertised deadline must return while non-cooperative resolver I/O remains suspended"
+        )
+        #expect(await firstResolution.value == nil)
+
+        let secondCompleted = DispatchSemaphore(value: 0)
+        let secondResolution = Task { @MainActor in
+            let path = await coordinator.resolve(for: record)
+            secondCompleted.signal()
+            return path
+        }
+        #expect(
+            secondCompleted.wait(timeout: .now() + 1) == .success,
+            "an expired lookup must reject coalesced callers without spawning more stuck resolver work"
+        )
+        #expect(await secondResolution.value == nil)
+        #expect(await probe.callCount() == 1)
+
+        await probe.releaseSuspendedResolution()
+        await probe.waitUntilFinished()
+        #expect(await probe.wasCancelled())
+    }
+
     @MainActor
     @Test func expiredDeadlineSkipsCodexFallbackEnumeration() throws {
         let fixture = try makeCodexFixture()
@@ -164,19 +219,26 @@ private actor AgentChatFallbackResolutionProbe {
     private let path: String?
     private let waitForCancellation: Bool
     private let returnPathAfterCancellation: Bool
+    private let suspendUntilReleased: Bool
     private var calls = 0
     private var cancelled = false
     private var started = false
     private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseRequested = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var finished = false
+    private var finishedWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         path: String?,
         waitForCancellation: Bool = false,
-        returnPathAfterCancellation: Bool = false
+        returnPathAfterCancellation: Bool = false,
+        suspendUntilReleased: Bool = false
     ) {
         self.path = path
         self.waitForCancellation = waitForCancellation
         self.returnPathAfterCancellation = returnPathAfterCancellation
+        self.suspendUntilReleased = suspendUntilReleased
     }
 
     func resolve(
@@ -190,13 +252,27 @@ private actor AgentChatFallbackResolutionProbe {
         for waiter in waiters {
             waiter.resume()
         }
+        if suspendUntilReleased {
+            await withCheckedContinuation { continuation in
+                if releaseRequested {
+                    continuation.resume()
+                } else {
+                    releaseContinuation = continuation
+                }
+            }
+            cancelled = Task.isCancelled
+            finish()
+            return returnPathAfterCancellation ? path : nil
+        }
         if waitForCancellation {
             while !Task.isCancelled, ContinuousClock.now < deadline {
                 await Task.yield()
             }
             cancelled = Task.isCancelled
+            finish()
             return returnPathAfterCancellation ? path : nil
         }
+        finish()
         return path
     }
 
@@ -213,5 +289,27 @@ private actor AgentChatFallbackResolutionProbe {
 
     func wasCancelled() -> Bool {
         cancelled
+    }
+
+    func releaseSuspendedResolution() {
+        releaseRequested = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func waitUntilFinished() async {
+        if finished { return }
+        await withCheckedContinuation { continuation in
+            finishedWaiters.append(continuation)
+        }
+    }
+
+    private func finish() {
+        finished = true
+        let waiters = finishedWaiters
+        finishedWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
