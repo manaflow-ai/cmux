@@ -9,6 +9,26 @@ public struct AgentHookDeliveryPolicy: Sendable {
     /// The largest payload accepted by the local delivery queue.
     public static let maximumPayloadBytes = 64 * 1_024
 
+    /// The maximum time a queued hook waits for the app to acknowledge admission.
+    public static let admissionResponseTimeoutSeconds: TimeInterval = 0.5
+
+    /// The timeout declared to agent runtimes for queued hook processes.
+    public static let declaredTimeoutSeconds = 5
+
+    /// The declared queued-hook timeout in milliseconds for runtimes such as Codex.
+    public static let declaredTimeoutMilliseconds = declaredTimeoutSeconds * 1_000
+
+    /// Current and historical queued-hook timeouts recognized during launch replay.
+    ///
+    /// Older cmux builds generated 3- and 10-second Codex hook timeouts. Replay
+    /// must continue to strip those cmux-owned prefixes as well as the current
+    /// 5-second form.
+    public static let recognizedTimeoutMilliseconds: Set<Int> = [
+        declaredTimeoutMilliseconds,
+        3_000,
+        10_000,
+    ]
+
     private static let genericQueuedSubcommands: Set<String> = [
         "session-start",
         "prompt-submit",

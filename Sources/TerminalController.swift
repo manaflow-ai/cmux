@@ -1243,10 +1243,24 @@ class TerminalController {
                       params: hookParams,
                       deliverySocketPath: localSocketPath
                   ) else {
-                return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook event")
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentHook.error.invalidEvent",
+                        defaultValue: "Invalid agent hook event"
+                    )
+                )
             }
             guard agentHookDeliveryQueue.enqueue(event) else {
-                return v2Error(id: request.id, code: "queue_full", message: "Agent hook delivery queue is full")
+                return v2Error(
+                    id: request.id,
+                    code: "queue_full",
+                    message: String(
+                        localized: "socket.agentHook.error.queueFull",
+                        defaultValue: "Agent hook delivery queue is full"
+                    )
+                )
             }
             return v2Ok(id: request.id, result: ["queued": true])
         case "agent.hook.barrier":
@@ -1264,13 +1278,27 @@ class TerminalController {
                       params: hookParams,
                       deliverySocketPath: localSocketPath
                   ) else {
-                return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook barrier")
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentHook.error.invalidBarrier",
+                        defaultValue: "Invalid agent hook barrier"
+                    )
+                )
             }
             guard agentHookDeliveryQueue.waitForPriorDeliveries(
                 orderingKey: orderingKey,
                 timeout: 18
             ) else {
-                return v2Error(id: request.id, code: "barrier_timeout", message: "Agent hook barrier timed out")
+                return v2Error(
+                    id: request.id,
+                    code: "barrier_timeout",
+                    message: String(
+                        localized: "socket.agentHook.error.barrierTimeout",
+                        defaultValue: "Agent hook barrier timed out"
+                    )
+                )
             }
             return v2Ok(id: request.id, result: ["completed": true])
         case "browser.download.wait":

@@ -2,13 +2,16 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
-    static let agentHookAdmissionResponseTimeoutSeconds = 0.5
+    static let agentHookAdmissionResponseTimeoutSeconds =
+        AgentHookDeliveryPolicy.admissionResponseTimeoutSeconds
     static let agentHookBarrierResponseTimeoutSeconds = 20
     // Relay authentication has three bounded response phases. Their combined
     // 1.5-second ceiling leaves 3.5 seconds for process startup, writes, and the
     // fail-open shell response before the agent terminates the hook.
-    static let agentHookDeclaredTimeoutSeconds = 5
-    static let agentHookDeclaredTimeoutMilliseconds = agentHookDeclaredTimeoutSeconds * 1_000
+    static let agentHookDeclaredTimeoutSeconds =
+        AgentHookDeliveryPolicy.declaredTimeoutSeconds
+    static let agentHookDeclaredTimeoutMilliseconds =
+        AgentHookDeliveryPolicy.declaredTimeoutMilliseconds
     static let maximumRelayAgentHookPayloadBytes = 4 * 1_024
     static let maximumRelayAgentHookEncodedPayloadBytes = 8 * 1_024
     static let relayClaudeForkSessionPayloadKey = "_cmux_claude_fork_session"
@@ -126,13 +129,23 @@ extension CMUXCLI {
     /// agent's neutral response. Downstream CLI/socket work happens in the app.
     func enqueueAgentHook(commandArgs: [String], client: SocketClient) throws {
         guard commandArgs.count == 2 else {
-            throw CLIError(message: "Usage: cmux hooks enqueue <agent> <subcommand>")
+            throw CLIError(message: String(
+                localized: "cli.hooks.enqueue.usage",
+                defaultValue: "Usage: cmux hooks enqueue <agent> <subcommand>"
+            ))
         }
         let agent = commandArgs[0].lowercased()
         let subcommand = commandArgs[1].lowercased()
         let deliveryPolicy = AgentHookDeliveryPolicy()
         guard deliveryPolicy.supportsQueuedDelivery(agent: agent, subcommand: subcommand) else {
-            throw CLIError(message: "Unsupported queued hook: \(agent) \(subcommand)")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.hooks.enqueue.error.unsupportedHook",
+                    defaultValue: "Unsupported queued hook: %@ %@"
+                ),
+                agent,
+                subcommand
+            ))
         }
 
         let processEnvironment = ProcessInfo.processInfo.environment

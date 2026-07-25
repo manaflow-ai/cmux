@@ -36978,6 +36978,40 @@
         }
       }
     },
+    "cli.hooks.enqueue.error.unsupportedHook": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported queued hook: %@ %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サポートされていないキュー配信フックです: %@ %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.enqueue.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux hooks enqueue <agent> <subcommand>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux hooks enqueue <agent> <subcommand>"
+          }
+        }
+      }
+    },
     "cli.hooks.kimi.aborted": {
       "extractionState": "manual",
       "localizations": {
@@ -211643,6 +211677,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
+    "socket.agentHook.error.barrierTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook barrier timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフックバリアがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "socket.agentHook.error.invalidBarrier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid agent hook barrier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフックバリアが無効です"
+          }
+        }
+      }
+    },
+    "socket.agentHook.error.invalidEvent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid agent hook event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフックイベントが無効です"
+          }
+        }
+      }
+    },
+    "socket.agentHook.error.queueFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook delivery queue is full"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントフック配信キューがいっぱいです"
           }
         }
       }
