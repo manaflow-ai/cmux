@@ -203,6 +203,9 @@ _SWIFT_SLEEP_CALL = re.compile(
     """
 )
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
+_PYTHON_FALLBACK_SLEEP_CALL = re.compile(
+    r"(?<![.$\w])(?:time|asyncio|trio|anyio|gevent)\s*\.\s*sleep\s*\("
+)
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
     (?<![.$\w])Bun\s*\.\s*sleep\s*\(
@@ -589,6 +592,66 @@ def _sleep_call_end_positions(
                     break
             end_positions.setdefault(start_line, []).append(call_end)
     return end_positions
+
+
+def _javascript_timeout_callback_has_assertion(
+    masked_lines: list[str],
+    start_line: int,
+    start_column: int,
+) -> bool:
+    """Return whether a setTimeout callback contains an assertion."""
+    end_positions = _sleep_call_end_positions(
+        masked_lines,
+        {start_line: {start_column}},
+    ).get(start_line, [])
+    if not end_positions:
+        return False
+
+    end_line, end_column = end_positions[0]
+    call_lines = masked_lines[start_line : end_line + 1]
+    call_lines[0] = call_lines[0][start_column:]
+    if len(call_lines) == 1:
+        call_lines[0] = call_lines[0][: end_column - start_column]
+    else:
+        call_lines[-1] = call_lines[-1][:end_column]
+    call_text = "\n".join(call_lines)
+    timeout = re.match(r"setTimeout\b", call_text)
+    if timeout is None:
+        return False
+
+    open_parenthesis = call_text.find("(", timeout.end())
+    if open_parenthesis < 0:
+        return False
+
+    closing_for = {"(": ")", "[": "]", "{": "}"}
+    stack: list[str] = []
+    first_argument_end = len(call_text)
+    for index in range(open_parenthesis + 1, len(call_text)):
+        character = call_text[index]
+        if character in closing_for:
+            stack.append(closing_for[character])
+        elif stack and character == stack[-1]:
+            stack.pop()
+        elif character == "," and not stack:
+            first_argument_end = index
+            break
+
+    callback = call_text[open_parenthesis + 1 : first_argument_end]
+    arrow = callback.find("=>")
+    if arrow >= 0:
+        callback_body = callback[arrow + 2 :]
+    else:
+        function = re.search(r"\bfunction\b", callback)
+        if function is None:
+            return False
+        body_start = callback.find("{", function.end())
+        if body_start < 0:
+            return False
+        callback_body = callback[body_start + 1 :]
+    return bool(
+        _ASSERT_TOKEN.search(callback_body)
+        or _RAISE_IF.search(callback_body)
+    )
 
 
 _PYTHON_MODULE_BINDING = "module"
@@ -1454,7 +1517,26 @@ def _python_real_sleep_lines(
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return set()
+        masked_lines = _mask_noncode(text.splitlines(), ".py")
+        masked_text = "\n".join(masked_lines)
+        fallback_positions: dict[int, set[int]] = {}
+        for match in _PYTHON_FALLBACK_SLEEP_CALL.finditer(masked_text):
+            sleep_offset = match.start() + match.group().rfind("sleep")
+            line_index = masked_text.count("\n", 0, sleep_offset)
+            line_start = masked_text.rfind("\n", 0, sleep_offset) + 1
+            fallback_positions.setdefault(line_index, set()).add(
+                sleep_offset - line_start
+            )
+        if positions is not None:
+            positions.update(fallback_positions)
+        if end_positions is not None:
+            end_positions.update(
+                _sleep_call_end_positions(
+                    masked_lines,
+                    fallback_positions,
+                )
+            )
+        return set(fallback_positions)
     postponed_annotations = any(
         isinstance(statement, ast.ImportFrom)
         and statement.module == "__future__"
@@ -3276,6 +3358,15 @@ def detect_sleep_then_assert(
                 path_suffix,
             ):
                 return True
+        if (
+            path_suffix in _JS_SUFFIXES
+            and _javascript_timeout_callback_has_assertion(
+                masked_lines,
+                idx,
+                sleep_start,
+            )
+        ):
+            return True
 
     end_positions = (
         known_sleep_end_positions.get(idx, [])
