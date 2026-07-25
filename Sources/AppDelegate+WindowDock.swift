@@ -201,6 +201,7 @@ extension AppDelegate {
 }
 
 extension SessionWindowSnapshot {
+    @MainActor
     func omitsRemoteMirrorOnlyWindow(liveWorkspaces: [Workspace]) -> Bool {
         tabManager.workspaces.isEmpty &&
             dock == nil &&
