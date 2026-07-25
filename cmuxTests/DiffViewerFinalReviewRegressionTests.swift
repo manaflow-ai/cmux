@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -173,7 +174,7 @@ import Testing
             options: .atomic
         )
 
-        CMUXCLI(args: []).pruneDiffViewerAssetDirectories(in: root, now: now)
+        CmuxDiffViewerAssetDirectoryPruner().prune(in: root, now: now)
 
         for directory in directories.prefix(4) {
             #expect(FileManager.default.fileExists(atPath: directory.path))
