@@ -342,6 +342,8 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         }
 
         func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+            cancelTailSettle()
+            pendingSemanticScrollTarget = nil
             followState.wrappedValue = .jumpingToHead
             guard !hasMoreBefore else {
                 onSemanticHead()
@@ -418,6 +420,8 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
             else { return }
             switch command.target {
             case .head:
+                cancelTailSettle()
+                pendingSemanticScrollTarget = nil
                 guard !hasMoreBefore else {
                     followState.wrappedValue = .jumpingToHead
                     if shouldRequestSemanticLoad(for: command) {
@@ -504,6 +508,9 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
             tailSettleGeneration += 1
             activeTailSettleGeneration = nil
             tailSettleState = nil
+            if pendingSemanticScrollTarget == .tail {
+                pendingSemanticScrollTarget = nil
+            }
         }
 
         private func continueTailSettle(in tableView: UITableView) {
