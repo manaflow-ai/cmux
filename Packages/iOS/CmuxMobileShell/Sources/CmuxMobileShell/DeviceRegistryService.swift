@@ -84,9 +84,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// `(user, device, tag)`, so a returning phone must present the same device
     /// id to overwrite its own binding in place instead of stranding a new one.
     /// A pre-Keychain `UserDefaults` id is migrated on first read. Mirrors the
-    /// Mac side's `MobileHostIdentity.deviceID()`. The phone sends this id when
-    /// it registers itself as a device; the pinned key is anchored to it for
-    /// revoke.
+    /// Mac side's `MobileHostIdentity.deviceID()`.
+    ///
+    /// This is the best-effort read used by non-binding callers (the device
+    /// registry HTTP client, which only reads the team's Macs). It never returns
+    /// `nil`: when the store is unreadable and no mirror exists it yields a
+    /// process-stable ephemeral id. Do NOT use it to register an iroh binding —
+    /// that path must use ``durableDeviceID(defaults:)`` and defer while it is
+    /// `nil`, so a throwaway id never becomes a stranded `(user, device, tag)`
+    /// binding.
     /// - Parameter defaults: Legacy persistence store (injected for tests).
     public static func deviceID(defaults: UserDefaults = .standard) -> String {
         deviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
@@ -94,8 +100,61 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
     static func deviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String {
-        // Keychain is authoritative because it survives an app reinstall, keeping
-        // the iroh (user, device, tag) slot stable.
+        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+        case .durable(let id):
+            return id
+        case .unavailable:
+            // The store is unreadable with no mirror, or a fresh mint could not be
+            // persisted. This best-effort path (registry reads only, never binding
+            // registration) returns a process-stable ephemeral id so repeated
+            // lookups agree within the launch; it is never persisted, so a later
+            // launch that can read/persist adopts or mints the durable id.
+            return ephemeralFallbackID
+        }
+    }
+
+    /// This iOS device's *durable* identity for registering an iroh binding, or
+    /// `nil` when no durable id can be produced right now.
+    ///
+    /// Returns `nil` in exactly two cases: the Keychain is unreadable (locked
+    /// before first unlock) with no legacy `UserDefaults` mirror, or a fresh id
+    /// could not be persisted to the Keychain. In both, using the value would
+    /// create a throwaway `(user, device, tag)` binding that changes on the next
+    /// launch and orphans the retained one. Callers must defer/retry activation
+    /// until this returns a value instead of registering with an ephemeral id.
+    /// - Parameter defaults: Legacy persistence store (injected for tests).
+    public static func durableDeviceID(defaults: UserDefaults = .standard) -> String? {
+        durableDeviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
+    }
+
+    /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
+    static func durableDeviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String? {
+        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+        case .durable(let id):
+            return id
+        case .unavailable:
+            return nil
+        }
+    }
+
+    /// The outcome of resolving the device id from the authoritative store.
+    enum DurableDeviceIDResolution: Equatable, Sendable {
+        /// A durable id is available: read from the store, adopted from a legacy
+        /// mirror (already the id an existing binding uses), or freshly minted
+        /// AND confirmed persisted.
+        case durable(String)
+        /// No durable id can be produced right now — the store is unreadable with
+        /// no mirror, or a fresh mint could not be persisted.
+        case unavailable
+    }
+
+    /// Resolve the device id from the authoritative store. Keychain is
+    /// authoritative because it survives an app reinstall, keeping the iroh
+    /// `(user, device, tag)` slot stable.
+    static func resolveDurableDeviceID(
+        store: any DeviceIdentityStoring,
+        defaults: UserDefaults
+    ) -> DurableDeviceIDResolution {
         switch store.read() {
         case .found(let stored):
             let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -109,7 +168,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             if defaults.string(forKey: deviceIDKey) != trimmed {
                 defaults.set(trimmed, forKey: deviceIDKey)
             }
-            return trimmed
+            return .durable(trimmed)
         case .absent:
             return adoptOrGenerateDeviceID(store: store, defaults: defaults)
         case .unavailable:
@@ -118,41 +177,51 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             // Minting a new id here would strand the phone's existing
             // (user, device, tag) binding — the exact bug this store prevents.
             // Reuse the legacy UserDefaults mirror if it is readable; otherwise
-            // return a process-stable ephemeral id that is NOT persisted, so the
-            // durable id is adopted/minted once the store unlocks on a later
-            // launch.
-            if let legacy = defaults.string(forKey: deviceIDKey)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !legacy.isEmpty {
-                return legacy
+            // report `.unavailable` so binding registration defers.
+            if let legacy = trimmedLegacyDeviceID(defaults) {
+                return .durable(legacy)
             }
-            return ephemeralFallbackID
+            return .unavailable
         }
     }
 
     /// Adopt a pre-Keychain `UserDefaults` id (so existing installs keep their
-    /// slot), or mint a fresh one. Either way the result is written to the
-    /// authoritative store and mirrored to `UserDefaults` for downgrade safety.
+    /// slot), or mint a fresh one. An adopted legacy id is already the id the
+    /// existing binding uses, so it is durable regardless of whether the
+    /// upgrade-persist to the Keychain succeeds. A freshly minted id is durable
+    /// only once the Keychain write is confirmed; otherwise it must not be
+    /// advertised, since only the reinstall-volatile mirror would hold it.
     private static func adoptOrGenerateDeviceID(
         store: any DeviceIdentityStoring,
         defaults: UserDefaults
-    ) -> String {
-        if let legacy = defaults.string(forKey: deviceIDKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !legacy.isEmpty {
+    ) -> DurableDeviceIDResolution {
+        if let legacy = trimmedLegacyDeviceID(defaults) {
             store.write(legacy)
-            return legacy
+            return .durable(legacy)
         }
         let generated = UUID().uuidString.lowercased()
-        store.write(generated)
+        guard store.write(generated) else {
+            return .unavailable
+        }
         defaults.set(generated, forKey: deviceIDKey)
-        return generated
+        return .durable(generated)
     }
 
-    /// A per-process fallback id, used only when the identity store is unreadable
-    /// and no legacy mirror exists. Stable within a launch so repeated lookups
-    /// agree, but never persisted, so the next launch that can read the store
-    /// adopts or mints the durable id instead of freezing this throwaway value.
+    /// The legacy `UserDefaults` device id, trimmed, or `nil` when absent/blank.
+    private static func trimmedLegacyDeviceID(_ defaults: UserDefaults) -> String? {
+        guard let legacy = defaults.string(forKey: deviceIDKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !legacy.isEmpty else {
+            return nil
+        }
+        return legacy
+    }
+
+    /// A per-process fallback id, used only by the best-effort ``deviceID`` read
+    /// path when the identity store is unreadable and no legacy mirror exists.
+    /// Stable within a launch so repeated lookups agree, but never persisted, so
+    /// the next launch that can read the store adopts or mints the durable id
+    /// instead of freezing this throwaway value.
     private static let ephemeralFallbackID = UUID().uuidString.lowercased()
 
     // MARK: - Reconnect route policy (pure, testable)

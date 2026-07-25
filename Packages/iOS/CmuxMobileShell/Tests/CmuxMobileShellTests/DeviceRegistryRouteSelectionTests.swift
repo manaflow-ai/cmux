@@ -366,4 +366,77 @@ import Testing
         let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
         #expect(resolved == "authoritative-keychain-id")
     }
+
+    // MARK: - Durable device id (binding-registration path)
+
+    @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        // A fresh mint is durable only because the store confirmed the write.
+        #expect(resolved != nil)
+        #expect(store.read() == .found(resolved!))
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
+    }
+
+    @Test func durableDeviceIDReturnsMirrorWhenStoreUnavailable() {
+        // Locked-Keychain proxy with a legacy mirror: the established id is still
+        // durable (it is the id the existing binding uses), so return it.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mirrored = "mirrored-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(mirrored, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == mirrored)
+    }
+
+    @Test func durableDeviceIDDefersWhenStoreUnavailableAndNoMirror() {
+        // The finding-1 core case: unreadable Keychain, no mirror. Return nil so
+        // the caller defers registering a binding instead of minting a throwaway
+        // id that would strand the retained (user, device, tag) slot.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == nil)
+        // Nothing minted or mirrored: a later unlocked launch resolves the durable id.
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
+    }
+
+    @Test func durableDeviceIDDefersWhenFreshMintCannotPersist() {
+        // The finding-3 core case: the store is readable-but-empty yet rejects the
+        // write. Do not advertise the un-persisted mint as durable, and do not
+        // mirror it (only reinstall-volatile UserDefaults would hold it, so a
+        // reinstall would mint a different id and strand the binding).
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == nil)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
+    }
+
+    @Test func durableDeviceIDAdoptsLegacyEvenWhenPersistFails() {
+        // An adopted pre-Keychain id is already the id the existing binding uses,
+        // so it is durable regardless of whether the upgrade-persist succeeds.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == legacy)
+    }
 }

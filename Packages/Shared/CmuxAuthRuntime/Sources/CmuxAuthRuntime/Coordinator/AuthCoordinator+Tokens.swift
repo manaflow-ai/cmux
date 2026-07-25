@@ -125,6 +125,45 @@ extension AuthCoordinator {
         return (access, refresh)
     }
 
+    /// The current session generation. Bumped on every session transition (each
+    /// sign-out and each sign-in), so a caller can pin a multi-step operation to
+    /// one session and reject it the moment the generation moves.
+    public var authSessionGeneration: UInt64 { sessionGeneration }
+
+    /// Captures the signed-in account id and both tokens as one consistent
+    /// snapshot, so the identity and the credentials provably belong to the same
+    /// session.
+    ///
+    /// The account id is read from ``currentUser`` before and after the token
+    /// read and the session generation is required to be unchanged across it, so
+    /// a session transition (sign-out then sign-in as a different user) landing
+    /// during the read is rejected instead of returning account A's id paired
+    /// with account B's freshly-stored tokens. This closes the gap where a
+    /// lagging observed identity authorizes an action that then runs with a
+    /// different account's credentials.
+    ///
+    /// - Returns: The pinned generation, account id, and both tokens.
+    /// - Throws: ``AuthError/unauthorized`` when no account is signed in or the
+    ///   session changed mid-read; otherwise the same token errors as
+    ///   ``currentTokens()``.
+    public func authenticatedSessionSnapshot() async throws -> AuthenticatedSessionSnapshot {
+        await awaitBootstrapped()
+        guard isAuthenticated, let accountID = currentUser?.id, !accountID.isEmpty else {
+            throw AuthError.unauthorized
+        }
+        let generation = sessionGeneration
+        let tokens = try await currentTokens()
+        guard sessionGeneration == generation, currentUser?.id == accountID else {
+            throw AuthError.unauthorized
+        }
+        return AuthenticatedSessionSnapshot(
+            generation: generation,
+            accountID: accountID,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken
+        )
+    }
+
     /// Force-mint a fresh access token, bypassing the cached-token freshness
     /// check. Call this after the host rejected the current token so the retry
     /// presents a genuinely new credential instead of the same rejected one.
@@ -169,5 +208,34 @@ extension AuthCoordinator {
 
     private func emptyTokenReadError(storageWasAvailable: Bool) -> AuthError {
         storageWasAvailable ? .unauthorized : .networkError
+    }
+}
+
+/// Immutable snapshot of the authenticated session: the account id and both
+/// tokens captured together with the session generation they belong to.
+///
+/// The generation lets a long operation (revoking bindings, say) detect that the
+/// session was replaced after the snapshot, so it aborts before acting with one
+/// account's identity and another's credentials.
+public struct AuthenticatedSessionSnapshot: Sendable, Equatable {
+    /// The session generation the account id and tokens were captured under.
+    public let generation: UInt64
+    /// The signed-in account id (`currentUser.id`) at capture.
+    public let accountID: String
+    /// The access token for this session.
+    public let accessToken: String
+    /// The refresh token for this session.
+    public let refreshToken: String
+
+    public init(
+        generation: UInt64,
+        accountID: String,
+        accessToken: String,
+        refreshToken: String
+    ) {
+        self.generation = generation
+        self.accountID = accountID
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
     }
 }

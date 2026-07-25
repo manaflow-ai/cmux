@@ -28,17 +28,25 @@ enum DeviceIdentityReadResult: Equatable, Sendable {
 /// source and downgrade mirror.
 protocol DeviceIdentityStoring: Sendable {
     func read() -> DeviceIdentityReadResult
-    func write(_ deviceID: String)
+    /// Persist `deviceID`, returning whether it is now durably stored.
+    ///
+    /// The caller must not advertise a freshly minted id as durable until this
+    /// reports `true`: if the write failed, only the reinstall-volatile
+    /// `UserDefaults` mirror would hold it, so a delete/reinstall would mint a
+    /// different id and strand the binding this store exists to preserve.
+    @discardableResult
+    func write(_ deviceID: String) -> Bool
 }
 
 /// Device-only Keychain storage for the device-registry id.
 ///
 /// Uses a service name distinct from the iroh endpoint-identity store, so the
 /// reinstall/sign-out wipe in `CmxIrohIdentityRepository` (which deletes only
-/// the endpoint-identity service) never removes this id. A write failure is
-/// ignored (best-effort), but a read distinguishes "no item" (`.absent`) from
-/// "cannot read the item" (`.unavailable`) so the caller never mints a fresh id
-/// while the real one is merely temporarily unreadable.
+/// the endpoint-identity service) never removes this id. `write` reports whether
+/// persistence actually succeeded so the caller never treats an unpersisted id
+/// as durable, and a read distinguishes "no item" (`.absent`) from "cannot read
+/// the item" (`.unavailable`) so the caller never mints a fresh id while the
+/// real one is merely temporarily unreadable.
 struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
     private let service: String
     private let account: String
@@ -78,19 +86,30 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
         }
     }
 
-    func write(_ deviceID: String) {
-        guard let data = deviceID.data(using: .utf8) else { return }
+    @discardableResult
+    func write(_ deviceID: String) -> Bool {
+        guard let data = deviceID.data(using: .utf8) else { return false }
         let query = baseQuery()
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
-        if updateStatus == errSecSuccess { return }
-        guard updateStatus == errSecItemNotFound else { return }
+        if updateStatus == errSecSuccess { return true }
+        guard updateStatus == errSecItemNotFound else { return false }
         var insert = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        _ = SecItemAdd(insert as CFDictionary, nil)
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        if addStatus == errSecSuccess { return true }
+        // Lost an add race with a concurrent writer (the item now exists): an
+        // update proves it is persisted. `errSecDuplicateItem` is the only
+        // status where retrying is correct; every other error is a real failure.
+        guard addStatus == errSecDuplicateItem else { return false }
+        let retryStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        return retryStatus == errSecSuccess
     }
 
     private func baseQuery() -> [String: Any] {
@@ -112,10 +131,15 @@ final class InMemoryDeviceIdentityStore: DeviceIdentityStoring, @unchecked Senda
     /// returns `.unavailable` regardless of the seed, exercising the caller's
     /// fail-closed path.
     private let isUnavailable: Bool
+    /// Simulates a store that can be read but never persists a write (e.g. a
+    /// Keychain that rejects `SecItemAdd`), exercising the caller's
+    /// do-not-advertise-as-durable path.
+    private let writeAlwaysFails: Bool
 
-    init(seed: String? = nil, unavailable: Bool = false) {
+    init(seed: String? = nil, unavailable: Bool = false, writeAlwaysFails: Bool = false) {
         value = seed
         isUnavailable = unavailable
+        self.writeAlwaysFails = writeAlwaysFails
     }
 
     func read() -> DeviceIdentityReadResult {
@@ -126,7 +150,10 @@ final class InMemoryDeviceIdentityStore: DeviceIdentityStoring, @unchecked Senda
         }
     }
 
-    func write(_ deviceID: String) {
+    @discardableResult
+    func write(_ deviceID: String) -> Bool {
+        if writeAlwaysFails { return false }
         lock.withLock { value = deviceID }
+        return true
     }
 }

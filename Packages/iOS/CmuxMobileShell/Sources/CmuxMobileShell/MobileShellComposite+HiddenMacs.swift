@@ -165,7 +165,8 @@ extension MobileShellComposite {
         do {
             try await personalIrohForget.forgetComputer(
                 macDeviceID: computer.macDeviceID,
-                instanceTag: computer.instanceTag
+                instanceTag: computer.instanceTag,
+                expectedAccountID: scope.userID
             )
         } catch {
             hiddenMacsLog.error(
@@ -173,11 +174,13 @@ extension MobileShellComposite {
             )
             return false
         }
-        // If the scope changed while the revoke was in flight, the row belongs to
-        // a session that is no longer front-of-house. The revoke itself landed, so
-        // report success and leave local cleanup to the next scope-correct refresh
-        // (a retry is idempotent: discover finds no binding and re-removes the row).
-        guard await isScopeCurrent(scope) else { return true }
+        // Always clear the captured scope's durable row and hidden marker, even if
+        // the scope changed while the revoke was in flight: `removeStoredPairedMacRow`
+        // removes against the CAPTURED scope (not the current one), so it cannot
+        // touch another account's data, and it internally gates only the on-screen
+        // refresh on the scope still being current. Skipping it here would report
+        // success while leaving the row behind, so returning to the old scope would
+        // show the supposedly forgotten computer.
         return await removeStoredPairedMacRow(
             macDeviceID: computer.macDeviceID,
             instanceTag: computer.instanceTag,

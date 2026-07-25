@@ -17,8 +17,18 @@ public protocol MobileIrohMacForgetting: Sendable {
     ///   - instanceTag: When non-nil, only the matching tagged app instance is
     ///     revoked; sibling instances on the same Mac stay bound. When nil,
     ///     every instance sharing the device id is revoked.
-    /// - Throws: When no account is authenticated or the broker call fails, so
-    ///   the caller keeps the local row and surfaces an error instead of
-    ///   claiming a revoke that never reached the server.
-    func forgetComputer(macDeviceID: String, instanceTag: String?) async throws
+    ///   - expectedAccountID: The account that owns the row being forgotten,
+    ///     captured by the caller when it read the row. The implementation must
+    ///     revoke only while the live authenticated session still belongs to this
+    ///     account, so an account switch landing mid-operation can never revoke a
+    ///     different account's binding with the new account's credentials.
+    /// - Throws: When no account is authenticated, the authenticated account no
+    ///   longer matches `expectedAccountID`, or the broker call fails, so the
+    ///   caller keeps the local row and surfaces an error instead of claiming a
+    ///   revoke that never reached the server.
+    func forgetComputer(
+        macDeviceID: String,
+        instanceTag: String?,
+        expectedAccountID: String
+    ) async throws
 }
