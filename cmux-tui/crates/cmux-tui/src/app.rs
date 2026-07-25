@@ -14630,6 +14630,41 @@ mod tests {
     }
 
     #[test]
+    fn browser_click_requires_a_presented_frame() {
+        let mux = Mux::new("browser-presented-frame-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        surface.kill();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        assert_eq!(
+            app.session.surface(surface.id).and_then(|surface| surface.browser_frame_seq()),
+            None
+        );
+        let content = app.pane_areas[0].content;
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        };
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+
+        app.handle(AppEvent::Input(Event::Mouse(click))).unwrap();
+
+        assert!(
+            blocked.drain_mouse_lifetimes().is_empty(),
+            "a placeholder with no presented browser frame must not accept pointer input"
+        );
+        assert!(!matches!(app.drag, Some(Drag::Browser { .. })));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn newer_browser_render_keeps_an_older_presentation_acknowledgment_stale() {
         let mux = Mux::new("graphics-presentation-order-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));

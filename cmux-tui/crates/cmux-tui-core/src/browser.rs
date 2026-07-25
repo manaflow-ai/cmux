@@ -3289,6 +3289,56 @@ mod tests {
     }
 
     #[test]
+    fn full_command_queue_does_not_discard_a_pointer_release() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release_worker, held) = mpsc::channel();
+        browser
+            .command_sender()
+            .unwrap()
+            .send(BrowserCommand::Hold { entered, release: held })
+            .unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        let sender = browser.command_sender().unwrap();
+        for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+            sender.try_send(BrowserCommand::Activate).unwrap();
+        }
+
+        let queued_surface = surface.clone();
+        let (settled_tx, settled_rx) = mpsc::channel();
+        let enqueue = thread::spawn(move || {
+            let result = queued_surface.browser_mouse_event(
+                "mouseReleased",
+                1.0,
+                1.0,
+                Some("left"),
+                Some(1),
+            );
+            settled_tx.send(result).unwrap();
+        });
+        let settled_while_full = settled_rx.recv_timeout(Duration::from_millis(20)).is_ok();
+
+        release_worker.send(()).unwrap();
+        if !settled_while_full {
+            settled_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("release enqueue should settle after the worker drains")
+                .unwrap();
+        }
+        enqueue.join().unwrap();
+        drop(sender);
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
+
+        assert!(
+            !settled_while_full,
+            "a release must remain retained while the final browser command queue is full"
+        );
+    }
+
+    #[test]
     fn resize_acceptance_is_reported_by_worker_before_execution() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");

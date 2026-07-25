@@ -491,6 +491,21 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     }
     mux.with_state(|state| assert_eq!(state.surfaces.len(), 3));
 
+    let stale_mouse = rpc(
+        &socket_path,
+        json!({
+            "id": 102,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "down",
+            "x_px": 1.0,
+            "y_px": 1.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 1
+        }),
+    );
+    assert_eq!(stale_mouse["ok"], true);
     let mouse = rpc(
         &socket_path,
         json!({
@@ -501,14 +516,18 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             "x_px": 12.5,
             "y_px": 9.0,
             "button": "left",
-            "click_count": 1
+            "click_count": 1,
+            "frame_seq": 2
         }),
     );
     assert_eq!(mouse["ok"], true);
     let mouse_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
     assert_eq!(mouse_request["sessionId"], "session-1");
     assert_eq!(mouse_request["params"]["type"], "mousePressed");
-    assert_eq!(mouse_request["params"]["x"], 13.020833333333334);
+    assert_eq!(
+        mouse_request["params"]["x"], 13.020833333333334,
+        "the old rendered frame must not dispatch into the newer browser frame"
+    );
     assert_eq!(mouse_request["params"]["y"], 4.6875);
 
     let insert = rpc(
