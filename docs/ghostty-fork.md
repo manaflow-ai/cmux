@@ -12,9 +12,24 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is
-`50ad1963d9c73ee957932ccb4d26bf6d15575ee7`, the current
-`manaflow-ai/ghostty` `main`. The complete renderer scheduling hardening landed
+The submodule pinned by this branch is `f11159ff4`, the merge (landing
+through https://github.com/manaflow-ai/ghostty/pull/147) of the
+screen-anchored render-grid export line with the then-current
+`manaflow-ai/ghostty` `main` (`50ad1963d`).
+
+`4cc0933cf` adds the screen-anchored render-grid export for the iOS
+local-scrollback scroll work: `buildRenderGridJson` gains an active-area
+anchor mode, every export carries `history_rows` + `row_space_revision`
+(scrollbar semantics; revision bumps on trim/eviction/reflow/erase), and the
+new C export `ghostty_surface_render_grid_json_v2` takes the anchor flag.
+Existing exports keep viewport anchoring byte-for-byte unchanged. Files:
+`src/apprt/embedded.zig`, `include/ghostty.h`. The line's earlier swap-chain
+rotation commit (`d2fc392de`, the iOS frozen-presents root-cause fix) was
+independently landed on `main` as the byte-identical serial frame-lease
+rotation (https://github.com/manaflow-ai/ghostty/pull/145); the merge keeps
+`main`'s version.
+
+On the `main` side: the complete renderer scheduling hardening landed
 through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
 bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
 external redraw delivery and surface lifetime retention landed through
@@ -38,9 +53,13 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-Its universal ReleaseFast GhosttyKit archive is published at
+Fork `main`'s (`50ad1963d`) universal ReleaseFast GhosttyKit archive is
+published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-50ad1963d9c73ee957932ccb4d26bf6d15575ee7-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The merged
+pin `f11159ff4`'s archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f11159ff48e6e47bd1879655fef8b7157a963855-crashsubdir-cmux-crash-v1
+and pinned in the same checksums file.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
