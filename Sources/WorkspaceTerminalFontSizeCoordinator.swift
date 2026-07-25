@@ -150,6 +150,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
             TimeInterval,
             @escaping @MainActor () -> Void
         ) -> DrainCancellation
+    typealias ChangeApplier =
+        @MainActor (
+            WorkspaceTerminalFontSizeChange,
+            TerminalPanel,
+            Float32
+        ) -> Bool
 
     private static let repeatCoalescingInterval: TimeInterval = 0.05
 
@@ -329,6 +335,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private var activeRequest: ActiveRequest?
     private var transferReconciledRequests: [UUID: PendingRequest] = [:]
     private let schedule: DrainScheduler
+    private let applyChange: ChangeApplier
     private var cancelScheduledDrain: DrainCancellation?
 
     private static var deferredCoordinatorJoins:
@@ -365,10 +372,21 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 timer.setEventHandler {}
                 timer.cancel()
             }
+        },
+        applyChange: @escaping ChangeApplier = {
+            change,
+            terminalPanel,
+            configuredRuntimePoints in
+            cmuxApplyTerminalFontSizeChange(
+                change,
+                to: terminalPanel,
+                configuredRuntimePoints: configuredRuntimePoints
+            )
         }
     ) {
         self.tabManager = tabManager
         self.schedule = schedule
+        self.applyChange = applyChange
     }
 
     func attachWindowDock(_ dock: DockSplitStore) {
@@ -1351,11 +1369,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
                !terminalPanel.surface.hasAppliedFontSizeChange(
                     token: entry.request.token
                ) {
-                _ = cmuxApplyTerminalFontSizeChange(
+                _ = applyChange(
                     entry.request.change,
-                    to: terminalPanel,
-                    configuredRuntimePoints:
-                        entry.configuredRuntimePoints
+                    terminalPanel,
+                    entry.configuredRuntimePoints
                 )
             }
             terminalPanel.surface
@@ -1429,11 +1446,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 token: activeRequest.token
             )
         if !alreadyIncludesChange {
-            _ = cmuxApplyTerminalFontSizeChange(
+            _ = applyChange(
                 activeRequest.request.change,
-                to: terminalPanel,
-                configuredRuntimePoints:
-                    activeRequest.configuredRuntimePoints
+                terminalPanel,
+                activeRequest.configuredRuntimePoints
             )
             terminalPanel.surface.markFontSizeChangeApplied(
                 token: activeRequest.token

@@ -1930,6 +1930,86 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testEnteringTerminalReconcilesOutstandingRequestsWithOneApply() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        let markerPanel = TerminalPanel(
+            workspaceId: workspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        markerPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        let enteringPanel = TerminalPanel(
+            workspaceId: workspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        enteringPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+
+        var enteringPanelApplyCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { change, panel, configuredRuntimePoints in
+                if panel === enteringPanel {
+                    enteringPanelApplyCount += 1
+                }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: panel,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        for _ in 0..<40 {
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+            coordinator.terminalDidEnterWorkspace(
+                markerPanel,
+                workspace: workspace
+            )
+        }
+        coordinator.terminalDidEnterWorkspace(
+            enteringPanel,
+            workspace: workspace
+        )
+
+        XCTAssertEqual(
+            enteringPanelApplyCount,
+            1,
+            "Transfer reconciliation must collapse outstanding work into one bounded apply"
+        )
+        guard let enteringBasePoints =
+                enteringPanel.surface
+                    .fontSizeLineageSnapshot()?.basePoints else {
+            XCTFail("Expected the entering terminal to retain font lineage")
+            return
+        }
+        XCTAssertEqual(
+            enteringBasePoints,
+            TerminalFontSizePolicy.minimumRuntimePoints,
+            accuracy: 0.001,
+            "The bounded apply must preserve the ordered result of every request"
+        )
+    }
+
     func testWindowDockFontSizeDrainAppliesToUnrelatedEnteringTerminal() {
         let manager = TabManager()
         guard let requestedWorkspace = manager.selectedWorkspace else {
@@ -2033,6 +2113,121 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             enteringPanel.surface.fontSizeLineageSnapshot()?.basePoints,
             19,
             "An unrelated entering terminal must receive outstanding Dock work"
+        )
+    }
+
+    func testFinishedDockRequestProtectsTransferUntilWorkspaceSiblingFinishes() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let workspacePane =
+                workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected an initial workspace pane")
+            return
+        }
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        guard let dockPane =
+                windowDock.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a Window Dock pane")
+            return
+        }
+
+        for _ in 0..<64 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            guard workspace.attachDetachedSurface(
+                makeDormantTerminalTransfer(
+                    panel: panel,
+                    sourceWorkspaceId: workspace.id
+                ),
+                inPane: workspacePane,
+                focus: false
+            ) != nil else {
+                XCTFail("Expected a busy workspace terminal")
+                return
+            }
+        }
+
+        let dockPanel = TerminalPanel(
+            workspaceId: windowDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        dockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard windowDock.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: dockPanel,
+                sourceWorkspaceId: windowDock.workspaceId
+            ),
+            inPane: dockPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a Window Dock terminal")
+            return
+        }
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        XCTAssertEqual(
+            dockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "The first bounded drain must finish the one-terminal Dock request"
+        )
+        guard let detached = windowDock.detachSurface(
+            panelId: dockPanel.id
+        ),
+        workspace.attachDetachedSurface(
+            detached,
+            inPane: workspacePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected the adjusted Dock terminal to enter the workspace")
+            return
+        }
+
+        XCTAssertEqual(
+            dockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "A finished Dock sibling must still prove the shared event was applied"
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            dockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "The shared batch must apply once after every sibling finishes"
         )
     }
 
