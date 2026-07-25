@@ -41,6 +41,9 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
     @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Retains the latest ordered resume mutation after a binding is cleared,
+    /// preventing a delayed hook from recreating a superseded binding.
+    @ObservationIgnored var surfaceResumeBindingEventTimesByPanelId: [UUID: TimeInterval] = [:]
     @ObservationIgnored var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     var hasLoadedConfiguration = false
     var configurationLoadTask: Task<Void, Never>?

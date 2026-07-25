@@ -2222,8 +2222,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() throws {
-        let forwardInvoked = DispatchSemaphore(value: 0)
+    func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() async throws {
+        let forwardInvoked = expectation(description: "control master forward invoked")
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
 
@@ -2240,7 +2240,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 controlOperations.append((command: operation, spec: spec))
                 lock.unlock()
                 if operation == "forward" {
-                    forwardInvoked.signal()
+                    forwardInvoked.fulfill()
                 }
                 return (status: 0, stdout: "", stderr: "")
             }
@@ -2294,24 +2294,27 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
+        await workspace.remoteSessionTransitionTask?.value
+        await fulfillment(of: [forwardInvoked], timeout: 15)
         lock.lock()
         let operations = controlOperations
         lock.unlock()
 
         XCTAssertGreaterThanOrEqual(operations.count, 2)
-        XCTAssertEqual(operations[0].command, "cancel")
-        XCTAssertEqual(operations[0].spec, "127.0.0.1:64044")
-        XCTAssertEqual(operations[1].command, "forward")
+        let cancelOperation = try XCTUnwrap(operations.first)
+        let forwardOperation = try XCTUnwrap(operations.dropFirst().first)
+        XCTAssertEqual(cancelOperation.command, "cancel")
+        XCTAssertEqual(cancelOperation.spec, "127.0.0.1:64044")
+        XCTAssertEqual(forwardOperation.command, "forward")
         XCTAssertTrue(
-            operations[1].spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
-            "expected forward to reuse relay port after stale cancel, got \(operations[1].spec)"
+            forwardOperation.spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
+            "expected forward to reuse relay port after stale cancel, got \(forwardOperation.spec)"
         )
     }
 
     @MainActor
-    func testPersistentReverseRelayCleansStaleRemoteListenerAndRetriesControlMasterForward() throws {
-        let retryForwardInvoked = DispatchSemaphore(value: 0)
+    func testPersistentReverseRelayCleansStaleRemoteListenerAndRetriesControlMasterForward() async throws {
+        let retryForwardInvoked = expectation(description: "control master forward retried")
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
         var forwardAttempts = 0
@@ -2340,7 +2343,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                             stderr: "remote port forwarding failed for listen port 64045"
                         )
                     }
-                    retryForwardInvoked.signal()
+                    retryForwardInvoked.fulfill()
                     return (status: 0, stdout: "", stderr: "")
                 }
                 lock.unlock()
@@ -2407,7 +2410,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(retryForwardInvoked.wait(timeout: .now() + 2), .success)
+        await workspace.remoteSessionTransitionTask?.value
+        await fulfillment(of: [retryForwardInvoked], timeout: 15)
         lock.lock()
         let operations = controlOperations
         let cleanupWasInvoked = cleanupInvoked
@@ -2421,12 +2425,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(capturedCleanupArguments.contains("none"))
         XCTAssertFalse(capturedCleanupArguments.contains(where: { $0.hasPrefix("ControlPath=") }))
         XCTAssertGreaterThanOrEqual(operations.count, 3)
-        XCTAssertEqual(operations[0].command, "cancel")
-        XCTAssertEqual(operations[0].spec, "127.0.0.1:64045")
-        XCTAssertEqual(operations[1].command, "forward")
-        XCTAssertEqual(operations[2].command, "forward")
-        XCTAssertEqual(operations[1].spec, operations[2].spec)
-        XCTAssertTrue(operations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
+        let cancelOperation = try XCTUnwrap(operations.first)
+        let firstForwardOperation = try XCTUnwrap(operations.dropFirst().first)
+        let retryForwardOperation = try XCTUnwrap(operations.dropFirst(2).first)
+        XCTAssertEqual(cancelOperation.command, "cancel")
+        XCTAssertEqual(cancelOperation.spec, "127.0.0.1:64045")
+        XCTAssertEqual(firstForwardOperation.command, "forward")
+        XCTAssertEqual(retryForwardOperation.command, "forward")
+        XCTAssertEqual(firstForwardOperation.spec, retryForwardOperation.spec)
+        XCTAssertTrue(retryForwardOperation.spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
     }
 
     @MainActor
@@ -3615,6 +3622,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 }
 
 final class CLINotifyProcessIntegrationTests: XCTestCase {
+    private func commandTime(_ command: String, after marker: String) -> TimeInterval? {
+        guard let markerRange = command.range(of: marker) else { return nil }
+        let rawValue = command[markerRange.upperBound...].prefix {
+            $0.isNumber || $0 == "."
+        }
+        return TimeInterval(String(rawValue))
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -5156,6 +5171,94 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    func testCodexPromptSubmitMonitorPreservesHookEventOrdering() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-ordering-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-ordering"
+        let eventTime = "1700000200.000000"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turnId":"turn-monitor-ordering","started_at":1777107522}}
+        {"timestamp":"2026-04-25T07:55:29.803Z","type":"event_msg","payload":{"type":"error","message":"Stream disconnected before completion.","codex_error_info":"response_stream_disconnected"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 6) { line in
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String else {
+                return "OK"
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = eventTime
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let hookInput = """
+        {"session_id":"\(sessionId)","turn_id":"turn-monitor-ordering","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}
+        """
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: hookInput,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("set_status codex Codex network error") &&
+                    command.contains("--agent-event-time=")
+            },
+            "Expected the spawned monitor to assign an event time, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|") &&
+                    command.contains("|c=other;p=0;k=codex;t=")
+            },
+            "Expected the spawned monitor notification to carry an event time, saw \(state.snapshot())"
+        )
+        let commands = state.snapshot()
+        let statusCommand = try XCTUnwrap(commands.first {
+            $0.contains("set_status codex Codex network error") && $0.contains("--agent-event-time=")
+        })
+        let notificationCommand = try XCTUnwrap(commands.first {
+            $0.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|")
+        })
+        let statusTime = try XCTUnwrap(commandTime(statusCommand, after: "--agent-event-time="))
+        let notificationTime = try XCTUnwrap(commandTime(notificationCommand, after: ";t="))
+        XCTAssertGreaterThan(statusTime, try XCTUnwrap(TimeInterval(eventTime)))
+        XCTAssertEqual(notificationTime, statusTime)
+    }
+
     func testCodexHookMonitorReportsExplicitErrorBeforeTerminalCompletion() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -5247,6 +5350,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-session-monitor-user-input"
         let turnId = "turn-monitor-user-input"
+        let eventTime = "1700000201.000000"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -5292,6 +5396,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             turnId,
             "--transcript",
             transcriptURL.path,
+            "--agent-event-time",
+            eventTime,
         ]
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
@@ -5319,9 +5425,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+                command.hasPrefix(
+                    "notify_target_async \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?"
+                ) &&
+                    command.contains("|c=needs-permission;p=0;k=codex;t=")
             },
-            "Expected monitor to send Codex input notification, saw \(state.snapshot())"
+            "Expected monitor to send an ordered Codex input notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
@@ -5333,6 +5442,19 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             },
             "Expected monitor to publish high-priority Codex input status, saw \(state.snapshot())"
         )
+        let commands = state.snapshot()
+        let statusCommand = try XCTUnwrap(commands.first {
+            $0.contains("set_status codex Codex needs input") && $0.contains("--agent-event-time=")
+        })
+        let notificationCommand = try XCTUnwrap(commands.first {
+            $0.hasPrefix(
+                "notify_target_async \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?"
+            )
+        })
+        let statusTime = try XCTUnwrap(commandTime(statusCommand, after: "--agent-event-time="))
+        let notificationTime = try XCTUnwrap(commandTime(notificationCommand, after: ";t="))
+        XCTAssertGreaterThan(statusTime, try XCTUnwrap(TimeInterval(eventTime)))
+        XCTAssertEqual(notificationTime, statusTime)
         XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
     }
 

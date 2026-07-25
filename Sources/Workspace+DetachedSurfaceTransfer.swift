@@ -15,6 +15,23 @@ extension Workspace {
         /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
         let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
+        let agentLifecycleEventTimes: [String: TimeInterval]
+
+        init(
+            panelId: UUID,
+            statusEntries: [String: SidebarStatusEntry],
+            agentPIDs: [String: pid_t],
+            agentPIDProcessIdentities: [String: AgentPIDProcessIdentity],
+            agentPIDKeys: Set<String>,
+            agentLifecycleEventTimes: [String: TimeInterval] = [:]
+        ) {
+            self.panelId = panelId
+            self.statusEntries = statusEntries
+            self.agentPIDs = agentPIDs
+            self.agentPIDProcessIdentities = agentPIDProcessIdentities
+            self.agentPIDKeys = agentPIDKeys
+            self.agentLifecycleEventTimes = agentLifecycleEventTimes
+        }
     }
 
     struct DetachedSurfaceTransfer {
@@ -45,6 +62,7 @@ extension Workspace {
         let shellActivityState: PanelShellActivityState?
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        let resumeBindingEventTime: TimeInterval?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
@@ -82,6 +100,7 @@ extension Workspace {
                 shellActivityState: shellActivityState,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
+                resumeBindingEventTime: resumeBindingEventTime,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,

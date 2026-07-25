@@ -22,6 +22,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     public let source: String?
     /// The environment overrides (the legacy `v2StringMap`, or `nil`).
     public let environment: [String: String]?
+    /// The trusted hook event time used to order binding mutations, if any.
+    public let agentEventTime: TimeInterval?
     /// Whether automatic resume is requested (already gated: `true` only for the
     /// `agent-hook` source with `auto_resume == true`).
     public let autoResume: Bool
@@ -40,6 +42,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - checkpointID: The checkpoint identifier.
     ///   - source: The (already-mapped) binding source.
     ///   - environment: The environment overrides.
+    ///   - agentEventTime: The trusted hook event time used for mutation ordering.
     ///   - autoResume: Whether automatic resume is requested.
     ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
     ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
@@ -51,6 +54,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         checkpointID: String?,
         source: String?,
         environment: [String: String]?,
+        agentEventTime: TimeInterval?,
         autoResume: Bool,
         remoteWorkspaceID: UUID?,
         remoteRelayParameters: [String: JSONValue]?
@@ -62,6 +66,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.checkpointID = checkpointID
         self.source = source
         self.environment = environment
+        self.agentEventTime = agentEventTime
         self.autoResume = autoResume
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteRelayParameters = remoteRelayParameters

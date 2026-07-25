@@ -365,53 +365,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         timeout: TimeInterval
     ) -> ProcessRunResult {
         let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = standardInput == nil ? nil : Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = stdinPipe ?? FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        let capture: ProcessTestFileCapture
         do {
-            try process.run()
+            capture = try ProcessTestFileCapture(standardInput: standardInput)
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        if let standardInput, let stdinPipe {
-            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-            try? stdinPipe.fileHandleForWriting.close()
-        }
-
-        let outputLock = NSLock()
-        var stdoutData = Data()
-        var stderrData = Data()
-        let outputGroup = DispatchGroup()
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stdoutData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stderrData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
+        defer { capture.cleanup() }
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        capture.attach(to: process)
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
+        process.terminationHandler = { _ in
             exitSignal.signal()
+        }
+
+        do {
+            try process.run()
+            capture.closeParentHandles()
+        } catch {
+            process.terminationHandler = nil
+            capture.closeParentHandles()
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
@@ -422,18 +399,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
-        _ = outputGroup.wait(timeout: .now() + 2)
+        process.terminationHandler = nil
 
-        outputLock.lock()
-        let finalStdoutData = stdoutData
-        let finalStderrData = stderrData
-        outputLock.unlock()
-        let stdout = String(data: finalStdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: finalStderrData, encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
+            stdout: capture.standardOutput(),
+            stderr: capture.standardError(),
             timedOut: timedOut
         )
     }

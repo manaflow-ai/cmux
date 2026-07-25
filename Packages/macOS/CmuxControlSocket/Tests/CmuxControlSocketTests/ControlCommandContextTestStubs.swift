@@ -372,6 +372,10 @@ extension ControlWorkspaceContext {
 }
 
 extension ControlSurfaceContext {
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String {
+        "Missing or invalid agent_event_time"
+    }
+
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
 
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? { nil }
@@ -476,7 +480,8 @@ extension ControlSurfaceContext {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentEventTime: TimeInterval?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }

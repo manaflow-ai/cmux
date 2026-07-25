@@ -229,6 +229,12 @@ extension DockSplitStore {
         if let resumeBinding {
             surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
         }
+        if let eventTime = [
+            terminalSnapshot.resumeBindingEventTime,
+            resumeBinding?.updatedAt,
+        ].compactMap({ $0 }).max() {
+            surfaceResumeBindingEventTimesByPanelId[terminal.id] = eventTime
+        }
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }

@@ -192,6 +192,40 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.first?.surfaceId == fixture.panelId)
     }
 
+    @Test("Moving a pane preserves its cleared agent ordering watermark")
+    func paneMovePreservesClearedAgentOrderingWatermark() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let statusKey = "codex"
+        let originalEventTime: TimeInterval = 1_893_456_200
+
+        #expect(fixture.source.setAgentLifecycle(
+            key: statusKey,
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: originalEventTime
+        ))
+        #expect(fixture.source.clearAgentLifecycle(key: statusKey, panelId: fixture.panelId))
+        #expect(fixture.source.agentLifecycleEventTimesByPanelId[fixture.panelId]?[statusKey] == originalEventTime)
+
+        try movePanel(fixture)
+
+        #expect(fixture.destination.agentLifecycleEventTimesByPanelId[fixture.panelId]?[statusKey] == originalEventTime)
+        #expect(!fixture.destination.setAgentLifecycle(
+            key: statusKey,
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: originalEventTime - 1
+        ))
+        #expect(fixture.destination.agentHibernationLifecycleState(panelId: fixture.panelId, fallback: nil) == .unknown)
+        #expect(fixture.destination.setAgentLifecycle(
+            key: statusKey,
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: originalEventTime + 1
+        ))
+    }
+
     @Test("Desktop OSC suppression follows the live pane owner after hook lookup")
     func desktopOSCSuppressionUsesLiveOwnerAfterHookLookup() async throws {
         let fixture = try makeFixture()

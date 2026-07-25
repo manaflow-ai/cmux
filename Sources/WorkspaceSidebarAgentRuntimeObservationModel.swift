@@ -17,12 +17,14 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     @ObservationIgnored
+    private(set) var agentLifecycleEventTimesByPanelId: [UUID: [String: TimeInterval]] = [:]
+    @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
     @ObservationIgnored
     private(set) var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    /// Emits whenever any runtime map changes.
+    /// Emits whenever a sidebar-visible runtime map changes.
     func changes() -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
@@ -61,6 +63,11 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
         notifyChanged()
+    }
+
+    func setAgentLifecycleEventTimesByPanelId(_ newValue: [UUID: [String: TimeInterval]]) {
+        guard agentLifecycleEventTimesByPanelId != newValue else { return }
+        agentLifecycleEventTimesByPanelId = newValue
     }
 
     private func notifyChanged() {

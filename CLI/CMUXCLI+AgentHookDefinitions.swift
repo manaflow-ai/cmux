@@ -226,6 +226,36 @@ extension CMUXCLI {
         noOpCommand == "echo '{}'" ? noOpCommand : "{ \(noOpCommand); }"
     }
 
+    static func agentHookCaptureTimeShell() -> String {
+        // This shared clock is ordering authority across hook processes. Never
+        // follow or write through a directory that is not private to this uid.
+        [
+            #"{ umask 077; export LC_ALL=C; fallback_capture_time() { exit 0; }; current_uid=`/usr/bin/id -u 2>/dev/null || true`;"#,
+            #"prepare_clock_dir() { clock_candidate="$1"; if /bin/mkdir "$clock_candidate" 2>/dev/null; then :; elif [ -L "$clock_candidate" ] || ! [ -d "$clock_candidate" ]; then return 1; fi; clock_uid=`/usr/bin/stat -f %u "$clock_candidate" 2>/dev/null || true`; if [ "$clock_uid" != "$current_uid" ] || ! /bin/chmod 700 "$clock_candidate" 2>/dev/null; then return 1; fi; clock_uid=`/usr/bin/stat -f %u "$clock_candidate" 2>/dev/null || true`; clock_mode=`/usr/bin/stat -f %Lp "$clock_candidate" 2>/dev/null || true`; if [ -L "$clock_candidate" ] || ! [ -d "$clock_candidate" ] || [ "$clock_uid" != "$current_uid" ] || [ "$clock_mode" != 700 ]; then return 1; fi; clock_dir="$clock_candidate"; return 0; };"#,
+            #"if ! [ "$current_uid" -ge 0 ] 2>/dev/null; then fallback_capture_time; fi; fallback_clock_dir="/tmp/cmux-agent-hook-clock-v2-$current_uid"; if [ -n "${TMPDIR:-}" ]; then primary_clock_dir="${TMPDIR%/}/cmux-agent-hook-clock-v2"; else primary_clock_dir="$fallback_clock_dir"; fi; if ! prepare_clock_dir "$primary_clock_dir"; then if [ "$primary_clock_dir" = "$fallback_clock_dir" ] || ! prepare_clock_dir "$fallback_clock_dir"; then fallback_capture_time; fi; fi;"#,
+            #"lock="$clock_dir/lock"; state="$clock_dir/state"; ( exec 9>>"$lock" || exit 1; if ! /usr/bin/lockf -s -t 1 9; then /bin/sleep 0.05; /usr/bin/lockf -s -t 1 9 || exit 1; fi;"#,
+            #"capture_file=`/usr/bin/mktemp "$clock_dir/capture.XXXXXX" 2>/dev/null || true`; captured_at=;"#,
+            #"if [ -n "$capture_file" ] && [ -f "$capture_file" ]; then captured_at=`/usr/bin/stat -f %Fm "$capture_file" 2>/dev/null || true`; /bin/unlink "$capture_file" 2>/dev/null || true; fi;"#,
+            #"formatted_at=; current_micros=; if [ -n "$captured_at" ]; then formatted_at=`printf "%.6f" "$captured_at" 2>/dev/null || true`; fi;"#,
+            #"if [ -n "$formatted_at" ]; then epoch="${formatted_at%.*}"; fraction="${formatted_at#*.}"; if [ "$epoch" -ge 0 ] 2>/dev/null && [ "$fraction" -ge 0 ] 2>/dev/null; then current_micros=$((epoch * 1000000 + 10#$fraction)); fi; fi;"#,
+            #"if ! [ "$current_micros" -ge 0 ] 2>/dev/null; then date_bin="${CMUX_AGENT_HOOK_DATE_BIN:-/bin/date}"; epoch=`"$date_bin" +%s 2>/dev/null || printf 946684800`; current_micros=$((epoch * 1000000)); fi; last_micros=; last_micros_is_trusted=0; preserve_state_mtime=0;"#,
+            #"if [ ! -L "$state" ] && [ -f "$state" ]; then if IFS= read -r last_micros 2>/dev/null <"$state"; then state_modified_at=`/usr/bin/stat -f %Fm "$state" 2>/dev/null || true`; state_formatted_at=; state_modified_micros=; if [ -n "$state_modified_at" ]; then state_formatted_at=`printf "%.6f" "$state_modified_at" 2>/dev/null || true`; fi; if [ -n "$state_formatted_at" ]; then state_epoch="${state_formatted_at%.*}"; state_fraction="${state_formatted_at#*.}"; if [ "$state_epoch" -ge 0 ] 2>/dev/null && [ "$state_fraction" -ge 0 ] 2>/dev/null; then state_modified_micros=$((state_epoch * 1000000 + 10#$state_fraction)); fi; fi; fi; fi;"#,
+            #"if [ "$last_micros" -ge 946684800000000 ] 2>/dev/null && [ "$last_micros" -le 4102444800000000 ] 2>/dev/null && [ "$state_modified_micros" -ge 946684800000000 ] 2>/dev/null; then state_delta=$((last_micros - state_modified_micros)); if [ "$state_delta" -lt 0 ]; then state_delta=$((-state_delta)); fi; if [ "$state_delta" -le 300000000 ]; then last_micros_is_trusted=1; fi; fi;"#,
+            #"if [ "$last_micros_is_trusted" = 1 ] && [ "$current_micros" -le "$last_micros" ] 2>/dev/null; then current_micros=$((last_micros + 1)); preserve_state_mtime=1; fi;"#,
+            #"state_tmp=`/usr/bin/mktemp "$clock_dir/.state.XXXXXX" 2>/dev/null || true`; if [ -n "$state_tmp" ] && [ -f "$state_tmp" ]; then /bin/chmod 600 "$state_tmp" 2>/dev/null || true; if printf "%s\n" "$current_micros" >"$state_tmp"; then if [ "$preserve_state_mtime" != 1 ] || /usr/bin/touch -r "$state" "$state_tmp" 2>/dev/null; then if /bin/mv -f "$state_tmp" "$state" 2>/dev/null; then state_tmp=; fi; fi; fi; if [ -n "$state_tmp" ]; then /bin/rm -f "$state_tmp" 2>/dev/null || true; fi; fi;"#,
+            #"seconds=$((current_micros / 1000000)); micros=$((current_micros % 1000000)); printf "%s.%06d" "$seconds" "$micros" ) && exit 0;"#,
+            #"fallback_capture_time; }"#,
+        ].joined(separator: " ")
+    }
+
+    private static func timestampedAgentHookInvocation(
+        executable: String,
+        arguments: String
+    ) -> String {
+        let captureTime = agentHookCaptureTimeShell()
+        return #"CMUX_AGENT_HOOK_CAPTURED_AT="$(\#(captureTime))" \#(executable) \#(arguments)"#
+    }
+
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
 
@@ -239,7 +269,15 @@ extension CMUXCLI {
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
+        let socketInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: #"--socket "$CMUX_SOCKET_PATH" \#(routedArguments)"#
+        )
+        let directInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: routedArguments
+        )
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(socketInvocation); else \(directInvocation); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(
@@ -249,7 +287,15 @@ extension CMUXCLI {
     ) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then \(noOpSnippet); fi; else \(noOpSnippet); fi"
+        let socketInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: #"--socket "$CMUX_SOCKET_PATH" \#(routedArguments)"#
+        )
+        let directInvocation = timestampedAgentHookInvocation(
+            executable: #""$cmux_cli""#,
+            arguments: routedArguments
+        )
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(socketInvocation); else \(directInvocation); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then \(noOpSnippet); fi; else \(noOpSnippet); fi"
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
@@ -313,9 +359,15 @@ extension CMUXCLI {
         socketPath: String?
     ) -> String {
         if let socketPath {
-            return "\(executable) --socket \(shellSingleQuote(socketPath)) \(routedArguments)"
+            return timestampedAgentHookInvocation(
+                executable: executable,
+                arguments: "--socket \(shellSingleQuote(socketPath)) \(routedArguments)"
+            )
         }
-        return "\(executable) \(routedArguments)"
+        return timestampedAgentHookInvocation(
+            executable: executable,
+            arguments: routedArguments
+        )
     }
 
     private static func pinnedAgentHookCLIPath(

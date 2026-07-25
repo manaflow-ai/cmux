@@ -1092,7 +1092,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             timestamp: Date(timeIntervalSince1970: 123)
         )
         XCTAssertFalse(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarStatusEntry.shouldReplace(
                 current: current,
                 key: "agent",
                 value: "idle",
@@ -1114,7 +1114,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             timestamp: Date(timeIntervalSince1970: 123)
         )
         XCTAssertTrue(
-            TerminalController.shouldReplaceStatusEntry(
+            SidebarStatusEntry.shouldReplace(
                 current: current,
                 key: "agent",
                 value: "running",
@@ -1124,6 +1124,81 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
                 priority: 0,
                 format: .plain
             )
+        )
+    }
+
+    func testShouldReplaceStatusEntryRejectsMissingEventTimeAfterTimestampedEntry() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "Running",
+            icon: "bolt",
+            color: "#ffffff",
+            timestamp: Date(timeIntervalSince1970: 123),
+            agentEventTime: 20
+        )
+
+        XCTAssertFalse(
+            SidebarStatusEntry.shouldReplace(
+                current: current,
+                key: "agent",
+                value: "Idle",
+                icon: "pause",
+                color: "#8E8E93",
+                url: nil,
+                priority: 0,
+                format: .plain
+            )
+        )
+    }
+
+    func testShouldReplaceStatusEntryAcceptsEqualEventTimeWhenPayloadChanges() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "Idle",
+            icon: "pause",
+            color: "#8E8E93",
+            timestamp: Date(timeIntervalSince1970: 123),
+            agentEventTime: 20
+        )
+
+        XCTAssertTrue(
+            SidebarStatusEntry.shouldReplace(
+                current: current,
+                key: "agent",
+                value: "Running",
+                icon: "bolt",
+                color: "#ffffff",
+                url: nil,
+                priority: 0,
+                format: .plain,
+                agentEventTime: 20
+            )
+        )
+    }
+
+    func testStatusEntryReplacementDecisionTreatsUnchangedTimestampAsAcceptedDuplicate() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "Idle",
+            icon: "pause",
+            color: "#8E8E93",
+            timestamp: Date(timeIntervalSince1970: 123),
+            agentEventTime: 20
+        )
+
+        XCTAssertEqual(
+            SidebarStatusEntry.replacementDecision(
+                current: current,
+                key: "agent",
+                value: "Idle",
+                icon: "pause",
+                color: "#8E8E93",
+                url: nil,
+                priority: 0,
+                format: .plain,
+                agentEventTime: 20
+            ),
+            .unchanged
         )
     }
 

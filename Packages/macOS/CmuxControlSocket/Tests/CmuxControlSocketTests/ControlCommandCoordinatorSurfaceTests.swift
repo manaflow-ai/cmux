@@ -53,6 +53,26 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["type"] == .string("browser"))
     }
 
+    @Test func invalidResumeAgentEventTimeUsesContextLocalizedError() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("codex resume test-session"),
+                "agent_event_time": .double(100),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: FakeSurfaceControlCommandContext.invalidAgentEventTimeError,
+            data: nil
+        ))
+    }
+
     @Test func paneCreateDockPayloadUsesDockScopedIDs() throws {
         let windowID = UUID()
         let workspaceID = UUID()

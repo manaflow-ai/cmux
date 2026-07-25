@@ -73,6 +73,10 @@ enum ClaudeHookLiveDeliveryHarness {
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.storeURL.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            // Production Claude hooks always enter through the wrapper, which
+            // captures this timestamp before invoking the CLI. Keep direct CLI
+            // harnesses on the same ordered-mutation path.
+            "CMUX_AGENT_HOOK_CAPTURED_AT": "1700000200.000001",
         ]
     }
 
@@ -192,29 +196,32 @@ enum ClaudeHookLiveDeliveryHarness {
         standardInput: String
     ) -> ProcessRunResult {
         let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: context.cliPath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        let capture: ProcessTestFileCapture
         do {
-            try process.run()
+            capture = try ProcessTestFileCapture(standardInput: standardInput)
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
+        defer { capture.cleanup() }
+        process.executableURL = URL(fileURLWithPath: context.cliPath)
+        process.arguments = arguments
+        process.environment = environment
+        capture.attach(to: process)
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
+        process.terminationHandler = { _ in
             exitSignal.signal()
         }
+
+        do {
+            try process.run()
+            capture.closeParentHandles()
+        } catch {
+            process.terminationHandler = nil
+            capture.closeParentHandles()
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
+        }
+
         let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
         if timedOut {
             process.terminate()
@@ -223,13 +230,12 @@ enum ClaudeHookLiveDeliveryHarness {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
+        process.terminationHandler = nil
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
+            stdout: capture.standardOutput(),
+            stderr: capture.standardError(),
             timedOut: timedOut
         )
     }

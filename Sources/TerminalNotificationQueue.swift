@@ -11,6 +11,8 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let agentStatusKey: String?
+    let agentEventTime: TimeInterval?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -18,6 +20,13 @@ fileprivate enum TerminalSocketMutation {
     case clearAllNotifications(through: UInt64)
     case clearNotificationsForTab(UUID, through: UInt64)
     case clearNotificationsForSurface(UUID, UUID, through: UInt64)
+    case clearAgentNotifications(
+        claimedTabId: UUID,
+        surfaceId: UUID,
+        statusKey: String,
+        eventTime: TimeInterval,
+        through: UInt64
+    )
     case perform(@MainActor () -> Void)
 }
 
@@ -48,9 +57,13 @@ fileprivate struct TerminalNotificationCoalescingKey: Hashable {
     let notificationKey: QueuedTerminalNotificationKey
 }
 
+// `@unchecked Sendable` is safe because all cross-thread queue state is lock-protected;
+// queued UI mutations execute only from the main-actor drain.
 final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
 
+    // Socket workers require immediate, synchronous enqueue ordering; this lock
+    // protects only bounded queue bookkeeping and is never held across actor work.
     private let lock = NSLock()
     private var pending: [TerminalSocketMutationEntry] = []
     private var drainScheduled = false
@@ -67,13 +80,17 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String,
+        agentStatusKey: String? = nil,
+        agentEventTime: TimeInterval? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            agentStatusKey: agentStatusKey,
+            agentEventTime: agentEventTime
         ), coalesces: coalesces)
     }
 
@@ -94,6 +111,59 @@ final class TerminalMutationBus: @unchecked Sendable {
         enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { notification in
             notification.key.surfaceId == surfaceId
         }
+    }
+
+    /// Enqueues a pane-scoped hook clear whose admission is checked at the
+    /// shared agent-event watermark. The generation boundary is captured at
+    /// enqueue time so accepted clears cancel only older notification work.
+    nonisolated func enqueueAgentNotificationClear(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        statusKey: String,
+        agentEventTime: TimeInterval
+    ) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        let boundary = currentNotificationGeneration
+        currentNotificationGeneration &+= 1
+        var coalescedEventTime = agentEventTime
+        pending.removeAll { entry in
+            guard case .clearAgentNotifications(
+                claimedTabId: _,
+                surfaceId: let queuedSurfaceId,
+                statusKey: let queuedStatusKey,
+                eventTime: let queuedEventTime,
+                through: _
+            ) = entry.mutation,
+            queuedSurfaceId == surfaceId,
+            queuedStatusKey == statusKey else {
+                return false
+            }
+            coalescedEventTime = max(coalescedEventTime, queuedEventTime)
+            return true
+        }
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: .clearAgentNotifications(
+                claimedTabId: tabId,
+                surfaceId: surfaceId,
+                statusKey: statusKey,
+                eventTime: coalescedEventTime,
+                through: boundary
+            ),
+            notificationGeneration: nil,
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        scheduleDrain()
     }
 
     nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
@@ -439,6 +509,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     title: notification.title,
                     subtitle: notification.subtitle,
                     body: notification.body,
+                    agentStatusKey: notification.agentStatusKey,
+                    agentEventTime: notification.agentEventTime,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
             case .clearAllNotifications(let boundary):
@@ -453,6 +525,33 @@ final class TerminalMutationBus: @unchecked Sendable {
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     surfaceId: surfaceId,
+                    discardQueuedNotifications: false,
+                    throughNotificationGeneration: boundary
+                )
+            case .clearAgentNotifications(
+                claimedTabId: let claimedTabId,
+                surfaceId: let surfaceId,
+                statusKey: let statusKey,
+                eventTime: let eventTime,
+                through: let boundary
+            ):
+                guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                    claimedTabId: claimedTabId,
+                    surfaceId: surfaceId
+                ), let liveSurfaceId = target.surfaceId else { continue }
+                let manager = AppDelegate.shared?.tabManagerFor(tabId: target.tabId) ?? AppDelegate.shared?.tabManager
+                guard let workspace = manager?.workspacesById[target.tabId],
+                      workspace.acceptAgentRuntimeMutation(
+                          statusKey: statusKey,
+                          panelId: liveSurfaceId,
+                          agentEventTime: eventTime,
+                          enforceOrdering: true
+                      ) else {
+                    continue
+                }
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: target.tabId,
+                    surfaceId: liveSurfaceId,
                     discardQueuedNotifications: false,
                     throughNotificationGeneration: boundary
                 )

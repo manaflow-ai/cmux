@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
+    nonisolated static let invalidAgentEventTimeError = "Localized invalid agent event time"
+
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
@@ -24,6 +26,10 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String {
+        Self.invalidAgentEventTimeError
+    }
 
     func controlPaneCreate(
         routing: ControlRoutingSelectors,

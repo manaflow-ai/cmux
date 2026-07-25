@@ -931,6 +931,7 @@ struct RestorableAgentSessionIndex: Sendable {
     struct Entry: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
         let lifecycle: AgentHibernationLifecycleState?
+        let runtimeStatusEventTime: TimeInterval?
         let updatedAt: TimeInterval
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
         let processLiveness: RestorableAgentProcessLiveness
@@ -992,6 +993,10 @@ struct RestorableAgentSessionIndex: Sendable {
 
     func updatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
         entry(workspaceId: workspaceId, panelId: panelId)?.updatedAt
+    }
+
+    func runtimeStatusEventTime(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
+        entry(workspaceId: workspaceId, panelId: panelId)?.runtimeStatusEventTime
     }
 
     func processIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
@@ -1231,6 +1236,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
+                    runtimeStatusEventTime: effectiveRecord.runtimeStatusEventTime,
                     updatedAt: effectiveRecord.updatedAt,
                     processLiveness: processObservation.liveness,
                     processIDs: liveProcessID.map { [$0] } ?? [],
@@ -1277,9 +1283,18 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        func processDetectedEntry(snapshot: SessionRestorableAgentSnapshot, lifecycle: AgentHibernationLifecycleState?, updatedAt: TimeInterval, detected: ProcessDetectedSnapshotEntry) -> Entry {
+        func processDetectedEntry(
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            runtimeStatusEventTime: TimeInterval?,
+            updatedAt: TimeInterval,
+            detected: ProcessDetectedSnapshotEntry
+        ) -> Entry {
             Entry(
-                snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
+                snapshot: snapshot,
+                lifecycle: lifecycle,
+                runtimeStatusEventTime: runtimeStatusEventTime,
+                updatedAt: updatedAt,
                 processLiveness: .running,
                 processIDs: detected.processIDs, agentProcessIDs: detected.agentProcessIDs,
                 agentProcessIdentities: agentProcessIdentities(
@@ -1311,7 +1326,13 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(
+                    snapshot: panelCandidate.snapshot,
+                    lifecycle: panelCandidate.lifecycle,
+                    runtimeStatusEventTime: panelCandidate.runtimeStatusEventTime,
+                    updatedAt: panelCandidate.updatedAt,
+                    detected: detected
+                )
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -1323,7 +1344,13 @@ struct RestorableAgentSessionIndex: Sendable {
                 // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
                 // live process evidence for the restored panel. The workspace UUID can rotate during
                 // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(
+                    snapshot: panelCandidate.snapshot,
+                    lifecycle: panelCandidate.lifecycle,
+                    runtimeStatusEventTime: panelCandidate.runtimeStatusEventTime,
+                    updatedAt: panelCandidate.updatedAt,
+                    detected: detected
+                )
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -1332,9 +1359,21 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(
+                    snapshot: detected.snapshot,
+                    lifecycle: existing.lifecycle,
+                    runtimeStatusEventTime: existing.runtimeStatusEventTime,
+                    updatedAt: existing.updatedAt,
+                    detected: detected
+                )
             } else {
-                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                resolved[key] = processDetectedEntry(
+                    snapshot: detected.snapshot,
+                    lifecycle: nil,
+                    runtimeStatusEventTime: nil,
+                    updatedAt: 0,
+                    detected: detected
+                )
             }
         }
 

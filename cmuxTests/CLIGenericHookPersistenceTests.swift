@@ -314,7 +314,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        let mockServer = startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -330,6 +330,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
+        defer { mockServer.shutdown() }
 
         func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
             runProcess(
@@ -581,8 +582,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 128
+        )
+        defer { mockServer.shutdown() }
+
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -590,7 +598,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -712,6 +719,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "hermes-session-end-123"
+        let baseEventTime = Date().timeIntervalSince1970 - 1_000
+        let sessionStartTime = baseEventTime
+        let stopTime = baseEventTime + 100
+        let turnBoundaryTime = baseEventTime + 200
+        let staleFinalizeTime = baseEventTime + 150
+        let validFinalizeTime = baseEventTime + 300
+        let staleRecreationTime = baseEventTime + 250
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -731,23 +745,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        let mockServer = startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+        defer { mockServer.shutdown() }
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -755,7 +771,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -772,7 +787,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let start = runHermesHook(
             "session-start",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start","timestamp":\#(sessionStartTime)}"#
         )
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
@@ -780,7 +795,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // Finish a turn so a restorable record exists for the session.
         let stop = runHermesHook(
             "agent-response",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"user_message":"do the thing","assistant_response":"done","model":"gpt-4","platform":"cli"}}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","timestamp":\#(stopTime),"extra":{"user_message":"do the thing","assistant_response":"done","model":"gpt-4","platform":"cli"}}"#
         )
         XCTAssertFalse(stop.timedOut, stop.stderr)
         XCTAssertEqual(stop.status, 0, stop.stderr)
@@ -792,16 +807,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         // The per-turn on_session_end hook. Hermes is a restorable agent, so this is a
         // turn boundary, not a true session teardown.
-        let sessionEndCommandStart = state.commands.count
+        let sessionEndCommandStart = state.snapshot().count
         let sessionEnd = runHermesHook(
             "session-end",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_end"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_end","timestamp":\#(turnBoundaryTime)}"#
         )
         XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
         XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
         XCTAssertEqual(sessionEnd.stdout, "{}\n")
 
-        let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
+        let sessionEndCommands = Array(state.snapshot().dropFirst(sessionEndCommandStart))
         XCTAssertTrue(
             sessionEndCommands.contains { $0.contains("feed.push") },
             "Expected Hermes session-end to emit feed telemetry, saw \(sessionEndCommands)"
@@ -814,27 +829,45 @@ extension CLINotifyProcessIntegrationRegressionTests {
             sessionEndCommands.contains { $0.contains("surface.resume.clear") },
             "Hermes on_session_end fires per turn and must not clear the surface resume binding, saw \(sessionEndCommands)"
         )
+        let turnBoundaryRecord = try XCTUnwrap(storedHermesSessionIfPresent())
+        XCTAssertEqual(
+            turnBoundaryRecord["runtimeStatusEventTime"] as? Double,
+            turnBoundaryTime,
+            "Every accepted timestamped turn boundary must advance detached-hook ordering authority"
+        )
+        let staleFinalizeCommandStart = state.snapshot().count
+        let staleFinalize = runHermesHook(
+            "session-finalize",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize","timestamp":\#(staleFinalizeTime)}"#
+        )
+        XCTAssertFalse(staleFinalize.timedOut, staleFinalize.stderr)
+        XCTAssertEqual(staleFinalize.status, 0, staleFinalize.stderr)
+        let staleFinalizeCommands = Array(state.snapshot().dropFirst(staleFinalizeCommandStart))
+        XCTAssertFalse(staleFinalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") })
+        XCTAssertFalse(staleFinalizeCommands.contains { $0.contains("surface.resume.clear") })
         XCTAssertNotNil(
             try storedHermesSessionIfPresent(),
-            "Hermes on_session_end fires per turn and must not consume the restore record, saw it removed from the store"
+            "A stale finalizer must not consume a session updated by a newer turn-boundary event"
         )
-
         // The genuine teardown hook (on_session_finalize) routes to the dedicated
         // session-finalize subcommand and must perform the destructive cleanup the
         // per-turn path suppresses: consume the record, clear the resume binding, and
         // clear the agent PID routing.
-        let finalizeCommandStart = state.commands.count
+        let finalizeCommandStart = state.snapshot().count
         let finalize = runHermesHook(
             "session-finalize",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize","timestamp":\#(validFinalizeTime)}"#
         )
         XCTAssertFalse(finalize.timedOut, finalize.stderr)
         XCTAssertEqual(finalize.status, 0, finalize.stderr)
         XCTAssertEqual(finalize.stdout, "{}\n")
 
-        let finalizeCommands = Array(state.commands.dropFirst(finalizeCommandStart))
+        let finalizeCommands = Array(state.snapshot().dropFirst(finalizeCommandStart))
         XCTAssertTrue(
-            finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            finalizeCommands.contains {
+                $0.hasPrefix("clear_agent_pid hermes-agent.")
+                    && $0.contains("--agent-event-time=")
+            },
             "Hermes on_session_finalize is a true teardown and must clear agent PID routing, saw \(finalizeCommands)"
         )
         XCTAssertTrue(
@@ -844,6 +877,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(
             try storedHermesSessionIfPresent(),
             "Hermes on_session_finalize is a true teardown and must consume the restore record"
+        )
+
+        let staleRecreationCommandStart = state.snapshot().count
+        let staleRecreation = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start","timestamp":\#(staleRecreationTime)}"#
+        )
+        XCTAssertFalse(staleRecreation.timedOut, staleRecreation.stderr)
+        XCTAssertEqual(staleRecreation.status, 0, staleRecreation.stderr)
+        XCTAssertNil(
+            try storedHermesSessionIfPresent(),
+            "A consumed session's tombstone must reject an older detached hook instead of recreating the record"
+        )
+        let staleRecreationCommands = Array(state.snapshot().dropFirst(staleRecreationCommandStart))
+        XCTAssertFalse(
+            staleRecreationCommands.contains {
+                $0.hasPrefix("set_agent_pid hermes-agent.") ||
+                    $0.hasPrefix("set_agent_lifecycle hermes-agent ") ||
+                    $0.hasPrefix("set_status hermes-agent ") ||
+                    $0.contains(#""method":"surface.resume.set""#)
+            },
+            "A tombstone-rejected recreation must not publish visible mutations, saw \(staleRecreationCommands)"
         )
     }
 
@@ -985,6 +1040,177 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(hooks["userPromptSubmit"])
         XCTAssertNotNil(hooks["postToolUse"])
         XCTAssertNotNil(hooks["stop"])
+    }
+
+    func testInstalledGenericHookVariantsCaptureInvocationTime() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-generic-hook-capture-time-\(UUID().uuidString)", isDirectory: true)
+        let toolBin = root.appendingPathComponent("tools", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux-fake", isDirectory: false)
+        let fakeDate = root.appendingPathComponent("date-fake", isDirectory: false)
+        let capturedAt = root.appendingPathComponent("captured-at.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: toolBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".cursor", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        printf '%s\n' "$CMUX_AGENT_HOOK_CAPTURED_AT" >> "$CMUX_TEST_CAPTURED_AT"
+        cat >/dev/null 2>/dev/null || true
+        printf '{}\n'
+        """.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+        try "#!/bin/sh\nprintf '1700000000\\n'\n".write(to: fakeDate, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDate.path)
+        for (name, target) in [
+            ("cat", "/bin/cat"),
+            ("grep", "/usr/bin/grep"),
+            ("mkdir", "/bin/mkdir"),
+            ("mv", "/bin/mv"),
+            ("printenv", "/usr/bin/printenv"),
+            ("rm", "/bin/rm"),
+            ("rmdir", "/bin/rmdir"),
+            ("sleep", "/bin/sleep"),
+        ] {
+            try FileManager.default.createSymbolicLink(
+                at: toolBin.appendingPathComponent(name, isDirectory: false),
+                withDestinationURL: URL(fileURLWithPath: target)
+            )
+        }
+
+        func install(_ agent: String, extraEnvironment: [String: String] = [:]) throws {
+            var environment = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-generic-hook-capture.sock",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+            environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", agent, "install", "--yes"],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        try install("cursor")
+        let cursorJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".cursor/hooks.json"))
+            ) as? [String: Any]
+        )
+        let cursorHooks = try XCTUnwrap(cursorJSON["hooks"] as? [String: Any])
+        let cursorEntries = try XCTUnwrap(cursorHooks["beforeSubmitPrompt"] as? [[String: Any]])
+        let cursorCommand = try XCTUnwrap(cursorEntries.first?["command"] as? String)
+
+        try install("kiro")
+        let kiroJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".kiro/agents/cmux.json"))
+            ) as? [String: Any]
+        )
+        let kiroHooks = try XCTUnwrap(kiroJSON["hooks"] as? [String: Any])
+        let kiroEntries = try XCTUnwrap(kiroHooks["preToolUse"] as? [[String: Any]])
+        let kiroCommand = try XCTUnwrap(
+            kiroEntries.compactMap { $0["command"] as? String }
+                .first { $0.contains("hooks feed --source kiro") }
+        )
+
+        try install("grok")
+        let grokJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".grok/hooks/cmux-session.json"))
+            ) as? [String: Any]
+        )
+        let grokHooks = try XCTUnwrap(grokJSON["hooks"] as? [String: Any])
+        let grokStopGroups = try XCTUnwrap(grokHooks["Stop"] as? [[String: Any]])
+        let grokCommand = try XCTUnwrap(
+            grokStopGroups
+                .compactMap { $0["hooks"] as? [[String: Any]] }
+                .flatMap { $0 }
+                .compactMap { $0["command"] as? String }
+                .first { $0.contains("hooks grok stop") }
+        )
+
+        try install("agy")
+        let antigravityJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent(".gemini/config/hooks.json"))
+            ) as? [String: Any]
+        )
+        let antigravityGroup = try XCTUnwrap(antigravityJSON["cmux"] as? [String: Any])
+        let antigravityStops = try XCTUnwrap(antigravityGroup["Stop"] as? [[String: Any]])
+        let antigravityCommand = try XCTUnwrap(
+            antigravityStops.compactMap { $0["command"] as? String }
+                .first { $0.contains("hooks antigravity stop") }
+        )
+
+        for command in [cursorCommand, kiroCommand, grokCommand, antigravityCommand] {
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", command],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": toolBin.path,
+                    "TMPDIR": root.path,
+                    "CMUX_AGENT_HOOK_DATE_BIN": fakeDate.path,
+                    "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-generic-hook-capture.sock",
+                    "CMUX_SURFACE_ID": "surface-capture-time",
+                    "CMUX_TEST_CAPTURED_AT": capturedAt.path,
+                ],
+                standardInput: "{}",
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let rawTimes = try String(contentsOf: capturedAt, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        XCTAssertEqual(rawTimes.count, 4, rawTimes.joined(separator: ","))
+        let times = try rawTimes.map { try XCTUnwrap(Double($0), $0) }
+        XCTAssertTrue(times.allSatisfy { $0.isFinite && $0 > 0 }, rawTimes.joined(separator: ","))
+        XCTAssertTrue(rawTimes.allSatisfy { $0.contains(".") }, rawTimes.joined(separator: ","))
+        for (earlier, later) in zip(times, times.dropFirst()) {
+            XCTAssertLessThan(earlier, later, rawTimes.joined(separator: ","))
+        }
+    }
+
+    func testDetachedMockSocketServerShutdownJoinsWaitingAcceptThread() throws {
+        let socketPath = makeSocketPath("mock-server-shutdown")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let server = startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 1
+        ) { _ in
+            "OK"
+        }
+        let startedAt = Date()
+        server.shutdown()
+
+        XCTAssertLessThan(
+            Date().timeIntervalSince(startedAt),
+            2,
+            "Shutting down a scoped mock server must unblock and join a waiting accept thread"
+        )
+        XCTAssertTrue(state.snapshot().isEmpty)
     }
 
     func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {
@@ -1353,6 +1579,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "grok-session-123"
         let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
+        let acceptedNotificationEventTime = Date.now.timeIntervalSince1970 - 100
+        let staleNotificationEventTime = acceptedNotificationEventTime - 1
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -1373,7 +1601,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 80
+        )
+        defer { mockServer.shutdown() }
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -1445,6 +1679,41 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastSubtitle"] as? String, "Completed")
         XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
+
+        let staleOrderingSessionId = "grok-stale-notification-ordering"
+        let acceptedOrderedNotification = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(staleOrderingSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","timestamp":\#(acceptedNotificationEventTime),"message":"Accepted completion must remain visible"}"#
+        )
+        XCTAssertFalse(acceptedOrderedNotification.timedOut, acceptedOrderedNotification.stderr)
+        XCTAssertEqual(acceptedOrderedNotification.status, 0, acceptedOrderedNotification.stderr)
+        XCTAssertEqual(acceptedOrderedNotification.stdout, "{}\n")
+
+        let staleNotificationCommandStart = state.commands.count
+        let staleNotification = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(staleOrderingSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","timestamp":\#(staleNotificationEventTime),"message":"Stale completion must not publish"}"#
+        )
+        XCTAssertFalse(staleNotification.timedOut, staleNotification.stderr)
+        XCTAssertEqual(staleNotification.status, 0, staleNotification.stderr)
+        XCTAssertEqual(staleNotification.stdout, "{}\n")
+
+        let staleNotificationCommands = Array(state.commands.dropFirst(staleNotificationCommandStart))
+        XCTAssertFalse(
+            staleNotificationCommands.contains {
+                $0.hasPrefix("notify_target")
+                    || $0.hasPrefix("set_status ")
+                    || $0.hasPrefix("set_agent_lifecycle ")
+            },
+            "A rejected stale notification must not publish visible mutations, saw \(staleNotificationCommands)"
+        )
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let orderedSession = try XCTUnwrap(sessions[staleOrderingSessionId] as? [String: Any])
+        XCTAssertEqual(orderedSession["lastSubtitle"] as? String, "Completed")
+        XCTAssertEqual(orderedSession["lastBody"] as? String, "Accepted completion must remain visible")
+        XCTAssertEqual(orderedSession["lastNotificationStatus"] as? String, "idle")
+        XCTAssertEqual(orderedSession["runtimeStatusEventTime"] as? Double, acceptedNotificationEventTime)
 
         let preAssistantInternalCommandStart = state.commands.count
         let preAssistantInternal = runGrokHook(
@@ -1795,11 +2064,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fallback.stdout, "{}\n")
 
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
-        XCTAssertTrue(
-            fallbackCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
-            },
-            "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
+        XCTAssertFalse(
+            fallbackCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Empty Grok Notification payload must not duplicate the saved notification, saw \(fallbackCommands)"
         )
         XCTAssertTrue(
             fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1893,11 +2160,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(neutralFallback.stdout, "{}\n")
 
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
-        XCTAssertTrue(
-            neutralFallbackCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
-            },
-            "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
+        XCTAssertFalse(
+            neutralFallbackCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Empty Grok Notification payload must not duplicate the last saved notification, saw \(neutralFallbackCommands)"
         )
         XCTAssertTrue(
             neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1937,35 +2202,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        func runGrokHook(_ subcommand: String, input: String, surfaceId: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": surfaceIds.enumerated().map { index, listedSurfaceId in
-                                [
-                                    "id": listedSurfaceId,
-                                    "ref": "surface:\(index + 1)",
-                                    "focused": listedSurfaceId == surfaceId,
-                                ] as [String: Any]
-                            },
-                        ]
-                    )
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        let mockServer = startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": surfaceIds.enumerated().map { index, listedSurfaceId in
+                            [
+                                "id": listedSurfaceId,
+                                "ref": "surface:\(index + 1)",
+                                "focused": index == 0,
+                            ] as [String: Any]
+                        },
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+        defer { mockServer.shutdown() }
+
+        func runGrokHook(_ subcommand: String, input: String, surfaceId: String) -> ProcessRunResult {
             var environment = baseEnvironment
             environment["CMUX_SURFACE_ID"] = surfaceId
             let result = runProcess(
@@ -1975,7 +2242,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2112,23 +2378,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 64
+        )
+        defer { mockServer.shutdown() }
+
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-            }
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
@@ -2136,7 +2394,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2214,32 +2471,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runGrokHook(_ subcommand: String, input: String, stallFeedTelemetry: Bool = false) -> ProcessRunResult {
-            let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return stallFeedTelemetry ? nil : self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        let mockServer = startDetachedMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 128
+        ) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
-            let result = runProcess(
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return nil
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+        defer { mockServer.shutdown() }
+
+        func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
-            return result
         }
 
         let start = runGrokHook(
@@ -2261,8 +2522,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let commandStart = state.commands.count
             let notification = runGrokHook(
                 "notification",
-                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#,
-                stallFeedTelemetry: index == 2
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#
             )
 
             XCTAssertFalse(notification.timedOut, notification.stderr)
@@ -2314,27 +2574,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SURFACE_ID": surfaceId,
         ], uniquingKeysWith: { _, new in new })
 
+        let mockServer = startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceId,
+            connectionCount: 128
+        )
+        defer { mockServer.shutdown() }
+
         func runGrokHook(
             _ subcommand: String,
             input: String,
             environment: [String: String] = baseEnvironment
         ) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-            }
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
@@ -2342,7 +2594,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2371,7 +2622,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Expected Grok prompt \(index) to reuse the saved target without CMUX env, saw \(promptCommands)"
             )
             XCTAssertTrue(
-                promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)" },
+                promptCommands.contains {
+                    $0.hasPrefix("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) ")
+                        && $0.contains("--agent-status-key=grok")
+                        && $0.contains("--agent-event-time=")
+                },
                 "Expected Grok prompt \(index) to clear only its own surface notifications, saw \(promptCommands)"
             )
             XCTAssertFalse(
@@ -2496,45 +2751,52 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ], uniquingKeysWith: { _, new in new })
         }
 
+        func grokSocketResponse(line: String) -> String {
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            ["id": runningSurfaceId, "ref": "surface:1", "focused": true],
+                            ["id": completingSurfaceId, "ref": "surface:2", "focused": false],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        let mockServer = startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 128,
+            handler: grokSocketResponse
+        )
+        defer { mockServer.shutdown() }
+
         func runGrokHook(
             _ subcommand: String,
             input: String,
             environment: [String: String] = baseEnvironment
         ) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                ["id": runningSurfaceId, "ref": "surface:1", "focused": true],
-                                ["id": completingSurfaceId, "ref": "surface:2", "focused": false],
-                            ],
-                        ]
-                    )
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-            }
-            let result = runProcess(
+            runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
-            return result
         }
 
         let runningStart = runGrokHook(
@@ -2570,7 +2832,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let promptCommands = Array(state.commands.dropFirst(promptCommandStart))
         XCTAssertTrue(
-            promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId)" },
+            promptCommands.contains {
+                $0.hasPrefix("clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId) ")
+                    && $0.contains("--agent-status-key=grok")
+                    && $0.contains("--agent-event-time=")
+            },
             "Expected running Grok prompt to clear only its own surface notifications, saw \(promptCommands)"
         )
         XCTAssertTrue(
@@ -3104,9 +3370,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            commandBodies.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
-            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
+            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(commandBodies)"
         )
     }
 

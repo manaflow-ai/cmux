@@ -30,11 +30,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // One detached server pool covers both CLI invocations. Starting a second
         // expectation-backed server on the same listener would race its accept
         // workers against the first call's leftover workers and time out.
-        startForkOfForkSurfaceServer(
+        let mockServer = startForkOfForkSurfaceServer(
             context: context,
             surfaceIds: [forkParentSurfaceId, context.surfaceId],
             connectionCount: 16
         )
+        defer { mockServer.shutdown() }
 
         let start = runForkOfForkHook(
             context: context,
@@ -138,7 +139,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         context: ForkOfForkContext,
         surfaceIds: [String],
         connectionCount: Int
-    ) {
+    ) -> MockSocketServerToken {
         startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: connectionCount) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
