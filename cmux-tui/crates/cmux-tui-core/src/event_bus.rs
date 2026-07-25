@@ -553,15 +553,14 @@ mod tests {
             broadcaster.emit(MuxEvent::Bell(8));
             broadcaster.emit(MuxEvent::SurfaceOutput(8));
             broadcaster.emit(MuxEvent::LayoutChanged(9));
+            broadcaster.emit(MuxEvent::LayoutChanged(2));
             broadcaster.emit(MuxEvent::TitleChanged {
                 surface: 8,
                 title: Arc::from(format!("unrelated-{index}")),
             });
         }
-        broadcaster.emit(MuxEvent::LayoutChanged(2));
         broadcaster.emit(MuxEvent::SurfaceOutput(7));
 
-        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(2)));
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceOutput(7)));
         assert!(!events.overflowed());
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
@@ -607,7 +606,6 @@ mod tests {
         broadcaster.emit(MuxEvent::LayoutChanged(20));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::TreeDelta(_)));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(20)));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 

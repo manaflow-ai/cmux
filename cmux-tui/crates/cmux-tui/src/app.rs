@@ -11269,11 +11269,11 @@ mod tests {
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
         SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision,
-        SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
-        browser_hover_forward_allowed, canonical_terminal_content, clamp_split_ratio_for_tab_bars,
-        client_menu_item, forward_mux_event, forward_mux_events, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        SurfaceResizeOwnership, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
+        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
+        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         record_surface_resize_dispatch_result, sidebar_layout_for,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
     };
@@ -11300,7 +11300,9 @@ mod tests {
     use ratatui::style::Modifier;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
-    use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
+    use crate::config::{
+        Action, ChromeTheme, Config, ScrollbarPosition, SidebarView, action_definitions,
+    };
     use crate::localization;
     use crate::machine::{
         MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
@@ -11665,15 +11667,33 @@ mod tests {
         );
 
         app.run_action(Action::ShowShortcuts).unwrap();
-        for action in [
-            Action::NewTab,
-            Action::NewBrowserTab,
-            Action::NewPaneSmart,
-            Action::SplitRight,
-            Action::SplitDown,
-            Action::NewScreen,
-            Action::NewWorkspace,
-        ] {
+        let target_local = |action| {
+            matches!(
+                action,
+                Action::SendPrefix
+                    | Action::CloseTab
+                    | Action::RenameTab
+                    | Action::ScrollUp
+                    | Action::ScrollDown
+                    | Action::BrowserBack
+                    | Action::BrowserForward
+                    | Action::BrowserReload
+                    | Action::BrowserEditUrl
+                    | Action::ShowShortcuts
+                    | Action::Detach
+            )
+        };
+        for definition in action_definitions() {
+            let action = definition.action;
+            assert_eq!(
+                action_available_in_mode(action, true),
+                target_local(action),
+                "single-surface action policy mismatched {}",
+                definition.label_en
+            );
+            if target_local(action) {
+                continue;
+            }
             assert!(
                 !app.shortcut_help
                     .as_ref()
@@ -11686,6 +11706,28 @@ mod tests {
             );
         }
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_surface_client_rejects_hidden_pane_closure() {
+        let (mux, attached) = test_mux("single-surface-close-pane-test", None);
+        let pane = mux.with_state(|state| state.pane_of(attached.id).unwrap());
+        let hidden = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.surface_only = Some(attached.id);
+        app.replace_tree(app.session.tree());
+
+        app.run_action_for_pane(Action::ClosePane, Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert!(mux.surface(attached.id).is_some());
+        assert!(mux.surface(hidden.id).is_some());
+        mux.close_surface(attached.id).unwrap();
+        mux.close_surface(hidden.id).unwrap();
     }
 
     #[test]
@@ -18108,6 +18150,51 @@ mod tests {
             app.status_message.as_deref(),
             Some("ターミナルの色を適用できませんでした: offline")
         );
+    }
+
+    #[test]
+    fn single_surface_machine_session_install_does_not_publish_global_cell_metrics() {
+        let first = Mux::new("surface-only-cell-metrics-first", SurfaceOptions::default());
+        let first_surface = first.new_workspace(None, Some((80, 24))).unwrap();
+        let second = Mux::new("surface-only-cell-metrics-second", SurfaceOptions::default());
+        let second_surface = second.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(first.clone()));
+        app.surface_only = Some(second_surface.id);
+        app.cell_pixels = (13, 27);
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second.clone()),
+            pty_input.sender(),
+            app.app_events.clone(),
+            2,
+            Some(second_surface.id),
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: true,
+            color_error: None,
+        });
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert_eq!(
+            second.cell_pixel_size_for_testing(),
+            (8, 16),
+            "surface-only attach published host metrics to the shared session"
+        );
+        let _ = first.close_surface(first_surface.id);
+        let _ = second.close_surface(second_surface.id);
     }
 
     #[test]

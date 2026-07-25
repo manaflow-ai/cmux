@@ -530,6 +530,20 @@ mod tests {
         }
     }
 
+    fn release_event(surface: SurfaceId) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Mouse {
+                event_type: "mouseReleased",
+                x: 0.0,
+                y: 0.0,
+                button: Some("left"),
+                click_count: Some(1),
+            },
+        }
+    }
+
     fn resize_event(surface: SurfaceId, cols: u16) -> BrowserInputEvent {
         BrowserInputEvent {
             surface_id: surface,
@@ -587,6 +601,17 @@ mod tests {
         assert!(
             !dispatcher.enqueue(reload_event(1)),
             "a full queue must report the drop, not swallow it as accepted"
+        );
+    }
+
+    #[test]
+    fn full_queue_preserves_mouse_release_ownership() {
+        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(1);
+        assert!(dispatcher.enqueue(click_event(1)));
+
+        assert!(
+            dispatcher.enqueue(release_event(1)),
+            "a full disposable-input queue must retain the matching mouse release"
         );
     }
 

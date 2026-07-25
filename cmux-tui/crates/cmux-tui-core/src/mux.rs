@@ -3677,6 +3677,11 @@ impl Mux {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
     }
 
+    #[doc(hidden)]
+    pub fn cell_pixel_size_for_testing(&self) -> (u16, u16) {
+        *self.cell_pixels.lock().unwrap()
+    }
+
     pub fn set_cell_pixel_size_reporting(
         &self,
         width_px: u16,
