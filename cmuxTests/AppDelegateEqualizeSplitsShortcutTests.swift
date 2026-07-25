@@ -837,6 +837,88 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertFalse(requestBudget.reserveRequestVisit())
     }
 
+    func testPendingWorkspaceTerminalFontSizeChangeBoundsAlternatingStorage() {
+        var change = WorkspaceTerminalFontSizeChange.relative([])
+        for index in 0..<10_000 {
+            change.appendAdjustment(index.isMultiple(of: 2) ? 1 : -1)
+        }
+
+        XCTAssertLessThanOrEqual(
+            storedFloatCount(in: change),
+            3,
+            "Coalescing must retain a constant-size clamp transform, not every key event"
+        )
+    }
+
+    func testClosingWindowCancelsPendingWorkspaceTerminalFontSizeChange() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            guard let window = window(withId: windowId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected a window and repeated Cmd+Ctrl+- event")
+                closeWindow(withId: windowId)
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPanels = (0..<12).map { _ in
+                var configTemplate = CmuxSurfaceConfigTemplate()
+                configTemplate.fontSizeLineage = TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+                let panel = TerminalPanel(
+                    workspaceId: windowDock.workspaceId,
+                    configTemplate: configTemplate,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                windowDock.panels[panel.id] = panel
+                return panel
+            }
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertGreaterThan(
+                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                0
+            )
+
+            let lineagesAtClose = dockPanels.map {
+                $0.surface.fontSizeLineageSnapshot()
+            }
+            window.performClose(nil)
+
+            XCTAssertEqual(
+                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                0,
+                "Window teardown must cancel its font-size coordinator"
+            )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+            XCTAssertEqual(
+                dockPanels.map { $0.surface.fontSizeLineageSnapshot() },
+                lineagesAtClose,
+                "A scheduled drain must not mutate panels after their window closes"
+            )
+#else
+            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+            closeWindow(withId: windowId)
+#endif
+        }
+    }
+
     func testPendingWorkspaceTerminalFontSizeChangePreservesResetOrdering() {
         var change = WorkspaceTerminalFontSizeChange.relative([-1])
         change.appendAdjustment(-1)
@@ -1318,6 +1400,15 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
         collectLeafCount(node)
         return positionsBySplitId
+    }
+
+    private func storedFloatCount(in value: Any) -> Int {
+        if value is Float32 {
+            return 1
+        }
+        return Mirror(reflecting: value).children.reduce(into: 0) {
+            $0 += storedFloatCount(in: $1.value)
+        }
     }
 
     private func shortcutRoutingPaneFramesById(in snapshot: LayoutSnapshot) -> [String: PixelRect] {
