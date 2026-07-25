@@ -7,7 +7,7 @@ import SwiftUI
 /// verification. It mounts the production tab scaffold and production feed.
 public struct NotificationFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
-    @State private var primarySearchTextState = MobilePrimarySearchTextState()
+    @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
     @State private var referenceDate: Date
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
@@ -24,7 +24,7 @@ public struct NotificationFeedPreviewView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedTab,
-                searchTextState: primarySearchTextState,
+                searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
             ) {
                 NotificationFeedPreviewWorkspacesView()
@@ -36,12 +36,6 @@ public struct NotificationFeedPreviewView: View {
                         refreshesOnAppear: true,
                         actions: actions
                     )
-                    .background {
-                        NotificationFeedSearchProjectionSync(
-                            searchTextState: primarySearchTextState,
-                            projection: projection
-                        )
-                    }
                     .toolbar {
                         WorkspaceRootToolbarContent(
                             openSettings: {},
@@ -64,6 +58,23 @@ public struct NotificationFeedPreviewView: View {
                         .toolbarVisibility(.hidden, for: .tabBar)
                     }
                 }
+            } workspaceSearch: {
+                NotificationFeedPreviewWorkspacesView()
+            } notificationSearch: {
+                NavigationStack {
+                    NotificationFeedView(
+                        status: .ready,
+                        projection: projection,
+                        refreshesOnAppear: false,
+                        actions: actions
+                    )
+                }
+            }
+            .background {
+                NotificationFeedSearchProjectionSync(
+                    searchCoordinator: primarySearchCoordinator,
+                    projection: projection
+                )
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
         }

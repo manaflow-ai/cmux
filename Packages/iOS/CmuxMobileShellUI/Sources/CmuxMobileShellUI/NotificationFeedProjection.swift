@@ -130,7 +130,10 @@ final class NotificationFeedProjection {
         }
     }
 
-    nonisolated private static let maxSearchableCharactersPerItem = 8_192
+    nonisolated private static let maxMetadataSearchableCharactersPerField = 512
+    nonisolated private static let maxTitleSearchableCharacters = 1_024
+    nonisolated private static let maxSubtitleSearchableCharacters = 2_048
+    nonisolated private static let maxBodySearchableCharacters = 8_192
 
     nonisolated private static func build(
         items: [MobileNotificationFeedItem],
@@ -190,24 +193,64 @@ final class NotificationFeedProjection {
         item: MobileNotificationFeedItem,
         query: String
     ) -> Bool {
-        var remainingCharacters = maxSearchableCharactersPerItem
         for field in [
-            item.title,
-            item.subtitle,
-            item.body,
             item.workspaceTitle,
             item.surfaceTitle,
             item.macDisplayName,
-        ].compactMap(\.self) {
+        ] {
             guard !Task.isCancelled else { return false }
-            guard remainingCharacters > 0 else { return false }
-            let limitedField = String(field.prefix(remainingCharacters))
-            if limitedField.localizedStandardContains(query) {
+            if boundedFieldContains(
+                field,
+                query: query,
+                maxCharacters: maxMetadataSearchableCharactersPerField
+            ) {
                 return true
             }
-            remainingCharacters -= limitedField.count
+        }
+
+        if boundedFieldContains(
+            item.title,
+            query: query,
+            maxCharacters: maxTitleSearchableCharacters
+        ) {
+            return true
+        }
+        guard !Task.isCancelled else { return false }
+        if boundedFieldContains(
+            item.subtitle,
+            query: query,
+            maxCharacters: maxSubtitleSearchableCharacters
+        ) {
+            return true
+        }
+        guard !Task.isCancelled else { return false }
+        if boundedFieldContains(
+            item.body,
+            query: query,
+            maxCharacters: maxBodySearchableCharacters
+        ) {
+            return true
         }
         return false
+    }
+
+    nonisolated private static func boundedFieldContains(
+        _ field: String?,
+        query: String,
+        maxCharacters: Int
+    ) -> Bool {
+        guard let field, maxCharacters > 0 else { return false }
+        let end = field.index(
+            field.startIndex,
+            offsetBy: maxCharacters,
+            limitedBy: field.endIndex
+        ) ?? field.endIndex
+        return field.range(
+            of: query,
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            range: field.startIndex..<end,
+            locale: .autoupdatingCurrent
+        ) != nil
     }
 }
 

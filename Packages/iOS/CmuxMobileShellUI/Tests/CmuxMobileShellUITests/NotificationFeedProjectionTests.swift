@@ -134,6 +134,31 @@ import Testing
         #expect(!projection.isSourceRebuilding)
     }
 
+    @Test @MainActor func searchMatchesMetadataAfterLongBody() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        projection.update(items: [
+            item(
+                id: "metadata",
+                createdAt: try #require(isoDate("2026-07-15T17:30:00Z")),
+                isRead: false,
+                title: "Long notification",
+                body: String(repeating: "noise ", count: 2_000),
+                workspaceTitle: "Workspace Search Target",
+                surfaceTitle: "Agent Pane",
+                macDisplayName: "Studio"
+            ),
+        ], referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+
+        projection.searchText = "search target"
+        await projection.waitForPendingRebuild()
+
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["metadata"])
+    }
+
     @Test @MainActor func rapidSearchPublishesOnlyTheLatestProjection() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)
@@ -259,20 +284,23 @@ import Testing
         createdAt: Date,
         isRead: Bool,
         title: String? = nil,
-        body: String = "Body"
+        body: String = "Body",
+        workspaceTitle: String = "Workspace",
+        surfaceTitle: String = "Terminal",
+        macDisplayName: String = "Mac"
     ) -> MobileNotificationFeedItem {
         MobileNotificationFeedItem(
             macDeviceID: id == "yesterday" ? "mac-b" : "mac-a",
             notificationID: id,
-            macDisplayName: "Mac",
+            macDisplayName: macDisplayName,
             remoteWorkspaceID: "workspace",
             remoteSurfaceID: "surface",
             title: title ?? id,
             body: body,
             createdAt: createdAt,
             isRead: isRead,
-            workspaceTitle: "Workspace",
-            surfaceTitle: "Terminal",
+            workspaceTitle: workspaceTitle,
+            surfaceTitle: surfaceTitle,
             connectionStatus: .connected
         )
     }

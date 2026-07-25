@@ -2,23 +2,23 @@
 import SwiftUI
 
 struct MobilePrimaryWorkspaceSearchHost<Content: View>: View {
-    @Bindable var searchTextState: MobilePrimarySearchTextState
+    @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let taskComposerAction: (() -> Void)?
     let content: (String) -> Content
 
     init(
-        searchTextState: MobilePrimarySearchTextState,
+        searchCoordinator: MobilePrimarySearchCoordinator,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder content: @escaping (String) -> Content
     ) {
-        self.searchTextState = searchTextState
+        self.searchCoordinator = searchCoordinator
         self.taskComposerAction = taskComposerAction
         self.content = content
     }
 
     var body: some View {
         WorkspaceListSearchHost(
-            searchText: $searchTextState.workspaces,
+            searchText: $searchCoordinator.workspaces,
             taskComposerAction: taskComposerAction,
             content: content
         )
@@ -26,14 +26,14 @@ struct MobilePrimaryWorkspaceSearchHost<Content: View>: View {
 }
 
 struct NotificationFeedSearchProjectionSync: View {
-    @Bindable var searchTextState: MobilePrimarySearchTextState
+    @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let projection: NotificationFeedProjection
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
-            .onChange(of: searchTextState.notifications, initial: true) { _, searchText in
+            .onChange(of: searchCoordinator.notifications, initial: true) { _, searchText in
                 projection.searchText = searchText
             }
     }

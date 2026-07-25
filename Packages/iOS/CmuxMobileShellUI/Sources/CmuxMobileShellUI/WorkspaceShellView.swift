@@ -166,7 +166,7 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
     #endif
-    @State private var primarySearchTextState = MobilePrimarySearchTextState()
+    @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
     @State private var workspaceListFilterState = WorkspaceListFilterState()
     @State private var notificationFeedProjection = NotificationFeedProjection()
     @State private var hasPresentedSplitDetail = false
@@ -217,7 +217,7 @@ struct WorkspaceShellView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
-                searchTextState: primarySearchTextState,
+                searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: presentation.notificationUnreadCount
             ) {
                 workspaceTabContent(
@@ -231,12 +231,6 @@ struct WorkspaceShellView: View {
                         status: presentation.notificationFeedStatus,
                         projection: notificationFeedProjection
                     )
-                        .background {
-                            NotificationFeedSearchProjectionSync(
-                                searchTextState: primarySearchTextState,
-                                projection: notificationFeedProjection
-                            )
-                        }
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
                                 rootToolbarContent
@@ -251,6 +245,18 @@ struct WorkspaceShellView: View {
                             .toolbarVisibility(.hidden, for: .tabBar)
                     }
                 }
+            } workspaceSearch: {
+                workspaceSearchTabContent(
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
+            } notificationSearch: {
+                notificationSearchTabContent(presentation: presentation)
+            }
+            .background {
+                NotificationFeedSearchProjectionSync(
+                    searchCoordinator: primarySearchCoordinator,
+                    projection: notificationFeedProjection
+                )
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
@@ -321,6 +327,40 @@ struct WorkspaceShellView: View {
         }
     }
 
+    private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        NavigationStack {
+            workspaceList(
+                navigationStyle: .push,
+                searchText: primarySearchCoordinator.workspaces,
+                canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                showsNavigationToolbar: true,
+                selectWorkspaceAction: selectWorkspaceFromSearch,
+                createWorkspaceAction: createWorkspaceFromSearch,
+                createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
+                createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
+            )
+            .toolbar {
+                rootToolbarContent
+            }
+        }
+    }
+
+    private func notificationSearchTabContent(
+        presentation: WorkspaceShellRenderPresentation
+    ) -> some View {
+        NavigationStack {
+            NotificationFeedStoreView(
+                store: store,
+                items: presentation.notificationFeedItems,
+                status: presentation.notificationFeedStatus,
+                projection: notificationFeedProjection
+            )
+            .toolbar {
+                rootToolbarContent
+            }
+        }
+    }
+
     private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
         Group {
             if usesCompactStack {
@@ -364,7 +404,7 @@ struct WorkspaceShellView: View {
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
             MobilePrimaryWorkspaceSearchHost(
-                searchTextState: primarySearchTextState,
+                searchCoordinator: primarySearchCoordinator,
                 taskComposerAction: taskComposerAction
             ) { searchText in
                 workspaceList(
@@ -458,7 +498,7 @@ struct WorkspaceShellView: View {
 
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            MobilePrimaryWorkspaceSearchHost(searchTextState: primarySearchTextState) { searchText in
+            MobilePrimaryWorkspaceSearchHost(searchCoordinator: primarySearchCoordinator) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: searchText,
@@ -494,9 +534,30 @@ struct WorkspaceShellView: View {
     private func workspaceList(
         navigationStyle: WorkspaceNavigationStyle,
         searchText: String,
-        canCreateWorkspaceForSelection: Bool
+        canCreateWorkspaceForSelection: Bool,
+        showsNavigationToolbar: Bool? = nil,
+        selectWorkspaceAction: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        createWorkspaceAction: (() -> Void)? = nil,
+        createWorkspaceInGroupAction: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        createWorkspaceGroupAction: (() -> Void)? = nil
     ) -> some View {
-        WorkspaceListView(
+        let resolvedSelectWorkspace = selectWorkspaceAction ?? selectWorkspace
+        let resolvedCreateWorkspace = createWorkspaceAction ?? (
+            navigationStyle == .push
+                ? createWorkspaceInCompactStack
+                : createWorkspaceIfConnected
+        )
+        let resolvedCreateWorkspaceInGroup = createWorkspaceInGroupAction ?? (
+            navigationStyle == .push
+                ? createWorkspaceInGroupInCompactStackClosure
+                : createWorkspaceInGroupIfConnectedClosure
+        )
+        let resolvedCreateWorkspaceGroup = createWorkspaceGroupAction ?? (
+            navigationStyle == .push
+                ? createWorkspaceGroupInCompactStackClosure
+                : createWorkspaceGroupIfConnectedClosure
+        )
+        return WorkspaceListView(
             workspaces: store.workspaces,
             groups: store.workspaceGroups,
             selectedWorkspaceID: store.selectedWorkspaceID,
@@ -508,21 +569,16 @@ struct WorkspaceShellView: View {
             macUpdateHintMacName: store.connectedHostName,
             dismissMacUpdateHint: { store.dismissMacUpdateHint() },
             navigationStyle: navigationStyle,
-            showsNavigationToolbar: navigationStyle != .push || compactNavigationPath.isEmpty,
+            showsNavigationToolbar: showsNavigationToolbar
+                ?? (navigationStyle != .push || compactNavigationPath.isEmpty),
             usesExternalSharedToolbar: true,
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-            selectWorkspace: selectWorkspace,
-            createWorkspace: navigationStyle == .push
-                ? createWorkspaceInCompactStack
-                : createWorkspaceIfConnected,
-            createWorkspaceInGroup: navigationStyle == .push
-                ? createWorkspaceInGroupInCompactStackClosure
-                : createWorkspaceInGroupIfConnectedClosure,
-            createWorkspaceGroup: navigationStyle == .push
-                ? createWorkspaceGroupInCompactStackClosure
-                : createWorkspaceGroupIfConnectedClosure,
+            selectWorkspace: resolvedSelectWorkspace,
+            createWorkspace: resolvedCreateWorkspace,
+            createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
+            createWorkspaceGroup: resolvedCreateWorkspaceGroup,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in
@@ -746,6 +802,40 @@ struct WorkspaceShellView: View {
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
+        }
+    }
+
+    private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
+        selectedPrimaryTab = .workspaces
+        selectWorkspace(id)
+    }
+
+    private func createWorkspaceFromSearch() {
+        selectedPrimaryTab = .workspaces
+        if usesCompactStack {
+            createWorkspaceInCompactStack()
+        } else {
+            createWorkspaceIfConnected()
+        }
+    }
+
+    private var createWorkspaceInGroupFromSearchClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard store.supportsWorkspaceCreateInGroup else { return nil }
+        return { groupID in
+            selectedPrimaryTab = .workspaces
+            if usesCompactStack {
+                createWorkspaceInCompactStack(inGroup: groupID)
+            } else {
+                createWorkspaceIfConnected(inGroup: groupID)
+            }
+        }
+    }
+
+    private var createWorkspaceGroupFromSearchClosure: (() -> Void)? {
+        guard store.supportsWorkspaceGroupCreate else { return nil }
+        return {
+            selectedPrimaryTab = .workspaces
+            createWorkspaceGroupIfConnected()
         }
     }
 
