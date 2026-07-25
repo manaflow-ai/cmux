@@ -1,4 +1,3 @@
-#if os(iOS)
 import CmuxAgentChat
 import CmuxAgentGUIProjection
 import CmuxAgentReplica
@@ -208,7 +207,9 @@ struct AgentTranscriptRenderAdapter {
                 media: .image,
                 displayName: displayName,
                 hostPath: reference.hostPath,
-                mimeType: imageMIMEType(for: reference.hostPath)
+                mimeType: imageMIMEType(for: reference.hostPath),
+                pixelWidth: reference.pixelWidth,
+                pixelHeight: reference.pixelHeight
             ))
         )
         return ChatMessageRowSnapshot(
@@ -280,4 +281,3 @@ struct AgentTranscriptRenderAdapter {
         }
     }
 }
-#endif

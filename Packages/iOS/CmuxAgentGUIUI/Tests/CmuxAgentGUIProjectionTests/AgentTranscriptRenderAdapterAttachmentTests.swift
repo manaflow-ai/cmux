@@ -1,4 +1,3 @@
-#if os(iOS)
 import CmuxAgentChat
 import CmuxAgentGUIProjection
 import CmuxAgentReplica
@@ -132,6 +131,40 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
         #expect(lastProse.text == "Done.")
     }
 
+    @Test("markdown image title dimensions survive projection")
+    func markdownImageTitleDimensionsSurviveProjection() throws {
+        let attachment = try Self.projectedMarkdownImageAttachment(
+            "![Agent GUI preview](/tmp/cmux-agent-gui-preview.png \"640x360\")"
+        )
+
+        #expect(attachment.media == .image)
+        #expect(attachment.pixelWidth == 640)
+        #expect(attachment.pixelHeight == 360)
+    }
+
+    @Test("markdown image filename dimensions survive projection")
+    func markdownImageFilenameDimensionsSurviveProjection() throws {
+        let attachment = try Self.projectedMarkdownImageAttachment(
+            "![Agent GUI preview](/tmp/cmux-agent-gui-preview-480x270.png)"
+        )
+
+        #expect(attachment.media == .image)
+        #expect(attachment.pixelWidth == 480)
+        #expect(attachment.pixelHeight == 270)
+    }
+
+    @Test("markdown image query dimensions survive projection without polluting host path")
+    func markdownImageQueryDimensionsSurviveProjectionWithoutPollutingHostPath() throws {
+        let attachment = try Self.projectedMarkdownImageAttachment(
+            "![Agent GUI preview](/tmp/cmux-agent-gui-preview.png?width=1024&height=768)"
+        )
+
+        #expect(attachment.media == .image)
+        #expect(attachment.hostPath == "/tmp/cmux-agent-gui-preview.png")
+        #expect(attachment.pixelWidth == 1024)
+        #expect(attachment.pixelHeight == 768)
+    }
+
     @Test("attachment author role controls rendered message role")
     func attachmentAuthorRoleControlsRenderedMessageRole() throws {
         let row = TranscriptRow(
@@ -167,9 +200,22 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
         }
         return attachment
     }
+
+    private static func projectedMarkdownImageAttachment(_ markdown: String) throws -> ChatAttachment {
+        let row = TranscriptRow(
+            rowID: .entry(journalID: JournalID(rawValue: "markdown-image-metadata"), seq: EntrySeq(rawValue: 1)),
+            rowKind: .proseAgent(text: markdown, grouping: .single)
+        )
+        let rendered = try #require(AgentTranscriptRenderAdapter().rows(from: [row]).first)
+        guard case .message(let snapshot) = rendered.content,
+              case .attachment(let attachment) = snapshot.message.kind else {
+            Issue.record("Expected the markdown image row to render as a chat attachment")
+            throw AgentTranscriptRenderAdapterAttachmentTestError.expectedAttachment
+        }
+        return attachment
+    }
 }
 
 private enum AgentTranscriptRenderAdapterAttachmentTestError: Error {
     case expectedAttachment
 }
-#endif
