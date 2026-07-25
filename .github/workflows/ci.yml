@@ -923,6 +923,12 @@ jobs:
           # writes asynchronously and can land after this runs. So this backs the restart check
           # up instead of replacing it.
           #
+          # Attribution assumes this job has the crash directory to itself, which holds because
+          # the macOS runners are ephemeral per-job Tart VMs (docs/ci-runners.md). On a shared,
+          # persistent runner another job's cmux crash could land in the window and fail this
+          # shard too — a false failure, never a false pass, since a report that predates the
+          # snapshot is excluded and one that appears during the run is always attributed.
+          #
           # The scan's own failure is a failure. Swallowing its exit status would turn a renamed
           # script or a missing interpreter into empty output, which reads as "nothing crashed".
           set +e
