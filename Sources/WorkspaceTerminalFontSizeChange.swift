@@ -124,6 +124,33 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
         )
     }
 }
+
+@MainActor
+@discardableResult
+func cmuxApplyTerminalFontSizeChange(
+    _ change: WorkspaceTerminalFontSizeChange,
+    to terminalPanel: TerminalPanel,
+    configuredRuntimePoints: Float32
+) -> Bool {
+    switch change {
+    case .relative(let transform):
+        return terminalPanel.surface.adjustFontSize(
+            applying: transform,
+            fallbackRuntimePoints: configuredRuntimePoints
+        )
+    case .resetThen(let transform):
+        let didReset = terminalPanel.surface.resetFontSize(
+            toConfiguredRuntimePoints: configuredRuntimePoints
+        )
+        guard !transform.isIdentity else { return didReset }
+        let didAdjust = terminalPanel.surface.adjustFontSize(
+            applying: transform,
+            fallbackRuntimePoints: configuredRuntimePoints
+        )
+        return didReset || didAdjust
+    }
+}
+
 @MainActor
 struct TerminalFontSizeChangeInheritanceContext {
     let token: UUID
@@ -347,23 +374,11 @@ extension Workspace {
         to terminalPanel: TerminalPanel,
         configuredRuntimePoints: Float32
     ) -> Bool {
-        switch change {
-        case .relative(let transform):
-            return terminalPanel.surface.adjustFontSize(
-                applying: transform,
-                fallbackRuntimePoints: configuredRuntimePoints
-            )
-        case .resetThen(let transform):
-            let didReset = terminalPanel.surface.resetFontSize(
-                toConfiguredRuntimePoints: configuredRuntimePoints
-            )
-            guard !transform.isIdentity else { return didReset }
-            let didAdjust = terminalPanel.surface.adjustFontSize(
-                applying: transform,
-                fallbackRuntimePoints: configuredRuntimePoints
-            )
-            return didReset || didAdjust
-        }
+        cmuxApplyTerminalFontSizeChange(
+            change,
+            to: terminalPanel,
+            configuredRuntimePoints: configuredRuntimePoints
+        )
     }
 
     func completeTerminalFontSizeChange(
