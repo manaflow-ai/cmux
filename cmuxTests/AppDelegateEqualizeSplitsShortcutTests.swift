@@ -1111,15 +1111,18 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         }
 
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
         let sourceScheduler = ManualWorkspaceFontSizeDrainScheduler()
         let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: sourceManager,
+            arbiter: arbiter,
             schedule: sourceScheduler.schedule(delay:action:)
         )
         let destinationScheduler =
             ManualWorkspaceFontSizeDrainScheduler()
         let destinationCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: destinationManager,
+            arbiter: arbiter,
             schedule: destinationScheduler.schedule(delay:action:)
         )
         defer {
@@ -1222,15 +1225,18 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         destinationDock.panels[destinationDockPanel.id] =
             destinationDockPanel
 
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
         let sourceScheduler = ManualWorkspaceFontSizeDrainScheduler()
         let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: sourceManager,
+            arbiter: arbiter,
             schedule: sourceScheduler.schedule(delay:action:)
         )
         let destinationScheduler =
             ManualWorkspaceFontSizeDrainScheduler()
         let destinationCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: destinationManager,
+            arbiter: arbiter,
             schedule: destinationScheduler.schedule(delay:action:)
         )
         sourceCoordinator.attachWindowDock(sourceDock)
@@ -1306,14 +1312,17 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         }
 
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
         let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: sourceManager,
+            arbiter: arbiter,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:)
         )
         let destinationCoordinator =
             WorkspaceTerminalFontSizeCoordinator(
                 tabManager: destinationManager,
+                arbiter: arbiter,
                 schedule: ManualWorkspaceFontSizeDrainScheduler()
                     .schedule(delay:action:)
             )
@@ -1446,15 +1455,18 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return panel
         }
 
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
         let sourceScheduler = ManualWorkspaceFontSizeDrainScheduler()
         let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: sourceManager,
+            arbiter: arbiter,
             schedule: sourceScheduler.schedule(delay:action:)
         )
         let destinationScheduler =
             ManualWorkspaceFontSizeDrainScheduler()
         let destinationCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: destinationManager,
+            arbiter: arbiter,
             schedule: destinationScheduler.schedule(delay:action:)
         )
         destinationCoordinator.attachWindowDock(destinationDock)
@@ -1552,14 +1564,17 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return panel
         }
 
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
         let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: sourceManager,
+            arbiter: arbiter,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:)
         )
         let destinationCoordinator =
             WorkspaceTerminalFontSizeCoordinator(
                 tabManager: destinationManager,
+                arbiter: arbiter,
                 schedule: ManualWorkspaceFontSizeDrainScheduler()
                     .schedule(delay:action:)
             )
@@ -1741,7 +1756,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: nil,
             cmuxConfigStore: nil,
-            window: nil
+            window: nil,
+            workspaceTerminalFontSizeArbiter:
+                WorkspaceTerminalFontSizeCoordinator.Arbiter()
         )
         let coordinator =
             sourceContext.workspaceTerminalFontSizeCoordinator
@@ -2173,9 +2190,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
             applyChange: { change, candidate, configuredRuntimePoints in
-                guard candidate === panel else { return true }
+                guard candidate === panel else { return .applied }
                 applyAttemptCount += 1
-                guard applyAttemptCount > 1 else { return false }
+                guard applyAttemptCount > 1 else { return .failed }
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,

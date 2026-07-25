@@ -1,5 +1,6 @@
 import Foundation
 import CmuxFoundation
+import CmuxTerminal
 import CmuxTerminalCore
 
 enum WorkspaceTerminalFontSizeChange: Equatable {
@@ -131,23 +132,28 @@ func cmuxApplyTerminalFontSizeChange(
     _ change: WorkspaceTerminalFontSizeChange,
     to terminalPanel: TerminalPanel,
     configuredRuntimePoints: Float32
-) -> Bool {
+) -> TerminalFontSizeMutationOutcome {
     switch change {
     case .relative(let transform):
-        return terminalPanel.surface.adjustFontSize(
+        return terminalPanel.surface.adjustFontSizeOutcome(
             applying: transform,
             fallbackRuntimePoints: configuredRuntimePoints
         )
     case .resetThen(let transform):
-        let didReset = terminalPanel.surface.resetFontSize(
+        let resetOutcome = terminalPanel.surface.resetFontSizeOutcome(
             toConfiguredRuntimePoints: configuredRuntimePoints
         )
-        guard !transform.isIdentity else { return didReset }
-        let didAdjust = terminalPanel.surface.adjustFontSize(
+        guard resetOutcome.didSucceed else { return .failed }
+        guard !transform.isIdentity else { return resetOutcome }
+        let adjustmentOutcome =
+            terminalPanel.surface.adjustFontSizeOutcome(
             applying: transform,
             fallbackRuntimePoints: configuredRuntimePoints
         )
-        return didReset || didAdjust
+        guard adjustmentOutcome.didSucceed else { return .failed }
+        return resetOutcome.didChange || adjustmentOutcome.didChange
+            ? .applied
+            : .alreadySatisfied
     }
 }
 
@@ -216,11 +222,18 @@ struct TerminalFontSizeLineageSelection {
 
     @MainActor
     mutating func consider(_ terminalPanel: TerminalPanel) {
-        guard let candidateLineage =
-                terminalPanel.surface.fontSizeLineageSnapshot() else {
-            return
-        }
-        let candidateSortKey = terminalPanel.id.uuidString
+        consider(
+            panelId: terminalPanel.id,
+            lineage: terminalPanel.surface.fontSizeLineageSnapshot()
+        )
+    }
+
+    mutating func consider(
+        panelId: UUID,
+        lineage candidateLineage: TerminalFontSizeLineage?
+    ) {
+        guard let candidateLineage else { return }
+        let candidateSortKey = panelId.uuidString
         guard panelIdSortKey.map({ candidateSortKey < $0 }) ?? true else {
             return
         }
@@ -383,7 +396,7 @@ extension Workspace {
             change,
             to: terminalPanel,
             configuredRuntimePoints: configuredRuntimePoints
-        )
+        ).didChange
     }
 
     func completeTerminalFontSizeChange(

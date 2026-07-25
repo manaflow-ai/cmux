@@ -2,6 +2,24 @@ public import CmuxTerminalCore
 public import Foundation
 internal import GhosttyKit
 
+/// Result of one terminal font-size mutation.
+///
+/// `alreadySatisfied` is successful provenance even though it did not mutate
+/// the surface. `failed` must remain eligible for a later reconciliation pass.
+public enum TerminalFontSizeMutationOutcome: Sendable, Equatable {
+    case applied
+    case alreadySatisfied
+    case failed
+
+    public var didChange: Bool {
+        self == .applied
+    }
+
+    public var didSucceed: Bool {
+        self != .failed
+    }
+}
+
 extension TerminalSurface {
     @MainActor
     private static var activeTransferReconciliationTokens: Set<UUID> = []
@@ -148,7 +166,21 @@ extension TerminalSurface {
         applying transform: TerminalFontSizeDeltaTransform,
         fallbackRuntimePoints: Float32? = nil
     ) -> Bool {
-        guard !transform.isIdentity else { return false }
+        adjustFontSizeOutcome(
+            applying: transform,
+            fallbackRuntimePoints: fallbackRuntimePoints
+        ).didChange
+    }
+
+    /// Applies a clamp transform while distinguishing a satisfied bound from
+    /// an action failure. Callers that record request provenance must use this
+    /// result instead of the legacy changed/not-changed Boolean.
+    @MainActor
+    public func adjustFontSizeOutcome(
+        applying transform: TerminalFontSizeDeltaTransform,
+        fallbackRuntimePoints: Float32? = nil
+    ) -> TerminalFontSizeMutationOutcome {
+        guard !transform.isIdentity else { return .alreadySatisfied }
 
         let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.adjust")
         let percent = globalFontMagnificationPercent()
@@ -178,7 +210,7 @@ extension TerminalSurface {
                   fallbackRuntimePoints > 0 {
             currentRuntimePoints = fallbackRuntimePoints
         } else {
-            return false
+            return .failed
         }
 
         let policy = TerminalFontSizePolicy()
@@ -187,17 +219,21 @@ extension TerminalSurface {
             to: boundedCurrentRuntimePoints
         )
         let netRuntimePointDelta = adjustedRuntimePoints - boundedCurrentRuntimePoints
-        guard netRuntimePointDelta != 0 else { return false }
+        guard netRuntimePointDelta != 0 else {
+            return .alreadySatisfied
+        }
 
         if runtimeSurface != nil {
             let verb = netRuntimePointDelta > 0
                 ? "increase_font_size"
                 : "decrease_font_size"
             let action = "\(verb):\(abs(netRuntimePointDelta))"
-            guard performExplicitInputBindingAction(action) else { return false }
+            guard performExplicitInputBindingAction(action) else {
+                return .failed
+            }
             followsConfiguredFontSize = false
             _ = fontSizeLineageSnapshot()
-            return true
+            return .applied
         }
 
         followsConfiguredFontSize = false
@@ -210,7 +246,7 @@ extension TerminalSurface {
                 isExplicitOverride: true
             )
         )
-        return true
+        return .applied
     }
 
     /// Resets this terminal to the current configured runtime font size.
@@ -226,7 +262,21 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func resetFontSize(toConfiguredRuntimePoints configuredRuntimePoints: Float32) -> Bool {
-        guard configuredRuntimePoints.isFinite, configuredRuntimePoints > 0 else { return false }
+        resetFontSizeOutcome(
+            toConfiguredRuntimePoints: configuredRuntimePoints
+        ).didChange
+    }
+
+    /// Resets to the configured size while preserving the distinction between
+    /// an already-satisfied surface and a failed native action.
+    @MainActor
+    public func resetFontSizeOutcome(
+        toConfiguredRuntimePoints configuredRuntimePoints: Float32
+    ) -> TerminalFontSizeMutationOutcome {
+        guard configuredRuntimePoints.isFinite,
+              configuredRuntimePoints > 0 else {
+            return .failed
+        }
 
         let targetRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
             configuredRuntimePoints
@@ -262,13 +312,17 @@ extension TerminalSurface {
                     recordCurrentFontSizeLineage(targetLineage)
                 }
                 return durableStateChanged
+                    ? .applied
+                    : .alreadySatisfied
             }
 
-            guard performExplicitInputBindingAction("reset_font_size") else { return false }
+            guard performExplicitInputBindingAction("reset_font_size") else {
+                return .failed
+            }
             followsConfiguredFontSize = true
             recordCurrentFontSizeLineage(targetLineage)
             _ = fontSizeLineageSnapshot()
-            return true
+            return .applied
         }
 
         let alreadyFollowsTarget =
@@ -281,14 +335,16 @@ extension TerminalSurface {
         if !alreadyFollowsTarget {
             recordCurrentFontSizeLineage(targetLineage)
         }
-        return !alreadyFollowsTarget
+        return alreadyFollowsTarget
+            ? .alreadySatisfied
+            : .applied
     }
 
     @MainActor
     private func adjustDurableMobileViewportFontSize(
         applying transform: TerminalFontSizeDeltaTransform,
         magnificationPercent: Int
-    ) -> Bool? {
+    ) -> TerminalFontSizeMutationOutcome? {
         guard var nextFitState = mobileViewportFontFitState else {
             return nil
         }
@@ -300,7 +356,7 @@ extension TerminalSurface {
             to: currentRuntimePoints
         )
         guard targetRuntimePoints != currentRuntimePoints else {
-            return false
+            return .alreadySatisfied
         }
 
         let previousFittedRuntimePoints =
@@ -312,7 +368,7 @@ extension TerminalSurface {
            !performMobileViewportFontPointSizeAction(
                 nextFitState.fittedRuntimePointSize
            ) {
-            return false
+            return .failed
         }
 
         mobileViewportFontFitState = nextFitState
@@ -326,14 +382,14 @@ extension TerminalSurface {
                 isExplicitOverride: true
             )
         )
-        return true
+        return .applied
     }
 
     @MainActor
     private func resetDurableMobileViewportFontSize(
         to targetRuntimePoints: Float32,
         lineage targetLineage: TerminalFontSizeLineage
-    ) -> Bool? {
+    ) -> TerminalFontSizeMutationOutcome? {
         guard var nextFitState = mobileViewportFontFitState else {
             return nil
         }
@@ -347,7 +403,7 @@ extension TerminalSurface {
             )
         guard nextFitState != previousFitState
                 || !alreadyFollowsTarget else {
-            return false
+            return .alreadySatisfied
         }
 
         didReceiveExplicitInput()
@@ -356,7 +412,7 @@ extension TerminalSurface {
            !performMobileViewportFontPointSizeAction(
                 nextFitState.fittedRuntimePointSize
            ) {
-            return false
+            return .failed
         }
 
         mobileViewportFontFitState = nextFitState
@@ -364,7 +420,7 @@ extension TerminalSurface {
         if !alreadyFollowsTarget {
             recordCurrentFontSizeLineage(targetLineage)
         }
-        return true
+        return .applied
     }
 
     /// Captures the current font size and its surface-local ownership state.

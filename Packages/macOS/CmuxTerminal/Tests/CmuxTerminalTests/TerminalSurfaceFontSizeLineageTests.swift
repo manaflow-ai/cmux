@@ -62,7 +62,13 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
             globalFontMagnificationPercent: 200
         )
 
-        #expect(surface.adjustFontSize(byRuntimePoints: -1))
+        #expect(
+            surface.adjustFontSizeOutcome(
+                applying: TerminalFontSizeDeltaTransform(
+                    orderedRuntimePointDeltas: [-1]
+                )
+            ) == .applied
+        )
 
         let lineage = try #require(surface.fontSizeLineageSnapshot())
         #expect(lineage.basePoints == 5.5)
@@ -89,7 +95,13 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         let minimumSurface = makeSurface(configTemplate: minimumTemplate)
         let minimumLineage = try #require(minimumSurface.fontSizeLineageSnapshot())
 
-        #expect(!minimumSurface.adjustFontSize(byRuntimePoints: -1))
+        #expect(
+            minimumSurface.adjustFontSizeOutcome(
+                applying: TerminalFontSizeDeltaTransform(
+                    orderedRuntimePointDeltas: [-1]
+                )
+            ) == .alreadySatisfied
+        )
         #expect(minimumSurface.fontSizeLineageSnapshot() == minimumLineage)
 
         var maximumTemplate = CmuxSurfaceConfigTemplate()
@@ -100,7 +112,13 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         let maximumSurface = makeSurface(configTemplate: maximumTemplate)
         let maximumLineage = try #require(maximumSurface.fontSizeLineageSnapshot())
 
-        #expect(!maximumSurface.adjustFontSize(byRuntimePoints: 1))
+        #expect(
+            maximumSurface.adjustFontSizeOutcome(
+                applying: TerminalFontSizeDeltaTransform(
+                    orderedRuntimePointDeltas: [1]
+                )
+            ) == .alreadySatisfied
+        )
         #expect(maximumSurface.fontSizeLineageSnapshot() == maximumLineage)
     }
 
@@ -158,7 +176,16 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
 
     @Test func alreadyConfiguredSurfaceSkipsRedundantReset() {
         let dormantSurface = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
-        #expect(!dormantSurface.resetFontSize(toConfiguredRuntimePoints: 12))
+        #expect(
+            dormantSurface.resetFontSizeOutcome(
+                toConfiguredRuntimePoints: 12
+            ) == .alreadySatisfied
+        )
+        #expect(
+            dormantSurface.resetFontSizeOutcome(
+                toConfiguredRuntimePoints: .nan
+            ) == .failed
+        )
 
         let registry = FakeSurfaceRegistry()
         let liveSurface = makeSurface(
@@ -173,7 +200,11 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
             runtimeSurface.deallocate()
         }
 
-        #expect(!liveSurface.resetFontSize(toConfiguredRuntimePoints: 12))
+        #expect(
+            liveSurface.resetFontSizeOutcome(
+                toConfiguredRuntimePoints: 12
+            ) == .alreadySatisfied
+        )
     }
 
     @Test func deferredSurfaceCanZoomAgainAfterReset() throws {
