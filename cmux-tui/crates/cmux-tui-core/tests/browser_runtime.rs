@@ -117,6 +117,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         let mut start_count = 0u32;
         let mut closed = 0u32;
         let mut opener_second_frame_sent = false;
+        let mut opener_drag_frame_sent = false;
         let mut opener_ack_count = 0u32;
 
         loop {
@@ -149,7 +150,6 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 | "Page.stopScreencast"
                 | "Target.activateTarget"
                 | "Page.bringToFront"
-                | "Input.dispatchMouseEvent"
                 | "Input.insertText"
                 | "Page.navigateToHistoryEntry"
                 | "Page.reload"
@@ -179,6 +179,24 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                             }),
                         );
                         opener_second_frame_sent = true;
+                    }
+                }
+                "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    if request["params"]["type"] == "mousePressed" && !opener_drag_frame_sent {
+                        write_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": "session-1",
+                                "params": {
+                                    "data": "dGhpcmQ=",
+                                    "metadata": {"deviceWidth": 100, "deviceHeight": 50},
+                                    "sessionId": 77
+                                }
+                            }),
+                        );
+                        opener_drag_frame_sent = true;
                     }
                 }
                 "Page.getNavigationHistory" => {
@@ -279,7 +297,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     closed += 1;
                     if closed >= 2 {
-                        assert_eq!(opener_ack_count, 2);
+                        assert_eq!(opener_ack_count, 3);
                         break;
                     }
                 }
@@ -544,6 +562,47 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         "the old rendered frame must not dispatch into the newer browser frame"
     );
     assert_eq!(mouse_request["params"]["y"], 4.6875);
+    wait_for(
+        || mux.surface(surface)?.browser_frame().filter(|frame| frame.seq == 3),
+        Duration::from_secs(10),
+    )
+    .expect("browser repaint during an active drag");
+
+    let drag = rpc(
+        &socket_path,
+        json!({
+            "id": 104,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "move",
+            "x_px": 14.0,
+            "y_px": 10.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 2
+        }),
+    );
+    assert_eq!(drag["ok"], true);
+    let drag_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
+    assert_eq!(drag_request["params"]["type"], "mouseMoved");
+
+    let release = rpc(
+        &socket_path,
+        json!({
+            "id": 105,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "up",
+            "x_px": 14.0,
+            "y_px": 10.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 2
+        }),
+    );
+    assert_eq!(release["ok"], true);
+    let release_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
+    assert_eq!(release_request["params"]["type"], "mouseReleased");
 
     let insert = rpc(
         &socket_path,
