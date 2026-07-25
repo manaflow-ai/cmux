@@ -836,14 +836,36 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.allSatisfy { $0.groupId == nil })
     }
 
-    @Test func closingAnchorWorkspaceDissolvesGroup() throws {
+    @Test func closingAnchorWorkspacePromotesMemberAndKeepsGroup() throws {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
         let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
-        let anchorCloseKey = SettingCatalog().workspaceGroups.anchorCloseSuppressed
-        let settings = UserDefaultsSettingsClient(defaults: .standard)
-        settings.set(true, for: anchorCloseKey)
-        defer { settings.reset(anchorCloseKey) }
+        let group = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
+        let anchor = try #require(manager.tabs.first(where: { $0.id == group.anchorWorkspaceId }))
+        let otherMemberIds = manager.tabs
+            .filter { $0.groupId == groupId && $0.id != anchor.id }
+            .map(\.id)
+        #expect(!otherMemberIds.isEmpty)
+
+        manager.closeWorkspace(anchor)
+
+        // The closed anchor is gone, but the group survives: its next member is
+        // promoted to anchor and every remaining member stays grouped rather
+        // than scattering to the ungrouped root tier.
+        #expect(!manager.tabs.contains(where: { $0.id == anchor.id }))
+        let survivingGroup = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
+        #expect(otherMemberIds.contains(survivingGroup.anchorWorkspaceId))
+        #expect(otherMemberIds.allSatisfy { id in
+            manager.tabs.contains(where: { $0.id == id && $0.groupId == groupId })
+        })
+    }
+
+    @Test func closingSoleAnchorWorkspaceRemovesGroup() throws {
+        let manager = makeTabManager()
+        // Keep an ungrouped outsider so closeWorkspace's `tabs.count <= 1`
+        // guard never fires when the group collapses to nothing.
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [])!
         let group = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
         let anchor = try #require(manager.tabs.first(where: { $0.id == group.anchorWorkspaceId }))
 
@@ -851,7 +873,6 @@ struct WorkspaceGroupTests {
 
         #expect(!manager.tabs.contains(where: { $0.id == anchor.id }))
         #expect(manager.workspaceGroups.first(where: { $0.id == groupId }) == nil)
-        #expect(manager.tabs.allSatisfy { $0.groupId == nil })
     }
 
     @Test func ungroupKeepsAllWorkspaces() {

@@ -203,16 +203,24 @@ extension WorkspacesModel {
     /// of scattering to the ungrouped root tier. A group with no members left
     /// after the anchor's removal is dropped. Caller is responsible for having
     /// already removed the closed workspace from `tabs`.
-    public func promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: UUID) {
+    ///
+    /// Returns the workspace ids promoted to anchor. A promoted workspace's
+    /// resolved display title switches from its own title to the group name,
+    /// so the caller must invalidate any imperatively-cached title chrome
+    /// (window title, toolbar label) for a promoted anchor that is selected.
+    @discardableResult
+    public func promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: UUID) -> [UUID] {
         let affectedGroupIds = workspaceGroups
             .filter { $0.anchorWorkspaceId == closedWorkspaceId }
             .map(\.id)
-        guard !affectedGroupIds.isEmpty else { return }
+        guard !affectedGroupIds.isEmpty else { return [] }
+        var promotedAnchorIds: [UUID] = []
         var removedGroupIds: [UUID] = []
         for gid in affectedGroupIds {
             guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == gid }) else { continue }
             if let nextAnchor = tabs.first(where: { $0.groupId == gid }) {
                 workspaceGroups[groupIndex].anchorWorkspaceId = nextAnchor.id
+                promotedAnchorIds.append(nextAnchor.id)
             } else {
                 removedGroupIds.append(gid)
             }
@@ -223,5 +231,6 @@ extension WorkspacesModel {
         // Hoist each promoted anchor to the front of its members so the sidebar
         // header renders at the anchor's row (parity with setWorkspaceGroupAnchor).
         normalizeWorkspaceGroupContiguity()
+        return promotedAnchorIds
     }
 }

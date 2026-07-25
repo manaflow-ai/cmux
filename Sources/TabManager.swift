@@ -2109,7 +2109,7 @@ class TabManager: ObservableObject {
             // members left after the anchor's removal is dropped. This lives at
             // the explicit close site (not in the tabs didSet) so transient
             // remove/insert reorders never trigger the fixup.
-            workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+            let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
@@ -2117,6 +2117,15 @@ class TabManager: ObservableObject {
                 // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
                 let newIndex = min(index, max(0, tabs.count - 1))
                 selectedTabId = tabs[newIndex].id
+            }
+
+            // A promoted anchor's resolved display title switches from its own
+            // title to the group name. If the selected workspace was promoted
+            // (e.g. Close Others / a socket close of the anchor while a member
+            // stays selected), refresh the imperatively-cached window/toolbar
+            // title chrome, which is not driven by the observable model.
+            if let selectedTabId, promotedAnchorIds.contains(selectedTabId) {
+                updateWindowTitleForSelectedTab()
             }
         }
         publishCmuxWorkspaceClosed(workspace)
