@@ -141,6 +141,18 @@ mod tests {
     use super::*;
     use cmux_tui_core::Rect;
 
+    struct FailingOutput;
+
+    impl Write for FailingOutput {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected graphics output failure"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn snapshot_slot_is_latest_wins_and_shutdown_is_clean() {
         let (tx, rx) = sync_channel(1);
@@ -216,6 +228,30 @@ mod tests {
             writer.take_presented(),
             Some(GraphicsPresentation { id: 7, frames: vec![(11, 13)] })
         );
+        writer.shutdown(Duration::from_secs(1));
+    }
+
+    #[test]
+    fn output_failure_notifies_the_app_to_settle_the_submission() {
+        let lock = Arc::new(Mutex::new(()));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output(lock, FailingOutput, move || {
+            ready_tx.send(()).unwrap();
+        })
+        .unwrap();
+
+        assert!(writer.submit(
+            9,
+            vec![GraphicPlacement {
+                surface: 11,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 15,
+                data_b64: "AAAA".to_string(),
+            }]
+        ));
+        ready_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("a failed accepted submission must wake the app");
         writer.shutdown(Duration::from_secs(1));
     }
 }
