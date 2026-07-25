@@ -103,9 +103,9 @@ cmux_codex_physical_candidate() {
 
 # Print the nearest physical ancestor of a directory that contains a Git
 # marker. Outside a Git checkout, the directory itself is the untrusted project
-# boundary. A physical HOME root is not a project boundary: treating it as one
-# rejects the user's own ~/.local, ~/.bun, nvm, Volta, and similar installs.
-# Return 2 for that intentional no-boundary case and 1 for resolution failure.
+# boundary. The filesystem and physical HOME roots are not useful boundaries:
+# treating them as projects rejects every system or user installation.
+# Return 2 for those intentional no-boundary cases and 1 for resolution failure.
 cmux_codex_untrusted_project_root() {
     local directory="$1"
     local root
@@ -120,6 +120,7 @@ cmux_codex_untrusted_project_root() {
         cursor="${cursor%/*}"
         [[ -n "$cursor" ]] || cursor="/"
     done
+    [[ "$root" == "/" ]] && return 2
     if [[ "${HOME:-}" == /* ]]; then
         local physical_home
         physical_home="$(cd -P "$HOME" 2>/dev/null && pwd -P)" || return 1
