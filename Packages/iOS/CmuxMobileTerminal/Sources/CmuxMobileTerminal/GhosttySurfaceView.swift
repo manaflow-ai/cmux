@@ -432,6 +432,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var lastRenderRect: CGRect = .zero
     var lastRenderLayoutViewportHeight: CGFloat?
     var lastRenderHasSourceLayoutViewport = false
+    /// The container size last actually applied to libghostty via
+    /// `set_size`. Used to detect an unsettled SHRINK (keyboard rising) so
+    /// the local resize can be deferred until the grid negotiation settles
+    /// (see `syncSurfaceGeometry`); `.zero` until the first applied pass.
+    private var lastAppliedContainerSize: CGSize = .zero
+
+    /// Render-pipeline reset seam: the recreated surface has no applied
+    /// container size yet, so a shrink right after a reset must not defer.
+    func resetLastAppliedContainerSize() {
+        lastAppliedContainerSize = .zero
+    }
     private var viewportCoordinator = TerminalViewportCoordinator()
     private let keyboardTransitionPlanner = TerminalDockKeyboardTransitionPlanner()
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
@@ -3329,6 +3340,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// times too small (or too large) and the daemon grants a bogus
         /// shared PTY size (the keyboard-transition font-oscillation bug).
         let measuredFontSize: Float32
+        /// False when this pass deferred the `set_size` (unsettled shrink):
+        /// the measured natural grid and render size still describe the
+        /// PREVIOUS layout, so the render's source-layout bookkeeping must
+        /// not be re-stamped with the new layout height (the stale-live
+        /// clamp would otherwise snap the old render to the target viewport
+        /// instead of letting it ride the keyboard).
+        let appliedResize: Bool
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
@@ -3402,12 +3420,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
+        // While the grid negotiation is unsettled and the container SHRANK
+        // (keyboard rising), do NOT resize the local surface yet. An eager
+        // local shrink keeps the bottom of the SCREEN — trailing blank rows
+        // included — so the visible content collapses to the tail of the old
+        // screen jumped to the top ("all rows momentarily pushed up") until
+        // the remote reflow lands one round-trip later. Deferring the resize
+        // keeps the old render, which the bottom-pinned render rect slides
+        // up with the keyboard (prompt stays glued to the keyboard top), and
+        // the settle pass applies ONE resize whose result matches the
+        // remote's reflowed content. Width changes (rotation, split) and
+        // growth keep the immediate resize; the capacity report below is
+        // pure container/cell math, so the negotiation still starts now.
+        let deferShrinkResize = snapshot.viewportNegotiationUnsettled
+            && lastAppliedContainerSize.height > 0
+            && abs(containerW - lastAppliedContainerSize.width) < 0.5
+            && containerH < lastAppliedContainerSize.height - 0.5
+        if !deferShrinkResize {
+            lastAppliedContainerSize = container
+        } else {
+            MobileDebugLog.anchormux(
+                "geom.deferShrink container=\(Int(containerW))x\(Int(containerH)) "
+                + "applied=\(Int(lastAppliedContainerSize.width))x\(Int(lastAppliedContainerSize.height))"
+            )
+        }
 
         outputQueue.async { [weak self] in
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
-            ghostty_surface_set_size(surface, containerPxW, containerPxH)
+            if !deferShrinkResize {
+                ghostty_surface_set_size(surface, containerPxW, containerPxH)
+            }
             let measured = ghostty_surface_size(surface)
 
             var cell = CGSize.zero
@@ -3419,7 +3463,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
 
             var pinnedSize: CGSize?
-            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
+            // A deferred shrink leaves the surface at its previous size, so
+            // the letterbox fit (which resizes the surface) is skipped too;
+            // the settle pass re-derives the pin against the applied size.
+            if let eff, !deferShrinkResize, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
                 let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
                 let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
@@ -3451,7 +3498,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 naturalSize: natural,
                 sourceLayoutViewportHeight: snapshot.layoutViewportRect.height,
                 pinnedSize: pinnedSize,
-                measuredFontSize: measuredFontSize
+                measuredFontSize: measuredFontSize,
+                appliedResize: !deferShrinkResize
             )
             Task { @MainActor in
                 guard let self else {
@@ -3504,8 +3552,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let snapshot = viewportSnapshot()
         layoutBottomDock(using: snapshot)
-        lastRenderLayoutViewportHeight = result.sourceLayoutViewportHeight
-        lastRenderHasSourceLayoutViewport = true
+        if result.appliedResize {
+            lastRenderLayoutViewportHeight = result.sourceLayoutViewportHeight
+            lastRenderHasSourceLayoutViewport = true
+        }
         let renderRect = snapshot.renderRect(
             forRenderSize: measuredRenderRect.size,
             clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
