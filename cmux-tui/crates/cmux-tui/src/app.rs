@@ -6355,6 +6355,11 @@ impl App {
         Ok(())
     }
 
+    #[cfg(test)]
+    fn graphic_identity(&self, placement: &GraphicPlacement) -> GraphicIdentity {
+        GraphicIdentity { surface: placement.surface, rect: placement.rect, seq: placement.seq }
+    }
+
     fn graphic_placements(&self) -> Vec<GraphicPlacement> {
         let mut placements = Vec::new();
         for area in &self.pane_areas {
@@ -12705,12 +12710,12 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput,
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GraphicIdentity,
-        GuardedMouseEncode, MachineActionWorker, MenuAction, MenuItem, MutationImpact,
-        MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneContentGeneration,
-        PaneEdge, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
-        PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget,
-        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel,
-        RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
+        GraphicPlacement, GuardedMouseEncode, MachineActionWorker, MenuAction, MenuItem,
+        MutationImpact, MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PendingSessionMutation,
+        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
+        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
+        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
         SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
         TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
@@ -14681,6 +14686,28 @@ mod tests {
             !app.rendered_pane_content_generations
                 .values()
                 .any(|generation| matches!(generation, PaneContentGeneration::Browser(_)))
+        );
+    }
+
+    #[test]
+    fn graphics_identity_is_scoped_to_the_machine_session() {
+        let mux = Mux::new("graphics-session-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let placement = GraphicPlacement {
+            surface: 11,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq: 15,
+            data_b64: "AAAA".to_string(),
+        };
+
+        app.session_generation = 1;
+        let first = app.graphic_identity(&placement);
+        app.session_generation = 2;
+        let replacement = app.graphic_identity(&placement);
+
+        assert_ne!(
+            first, replacement,
+            "surface and frame counters can restart in a replacement machine session"
         );
     }
 
