@@ -204,7 +204,24 @@ extension WorkspacesModel {
     /// after the anchor's removal is dropped. Caller is responsible for having
     /// already removed the closed workspace from `tabs`.
     public func promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: UUID) {
-        // TODO(commit 2): promote the next member instead of dissolving.
-        dissolveGroupsAnchoredBy(closedWorkspaceId: closedWorkspaceId)
+        let affectedGroupIds = workspaceGroups
+            .filter { $0.anchorWorkspaceId == closedWorkspaceId }
+            .map(\.id)
+        guard !affectedGroupIds.isEmpty else { return }
+        var removedGroupIds: [UUID] = []
+        for gid in affectedGroupIds {
+            guard let groupIndex = workspaceGroups.firstIndex(where: { $0.id == gid }) else { continue }
+            if let nextAnchor = tabs.first(where: { $0.groupId == gid }) {
+                workspaceGroups[groupIndex].anchorWorkspaceId = nextAnchor.id
+            } else {
+                removedGroupIds.append(gid)
+            }
+        }
+        if !removedGroupIds.isEmpty {
+            workspaceGroups.removeAll { removedGroupIds.contains($0.id) }
+        }
+        // Hoist each promoted anchor to the front of its members so the sidebar
+        // header renders at the anchor's row (parity with setWorkspaceGroupAnchor).
+        normalizeWorkspaceGroupContiguity()
     }
 }
