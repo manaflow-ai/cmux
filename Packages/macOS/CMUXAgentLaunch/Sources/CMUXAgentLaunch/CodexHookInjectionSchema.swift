@@ -1,23 +1,16 @@
-public struct CodexHookInjectionEvent: Equatable, Sendable {
-    public let agentEvent: String
-    public let cmuxSubcommand: String
-    public let timeoutMs: Int
-
-    public init(agentEvent: String, cmuxSubcommand: String, timeoutMs: Int) {
-        self.agentEvent = agentEvent
-        self.cmuxSubcommand = cmuxSubcommand
-        self.timeoutMs = timeoutMs
-    }
-}
-
+/// An ordered Codex hook block that cmux can generate or safely remove from
+/// captured launch arguments.
 public struct CodexHookInjectionSchema: Equatable, Sendable {
+    /// The hook events in their required argument order.
     public let events: [CodexHookInjectionEvent]
 
     private init(events: [CodexHookInjectionEvent]) {
         self.events = events
     }
 
-    /// The one schema new wrappers emit. Keep generation and replay
+    /// The schema emitted by current cmux wrappers.
+    ///
+    /// Keep generation and replay
     /// sanitization on this shared value so a format change cannot update only
     /// one side of the boundary.
     public static let current = Self(events: [
