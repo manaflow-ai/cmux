@@ -1,12 +1,24 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Every main commit gets its own cmux INTERNAL build. Do not add a path filter:
-  # the contract is one TestFlight upload for every main change, regardless of
-  # which part of the repository changed.
+  # Automatically upload only when main changes the iOS app or a direct archive
+  # input. Manual dispatch remains available for intentional rebuilds.
   push:
     branches:
       - main
+    paths:
+      - "ios/**"
+      - "Packages/iOS/**"
+      - "Packages/Shared/**"
+      - "Sources/Mobile/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      - "ghostty"
+      - "ghostty.h"
+      - "scripts/ensure-ghosttykit.sh"
+      - "scripts/ghosttykit-checksums.txt"
+      - "scripts/install-zig-ci.sh"
+      - "scripts/validate-xcframework-archive.py"
+      - ".github/workflows/ios-testflight.yml"
   workflow_dispatch:
     inputs:
       build_number:
@@ -17,11 +29,22 @@ on:
         description: Optional one-time MARKETING_VERSION override (for example 1.0.1)
         required: false
         default: ""
+      variant:
+        description: >-
+          Upload variant. internal (default) ships dev.cmux.app.internal /
+          "cmux INTERNAL"; demo ships dev.cmux.app.demo / "cmux DEMO" with the
+          DEMO-badged app icon and assigns to the cmux DEMO TestFlight group.
+        required: false
+        default: internal
+        type: choice
+        options:
+          - internal
+          - demo
 
 concurrency:
   # A shared group keeps only one pending run and silently replaces older pending
-  # SHAs during merge bursts. Key push runs by SHA so every main commit survives.
-  # Manual runs use run_id because an operator may intentionally rebuild a SHA.
+  # SHAs during merge bursts. Key qualifying push runs by SHA so every iOS change
+  # survives. Manual runs use run_id because an operator may intentionally rebuild.
   group: ios-testflight-${{ github.event_name == 'push' && github.sha || github.run_id }}
   cancel-in-progress: false
 
@@ -181,8 +204,9 @@ jobs:
               core.warning(`could not resolve last uploaded sha: ${e.message}`);
             }
 
-            // Push and manual runs always build. There is deliberately no SHA or
-            // path gate: every main push owns one CMUX INTERNAL upload.
+            // Push runs have already passed the workflow's iOS path filter.
+            // Manual runs are intentional rebuilds, so every event that reaches
+            // this workflow should build.
             const shouldBuild =
               context.eventName === 'push' || context.eventName === 'workflow_dispatch';
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
@@ -214,10 +238,13 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
-      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
-      # Internal builds use separate bundle ID and display name (set here so provisioning profile step can use it)
-      IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
-      IOS_BETA_DISPLAY_NAME: cmux INTERNAL
+      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: ${{ github.event.inputs.marketing_version_override != '' && '1' || '0' }}
+      # Internal builds use separate bundle ID and display name (set here so
+      # provisioning profile step can use it). The manual demo variant ships the
+      # same main head as a separate app so demos are isolated from the internal
+      # firehose (and its per-app upload limit).
+      IOS_BETA_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+      IOS_BETA_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -323,7 +350,15 @@ jobs:
         run: |
           set -euo pipefail
           # Determine which profile to use based on bundle ID
-          if [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.internal" ]; then
+          if [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.demo" ]; then
+            # The demo profile is fetched from the ASC API by name instead of a
+            # repository secret, so regenerating it in the developer portal
+            # needs no secret rotation. Same credentials the upload uses.
+            PROFILE_BASE64="$(python3 ./ios/scripts/asc_download_profile.py --name "cmux Demo Distribution")"
+            EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.demo"
+            PROFILE_TYPE="demo"
+            SKIP_APS_ENVIRONMENT_CHECK=false
+          elif [ "${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}" = "dev.cmux.app.internal" ]; then
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
             PROFILE_TYPE="internal"
@@ -365,6 +400,22 @@ jobs:
           echo "IOS_BETA_PROVISIONING_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "Installed $PROFILE_TYPE provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
 
+      - name: Use DEMO-badged app icon
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo'
+        run: |
+          set -euo pipefail
+          # Swap the AppIcon PNGs in the CI checkout instead of overriding
+          # ASSETCATALOG_COMPILER_APPICON_NAME on the xcodebuild command line:
+          # command-line build settings apply to every target in the workspace,
+          # and SwiftPM resource-bundle targets with their own asset catalogs
+          # would fail actool with a missing "AppIcon-Demo" icon set.
+          SRC="ios/cmux/Assets.xcassets/AppIcon-Demo.appiconset"
+          DST="ios/cmux/Assets.xcassets/AppIcon.appiconset"
+          for f in AppIcon.png AppIconDark.png AppIconTinted.png; do
+            cp "$SRC/$f" "$DST/$f"
+          done
+          echo "Installed DEMO-badged icon variants into AppIcon.appiconset"
+
       - name: Archive, export, and upload to TestFlight
         id: upload
         env:
@@ -387,12 +438,18 @@ jobs:
           # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
           # Display name for automatic internal builds (auto-synced to internal group).
-          IOS_BETA_DISPLAY_NAME: cmux INTERNAL
+          # The demo variant ships as "cmux DEMO" / dev.cmux.app.demo instead.
+          IOS_BETA_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
           # Internal builds use separate bundle ID (dev.cmux.app.internal) so internal
           # and external can coexist on same device.
-          IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
+          IOS_BETA_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+          INPUT_VARIANT: ${{ github.event.inputs.variant }}
         run: |
           set -euo pipefail
+          if [ "${INPUT_VARIANT:-internal}" = "demo" ] && [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+            echo "variant=demo cannot be combined with marketing_version_override (the override path ships the external cmux BETA app)" >&2
+            exit 1
+          fi
           if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
             # One-time operator escape hatch: upload latest main as another build
             # of an already-approved beta marketing version, which avoids starting a
@@ -441,11 +498,15 @@ jobs:
         env:
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || github.event.inputs.build_number || 'unknown' }}
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
+          UPLOAD_BUNDLE_ID: ${{ github.event.inputs.marketing_version_override != '' && 'dev.cmux.app.beta' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+          UPLOAD_DISPLAY_NAME: ${{ github.event.inputs.marketing_version_override != '' && 'cmux BETA' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
+          UPLOAD_AUDIENCE: ${{ github.event.inputs.marketing_version_override != '' && 'external TestFlight testers' || 'internal TestFlight group' }}
+          UPLOAD_REVIEW_NOTE: ${{ github.event.inputs.marketing_version_override != '' && 'Beta App Review may be required' || 'no beta review needed' }}
         run: |
           {
             echo "### iOS TestFlight upload"
             echo
-            echo "- lane: \`beta\` (bundle id \`dev.cmux.app.internal\`, internal TestFlight)"
+            echo "- lane: \`beta\` (bundle id \`${UPLOAD_BUNDLE_ID}\`, ${UPLOAD_AUDIENCE})"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
@@ -453,7 +514,7 @@ jobs:
               echo "- marketing version: checked-in beta marketing version"
             fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
-            echo "- audience: internal TestFlight group (cmux INTERNAL) on the dev.cmux.app.internal app; no beta review needed"
+            echo "- audience: ${UPLOAD_AUDIENCE} (${UPLOAD_DISPLAY_NAME}) on the ${UPLOAD_BUNDLE_ID} app; ${UPLOAD_REVIEW_NOTE}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata
@@ -492,7 +553,7 @@ jobs:
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success'
+    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success' && github.event.inputs.marketing_version_override == ''
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
@@ -504,7 +565,10 @@ jobs:
       # defaults and hard-errors when both are set ("set only one of --group-id
       # or --group-name"), which failed every internal assignment while both
       # repo variables were wired in.
-      CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
+      # The demo variant assigns to the "cmux DEMO" internal group on the
+      # dev.cmux.app.demo app record instead.
+      CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' || vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
+      ASSIGN_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
     steps:
       - name: Checkout
@@ -518,5 +582,5 @@ jobs:
             exit 1
           fi
           python3 ./ios/scripts/asc_assign_internal_testflight_group.py \
-            --bundle-id dev.cmux.app.internal \
+            --bundle-id "$ASSIGN_BUNDLE_ID" \
             --build-number "$BUILD_NUMBER"

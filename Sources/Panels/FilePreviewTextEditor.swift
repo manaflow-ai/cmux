@@ -336,6 +336,11 @@ final class SavingTextView: NSTextView {
     }
 
     private func handleEditorShortcut(_ event: NSEvent) -> Bool {
+        if hasMarkedText(), event.cmuxIsOptionTextInputCandidate {
+            clearPendingShortcutChordPrefixes()
+            return false
+        }
+
         let candidates = editorShortcutCandidates()
         if let pendingPrefix = pendingEditorShortcutChordPrefix {
             pendingEditorShortcutChordPrefix = nil

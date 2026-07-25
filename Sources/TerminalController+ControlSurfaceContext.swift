@@ -114,58 +114,9 @@ extension TerminalController: ControlSurfaceContext {
         return ControlSurfaceListSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),
-            surfaces: controlSurfaceSummaries(workspace: ws)
-        )
-    }
-
-    private func controlDockSurfaceList(
-        dock: DockSplitStore,
-        tabManager: TabManager
-    ) -> ControlSurfaceListSnapshot {
-        var paneByPanelId: [UUID: UUID] = [:]
-        var indexInPaneByPanelId: [UUID: Int] = [:]
-        var selectedInPaneByPanelId: [UUID: Bool] = [:]
-        for paneId in dock.bonsplitController.allPaneIds {
-            let tabs = dock.bonsplitController.tabs(inPane: paneId)
-            let selected = dock.bonsplitController.selectedTab(inPane: paneId)
-            for (idx, tab) in tabs.enumerated() {
-                guard let panel = dock.panel(for: tab.id) else { continue }
-                paneByPanelId[panel.id] = paneId.id
-                indexInPaneByPanelId[panel.id] = idx
-                selectedInPaneByPanelId[panel.id] = (tab.id == selected?.id)
-            }
-        }
-
-        let focusedSurfaceId = dock.focusedPanelId
-        let surfaces: [ControlSurfaceSummary] = orderedPanels(in: dock).map { panel in
-            let terminalPanel = panel as? TerminalPanel
-            return ControlSurfaceSummary(
-                surfaceID: panel.id,
-                typeRawValue: panel.panelType.rawValue,
-                title: dockPanelTitle(panel, in: dock),
-                isFocused: panel.id == focusedSurfaceId,
-                paneID: paneByPanelId[panel.id],
-                indexInPane: indexInPaneByPanelId[panel.id],
-                selectedInPane: selectedInPaneByPanelId[panel.id],
-                developerToolsVisible: (panel as? BrowserPanel)?.isDeveloperToolsVisible(),
-                requestedWorkingDirectory: terminalPanel.flatMap {
-                    v2NonEmptyString($0.requestedWorkingDirectory)
-                },
-                initialCommand: terminalPanel.flatMap {
-                    v2NonEmptyString($0.surface.debugInitialCommand())
-                },
-                tmuxStartCommand: terminalPanel.flatMap {
-                    v2NonEmptyString($0.surface.debugTmuxStartCommand())
-                },
-                isTerminal: terminalPanel != nil,
-                resumeBinding: nil
-            )
-        }
-
-        return ControlSurfaceListSnapshot(
-            workspaceID: dock.workspaceId,
-            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
-            surfaces: surfaces
+            surfaces: controlSurfaceSummaries(workspace: ws) +
+                controlTopologyDocks(workspace: ws, tabManager: tabManager)
+                .flatMap { controlDockSurfaceSummaries(dock: $0) }
         )
     }
 

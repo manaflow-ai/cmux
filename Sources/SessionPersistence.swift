@@ -707,6 +707,14 @@ enum SurfaceResumeApprovalStore {
     private static let settingsRecordsKey = "resumeCommands"
     private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
     private static let keychainAccount = "hmac-secret-v1"
+    private static let signingSecretCache = SurfaceResumeApprovalSigningSecretCache(
+        loader: {
+            SurfaceResumeApprovalStore.loadOrCreateSigningSecret(fileManager: .default)
+        },
+        schedule: { job in
+            DispatchQueue.global(qos: .utility).async(execute: job)
+        }
+    )
 
     struct StoredFile: Codable {
         var version: Int
@@ -1018,12 +1026,45 @@ enum SurfaceResumeApprovalStore {
     }
 
     static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
-        let env = ProcessInfo.processInfo.environment
-        if let encoded = env["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
-           let data = Data(base64Encoded: encoded),
-           !data.isEmpty {
+        if let data = environmentSigningSecret() {
             return data
         }
+        if fileManager === FileManager.default {
+            return signingSecretCache.value(isMainThread: Thread.isMainThread)
+        }
+        guard !Thread.isMainThread else { return nil }
+        return loadOrCreateSigningSecret(fileManager: fileManager)
+    }
+
+    /// Starts the one-time Keychain/file lookup early while preserving the
+    /// nonblocking contract for the app's main thread.
+    static func preloadSigningSecret() {
+        guard environmentSigningSecret() == nil else { return }
+        signingSecretCache.preload { _ in }
+    }
+
+    static var signingSecretIsReady: Bool {
+        environmentSigningSecret() != nil || signingSecretCache.isReady
+    }
+
+    static func whenSigningSecretReady(_ action: @escaping @Sendable () -> Void) {
+        guard environmentSigningSecret() == nil else {
+            action()
+            return
+        }
+        signingSecretCache.preload { _ in action() }
+    }
+
+    private static func environmentSigningSecret() -> Data? {
+        guard let encoded = ProcessInfo.processInfo.environment["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
+              let data = Data(base64Encoded: encoded),
+              !data.isEmpty else {
+            return nil
+        }
+        return data
+    }
+
+    private static func loadOrCreateSigningSecret(fileManager: FileManager) -> Data? {
         if let data = keychainSecret(), !data.isEmpty {
             return data
         }
@@ -1783,8 +1824,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
-
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
@@ -1807,13 +1848,13 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
 
 extension SessionWorkspaceSnapshot {
     var hasRestorablePanels: Bool {
-        !panels.isEmpty
+        !panels.isEmpty || dock != nil
     }
 }
 
 extension SessionWindowSnapshot {
     var hasRestorablePanels: Bool {
-        tabManager.workspaces.contains { $0.hasRestorablePanels }
+        dock != nil || tabManager.workspaces.contains { $0.hasRestorablePanels }
     }
 }
 
@@ -1832,8 +1873,8 @@ struct SessionWindowSnapshot: Codable, Sendable {
     /// Per-display-configuration remembered frames (LRU ring). Optional and
     /// additive so older persisted snapshots decode unchanged.
     var configFrames: [SessionConfigFrameEntry]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
-
 struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
