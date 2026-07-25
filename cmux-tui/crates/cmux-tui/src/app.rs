@@ -18,8 +18,9 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, Direction, GuardedMouseEncode, MuxEvent, Node, PairingChallenge,
-    PaneId, PointerSemanticProbe, Rect, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
-    WorkspaceId, exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
+    PaneId, PointerSemanticProbe, PointerSnapshotProbe, Rect, SplitDir, SplitEdge, SplitId,
+    SurfaceId, SurfaceKind, TerminalPointerSnapshot, WorkspaceId, exact_split_for_pane_edge,
+    layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -3155,13 +3156,20 @@ enum PointerRouteIdentity {
 }
 
 impl PointerRouteIdentity {
-    fn terminal_pointer_semantics(
+    fn terminal_pointer_snapshot(
         &self,
-    ) -> Option<(SurfaceId, Rect, Option<TerminalPointerSemanticSnapshot>)> {
+    ) -> Option<(SurfaceId, Rect, Option<TerminalPointerSnapshot>)> {
         match self {
-            Self::Pane { pane, region: PanePointerRegion::TerminalCell { semantics, .. } } => {
-                Some((pane.surface, pane.terminal_input?, *semantics))
-            }
+            Self::Pane {
+                pane,
+                region: PanePointerRegion::TerminalCell { semantics, content_generation, .. },
+            } => Some((
+                pane.surface,
+                pane.terminal_input?,
+                semantics.zip(*content_generation).map(|(semantics, content_generation)| {
+                    TerminalPointerSnapshot { semantics, content_generation }
+                }),
+            )),
             _ => None,
         }
     }
@@ -6728,6 +6736,23 @@ impl App {
             }
             event => event,
         };
+        let event = match event {
+            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
+                if self.fresh_input_must_follow_deferred(&input, input_sequence)
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
+                return Ok(self.defer_input_with_sequence(
+                    input,
+                    input_sequence,
+                    replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.admission.as_ref())
+                        .and_then(|admission| admission.pairing_request),
+                ));
+            }
+            event => event,
+        };
         let missing_surface = match &event {
             AppEvent::Input(input) => self.missing_input_surface(input),
             _ => None,
@@ -6861,11 +6886,7 @@ impl App {
                     || self.session.remote_tree_is_stale()
                     || self.mux_recovery_generation.load(Ordering::Acquire) != 0
                     || matches!(&input, Event::Mouse(_))
-                        && self.pointer_route_phase.is_stale()
-                    || input_sequence.is_none()
-                        && matches!(&input, Event::Key(_) | Event::Paste(_))
-                        && (!self.deferred_input.is_empty()
-                            || self.pending_pointer_motion.is_some()))
+                        && self.pointer_route_phase.is_stale())
                     && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
@@ -7611,18 +7632,32 @@ impl App {
         }
     }
 
+    fn fresh_input_must_follow_deferred(&self, input: &Event, input_sequence: Option<u64>) -> bool {
+        if input_sequence.is_some()
+            || self.deferred_input.is_empty() && self.pending_pointer_motion.is_none()
+        {
+            return false;
+        }
+        match input {
+            Event::Key(_) | Event::Paste(_) => true,
+            Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
+            Event::Mouse(_) => self.active_pointer_buttons.is_empty(),
+            _ => false,
+        }
+    }
+
     fn terminal_pointer_admission_for_route(
         &self,
         rendered_route: &PointerRouteIdentity,
         mouse: &MouseEvent,
         missing_surface: Option<SurfaceId>,
     ) -> TerminalPointerAdmissionResult {
-        let Some((surface, input_rect, expected_semantics)) =
-            rendered_route.terminal_pointer_semantics()
+        let Some((surface, input_rect, expected_snapshot)) =
+            rendered_route.terminal_pointer_snapshot()
         else {
             return TerminalPointerAdmissionResult::NotTerminal;
         };
-        let Some(expected_semantics) = expected_semantics else {
+        let Some(expected_snapshot) = expected_snapshot else {
             return if missing_surface == Some(surface) {
                 TerminalPointerAdmissionResult::NotTerminal
             } else {
@@ -7632,7 +7667,7 @@ impl App {
         if missing_surface == Some(surface) {
             return TerminalPointerAdmissionResult::Ready(TerminalPointerAdmission {
                 surface,
-                semantics: expected_semantics,
+                semantics: expected_snapshot.semantics,
                 encoding: TerminalPointerEncoding::None,
             });
         }
@@ -7678,8 +7713,8 @@ impl App {
                     };
                     let mut press_output = PtyInputBytes::new();
                     let mut release_output = PtyInputBytes::new();
-                    let encoded = surface_handle.encode_mouse_press_pair_if_semantics(
-                        expected_semantics,
+                    let encoded = surface_handle.encode_mouse_press_pair_if_snapshot(
+                        expected_snapshot,
                         press,
                         release,
                         &mut press_output,
@@ -7717,8 +7752,8 @@ impl App {
                         _ => unreachable!("guarded by the outer pointer-kind match"),
                     };
                     let mut output = PtyInputBytes::new();
-                    let encoded = surface_handle.encode_mouse_if_semantics(
-                        expected_semantics,
+                    let encoded = surface_handle.encode_mouse_if_snapshot(
+                        expected_snapshot,
                         input(action, button, false),
                         &mut output,
                     );
@@ -7733,24 +7768,25 @@ impl App {
                 return TerminalPointerAdmissionResult::Contended;
             }
             Some((GuardedMouseEncode::Encoded(Err(_)), _))
-            | Some((GuardedMouseEncode::SemanticsChanged, _)) => {
+            | Some((GuardedMouseEncode::SemanticsChanged, _))
+            | Some((GuardedMouseEncode::ContentChanged, _)) => {
                 return TerminalPointerAdmissionResult::Rejected;
             }
-            None => match surface_handle.try_pointer_semantics() {
-                Some(PointerSemanticProbe::Contended) => {
+            None => match surface_handle.try_pointer_snapshot() {
+                Some(PointerSnapshotProbe::Contended) => {
                     return TerminalPointerAdmissionResult::Contended;
                 }
-                Some(PointerSemanticProbe::Ready(live)) if live == expected_semantics => {
+                Some(PointerSnapshotProbe::Ready(live)) if live == expected_snapshot => {
                     TerminalPointerEncoding::None
                 }
-                Some(PointerSemanticProbe::Ready(_)) | None => {
+                Some(PointerSnapshotProbe::Ready(_)) | None => {
                     return TerminalPointerAdmissionResult::Rejected;
                 }
             },
         };
         TerminalPointerAdmissionResult::Ready(TerminalPointerAdmission {
             surface,
-            semantics: expected_semantics,
+            semantics: expected_snapshot.semantics,
             encoding,
         })
     }
@@ -10711,6 +10747,7 @@ impl App {
                     Some(
                         GuardedMouseEncode::Contended
                         | GuardedMouseEncode::SemanticsChanged
+                        | GuardedMouseEncode::ContentChanged
                         | GuardedMouseEncode::Encoded(Err(_)),
                     )
                     | None => return true,

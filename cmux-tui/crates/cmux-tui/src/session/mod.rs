@@ -16,8 +16,9 @@ use std::sync::atomic::Ordering;
 use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, GuardedMouseEncode, Mux, MuxEventReceiver, PaneId,
-    PointerSemanticProbe, ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId,
-    SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
+    PointerSemanticProbe, PointerSnapshotProbe, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
+    Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
+    TerminalPointerSnapshot, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot};
 use serde::Deserialize;
@@ -1120,6 +1121,7 @@ impl SurfaceHandle {
                     std::array::from_fn(|idx| rs.palette_overridden(idx as u8));
                 Ok(Arc::new(SurfaceRenderFrame {
                     frame: rs.build_frame()?,
+                    content_generation: surface.content_generation.load(Ordering::Acquire),
                     scrollback_rows: term.history_rows(),
                     pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,
@@ -1178,6 +1180,23 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn encode_mouse_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.encode_mouse_if_snapshot(expected, input, output)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.encode_mouse_if_snapshot(expected, input, output))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
@@ -1210,16 +1229,16 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn encode_mouse_press_pair_if_semantics(
+    pub fn encode_mouse_press_pair_if_snapshot(
         &self,
-        expected: TerminalPointerSemanticSnapshot,
+        expected: TerminalPointerSnapshot,
         press: MouseInput,
         release: MouseInput,
         press_output: &mut impl Extend<u8>,
         release_output: &mut impl Extend<u8>,
     ) -> Option<GuardedMouseEncode> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.encode_mouse_press_pair_if_semantics(
+            SurfaceHandle::Local(surface, _) => surface.encode_mouse_press_pair_if_snapshot(
                 expected,
                 press,
                 release,
@@ -1227,7 +1246,7 @@ impl SurfaceHandle {
                 release_output,
             ),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                Some(surface.encode_mouse_press_pair_if_semantics(
+                Some(surface.encode_mouse_press_pair_if_snapshot(
                     expected,
                     press,
                     release,
@@ -1259,6 +1278,16 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn try_pointer_snapshot(&self) -> Option<PointerSnapshotProbe> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.try_pointer_snapshot(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.try_pointer_snapshot())
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn scroll_delta(&self, delta: isize) -> Option<bool> {
         match self {
             SurfaceHandle::Local(surface, _) => {
@@ -1278,6 +1307,9 @@ impl SurfaceHandle {
                 let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
                 term.scroll_delta(delta);
                 let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                if before != after {
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
+                }
                 Some(before != after)
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
@@ -1295,11 +1327,16 @@ impl SurfaceHandle {
             }
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 let mut term = surface.term.lock().unwrap();
-                if term.scrollbar() != Some(expected) {
+                let before = term.scrollbar();
+                if before != Some(expected) {
                     return None;
                 }
                 term.scroll_delta(delta);
-                term.scrollbar()
+                let after = term.scrollbar();
+                if after != before {
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
+                }
+                after
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
@@ -1324,6 +1361,9 @@ impl SurfaceHandle {
                 let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
                 term.scroll_to_bottom();
                 let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                if before != after {
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
+                }
                 Some(before != after)
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,

@@ -38,12 +38,25 @@ use cmux_tui_cdp::BrowserMode;
 pub enum GuardedMouseEncode {
     Encoded(ghostty_vt::Result<()>),
     SemanticsChanged,
+    ContentChanged,
     Contended,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
     Ready(TerminalPointerSemanticSnapshot),
+    Contended,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalPointerSnapshot {
+    pub semantics: TerminalPointerSemanticSnapshot,
+    pub content_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerSnapshotProbe {
+    Ready(TerminalPointerSnapshot),
     Contended,
 }
 
@@ -479,6 +492,7 @@ impl AttachTap {
 #[derive(Debug, Clone)]
 pub struct SurfaceRenderFrame {
     pub frame: RenderFrame,
+    pub content_generation: u64,
     pub scrollback_rows: u32,
     pub pointer_semantics: TerminalPointerSemanticSnapshot,
     pub palette_colors: [Rgb; 256],
@@ -1680,6 +1694,35 @@ impl Surface {
         Some(GuardedMouseEncode::Encoded(encoders.encode(input, output)))
     }
 
+    /// Encode only when both terminal semantics and content still match the
+    /// immutable frame that admitted this uncaptured pointer event.
+    pub fn encode_mouse_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        if term.pointer_semantic_snapshot() != expected.semantics {
+            return Some(GuardedMouseEncode::SemanticsChanged);
+        }
+        if pty.render_generation.load(Ordering::Acquire) != expected.content_generation {
+            return Some(GuardedMouseEncode::ContentChanged);
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        encoders.sync_from_terminal(&term);
+        Some(GuardedMouseEncode::Encoded(encoders.encode(input, output)))
+    }
+
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
@@ -1736,6 +1779,42 @@ impl Surface {
         };
         if term.pointer_semantic_snapshot() != expected {
             return Some(GuardedMouseEncode::SemanticsChanged);
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        encoders.sync_from_terminal(&term);
+        Some(GuardedMouseEncode::Encoded(encoders.encode_press_pair(
+            press,
+            release,
+            press_output,
+            release_output,
+        )))
+    }
+
+    /// Encode a press and its matching release only while the terminal still
+    /// matches the immutable content frame that admitted the press.
+    pub fn encode_mouse_press_pair_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        if term.pointer_semantic_snapshot() != expected.semantics {
+            return Some(GuardedMouseEncode::SemanticsChanged);
+        }
+        if pty.render_generation.load(Ordering::Acquire) != expected.content_generation {
+            return Some(GuardedMouseEncode::ContentChanged);
         }
         let mut encoders = match pty.mouse_encoders.try_lock() {
             Ok(encoders) => encoders,
@@ -1910,6 +1989,23 @@ impl Surface {
                 Some(PointerSemanticProbe::Ready(error.into_inner().pointer_semantic_snapshot()))
             }
             Err(TryLockError::WouldBlock) => Some(PointerSemanticProbe::Contended),
+        }
+    }
+
+    pub fn try_pointer_snapshot(&self) -> Option<PointerSnapshotProbe> {
+        let pty = self.as_pty()?;
+        match pty.term.try_lock() {
+            Ok(term) => Some(PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                semantics: term.pointer_semantic_snapshot(),
+                content_generation: pty.render_generation.load(Ordering::Acquire),
+            })),
+            Err(TryLockError::Poisoned(error)) => {
+                Some(PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                    semantics: error.into_inner().pointer_semantic_snapshot(),
+                    content_generation: pty.render_generation.load(Ordering::Acquire),
+                }))
+            }
+            Err(TryLockError::WouldBlock) => Some(PointerSnapshotProbe::Contended),
         }
     }
 
@@ -2462,6 +2558,7 @@ impl PtySurface {
                     std::array::from_fn(|idx| render.state.palette_overridden(idx as u8));
                 let frame = Arc::new(SurfaceRenderFrame {
                     frame: render.state.build_frame()?,
+                    content_generation: generation,
                     scrollback_rows: term.history_rows(),
                     pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,

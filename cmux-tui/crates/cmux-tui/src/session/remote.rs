@@ -15,7 +15,8 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, GuardedMouseEncode, MuxEvent,
     MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
-    PointerSemanticProbe, Rgb, SurfaceId, SurfaceKind, platform::transport,
+    PointerSemanticProbe, PointerSnapshotProbe, Rgb, SurfaceId, SurfaceKind,
+    TerminalPointerSnapshot, platform::transport,
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
@@ -222,6 +223,7 @@ pub struct RemoteSurface {
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     pub dirty: AtomicBool,
+    pub(super) content_generation: AtomicU64,
     reported_size: Mutex<Option<(u16, u16)>>,
     browser: Mutex<RemoteBrowserState>,
 }
@@ -282,6 +284,36 @@ impl RemoteSurface {
         GuardedMouseEncode::Encoded(encoders.encode(input, output))
     }
 
+    pub(super) fn encode_mouse_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> GuardedMouseEncode {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        if term.pointer_semantic_snapshot() != expected.semantics {
+            return GuardedMouseEncode::SemanticsChanged;
+        }
+        if self.content_generation.load(Ordering::Acquire) != expected.content_generation {
+            return GuardedMouseEncode::ContentChanged;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        encoders.sync_from_terminal(&term);
+        GuardedMouseEncode::Encoded(encoders.encode(input, output))
+    }
+
     pub(super) fn encode_mouse_release(
         &self,
         input: MouseInput,
@@ -314,9 +346,9 @@ impl RemoteSurface {
         }
     }
 
-    pub(super) fn encode_mouse_press_pair_if_semantics(
+    pub(super) fn encode_mouse_press_pair_if_snapshot(
         &self,
-        expected: TerminalPointerSemanticSnapshot,
+        expected: TerminalPointerSnapshot,
         press: MouseInput,
         release: MouseInput,
         press_output: &mut impl Extend<u8>,
@@ -329,8 +361,11 @@ impl RemoteSurface {
                 return GuardedMouseEncode::Contended;
             }
         };
-        if term.pointer_semantic_snapshot() != expected {
+        if term.pointer_semantic_snapshot() != expected.semantics {
             return GuardedMouseEncode::SemanticsChanged;
+        }
+        if self.content_generation.load(Ordering::Acquire) != expected.content_generation {
+            return GuardedMouseEncode::ContentChanged;
         }
         let mut encoders = match self.mouse_encoders.try_lock() {
             Ok(encoders) => encoders,
@@ -362,6 +397,22 @@ impl RemoteSurface {
         }
     }
 
+    pub(super) fn try_pointer_snapshot(&self) -> PointerSnapshotProbe {
+        match self.term.try_lock() {
+            Ok(term) => PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                semantics: term.pointer_semantic_snapshot(),
+                content_generation: self.content_generation.load(Ordering::Acquire),
+            }),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                    semantics: error.into_inner().pointer_semantic_snapshot(),
+                    content_generation: self.content_generation.load(Ordering::Acquire),
+                })
+            }
+            Err(std::sync::TryLockError::WouldBlock) => PointerSnapshotProbe::Contended,
+        }
+    }
+
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         self.apply_stream_resize_with_colors(cols, rows, replay, None);
@@ -387,6 +438,7 @@ impl RemoteSurface {
             }
             *term = fresh;
             self.sync_mouse_encoders(&term);
+            self.content_generation.fetch_add(1, Ordering::AcqRel);
             return;
         }
         let _ = term.resize(cols, rows, 8, 16);
@@ -394,6 +446,7 @@ impl RemoteSurface {
             apply_terminal_colors(&mut term, colors);
         }
         self.sync_mouse_encoders(&term);
+        self.content_generation.fetch_add(1, Ordering::AcqRel);
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
@@ -808,6 +861,7 @@ impl RemoteSession {
                         apply_terminal_colors(&mut term, colors);
                     }
                     surface.sync_mouse_encoders(&term);
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
                     drop(term);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
                         self.emit(MuxEvent::SurfaceOutput(id));
@@ -855,6 +909,7 @@ impl RemoteSession {
                     let mut term = surface.term.lock().unwrap();
                     apply_terminal_colors(&mut term, &colors);
                     surface.sync_mouse_encoders(&term);
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
                     drop(term);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
                         self.emit(MuxEvent::SurfaceOutput(id));
@@ -1356,6 +1411,7 @@ impl RemoteSession {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new()?),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2418,6 +2474,7 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
@@ -2452,6 +2509,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2496,6 +2554,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2535,6 +2594,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2647,6 +2707,7 @@ mod tests {
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
@@ -2680,6 +2741,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2715,6 +2777,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(Some((12, 4))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2746,6 +2809,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(Some((90, 31))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -2935,6 +2999,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
                 reported_size: Mutex::new(None),
                 browser: Mutex::new(RemoteBrowserState::default()),
             }),
@@ -2973,6 +3038,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
