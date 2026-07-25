@@ -162,6 +162,18 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == defaultGlobalSearchShortcut)
     }
 
+    @Test func defaultGlobalSearchShortcutIsUnboundWhenRawShowHideCollides() throws {
+        let defaultShortcut = defaultGlobalSearchShortcut
+        let data = try JSONEncoder().encode(defaultShortcut)
+        UserDefaults.standard.set(
+            data,
+            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
+        )
+
+        #expect(SystemWideHotkeySettings.shortcut() == defaultShortcut)
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == .unbound)
+    }
+
     private var defaultGlobalSearchShortcut: StoredShortcut {
         KeyboardShortcutSettings.Action.globalSearch.defaultShortcut
     }
