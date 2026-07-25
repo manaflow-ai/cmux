@@ -54,6 +54,36 @@ import Testing
         #expect(customizations["mac-a"]?.instanceTag == "nightly")
     }
 
+    @Test func exactPairingConnectionStatusOnlyMatchesConnectedPairing() {
+        typealias Status = MobileMacConnectionStatus
+        func refine(_ deviceStatus: Status?, connectedTag: String?, rowTag: String?) -> Status? {
+            MobileShellComposite.exactPairingConnectionStatus(
+                deviceStatus: deviceStatus,
+                connectedMacDeviceID: "mac-a",
+                connectedMacInstanceTag: connectedTag,
+                rowMacDeviceID: "mac-a",
+                rowInstanceTag: rowTag
+            )
+        }
+
+        #expect(refine(.connected, connectedTag: "stable", rowTag: "stable") == .connected)
+        #expect(refine(.connected, connectedTag: "stable", rowTag: "nightly") == nil)
+        #expect(refine(.connected, connectedTag: nil, rowTag: "nightly") == nil)
+        // Legacy untagged rows keep the device-level status.
+        #expect(refine(.connected, connectedTag: "stable", rowTag: nil) == .connected)
+        // Non-connected statuses pass through untouched for every row.
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == .reconnecting)
+        #expect(refine(nil, connectedTag: "stable", rowTag: "nightly") == nil)
+        // A different device is unaffected by this device's connection.
+        #expect(MobileShellComposite.exactPairingConnectionStatus(
+            deviceStatus: .connected,
+            connectedMacDeviceID: "mac-b",
+            connectedMacInstanceTag: "stable",
+            rowMacDeviceID: "mac-a",
+            rowInstanceTag: "nightly"
+        ) == .connected)
+    }
+
     private static func pairedMac(
         id: String,
         displayName: String,

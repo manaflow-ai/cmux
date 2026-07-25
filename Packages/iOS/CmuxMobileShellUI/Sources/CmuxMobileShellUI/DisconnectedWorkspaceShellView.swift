@@ -317,13 +317,18 @@ struct DisconnectedWorkspaceShellView: View {
                 VStack(spacing: 8) {
                     ForEach(savedMacs) { mac in
                         Button {
-                            Task { await store.switchToMac(macDeviceID: mac.macDeviceID) }
+                            Task {
+                                await store.switchToMac(
+                                    macDeviceID: mac.macDeviceID,
+                                    instanceTag: mac.instanceTag
+                                )
+                            }
                         } label: {
                             Label(mac.displayName ?? mac.macDeviceID, systemImage: "desktopcomputer")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.bordered)
-                        .accessibilityIdentifier("MobileDisconnectedSavedMac-\(mac.macDeviceID)")
+                        .accessibilityIdentifier("MobileDisconnectedSavedMac-\(mac.id)")
                     }
                 }
                 .frame(maxWidth: 320)
