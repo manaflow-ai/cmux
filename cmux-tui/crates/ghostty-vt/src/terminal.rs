@@ -2082,6 +2082,16 @@ mod tests {
     }
 
     #[test]
+    fn mouse_mode_scan_ignores_c1_bytes_inside_utf8_text() {
+        let mut scan = MouseModeScan::default();
+
+        assert!(!scan.feed("ě!p".as_bytes()));
+        assert!(!scan.feed(&[0xc4]));
+        assert!(!scan.feed(&[0x9b, b'!', b'p']));
+        assert!(scan.feed(b"\x9b!p"), "a standalone C1 CSI still denotes a soft reset");
+    }
+
+    #[test]
     fn terminal_instances_have_lifetime_stable_ids() {
         let first = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
