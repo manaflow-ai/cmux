@@ -2285,6 +2285,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func prepareForDismantle() {
         isDismantled = true
         prepareForReuseAfterDetach()
+        disposeSurface()
     }
 
     /// Quiesces the surface on window detach: resigns input, stops the display
@@ -2498,8 +2499,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // never use-after-free against the free, and no two of them ever touch
         // the surface concurrently. `processOutput`'s main-actor guard stops new
         // work from being enqueued once `surface` is nil, so only the bounded
-        // backlog drains before the free. (Retain the bridge across the hop; it
-        // owns the userdata libghostty still references until the free.)
+        // backlog drains before the free. The bridge disables callbacks now,
+        // but retains the raw platform view until synchronous teardown returns.
         enqueueSurfaceFree(surface, bridge: currentBridge, generation: surfaceGeneration, on: currentQueue)
     }
 
@@ -2509,12 +2510,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
-        surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
-        queue.async { [weak self] in
+        let watchdog = surfaceFreeDrainWatchdog
+        let pendingFreesAtEnqueue = pendingSurfaceFreeCount
+        watchdog.start(generation: generation) { pendingFreesAtEnqueue }
+        let finish: @MainActor @Sendable () -> Void = { [bridge, watchdog, completion] in
+            bridge.releaseSurfaceViewAfterFree()
+            watchdog.cancel(generation: generation)
+            completion?()
+        }
+        queue.async {
             ghostty_surface_free(surface)
-            retainedBridge.release()
-            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
+            Task { @MainActor in finish() }
         }
     }
 
@@ -3488,6 +3494,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         guard ghostty_surface_set_render_presented_callback(
@@ -3498,6 +3505,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         return createdSurface
