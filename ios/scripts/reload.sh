@@ -681,7 +681,8 @@ reload_device() {
     build_args+=(-allowProvisioningDeviceRegistration)
   fi
 
-  build_args+=("${XCODE_AUTH_ARGS[@]}")
+  # bash 3.2 + set -u errors on expanding an empty array; guard the expansion.
+  build_args+=(${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"})
 
   build_args+=(
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
