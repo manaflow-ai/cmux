@@ -60,10 +60,6 @@ extension AppDelegate {
         _ event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
     ) -> VisibleGlobalSearchShortcutRoute {
-        guard GlobalSearchCoordinator.shared.isPaletteVisible() else {
-            return .notApplicable
-        }
-
         let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
         let matchesShortcut = matchCachedGlobalSearchShortcut(
             event: event,
@@ -74,6 +70,9 @@ extension AppDelegate {
             normalizedFlags: normalizedFlags
         )
         guard matchesShortcut || matchesUnarmedChordPrefix else {
+            return .notApplicable
+        }
+        guard GlobalSearchCoordinator.shared.isPaletteVisible() else {
             return .notApplicable
         }
 

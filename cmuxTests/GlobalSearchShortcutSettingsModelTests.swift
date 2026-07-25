@@ -72,7 +72,7 @@ final class GlobalSearchShortcutSettingsModelTests {
             model.bindings[ShortcutAction.openSettings.rawValue] == observationSentinel
         }
 
-        #expect(model.bindings[ShortcutAction.globalSearch.rawValue] == nil)
+        #expect(model.bindings[ShortcutAction.globalSearch.rawValue] == mediaShortcut)
         #expect(model.effective(for: .globalSearch) == ShortcutAction.globalSearch.defaultShortcut)
     }
 
