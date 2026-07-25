@@ -34,29 +34,45 @@ use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
 
+/// Result of encoding terminal mouse input against a previously observed
+/// pointer snapshot without blocking on terminal parsing.
 #[derive(Debug)]
 pub enum GuardedMouseEncode {
+    /// The guards still matched and the encoder returned this result.
     Encoded(ghostty_vt::Result<()>),
+    /// The terminal's mouse protocol or reporting mode changed.
     SemanticsChanged,
+    /// Terminal output changed the content generation used by the route.
     ContentChanged,
+    /// Terminal parsing currently owns a required lock. The caller may retry
+    /// after the next surface update without changing the pointer route.
     Contended,
 }
 
+/// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
+    /// The semantic snapshot was read consistently.
     Ready(TerminalPointerSemanticSnapshot),
+    /// Terminal parsing currently owns the semantic state lock.
     Contended,
 }
 
+/// Terminal pointer state captured from one consistent rendered generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerminalPointerSnapshot {
+    /// Mouse protocol and reporting mode used to encode pointer input.
     pub semantics: TerminalPointerSemanticSnapshot,
+    /// Terminal content generation that produced the rendered hit route.
     pub content_generation: u64,
 }
 
+/// Nonblocking probe for a complete terminal pointer snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSnapshotProbe {
+    /// Semantic and content-generation state were read consistently.
     Ready(TerminalPointerSnapshot),
+    /// Terminal parsing currently owns a required state lock.
     Contended,
 }
 
@@ -1992,6 +2008,8 @@ impl Surface {
         }
     }
 
+    /// Read terminal pointer semantics and content generation without waiting
+    /// behind terminal parsing. Returns `None` for non-PTY surfaces.
     pub fn try_pointer_snapshot(&self) -> Option<PointerSnapshotProbe> {
         let pty = self.as_pty()?;
         match pty.term.try_lock() {
@@ -2325,6 +2343,7 @@ impl Surface {
         self.as_browser().and_then(BrowserSurface::latest_frame)
     }
 
+    /// Return the newest usable browser frame sequence for guarded input.
     pub fn browser_frame_seq(&self) -> Option<u64> {
         self.as_browser().and_then(BrowserSurface::latest_frame_seq)
     }
@@ -2388,6 +2407,8 @@ impl Surface {
         browser.mouse_event(event_type, x, y, button, click_count)
     }
 
+    /// Queue browser mouse input admitted by a rendered frame sequence.
+    /// Returns `None` for non-browser surfaces.
     pub fn browser_mouse_event_for_frame(
         &self,
         event_type: &str,
@@ -2410,6 +2431,8 @@ impl Surface {
         browser.wheel(x, y, delta_y)
     }
 
+    /// Queue browser wheel input only while its rendered frame remains live.
+    /// Returns `None` for non-browser surfaces.
     pub fn browser_wheel_for_frame(
         &self,
         x: f64,

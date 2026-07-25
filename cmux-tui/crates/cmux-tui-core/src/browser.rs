@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
@@ -113,6 +113,10 @@ struct BrowserState {
     /// restore its previous frame only if no asynchronous browser event won
     /// the race in the meantime.
     pointer_frame_revision: u64,
+    /// Ownership epoch for pointer captures. Unlike the presentation frame,
+    /// this survives ordinary repaint frames and changes only when navigation,
+    /// geometry, or failure invalidates the page that accepted the press.
+    pointer_capture_generation: u64,
     // Latest-wins attach frame taps. Broadcast overwrites each slot and
     // sends one wakeup; a slow client skips old frames but stays attached.
     taps: Vec<BrowserFrameTap>,
@@ -160,6 +164,7 @@ struct BrowserReconfigureFailure {
 #[derive(Clone, Copy)]
 struct PointerFrameInvalidation {
     previous: Option<u64>,
+    previous_capture_generation: u64,
     revision: u64,
 }
 
@@ -248,7 +253,7 @@ fn reject_reconfigure(mut command: BrowserCommand) -> Option<QueuedBrowserGeomet
 #[derive(Default)]
 struct BrowserWorkerErrorState {
     consecutive_timeouts: u8,
-    active_pointer_presses: HashSet<String>,
+    active_pointer_presses: HashMap<String, u64>,
 }
 
 pub struct BrowserRuntime {
@@ -587,6 +592,7 @@ pub(crate) fn new_surface(
             latest_frame: None,
             pointer_frame_seq: None,
             pointer_frame_revision: 0,
+            pointer_capture_generation: 0,
             taps: Vec::new(),
             title: normalized_url.clone(),
             url: normalized_url,
@@ -1162,6 +1168,8 @@ impl BrowserSurface {
         }
     }
 
+    /// Return the newest usable screencast frame sequence, or `None` while the
+    /// surface has no frame or is failed.
     pub fn latest_frame_seq(&self) -> Option<u64> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
@@ -1367,7 +1375,7 @@ impl BrowserSurface {
         state.capture_scale = geometry.capture_scale;
         if changed {
             state.latest_frame = None;
-            Self::set_pointer_frame_locked(&mut state, None);
+            Self::invalidate_pointer_frame_locked(&mut state);
             state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
@@ -1535,7 +1543,7 @@ impl BrowserSurface {
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Failed(message.clone());
-        Self::set_pointer_frame_locked(&mut state, None);
+        Self::invalidate_pointer_frame_locked(&mut state);
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
         Self::mark_state_dirty_locked(&mut state);
@@ -1640,16 +1648,51 @@ impl BrowserSurface {
         Some(Self::scale_input_point_locked(&state, x, y))
     }
 
+    fn capture_guarded_input_point(
+        &self,
+        frame_seq: u64,
+        x: f64,
+        y: f64,
+    ) -> Option<((f64, f64), u64)> {
+        let state = self.state.lock().unwrap();
+        if state.pointer_frame_seq != Some(frame_seq) {
+            return None;
+        }
+        Some((Self::scale_input_point_locked(&state, x, y), state.pointer_capture_generation))
+    }
+
+    fn scale_captured_input_point(
+        &self,
+        capture_generation: u64,
+        x: f64,
+        y: f64,
+    ) -> Option<(f64, f64)> {
+        let state = self.state.lock().unwrap();
+        if state.pointer_capture_generation != capture_generation {
+            return None;
+        }
+        Some(Self::scale_input_point_locked(&state, x, y))
+    }
+
     fn set_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
         state.pointer_frame_seq = frame_seq;
         state.pointer_frame_revision = state.pointer_frame_revision.wrapping_add(1);
     }
 
-    fn invalidate_pointer_frame(&self) -> PointerFrameInvalidation {
-        let mut state = self.state.lock().unwrap();
+    fn invalidate_pointer_frame_locked(state: &mut BrowserState) -> PointerFrameInvalidation {
         let previous = state.pointer_frame_seq;
-        Self::set_pointer_frame_locked(&mut state, None);
-        PointerFrameInvalidation { previous, revision: state.pointer_frame_revision }
+        let previous_capture_generation = state.pointer_capture_generation;
+        Self::set_pointer_frame_locked(state, None);
+        state.pointer_capture_generation = state.pointer_capture_generation.wrapping_add(1);
+        PointerFrameInvalidation {
+            previous,
+            previous_capture_generation,
+            revision: state.pointer_frame_revision,
+        }
+    }
+
+    fn invalidate_pointer_frame(&self) -> PointerFrameInvalidation {
+        Self::invalidate_pointer_frame_locked(&mut self.state.lock().unwrap())
     }
 
     fn restore_pointer_frame_after_failed_command(&self, invalidation: PointerFrameInvalidation) {
@@ -1660,6 +1703,7 @@ impl BrowserSurface {
         {
             return;
         }
+        state.pointer_capture_generation = invalidation.previous_capture_generation;
         Self::set_pointer_frame_locked(&mut state, invalidation.previous);
     }
 
@@ -1859,6 +1903,9 @@ impl BrowserSurface {
         self.mouse_event_for_frame(event_type, x, y, button, click_count, None)
     }
 
+    /// Queue a mouse event admitted by `frame_seq`. Uncaptured events for a
+    /// stale frame are ignored; a press that was accepted owns its matching
+    /// motion and release until navigation or geometry invalidates the page.
     pub fn mouse_event_for_frame(
         &self,
         event_type: &str,
@@ -1886,24 +1933,43 @@ impl BrowserSurface {
     fn mouse_event_blocking(
         &self,
         dispatch: BrowserMouseDispatch<'_>,
-        active_pointer_presses: &mut HashSet<String>,
+        active_pointer_presses: &mut HashMap<String, u64>,
     ) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         if dispatch.event_type == "mousePressed" {
             self.maybe_nudge_stalled_external(&session);
         }
-        let guarded_button =
-            dispatch.frame_seq.map(|_| dispatch.button.unwrap_or("none").to_string());
-        if dispatch.event_type == "mouseReleased"
-            && let Some(button) = guarded_button.as_ref()
-            && !active_pointer_presses.remove(button)
-        {
-            return Ok(());
-        }
-        let point = if dispatch.event_type == "mouseReleased" {
-            Some(self.scale_input_point(dispatch.x, dispatch.y))
-        } else {
-            self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y)
+        let button = dispatch.button.unwrap_or("none");
+        let mut captured_press = None;
+        let point = match (dispatch.event_type, dispatch.frame_seq) {
+            ("mousePressed", Some(frame_seq)) => {
+                let Some((point, generation)) =
+                    self.capture_guarded_input_point(frame_seq, dispatch.x, dispatch.y)
+                else {
+                    return Ok(());
+                };
+                captured_press = Some(generation);
+                Some(point)
+            }
+            ("mouseReleased", Some(_)) => {
+                let Some(generation) = active_pointer_presses.remove(button) else {
+                    return Ok(());
+                };
+                self.scale_captured_input_point(generation, dispatch.x, dispatch.y)
+            }
+            ("mouseMoved", Some(_)) => {
+                if let Some(generation) = active_pointer_presses.get(button).copied() {
+                    let point = self.scale_captured_input_point(generation, dispatch.x, dispatch.y);
+                    if point.is_none() {
+                        active_pointer_presses.remove(button);
+                    }
+                    point
+                } else {
+                    self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y)
+                }
+            }
+            ("mouseReleased", None) => Some(self.scale_input_point(dispatch.x, dispatch.y)),
+            _ => self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y),
         };
         let Some((x, y)) = point else { return Ok(()) };
         session.runtime.client.dispatch_mouse_event(
@@ -1914,10 +1980,8 @@ impl BrowserSurface {
             dispatch.button,
             dispatch.click_count,
         )?;
-        if dispatch.event_type == "mousePressed"
-            && let Some(button) = guarded_button
-        {
-            active_pointer_presses.insert(button);
+        if let Some(generation) = captured_press {
+            active_pointer_presses.insert(button.to_string(), generation);
         }
         Ok(())
     }
@@ -1926,6 +1990,7 @@ impl BrowserSurface {
         self.wheel_for_frame(x, y, delta_y, None)
     }
 
+    /// Queue a wheel event only if `frame_seq` is still the live browser frame.
     pub fn wheel_for_frame(
         &self,
         x: f64,
@@ -3387,6 +3452,27 @@ mod tests {
     }
 
     #[test]
+    fn pointer_capture_survives_repaint_but_not_navigation() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_, capture_generation) =
+            browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live press frame");
+
+        browser.store_frame(test_frame(2));
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "ordinary repaint frames must preserve pointer capture"
+        );
+
+        browser.invalidate_pointer_frame();
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_none(),
+            "navigation must revoke pointer capture from the previous document"
+        );
+    }
+
+    #[test]
     fn failed_navigation_dispatch_restores_the_presented_frame_admission() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -3420,14 +3506,19 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
+        let (_, capture_generation) =
+            browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live press frame");
 
         assert!(browser.navigate_blocking("https://next.test").is_err());
 
         let restored = browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some();
+        let capture_restored =
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some();
         stop_tx.send(()).unwrap();
         runtime.shutdown();
         server.join().unwrap();
         assert!(restored, "a rejected navigation must leave the still-presented frame interactive");
+        assert!(capture_restored, "a rejected navigation must restore active capture ownership");
     }
 
     #[test]
