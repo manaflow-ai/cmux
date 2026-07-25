@@ -18,6 +18,10 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
     public let childCount: Int?
     /// Whether ``childCount`` is the listing cap rather than the exact count.
     public let childCountIsCapped: Bool
+    /// Intrinsic image width in pixels, when available.
+    public let pixelWidth: Int?
+    /// Intrinsic image height in pixels, when available.
+    public let pixelHeight: Int?
     /// Transcript provenance after precedence-based de-duplication.
     public let provenance: ChatArtifactProvenance
 
@@ -34,6 +38,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         exists: Bool = true,
         childCount: Int? = nil,
         childCountIsCapped: Bool = false,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil,
         provenance: ChatArtifactProvenance = .referenced
     ) {
         self.path = path
@@ -44,6 +50,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         self.exists = exists
         self.childCount = childCount
         self.childCountIsCapped = childCountIsCapped
+        self.pixelWidth = Self.validPixelDimension(pixelWidth)
+        self.pixelHeight = Self.validPixelDimension(pixelHeight)
         self.provenance = provenance
     }
 
@@ -56,6 +64,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         case exists
         case childCount = "child_count"
         case childCountIsCapped = "child_count_is_capped"
+        case pixelWidth = "pixel_width"
+        case pixelHeight = "pixel_height"
         case provenance
     }
 
@@ -74,6 +84,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         exists = (try? container.decode(Bool.self, forKey: .exists)) ?? true
         childCount = try? container.decode(Int.self, forKey: .childCount)
         childCountIsCapped = (try? container.decode(Bool.self, forKey: .childCountIsCapped)) ?? false
+        pixelWidth = Self.validPixelDimension(try? container.decode(Int.self, forKey: .pixelWidth))
+        pixelHeight = Self.validPixelDimension(try? container.decode(Int.self, forKey: .pixelHeight))
         provenance = (try? container.decode(ChatArtifactProvenance.self, forKey: .provenance)) ?? .referenced
     }
 
@@ -89,6 +101,13 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         try container.encode(exists, forKey: .exists)
         try container.encodeIfPresent(childCount, forKey: .childCount)
         try container.encode(childCountIsCapped, forKey: .childCountIsCapped)
+        try container.encodeIfPresent(pixelWidth, forKey: .pixelWidth)
+        try container.encodeIfPresent(pixelHeight, forKey: .pixelHeight)
         try container.encode(provenance, forKey: .provenance)
+    }
+
+    private static func validPixelDimension(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
     }
 }

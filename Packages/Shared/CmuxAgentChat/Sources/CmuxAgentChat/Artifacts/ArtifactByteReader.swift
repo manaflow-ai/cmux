@@ -64,14 +64,41 @@ public struct ArtifactByteReader: Sendable {
             isDirectory: isDirectory,
             isRegularFile: fileType == .typeRegular
         )
+        let imageDimensions = imageDimensions(path: path, kind: kind)
         return ChatArtifactStat(
             exists: true,
             isDirectory: isDirectory,
             size: size,
             modifiedAt: modifiedAt,
             kind: kind,
-            mimeType: mimeType(path: path, isDirectory: isDirectory)
+            mimeType: mimeType(path: path, isDirectory: isDirectory),
+            pixelWidth: imageDimensions?.width,
+            pixelHeight: imageDimensions?.height
         )
+    }
+
+    private func imageDimensions(path: String, kind: ChatArtifactKind) -> (width: Int, height: Int)? {
+        guard kind == .image else { return nil }
+        let url = URL(fileURLWithPath: path)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return nil
+        }
+        let width = Self.intProperty(properties[kCGImagePropertyPixelWidth])
+        let height = Self.intProperty(properties[kCGImagePropertyPixelHeight])
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return (width, height)
+    }
+
+    private static func intProperty(_ value: Any?) -> Int? {
+        switch value {
+        case let number as NSNumber:
+            return number.intValue
+        case let int as Int:
+            return int
+        default:
+            return nil
+        }
     }
 
     /// Generates a JPEG thumbnail for an already-authorized image path.

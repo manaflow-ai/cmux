@@ -163,6 +163,8 @@ public struct ChatArtifactGalleryBuilder: Sendable {
                     exists: stat.exists,
                     childCount: children?.count,
                     childCountIsCapped: children?.isCapped ?? false,
+                    pixelWidth: stat.pixelWidth,
+                    pixelHeight: stat.pixelHeight,
                     provenance: reference.provenance
                 )
             } catch {

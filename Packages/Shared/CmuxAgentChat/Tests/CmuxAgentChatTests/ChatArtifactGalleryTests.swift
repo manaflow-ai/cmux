@@ -1,5 +1,8 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import CmuxAgentChat
 
 @Suite("Chat artifact gallery")
@@ -15,6 +18,8 @@ struct ChatArtifactGalleryTests {
             exists: false,
             childCount: 500,
             childCountIsCapped: true,
+            pixelWidth: 1600,
+            pixelHeight: 900,
             provenance: .created
         )
         let page = ChatArtifactGalleryPage(
@@ -35,6 +40,8 @@ struct ChatArtifactGalleryTests {
         let created = try #require(json["created"] as? [[String: Any]])
         #expect(created.first?["child_count"] as? Int == 500)
         #expect(created.first?["child_count_is_capped"] as? Bool == true)
+        #expect(created.first?["pixel_width"] as? Int == 1600)
+        #expect(created.first?["pixel_height"] as? Int == 900)
         #expect(try coding.decode(ChatArtifactGalleryPage.self, from: data) == page)
 
         let scan = TerminalArtifactScanResponse(artifacts: [], sessionID: "session-1")
@@ -122,6 +129,34 @@ struct ChatArtifactGalleryTests {
         #expect(oldHostPage.created.isEmpty)
         #expect(oldHostPage.referenced.isEmpty)
         #expect(oldHostPage.referencedTotal == 0)
+    }
+
+    @Test("image gallery rows include intrinsic pixel dimensions")
+    func imageGalleryRowsIncludePixelDimensions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gallery-image-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let image = root.appendingPathComponent("render.png")
+        try Self.writePNG(width: 16, height: 9, to: image)
+
+        let page = ChatArtifactGalleryBuilder().page(
+            sessionID: "session",
+            items: [ChatArtifactIndexedReference(
+                path: image.path,
+                provenance: .created,
+                lastReferencedSeq: 1
+            )],
+            generation: "generation",
+            cursor: nil,
+            pageSize: 10,
+            query: nil
+        )
+
+        let item = try #require(page.created.first)
+        #expect(item.kind == .image)
+        #expect(item.pixelWidth == 16)
+        #expect(item.pixelHeight == 9)
     }
 
     @Test("pages fill sections sequentially so loads only extend the list bottom")
@@ -509,5 +544,38 @@ struct ChatArtifactGalleryTests {
         }
         #expect(pages == 3)
         #expect(paths == (1...8).reversed().map { "/tmp/page-\($0).txt" })
+    }
+
+    private static func writePNG(width: Int, height: Int, to url: URL) throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            Issue.record("Failed to create test image context")
+            return
+        }
+        context.setFillColor(CGColor(red: 0.9, green: 0.4, blue: 0.1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(
+                url as CFURL,
+                UTType.png.identifier as CFString,
+                1,
+                nil
+              ) else {
+            Issue.record("Failed to create test image destination")
+            return
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            Issue.record("Failed to finalize test PNG")
+            return
+        }
     }
 }

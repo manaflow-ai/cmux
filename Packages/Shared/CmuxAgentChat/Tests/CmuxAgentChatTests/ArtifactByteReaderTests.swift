@@ -1,6 +1,9 @@
 import Darwin
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 
 @testable import CmuxAgentChat
 
@@ -210,6 +213,21 @@ struct ArtifactByteReaderTests {
         }
     }
 
+    @Test("image stat includes intrinsic pixel dimensions")
+    func imageStatIncludesPixelDimensions() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("preview.png")
+            try Self.writePNG(width: 16, height: 9, to: file)
+
+            let stat = try ArtifactByteReader().stat(path: file.path)
+
+            #expect(stat.kind == .image)
+            #expect(stat.mimeType == "image/png")
+            #expect(stat.pixelWidth == 16)
+            #expect(stat.pixelHeight == 9)
+        }
+    }
+
     private func withTemporaryDirectory(
         _ operation: (URL) throws -> Void
     ) throws {
@@ -218,5 +236,38 @@ struct ArtifactByteReaderTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try operation(directory)
+    }
+
+    private static func writePNG(width: Int, height: Int, to url: URL) throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            Issue.record("Failed to create test image context")
+            return
+        }
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(
+                url as CFURL,
+                UTType.png.identifier as CFString,
+                1,
+                nil
+              ) else {
+            Issue.record("Failed to create test image destination")
+            return
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            Issue.record("Failed to finalize test PNG")
+            return
+        }
     }
 }
