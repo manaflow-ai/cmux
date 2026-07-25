@@ -30,6 +30,7 @@ struct NotificationFeedView: View {
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
                 isSourceRebuilding: projection.isSourceRebuilding,
+                hasStaleSourceSections: projection.hasStaleSourceSections,
                 filter: projection.filter,
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
@@ -90,6 +91,7 @@ private struct NotificationFeedList: View {
     let sections: [NotificationFeedDaySection]
     let sourceItemCount: Int
     let isSourceRebuilding: Bool
+    let hasStaleSourceSections: Bool
     let filter: MobileNotificationFeedFilter
     let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
@@ -112,6 +114,8 @@ private struct NotificationFeedList: View {
                         ForEach(section.items) { item in
                             NotificationFeedRow(item: item, actions: actions)
                                 .equatable()
+                                .disabled(hasStaleSourceSections)
+                                .allowsHitTesting(!hasStaleSourceSections)
                         }
                     } header: {
                         NotificationFeedDayHeader(section: section)

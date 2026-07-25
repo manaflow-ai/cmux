@@ -60,10 +60,12 @@ import Testing
 
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["read", "unread"])
         #expect(projection.isSourceRebuilding)
+        #expect(!projection.hasStaleSourceSections)
 
         await projection.waitForPendingRebuild()
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["unread"])
         #expect(!projection.isSourceRebuilding)
+        #expect(!projection.hasStaleSourceSections)
     }
 
     @Test @MainActor func searchMatchesNotificationContentAndComposesWithUnreadFilter() async throws {
@@ -128,10 +130,12 @@ import Testing
 
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["approval", "tests"])
         #expect(projection.isSourceRebuilding)
+        #expect(!projection.hasStaleSourceSections)
 
         await projection.waitForPendingRebuild()
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["tests"])
         #expect(!projection.isSourceRebuilding)
+        #expect(!projection.hasStaleSourceSections)
     }
 
     @Test @MainActor func searchMatchesMetadataAfterLongBody() async throws {
@@ -217,7 +221,7 @@ import Testing
         #expect(!projection.isSourceRebuilding)
     }
 
-    @Test @MainActor func sourceUpdateRetainsPriorRowsUntilAsyncRebuildPublishes() async throws {
+    @Test @MainActor func sourceUpdateRetainsButMarksPriorRowsStaleUntilAsyncRebuildPublishes() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -242,10 +246,12 @@ import Testing
 
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["old-scope"])
         #expect(projection.isSourceRebuilding)
+        #expect(projection.hasStaleSourceSections)
 
         await projection.waitForPendingRebuild()
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["new-scope"])
         #expect(!projection.isSourceRebuilding)
+        #expect(!projection.hasStaleSourceSections)
     }
 
     #if os(iOS)

@@ -43,6 +43,7 @@ final class NotificationFeedProjection {
     private(set) var sourceItemCount = 0
     private(set) var sourceUnreadCount = 0
     private(set) var isSourceRebuilding = false
+    private(set) var hasStaleSourceSections = false
 
     @ObservationIgnored private var sourceItems: [MobileNotificationFeedItem] = []
     @ObservationIgnored private var referenceDate: Date
@@ -67,6 +68,7 @@ final class NotificationFeedProjection {
         sourceRevision &+= 1
         sourceItemCount = boundedItems.count
         sourceUnreadCount = boundedItems.lazy.filter { !$0.isRead }.count
+        hasStaleSourceSections = !sections.isEmpty
         isSourceRebuilding = true
         scheduleRebuild()
     }
@@ -125,6 +127,7 @@ final class NotificationFeedProjection {
             }
 
             self.sections = output.sections
+            self.hasStaleSourceSections = false
             self.isSourceRebuilding = false
         }
     }
