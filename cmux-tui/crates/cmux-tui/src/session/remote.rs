@@ -2110,6 +2110,48 @@ mod tests {
         assert_eq!(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap(), b"\x0c");
     }
 
+    #[test]
+    fn clear_history_shortcut_uses_plain_clear_on_intermediate_remote_server() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let session = test_session_with_provider_context(
+            Box::new(RecordingAcknowledgingWriter {
+                session: session_slot.clone(),
+                requests: requests.clone(),
+            }),
+            HashSet::from([CLEAR_HISTORY_CAPABILITY.to_string()]),
+            None,
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session.surfaces.lock().unwrap().insert(
+            7,
+            Arc::new(RemoteSurface {
+                id: 7,
+                kind: SurfaceKind::Pty,
+                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
+                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+                dirty: AtomicBool::new(false),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            }),
+        );
+        let fallback = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_L,
+            mods: Mods::CTRL,
+            unshifted_codepoint: 'l' as u32,
+            action: Some(KeyAction::Press),
+            ..Default::default()
+        };
+
+        session.clear_history_or_send_key(7, &fallback).unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["cmd"], "clear-history");
+        assert_eq!(requests[0]["surface"], 7);
+        assert_eq!(requests[0]["fallback_key"], Value::Null);
+    }
+
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
         let session_slot = Arc::new(Mutex::new(None));
         let session = test_session_with_provider_context(
