@@ -259,7 +259,6 @@ struct WorkspaceShellView: View {
             }) {
                 MobileSettingsView(
                     connectedHostName: store.connectedHostName,
-                    rescanQR: { store.disconnectAndHideActiveMac() },
                     startPairingScanner: {
                         settingsPairingScannerHandoff.requestScannerAfterDismiss(
                             isSettingsPresented: $showingRootSettings
@@ -508,7 +507,6 @@ struct WorkspaceShellView: View {
             },
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
-            rescanQR: { store.disconnectAndHideActiveMac() },
             signOut: signOut,
             reconnect: reconnectClosure,
             showAddDevice: showAddDevice,

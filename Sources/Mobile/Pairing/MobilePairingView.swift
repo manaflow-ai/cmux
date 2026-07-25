@@ -20,6 +20,9 @@ struct MobilePairingView: View {
     /// Defaults to the Iroh identity QR. The user may explicitly reveal the
     /// separately minted released-client Tailscale code when one is available.
     @State private var showsLegacyPairingCode = false
+    /// Reports the scroll content's unconstrained height so the AppKit window
+    /// can grow to reveal it while retaining scrolling on shorter displays.
+    private let onContentHeightChange: (CGFloat) -> Void
 
     /// The shared auth coordinator, observed so the view re-runs `refresh()`
     /// when sign-in completes or settles. Captured once; stable post-startup.
@@ -29,6 +32,10 @@ struct MobilePairingView: View {
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
     /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
     static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
+
+    init(onContentHeightChange: @escaping (CGFloat) -> Void = { _ in }) {
+        self.onContentHeightChange = onContentHeightChange
+    }
 
     var body: some View {
         ScrollView {
@@ -40,6 +47,21 @@ struct MobilePairingView: View {
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: MobilePairingContentHeightPreferenceKey.self,
+                        value: MobilePairingContentMeasurement(
+                            height: geometry.size.height,
+                            state: model.state,
+                            showsLegacyPairingCode: showsLegacyPairingCode
+                        )
+                    )
+                }
+            }
+        }
+        .onPreferenceChange(MobilePairingContentHeightPreferenceKey.self) { measurement in
+            onContentHeightChange(measurement.height)
         }
         .task { await model.refresh() }
         .onDisappear { model.stopObserving() }
@@ -57,7 +79,10 @@ struct MobilePairingView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone"))
                 .cmuxFont(.title2, weight: .semibold)
-            Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."))
+            Text(String(
+                localized: "mobile.pairing.window.subheading",
+                defaultValue: "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
+            ))
                 .cmuxFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -442,4 +467,28 @@ struct MobilePairingView: View {
         }
     }
 
+}
+
+private struct MobilePairingContentMeasurement: Equatable {
+    let height: CGFloat
+    let state: MobilePairingModel.State
+    let showsLegacyPairingCode: Bool
+}
+
+private struct MobilePairingContentHeightPreferenceKey: PreferenceKey {
+    static let defaultValue = MobilePairingContentMeasurement(
+        height: 0,
+        state: .loading,
+        showsLegacyPairingCode: false
+    )
+
+    static func reduce(
+        value: inout MobilePairingContentMeasurement,
+        nextValue: () -> MobilePairingContentMeasurement
+    ) {
+        let next = nextValue()
+        if next.height >= value.height {
+            value = next
+        }
+    }
 }
