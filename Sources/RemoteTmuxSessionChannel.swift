@@ -231,6 +231,9 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     @discardableResult func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
         underlying.sendNewWindow(command, completion: completion)
     }
+    @discardableResult func sendNewPane(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
+        underlying.sendNewPane(command, completion: completion)
+    }
     @discardableResult func sendWindowReorder(_ commands: [String], verification: ((Bool) -> Void)?) -> Bool {
         guard !commands.isEmpty else {
             verification?(true)
