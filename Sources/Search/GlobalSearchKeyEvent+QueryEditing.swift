@@ -16,7 +16,7 @@ extension GlobalSearchKeyEvent {
         if commandControlOption == [.option] {
             return isPrintableTextInput || isTextNavigationOrDeletionKey
         }
-        if commandControlOption.isEmpty, flags.contains(.shift) {
+        if commandControlOption.isEmpty {
             return isPrintableTextInput || isTextNavigationOrDeletionKey
         }
         return false
