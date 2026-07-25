@@ -10,6 +10,15 @@ import Testing
 
 @Suite struct SessionPersistenceResumeBindingTests {
     @Test func poisonedAgentHookBindingYieldsToProviderVerifiedSession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-provider-verified-restore-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let verifiedSessionId = "verified-\(UUID().uuidString)"
+        let transcript = root.appendingPathComponent("rollout-\(verifiedSessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(verifiedSessionId)"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
+
         let poisonedBinding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume 019f6dbc-5095-74f3-8035-ab8cdf772bb7",
@@ -19,8 +28,9 @@ import Testing
         )
         let verifiedAgent = SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "019f656e-cb8a-7ff2-9bef-81bf82fd6cb3",
-            workingDirectory: "/tmp/feed"
+            sessionId: verifiedSessionId,
+            workingDirectory: "/tmp/feed",
+            transcriptPath: transcript.path
         )
 
         let inputs = Workspace.sessionRestoreInputsForTesting(

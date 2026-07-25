@@ -992,19 +992,37 @@ extension Workspace {
         return restorableAgent
     }
 
+    nonisolated static func verifiedSessionRestoreInputs(
+        binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        codexResumeVerifier: CodexSessionResumeVerifier = CodexSessionResumeVerifier()
+    ) -> (binding: SurfaceResumeBindingSnapshot?, restorableAgent: SessionRestorableAgentSnapshot?) {
+        let verifiedAgent = providerVerifiedRestorableAgentForSessionRestore(
+            restorableAgent,
+            codexResumeVerifier: codexResumeVerifier
+        )
+        let verifiedBinding = resumeBindingForSessionRestore(
+            binding,
+            restorableAgent: verifiedAgent,
+            codexResumeVerifier: codexResumeVerifier
+        )
+        return (
+            verifiedBinding,
+            restorableAgentForSessionRestore(
+                verifiedAgent,
+                resumeBinding: verifiedBinding
+            )
+        )
+    }
+
 #if DEBUG
     nonisolated static func sessionRestoreInputsForTesting(
         binding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?
     ) -> (binding: SurfaceResumeBindingSnapshot?, restorableAgent: SessionRestorableAgentSnapshot?) {
-        let effectiveBinding = resumeBindingForSessionRestore(
-            binding,
-            restorableAgent: restorableAgent,
-            codexResumeVerifier: CodexSessionResumeVerifier()
-        )
-        return (
-            effectiveBinding,
-            restorableAgentForSessionRestore(restorableAgent, resumeBinding: effectiveBinding)
+        verifiedSessionRestoreInputs(
+            binding: binding,
+            restorableAgent: restorableAgent
         )
     }
 #endif
@@ -1324,19 +1342,13 @@ extension Workspace {
         switch snapshot.type {
         case .terminal:
             let codexResumeVerifier = CodexSessionResumeVerifier()
-            let snapshotRestorableAgent = Self.providerVerifiedRestorableAgentForSessionRestore(
-                snapshot.terminal?.agent,
+            let restoreInputs = Self.verifiedSessionRestoreInputs(
+                binding: snapshot.terminal?.resumeBinding,
+                restorableAgent: snapshot.terminal?.agent,
                 codexResumeVerifier: codexResumeVerifier
             )
-            let persistedResumeBinding = Self.resumeBindingForSessionRestore(
-                snapshot.terminal?.resumeBinding,
-                restorableAgent: snapshotRestorableAgent,
-                codexResumeVerifier: codexResumeVerifier
-            )
-            let restorableAgent = Self.restorableAgentForSessionRestore(
-                snapshotRestorableAgent,
-                resumeBinding: persistedResumeBinding
-            )
+            let persistedResumeBinding = restoreInputs.binding
+            let restorableAgent = restoreInputs.restorableAgent
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
