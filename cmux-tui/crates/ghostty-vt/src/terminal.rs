@@ -2608,6 +2608,23 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_leaves_viewport_spanning_active_input_intact() {
+        let mut terminal = Terminal::new(8, 3, 1_000, Callbacks::default()).unwrap();
+        for line in 0..5 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07123456789012345678901234567");
+        let history_before = terminal.history_rows();
+        let contents_before = terminal.plain_text().unwrap();
+
+        let _ = terminal.clear_history_preserving_prompt();
+
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), history_before);
+        assert_eq!(terminal.plain_text().unwrap(), contents_before);
+    }
+
+    #[test]
     fn prompt_semantic_tracking_ignores_utf8_continuation_bytes_that_resemble_c1() {
         let mut tracker = PromptSemanticTracker::default();
         tracker.feed(b"\x1b]133;A\x07\x1b]133;B\x07");

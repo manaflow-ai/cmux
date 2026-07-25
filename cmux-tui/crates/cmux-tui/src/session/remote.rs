@@ -1693,7 +1693,7 @@ mod tests {
     use std::sync::mpsc::{Receiver, Sender};
     use std::sync::{Mutex, Weak};
 
-    use ghostty_vt::{Callbacks, ColorSpec, RenderState, Terminal};
+    use ghostty_vt::{Callbacks, ColorSpec, KeyAction, Mods, RenderState, Terminal};
     use serde_json::json;
 
     use super::*;
@@ -1986,6 +1986,42 @@ mod tests {
         }
     }
 
+    struct RecordingAcknowledgingWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        requests: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl RemoteMessageWriter for RecordingAcknowledgingWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            self.requests.lock().unwrap().push(request.clone());
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .send(json!({"id": id, "ok": true, "data": null}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn test_session_with_provider_context(
         writer: Box<dyn RemoteMessageWriter>,
         capabilities: HashSet<String>,
@@ -2013,6 +2049,44 @@ mod tests {
 
     fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
         test_session_with_provider_context(writer, HashSet::new(), None)
+    }
+
+    #[test]
+    fn clear_history_shortcut_forwards_key_to_older_remote_server() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let session = test_session(Box::new(RecordingAcknowledgingWriter {
+            session: session_slot.clone(),
+            requests: requests.clone(),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session.surfaces.lock().unwrap().insert(
+            7,
+            Arc::new(RemoteSurface {
+                id: 7,
+                kind: SurfaceKind::Pty,
+                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
+                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+                dirty: AtomicBool::new(false),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            }),
+        );
+        let fallback = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_L,
+            mods: Mods::CTRL,
+            unshifted_codepoint: 'l' as u32,
+            action: Some(KeyAction::Press),
+            ..Default::default()
+        };
+
+        session.clear_history_or_send_key(7, &fallback).unwrap();
+
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["cmd"], "send");
+        let encoded = requests[0]["bytes"].as_str().unwrap();
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap(), b"\x0c");
     }
 
     fn acknowledging_provider_session() -> Arc<RemoteSession> {

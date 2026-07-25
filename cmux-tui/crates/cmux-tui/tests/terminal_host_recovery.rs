@@ -867,6 +867,101 @@ fn hosted_clear_history_encodes_fallback_from_authoritative_keyboard_mode() {
 }
 
 #[test]
+fn adopted_legacy_host_forwards_clear_history_fallback_as_input() {
+    let mut harness = RecoveryHarness::start("legacy-clear-history-fallback");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                "stty raw -echo; printf '\\033[?1049hready'; exec cat",
+            ],
+            "new_workspace": true,
+            "name": "legacy-clear-history-fallback",
+            "cols": 80,
+            "rows": 8,
+        }),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    assert!(wait_for_screen(&harness.socket, original_surface, "ready").contains("ready"));
+    let (record_path, mut record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+
+    harness.sigkill();
+    record.supports_clear_history = false;
+    fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+    harness.restart();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let adopted_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 2,
+                "cmd": "resolve-terminal",
+                "terminal_id": &terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "replacement daemon did not adopt legacy host");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(wait_for_screen(&harness.socket, adopted_surface, "ready").contains("ready"));
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "clear-history",
+            "surface": adopted_surface,
+            "fallback_key": {
+                "key": "z",
+                "mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": false,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "consumed_mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": false,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "utf8": "z",
+                "unshifted_codepoint": "z",
+                "action": "press",
+                "macos_option_as_alt": true,
+            },
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, adopted_surface, "readyz").contains("readyz"));
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 4,
+            "cmd": "close-terminal",
+            "terminal_id": terminal_id,
+            "terminal_incarnation": incarnation,
+        }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     let harness = RecoveryHarness::start("live-default-update");
     let created = request(
