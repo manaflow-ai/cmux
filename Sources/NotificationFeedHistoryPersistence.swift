@@ -33,180 +33,9 @@ actor NotificationFeedHistoryPersistence {
         }
     }
 
-    private struct SnapshotHeaderScanner {
-        var header = SnapshotHeader()
-        private var depth = 0
-        private var isInString = false
-        private var isEscapingString = false
-        private var isCapturingKey = false
-        private var keyBytes: [UInt8] = []
-        private var isExpectingKey = false
-        private var isExpectingValue = false
-        private var currentKey: String?
-        private var numberKey: String?
-        private var numberSign = 1
-        private var numberValue = 0
-        private var numberHasDigits = false
-
-        mutating func consume(_ data: Data) {
-            for byte in data {
-                consume(byte)
-                if header.isComplete { return }
-            }
-        }
-
-        private mutating func consume(_ byte: UInt8) {
-            if numberKey != nil {
-                if consumeNumberByte(byte) {
-                    return
-                }
-                finishNumber()
-                consume(byte)
-                return
-            }
-
-            if isInString {
-                if isEscapingString {
-                    isEscapingString = false
-                    if isCapturingKey {
-                        keyBytes.append(byte)
-                    }
-                    return
-                }
-                if byte == Self.backslash {
-                    isEscapingString = true
-                    if isCapturingKey {
-                        keyBytes.append(byte)
-                    }
-                    return
-                }
-                if byte == Self.quote {
-                    isInString = false
-                    if isCapturingKey {
-                        currentKey = String(bytes: keyBytes, encoding: .utf8)
-                        keyBytes.removeAll(keepingCapacity: true)
-                        isCapturingKey = false
-                    }
-                    return
-                }
-                if isCapturingKey {
-                    keyBytes.append(byte)
-                }
-                return
-            }
-
-            guard !Self.isWhitespace(byte) else { return }
-
-            switch byte {
-            case Self.leftBrace, Self.leftBracket:
-                if depth == 0, byte == Self.leftBrace {
-                    isExpectingKey = true
-                }
-                depth += 1
-                isExpectingValue = false
-            case Self.rightBrace, Self.rightBracket:
-                if depth > 0 {
-                    depth -= 1
-                }
-                if depth == 1 {
-                    currentKey = nil
-                    isExpectingValue = false
-                }
-            case Self.comma:
-                if depth == 1 {
-                    currentKey = nil
-                    isExpectingKey = true
-                    isExpectingValue = false
-                }
-            case Self.colon:
-                if depth == 1, currentKey != nil {
-                    isExpectingKey = false
-                    isExpectingValue = true
-                }
-            case Self.quote:
-                isInString = true
-                if depth == 1, isExpectingKey {
-                    isCapturingKey = true
-                    keyBytes.removeAll(keepingCapacity: true)
-                    isExpectingKey = false
-                } else {
-                    isCapturingKey = false
-                    isExpectingValue = false
-                }
-            default:
-                guard depth == 1,
-                      isExpectingValue,
-                      let currentKey,
-                      currentKey == "revision" || currentKey == "version",
-                      (Self.isDigit(byte) || byte == Self.minus) else {
-                    if depth == 1, isExpectingValue {
-                        isExpectingValue = false
-                    }
-                    return
-                }
-                startNumber(key: currentKey)
-                _ = consumeNumberByte(byte)
-            }
-        }
-
-        private mutating func startNumber(key: String) {
-            numberKey = key
-            numberSign = 1
-            numberValue = 0
-            numberHasDigits = false
-            isExpectingValue = false
-        }
-
-        private mutating func consumeNumberByte(_ byte: UInt8) -> Bool {
-            if byte == Self.minus, !numberHasDigits, numberValue == 0 {
-                numberSign = -1
-                return true
-            }
-            guard Self.isDigit(byte) else { return false }
-            numberHasDigits = true
-            numberValue = numberValue * 10 + Int(byte - Self.zero)
-            return true
-        }
-
-        private mutating func finishNumber() {
-            guard let numberKey else { return }
-            defer {
-                self.numberKey = nil
-                numberSign = 1
-                numberValue = 0
-                numberHasDigits = false
-                currentKey = nil
-            }
-            guard numberHasDigits else { return }
-            let value = numberValue * numberSign
-            if numberKey == "revision" {
-                header.revision = value
-            } else if numberKey == "version" {
-                header.version = value
-            }
-        }
-
-        private static let backslash = UInt8(ascii: "\\")
-        private static let colon = UInt8(ascii: ":")
-        private static let comma = UInt8(ascii: ",")
-        private static let leftBrace = UInt8(ascii: "{")
-        private static let leftBracket = UInt8(ascii: "[")
-        private static let minus = UInt8(ascii: "-")
-        private static let quote = UInt8(ascii: "\"")
-        private static let rightBrace = UInt8(ascii: "}")
-        private static let rightBracket = UInt8(ascii: "]")
-        private static let zero = UInt8(ascii: "0")
-
-        private static func isDigit(_ byte: UInt8) -> Bool {
-            byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9")
-        }
-
-        private static func isWhitespace(_ byte: UInt8) -> Bool {
-            byte == UInt8(ascii: " ")
-                || byte == UInt8(ascii: "\n")
-                || byte == UInt8(ascii: "\r")
-                || byte == UInt8(ascii: "\t")
-        }
+    private enum HeaderKeyOccurrence {
+        case first
+        case last
     }
 
     private let fileURL: URL?
@@ -236,7 +65,13 @@ actor NotificationFeedHistoryPersistence {
 
     func load() -> NotificationFeedHistoryLoadOutcome {
         if let loadOutcome { return loadOutcome }
-        guard let fileURL, fileManager.fileExists(atPath: fileURL.path) else {
+        guard let fileURL else {
+            let outcome = NotificationFeedHistoryLoadOutcome.missing
+            loadOutcome = outcome
+            return outcome
+        }
+        restoreNewestQuarantineBackupIfNeeded(for: fileURL)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             let outcome = NotificationFeedHistoryLoadOutcome.missing
             loadOutcome = outcome
             return outcome
@@ -256,20 +91,16 @@ actor NotificationFeedHistoryPersistence {
                 } else if header.version == NotificationFeedHistorySnapshot.currentVersion,
                           let revision = header.revision {
                     do {
-                        let quarantineURL = try quarantineOversizedSnapshotFile(fileURL)
                         let snapshot = NotificationFeedHistorySnapshot(
                             revision: max(0, revision),
                             notifications: []
                         )
-                        do {
-                            try writeQuarantineReplacementSnapshot(snapshot, fileURL: fileURL)
-                            lastPersistedRevision = snapshot.revision
-                            outcome = .loaded(snapshot)
-                        } catch {
-                            restoreQuarantinedSnapshot(quarantineURL, to: fileURL)
-                            allowsWrites = false
-                            outcome = .corrupt
-                        }
+                        try replaceOversizedSnapshotFile(
+                            fileURL,
+                            replacementSnapshot: snapshot
+                        )
+                        lastPersistedRevision = snapshot.revision
+                        outcome = .loaded(snapshot)
                     } catch {
                         allowsWrites = false
                         outcome = .corrupt
@@ -340,68 +171,149 @@ actor NotificationFeedHistoryPersistence {
         defer {
             try? handle.close()
         }
-        var scanner = SnapshotHeaderScanner()
-        while true {
-            guard let data = try handle.read(
-                upToCount: Self.oversizedSnapshotHeaderChunkByteCount
-            ), !data.isEmpty else {
-                break
-            }
-            scanner.consume(data)
-            if scanner.header.isComplete {
-                break
-            }
+        let fileSize = try handle.seekToEnd()
+        try handle.seek(toOffset: 0)
+        let prefixData = try handle.read(
+            upToCount: Self.oversizedSnapshotHeaderChunkByteCount
+        ) ?? Data()
+        var header = Self.snapshotHeader(
+            in: prefixData,
+            occurrence: .first
+        )
+        guard !header.isComplete,
+              fileSize > UInt64(Self.oversizedSnapshotHeaderChunkByteCount) else {
+            return header
         }
-        return scanner.header
+
+        let tailOffset = fileSize - UInt64(Self.oversizedSnapshotHeaderChunkByteCount)
+        try handle.seek(toOffset: tailOffset)
+        let tailData = try handle.read(
+            upToCount: Self.oversizedSnapshotHeaderChunkByteCount
+        ) ?? Data()
+        let tailHeader = Self.snapshotHeader(in: tailData, occurrence: .last)
+        header.version = header.version ?? tailHeader.version
+        header.revision = header.revision ?? tailHeader.revision
+        return header
     }
 
-    private func quarantineOversizedSnapshotFile(_ fileURL: URL) throws -> URL {
-        let quarantineURL = fileURL
+    private static func snapshotHeader(
+        in data: Data,
+        occurrence: HeaderKeyOccurrence
+    ) -> SnapshotHeader {
+        let text = String(decoding: data, as: UTF8.self)
+        return SnapshotHeader(
+            version: jsonIntegerValue(named: "version", in: text, occurrence: occurrence),
+            revision: jsonIntegerValue(named: "revision", in: text, occurrence: occurrence)
+        )
+    }
+
+    private static func jsonIntegerValue(
+        named key: String,
+        in text: String,
+        occurrence: HeaderKeyOccurrence
+    ) -> Int? {
+        let needle = "\"\(key)\""
+        let range: Range<String.Index>?
+        switch occurrence {
+        case .first:
+            range = text.range(of: needle)
+        case .last:
+            range = text.range(of: needle, options: .backwards)
+        }
+        guard let range else { return nil }
+        var index = range.upperBound
+        while index < text.endIndex, text[index].isWhitespace {
+            index = text.index(after: index)
+        }
+        guard index < text.endIndex, text[index] == ":" else { return nil }
+        index = text.index(after: index)
+        while index < text.endIndex, text[index].isWhitespace {
+            index = text.index(after: index)
+        }
+        let valueStart = index
+        if index < text.endIndex, text[index] == "-" {
+            index = text.index(after: index)
+        }
+        let digitStart = index
+        while index < text.endIndex, text[index].isNumber {
+            index = text.index(after: index)
+        }
+        guard digitStart < index else { return nil }
+        let literal = String(text[valueStart..<index])
+        return Int(literal)
+    }
+
+    private func replaceOversizedSnapshotFile(
+        _ fileURL: URL,
+        replacementSnapshot snapshot: NotificationFeedHistorySnapshot
+    ) throws {
+        let replacementURL = fileURL
             .deletingLastPathComponent()
             .appendingPathComponent(
-                "\(fileURL.lastPathComponent).oversized-\(UUID().uuidString).quarantine",
+                "\(fileURL.lastPathComponent).replacement-\(UUID().uuidString).tmp",
                 isDirectory: false
             )
-        do {
-            try fileManager.moveItem(at: fileURL, to: quarantineURL)
-            notificationFeedPersistenceLogger.notice(
-                "Notification feed oversized file quarantined source=\(fileURL.path, privacy: .private) destination=\(quarantineURL.path, privacy: .private)"
-            )
-            return quarantineURL
-        } catch {
-            notificationFeedPersistenceLogger.error(
-                "Notification feed oversized file quarantine failed file=\(fileURL.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-            )
-            throw error
-        }
-    }
-
-    private func writeQuarantineReplacementSnapshot(
-        _ snapshot: NotificationFeedHistorySnapshot,
-        fileURL: URL
-    ) throws {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
+            try data.write(to: replacementURL, options: .atomic)
+            let backupName = "\(fileURL.lastPathComponent).oversized-\(UUID().uuidString).quarantine"
+            let backupURL = fileURL
+                .deletingLastPathComponent()
+                .appendingPathComponent(backupName, isDirectory: false)
+            try fileManager.copyItem(at: fileURL, to: backupURL)
+            _ = try fileManager.replaceItemAt(
+                fileURL,
+                withItemAt: replacementURL,
+                backupItemName: nil,
+                options: []
+            )
+            notificationFeedPersistenceLogger.notice(
+                "Notification feed oversized file replaced file=\(fileURL.path, privacy: .private) backup=\(backupName, privacy: .private) revision=\(snapshot.revision, privacy: .public)"
+            )
         } catch {
+            try? fileManager.removeItem(at: replacementURL)
             notificationFeedPersistenceLogger.error(
-                "Notification feed quarantine replacement write failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+                "Notification feed oversized file replacement failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
             )
             throw error
         }
     }
 
-    private func restoreQuarantinedSnapshot(_ quarantineURL: URL, to fileURL: URL) {
+    private func quarantineBackupURLs(for fileURL: URL) throws -> [URL] {
+        try fileManager.contentsOfDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("\(fileURL.lastPathComponent).oversized-")
+                && $0.lastPathComponent.hasSuffix(".quarantine")
+        }
+    }
+
+    private func newestQuarantineBackupURL(for fileURL: URL) throws -> URL? {
+        try quarantineBackupURLs(for: fileURL).max { lhs, rhs in
+            let lhsValues = try? lhs.resourceValues(forKeys: [.contentModificationDateKey])
+            let rhsValues = try? rhs.resourceValues(forKeys: [.contentModificationDateKey])
+            let lhsDate = lhsValues?.contentModificationDate ?? .distantPast
+            let rhsDate = rhsValues?.contentModificationDate ?? .distantPast
+            return lhsDate < rhsDate
+        }
+    }
+
+    private func restoreNewestQuarantineBackupIfNeeded(for fileURL: URL) {
+        guard !fileManager.fileExists(atPath: fileURL.path),
+              let backupURL = try? newestQuarantineBackupURL(for: fileURL) else {
+            return
+        }
         do {
-            try fileManager.moveItem(at: quarantineURL, to: fileURL)
+            try fileManager.moveItem(at: backupURL, to: fileURL)
             notificationFeedPersistenceLogger.notice(
-                "Notification feed quarantine restored after replacement failure source=\(quarantineURL.path, privacy: .private) destination=\(fileURL.path, privacy: .private)"
+                "Notification feed quarantine restored missing canonical file=\(fileURL.path, privacy: .private) backup=\(backupURL.path, privacy: .private)"
             )
         } catch {
             notificationFeedPersistenceLogger.error(
-                "Notification feed quarantine restore failed source=\(quarantineURL.path, privacy: .private) destination=\(fileURL.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                "Notification feed quarantine restore failed missing canonical file=\(fileURL.path, privacy: .private) backup=\(backupURL.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
             )
         }
     }

@@ -290,6 +290,70 @@ struct NotificationFeedHistoryTests {
         #expect(quarantinedURLs.isEmpty)
     }
 
+    @Test func oversizedHistoryMetadataIntegerOverflowFailsClosed() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("history.json")
+        let data = Data(
+            #"{"notifications":[],"revision":999999999999999999999999999999999999,"version":1}"#.utf8
+        )
+        try data.write(to: fileURL, options: .atomic)
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: UInt64(data.count - 1)
+        )
+
+        #expect(await persistence.load() == .corrupt)
+        #expect(try Data(contentsOf: fileURL) == data)
+    }
+
+    @Test func missingCanonicalHistoryRestoresNewestQuarantineBackup() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-orphaned-quarantine-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("history.json")
+        let backupURL = directory.appendingPathComponent(
+            "history.json.oversized-orphaned.quarantine",
+            isDirectory: false
+        )
+        let workspaceID = UUID()
+        let record = NotificationFeedHistoryRecord(notification: notification(
+            workspaceID: workspaceID,
+            title: "Restored backup",
+            date: Date(timeIntervalSince1970: 1_660),
+            isRead: false
+        ))
+        try write(
+            NotificationFeedHistorySnapshot(
+                revision: 16,
+                notifications: [record]
+            ),
+            to: backupURL,
+            sortedKeys: true
+        )
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3
+        )
+
+        let outcome = await persistence.load()
+        guard case .loaded(let loaded) = outcome else {
+            Issue.record("Expected missing canonical history to restore backup")
+            return
+        }
+        #expect(loaded.revision == 16)
+        #expect(loaded.notifications.map(\.title) == ["Restored backup"])
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+        #expect(!FileManager.default.fileExists(atPath: backupURL.path))
+    }
+
     @Test func persistFitsSnapshotToLoadBudgetBeforeWriting() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-persist-budget-\(UUID().uuidString)", isDirectory: true)
