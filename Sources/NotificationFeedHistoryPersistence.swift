@@ -21,6 +21,11 @@ nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
 actor NotificationFeedHistoryPersistence {
     private static let oversizedSnapshotHeaderChunkByteCount = 64 * 1024
     private static let oversizedSnapshotRecordMigrationByteLimit = 8 * 1024 * 1024
+    private static let defaultOversizedSnapshotMigrationScanByteLimit = 64 * 1024 * 1024
+
+    private enum OversizedSnapshotMigrationError: Error {
+        case scanBudgetExceeded
+    }
 
     private struct SnapshotHeader {
         var version: Int?
@@ -215,6 +220,7 @@ actor NotificationFeedHistoryPersistence {
     private let readRetentionLimit: Int
     private let totalRetentionLimit: Int
     private let maxSnapshotBytes: UInt64
+    private let oversizedSnapshotMigrationScanByteLimit: Int
     private var lastPersistedRevision = 0
     private var loadOutcome: NotificationFeedHistoryLoadOutcome?
     private var allowsWrites = true
@@ -224,7 +230,8 @@ actor NotificationFeedHistoryPersistence {
         fileManager: FileManager,
         readRetentionLimit: Int = NotificationFeedHistoryStore.readRetentionLimit,
         totalRetentionLimit: Int = NotificationFeedHistoryStore.totalRetentionLimit,
-        maxSnapshotBytes: UInt64? = nil
+        maxSnapshotBytes: UInt64? = nil,
+        oversizedSnapshotMigrationScanByteLimit: Int? = nil
     ) {
         self.fileURL = fileURL
         self.fileManager = fileManager
@@ -232,6 +239,10 @@ actor NotificationFeedHistoryPersistence {
         self.totalRetentionLimit = max(0, totalRetentionLimit)
         self.maxSnapshotBytes = maxSnapshotBytes ?? Self.defaultMaxSnapshotBytes(
             totalRetentionLimit: self.totalRetentionLimit
+        )
+        self.oversizedSnapshotMigrationScanByteLimit = max(
+            0,
+            oversizedSnapshotMigrationScanByteLimit ?? Self.defaultOversizedSnapshotMigrationScanByteLimit
         )
     }
 
@@ -449,12 +460,20 @@ actor NotificationFeedHistoryPersistence {
         retainedRecords.reserveCapacity(totalRetentionLimit)
         var remainingReadSlots = readRetentionLimit
         var shouldContinue = true
+        var scannedBytes = 0
 
         while shouldContinue {
+            guard !Task.isCancelled else {
+                throw CancellationError()
+            }
             guard let chunk = try handle.read(
                 upToCount: Self.oversizedSnapshotHeaderChunkByteCount
             ), !chunk.isEmpty else {
                 break
+            }
+            scannedBytes += chunk.count
+            guard scannedBytes <= oversizedSnapshotMigrationScanByteLimit else {
+                throw OversizedSnapshotMigrationError.scanBudgetExceeded
             }
             shouldContinue = try scanner.consume(chunk) { recordData in
                 guard retainedRecords.count < totalRetentionLimit else {
@@ -497,6 +516,7 @@ actor NotificationFeedHistoryPersistence {
         private var isInString = false
         private var isEscapingString = false
         private var isCapturingKey = false
+        private var keyOverflowed = false
         private var keyBytes: [UInt8] = []
         private var isExpectingKey = false
         private var isExpectingValue = false
@@ -508,6 +528,8 @@ actor NotificationFeedHistoryPersistence {
         private var recordOverflowed = false
         private var recordIsInString = false
         private var recordIsEscapingString = false
+
+        private static let maxTopLevelKeyByteCount = 128
 
         init(maxRecordBytes: Int) {
             self.maxRecordBytes = max(0, maxRecordBytes)
@@ -545,21 +567,26 @@ actor NotificationFeedHistoryPersistence {
                 if byte == TopLevelSnapshotHeaderScanner.backslash {
                     isEscapingString = true
                     if isCapturingKey {
-                        keyBytes.append(byte)
+                        appendKeyByte(byte)
                     }
                     return true
                 }
                 if byte == TopLevelSnapshotHeaderScanner.quote {
                     isInString = false
-                    if isCapturingKey {
+                    if isCapturingKey, !keyOverflowed {
                         currentKey = String(bytes: keyBytes, encoding: .utf8)
                         keyBytes.removeAll(keepingCapacity: true)
                         isCapturingKey = false
+                    } else if isCapturingKey {
+                        currentKey = nil
+                        keyBytes.removeAll(keepingCapacity: false)
+                        isCapturingKey = false
+                        keyOverflowed = false
                     }
                     return true
                 }
                 if isCapturingKey {
-                    keyBytes.append(byte)
+                    appendKeyByte(byte)
                 }
                 return true
             }
@@ -611,10 +638,12 @@ actor NotificationFeedHistoryPersistence {
                 isInString = true
                 if depth == 1, isExpectingKey {
                     isCapturingKey = true
+                    keyOverflowed = false
                     keyBytes.removeAll(keepingCapacity: true)
                     isExpectingKey = false
                 } else {
                     isCapturingKey = false
+                    keyOverflowed = false
                     isExpectingValue = false
                 }
             default:
@@ -623,6 +652,16 @@ actor NotificationFeedHistoryPersistence {
                 }
             }
             return true
+        }
+
+        private mutating func appendKeyByte(_ byte: UInt8) {
+            guard !keyOverflowed else { return }
+            guard keyBytes.count < Self.maxTopLevelKeyByteCount else {
+                keyOverflowed = true
+                keyBytes.removeAll(keepingCapacity: false)
+                return
+            }
+            keyBytes.append(byte)
         }
 
         private mutating func consumeNotificationsArrayByte(

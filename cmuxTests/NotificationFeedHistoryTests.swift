@@ -514,6 +514,33 @@ struct NotificationFeedHistoryTests {
         #expect(recovered.notifications.map(\.title) == ["Current tail"])
     }
 
+    @Test func oversizedCurrentSnapshotMigrationScanBudgetFailsClosed() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-scan-budget-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("history.json")
+        let id = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let body = String(repeating: "x", count: 70_000)
+        let rawJSON = """
+        {"notifications":[{"body":"\(body)","createdAt":0,"id":"\(id)","isRead":false,"retargetsToLiveSurfaceOwner":false,"subtitle":"Agent","tabId":"\(workspaceID)","title":"Budget"}],"revision":22,"version":\(NotificationFeedHistorySnapshot.currentVersion)}
+        """
+        let data = Data(rawJSON.utf8)
+        try data.write(to: fileURL, options: .atomic)
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: UInt64(data.count - 1),
+            oversizedSnapshotMigrationScanByteLimit: 128
+        )
+
+        #expect(await persistence.load() == .corrupt)
+        #expect(try Data(contentsOf: fileURL) == data)
+    }
+
     @Test func oversizedHistoryMetadataIntegerOverflowFailsClosed() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-overflow-\(UUID().uuidString)", isDirectory: true)

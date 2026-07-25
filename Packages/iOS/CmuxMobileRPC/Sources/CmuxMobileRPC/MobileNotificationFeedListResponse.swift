@@ -90,7 +90,9 @@ private struct BoundedResponse: Decodable {
         var notifications: [MobileNotificationFeedListItem] = []
         notifications.reserveCapacity(min(options.maxNotifications, notificationsContainer.count ?? options.maxNotifications))
         while !notificationsContainer.isAtEnd, notifications.count < options.maxNotifications {
-            notifications.append(try notificationsContainer.decode(BoundedListItem.self).item)
+            if let item = try notificationsContainer.decode(BoundedListItem.self).item {
+                notifications.append(item)
+            }
         }
         response = MobileNotificationFeedListResponse(
             revision: revision,
@@ -111,7 +113,7 @@ private struct BoundedResponse: Decodable {
 }
 
 private struct BoundedListItem: Decodable {
-    let item: MobileNotificationFeedListItem
+    let item: MobileNotificationFeedListItem?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -131,22 +133,25 @@ private struct BoundedListItem: Decodable {
         let options = try Self.options(from: decoder)
         let limits = options.stringLimits
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        item = MobileNotificationFeedListItem(
-            id: try Self.string(
-                from: container,
-                forKey: .id,
-                limitedToUTF8Bytes: limits.identifierByteLimit
-            ),
-            workspaceID: try Self.string(
+        let surfaceID = try container.decodeIfPresent(String.self, forKey: .surfaceID)
+        guard let id = try Self.identityString(
+            from: container,
+            forKey: .id,
+            limitedToUTF8Bytes: limits.identifierByteLimit
+        ),
+            let workspaceID = try Self.identityString(
                 from: container,
                 forKey: .workspaceID,
                 limitedToUTF8Bytes: limits.identifierByteLimit
             ),
-            surfaceID: try Self.optionalString(
-                from: container,
-                forKey: .surfaceID,
-                limitedToUTF8Bytes: limits.identifierByteLimit
-            ),
+            (surfaceID?.utf8.count ?? 0) <= limits.identifierByteLimit else {
+            item = nil
+            return
+        }
+        item = MobileNotificationFeedListItem(
+            id: id,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
             title: try Self.string(
                 from: container,
                 forKey: .title,
@@ -190,6 +195,16 @@ private struct BoundedListItem: Decodable {
             debugDescription: "Missing bounded notification feed decode options"
         )
         throw DecodingError.dataCorrupted(context)
+    }
+
+    private static func identityString(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys,
+        limitedToUTF8Bytes maxBytes: Int
+    ) throws -> String? {
+        let value = try container.decode(String.self, forKey: key)
+        guard value.utf8.count <= maxBytes else { return nil }
+        return value
     }
 
     private static func string(
