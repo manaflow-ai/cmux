@@ -204,6 +204,56 @@ extension FeedCoordinatorTests {
         }
     }
 
+    @Test func positiveTimeoutReturnsCommittedAcknowledgmentWhenAcceptanceCallbackStalls() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+        let callbackStarted = DispatchSemaphore(value: 0)
+        let releaseCallback = DispatchSemaphore(value: 0)
+        let callbackFinished = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
+        defer { releaseCallback.signal() }
+        let event = WorkstreamEvent(
+            sessionId: "pi-positive-timeout-publication-order",
+            hookEventName: .postToolUse,
+            source: "pi"
+        )
+
+        let resultTask = Task.detached {
+            let result = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0.05,
+                onAccepted: { _ in
+                    callbackStarted.signal()
+                    releaseCallback.wait()
+                    callbackFinished.signal()
+                }
+            )
+            callerReturned.signal()
+            return result
+        }
+
+        #expect(callbackStarted.wait(timeout: .now() + 1) == .success)
+        let returnedAtDeadline = callerReturned.wait(timeout: .now() + 1)
+        if returnedAtDeadline != .success {
+            // Keep the pre-fix failure bounded: release the callback so the
+            // task can finish after the failed deadline assertion.
+            releaseCallback.signal()
+        }
+        #expect(returnedAtDeadline == .success)
+        #expect(
+            callbackFinished.wait(timeout: .now()) == .timedOut,
+            "the authoritative acknowledgment must not wait for stalled publication"
+        )
+        guard case .acknowledged(let itemId) = await resultTask.value else {
+            Issue.record("positive-timeout Feed ingress did not acknowledge the committed event")
+            return
+        }
+        #expect(itemId != nil)
+        releaseCallback.signal()
+        #expect(callbackFinished.wait(timeout: .now() + 1) == .success)
+    }
+
     @Test func blockingAcceptanceCallbackCompletesBeforeResolvedCallerReturns() async {
         let requestId = "pi-blocking-publication-order-request"
         await MainActor.run {
