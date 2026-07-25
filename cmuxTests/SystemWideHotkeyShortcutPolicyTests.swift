@@ -110,7 +110,7 @@ final class SystemWideHotkeyShortcutPolicyTests {
         ]
     }
 
-    private func notifyHotkeyControllerOfDefaultsChange() {
+    private nonisolated func notifyHotkeyControllerOfDefaultsChange() {
         NotificationCenter.default.post(
             name: UserDefaults.didChangeNotification,
             object: UserDefaults.standard
