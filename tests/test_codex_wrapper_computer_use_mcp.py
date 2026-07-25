@@ -233,6 +233,8 @@ exit 1
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env["CMUX_SURFACE_ID"] = "surface:test"
             env["CMUX_SOCKET_PATH"] = str(socket_path)
+            env["CMUX_CUA_SOCKET_PATH"] = str(tmp / "native-cua.sock")
+            env["CMUX_CUA_CODEX_SOCKET_PATH"] = str(tmp / "codex-cua.sock")
             env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
@@ -365,8 +367,9 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
         )
         if len(mcp_args) >= 3:
             expect(
-                mcp_args[2].startswith("/tmp/cmux-cua-") and mcp_args[2].endswith("/default/cua.sock"),
-                f"expected short per-user daemon socket, got {mcp_args[2]!r}",
+                mcp_args[2].endswith("/codex-cua.sock")
+                and not mcp_args[2].endswith("/native-cua.sock"),
+                f"expected the isolated Codex daemon socket, got {mcp_args[2]!r}",
                 failures,
             )
     expect_scrubbed_mcp_env(args, failures, "bundled cua-driver", helper_owned=True)
