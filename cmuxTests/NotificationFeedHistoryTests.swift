@@ -338,7 +338,7 @@ struct NotificationFeedHistoryTests {
         ).filter {
             $0.lastPathComponent.hasPrefix("history.json.oversized")
         }
-        #expect(replacementQuarantines.count == 1)
+        #expect(replacementQuarantines.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: staleBackupURL.path))
         await persistence.persist(NotificationFeedHistorySnapshot(
             revision: 7,
@@ -502,6 +502,13 @@ struct NotificationFeedHistoryTests {
         let loadedRecord = try #require(loaded.notifications.first)
         #expect(loadedRecord.title == "Current tail")
         #expect(loadedRecord.body.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit)
+        let migrationQuarantines = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("history.json.oversized")
+        }
+        #expect(migrationQuarantines.isEmpty)
         await persistence.persist(NotificationFeedHistorySnapshot(
             revision: 22,
             notifications: loaded.notifications

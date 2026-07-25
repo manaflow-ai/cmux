@@ -25,6 +25,7 @@ actor NotificationFeedHistoryPersistence {
 
     private enum OversizedSnapshotMigrationError: Error {
         case scanBudgetExceeded
+        case replacementValidationFailed
     }
 
     private struct SnapshotHeader {
@@ -767,13 +768,18 @@ actor NotificationFeedHistoryPersistence {
             try fileManager.moveItem(at: fileURL, to: backupURL)
             do {
                 try fileManager.moveItem(at: replacementURL, to: fileURL)
+                try validateReplacementSnapshotFile(
+                    fileURL,
+                    expectedRevision: snapshot.revision
+                )
             } catch {
+                try? fileManager.removeItem(at: fileURL)
                 restoreQuarantineBackup(backupURL, to: fileURL)
                 throw error
             }
-            pruneQuarantineBackups(for: fileURL, keeping: backupURL)
+            pruneQuarantineBackups(for: fileURL, keeping: nil)
             notificationFeedPersistenceLogger.notice(
-                "Notification feed oversized file replaced file=\(fileURL.path, privacy: .private) backup=\(backupURL.lastPathComponent, privacy: .private) revision=\(snapshot.revision, privacy: .public)"
+                "Notification feed oversized file replaced file=\(fileURL.path, privacy: .private) backup_removed=\(backupURL.lastPathComponent, privacy: .private) revision=\(snapshot.revision, privacy: .public)"
             )
         } catch {
             try? fileManager.removeItem(at: replacementURL)
@@ -781,6 +787,21 @@ actor NotificationFeedHistoryPersistence {
                 "Notification feed oversized file replacement failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
             )
             throw error
+        }
+    }
+
+    private func validateReplacementSnapshotFile(
+        _ fileURL: URL,
+        expectedRevision: Int
+    ) throws {
+        guard try snapshotFileFitsLoadBudget(fileURL) else {
+            throw OversizedSnapshotMigrationError.replacementValidationFailed
+        }
+        let data = try Data(contentsOf: fileURL)
+        let decoded = try JSONDecoder().decode(NotificationFeedHistorySnapshot.self, from: data)
+        guard decoded.version == NotificationFeedHistorySnapshot.currentVersion,
+              decoded.revision == expectedRevision else {
+            throw OversizedSnapshotMigrationError.replacementValidationFailed
         }
     }
 
