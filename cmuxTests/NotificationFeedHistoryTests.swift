@@ -286,26 +286,32 @@ struct NotificationFeedHistoryTests {
         )
         #expect(replacement.revision == 6)
         #expect(replacement.notifications.isEmpty)
-        let quarantinedURLs = try FileManager.default.contentsOfDirectory(
+        let replacementQuarantines = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
         ).filter {
             $0.lastPathComponent.hasPrefix("history.json.oversized")
         }
-        #expect(quarantinedURLs.count == 1)
+        #expect(replacementQuarantines.count == 1)
         #expect(!FileManager.default.fileExists(atPath: staleBackupURL.path))
         await persistence.persist(NotificationFeedHistorySnapshot(revision: 7, notifications: []))
-        let quarantined = try JSONDecoder().decode(
-            NotificationFeedHistorySnapshot.self,
-            from: Data(contentsOf: try #require(quarantinedURLs.first))
-        )
-        #expect(quarantined.revision == 6)
+        let remainingQuarantines = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("history.json.oversized")
+        }
+        #expect(remainingQuarantines.isEmpty)
         let recovered = try JSONDecoder().decode(
             NotificationFeedHistorySnapshot.self,
             from: Data(contentsOf: fileURL)
         )
         #expect(recovered.revision == 7)
         #expect(recovered.notifications.isEmpty)
+
+        try FileManager.default.removeItem(at: fileURL)
+        let verifier = NotificationFeedHistoryPersistence(fileURL: fileURL, fileManager: .default)
+        #expect(await verifier.load() == .missing)
     }
 
     @Test func oversizedFutureSnapshotIsPreservedReadOnly() async throws {

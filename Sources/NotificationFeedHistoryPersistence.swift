@@ -567,6 +567,7 @@ actor NotificationFeedHistoryPersistence {
                 attributes: nil
             )
             try fitted.data.write(to: fileURL, options: .atomic)
+            pruneQuarantineBackups(for: fileURL, keeping: nil)
             lastPersistedRevision = fitted.snapshot.revision
             loadOutcome = .loaded(fitted.snapshot)
         } catch {

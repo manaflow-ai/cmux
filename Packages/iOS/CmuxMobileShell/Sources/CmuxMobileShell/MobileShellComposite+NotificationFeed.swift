@@ -10,6 +10,12 @@ private let notificationFeedLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
+    private static let notificationFeedIdentifierByteLimit = 512
+    private static let notificationFeedTitleByteLimit = 512
+    private static let notificationFeedSubtitleByteLimit = 512
+    private static let notificationFeedBodyByteLimit = 2_048
+    private static let notificationFeedMetadataByteLimit = 512
+
     /// Refreshes the chronological feed from every currently connected capable Mac.
     ///
     /// A Mac that is offline keeps its last-known snapshot. Connected Macs that
@@ -361,6 +367,7 @@ extension MobileShellComposite {
         macDeviceID: String,
         displayName: String
     ) -> Bool {
+        guard let macDeviceID = normalizedIdentifier(macDeviceID) else { return false }
         let currentRevision = notificationFeedSnapshotsByMac[macDeviceID]?.revision ?? -1
         let minimumRevision = notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
         guard response.revision >= minimumRevision else {
@@ -373,29 +380,46 @@ extension MobileShellComposite {
         guard response.revision >= currentRevision else { return false }
 
         let status = notificationFeedConnectionStatus(for: macDeviceID)
+        let macDisplayName = normalizedDisplayName(displayName, fallback: macDeviceID)
         // The Mac feed contract is newest-first. Cap the wire snapshot before
         // local projection, then sort only that bounded window so the lazy
         // cross-Mac merge receives deterministic per-Mac inputs.
         let items = response.notifications
             .prefix(MobileNotificationFeedAggregation.maxItemCount)
             .compactMap { wire -> MobileNotificationFeedItem? in
-                let id = wire.id.trimmingCharacters(in: .whitespacesAndNewlines)
-                let workspaceID = wire.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !id.isEmpty, !workspaceID.isEmpty else { return nil }
+                guard let id = normalizedIdentifier(wire.id),
+                      let workspaceID = normalizedIdentifier(wire.workspaceID) else {
+                    return nil
+                }
                 return MobileNotificationFeedItem(
                     macDeviceID: macDeviceID,
                     notificationID: id,
-                    macDisplayName: displayName,
+                    macDisplayName: macDisplayName,
                     remoteWorkspaceID: workspaceID,
-                    remoteSurfaceID: normalizedOptional(wire.surfaceID),
-                    title: wire.title,
-                    subtitle: normalizedOptional(wire.subtitle),
-                    body: wire.body,
+                    remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
+                    title: Self.string(
+                        wire.title,
+                        limitedToUTF8Bytes: Self.notificationFeedTitleByteLimit
+                    ),
+                    subtitle: normalizedOptionalText(
+                        wire.subtitle,
+                        limitedToUTF8Bytes: Self.notificationFeedSubtitleByteLimit
+                    ),
+                    body: Self.string(
+                        wire.body,
+                        limitedToUTF8Bytes: Self.notificationFeedBodyByteLimit
+                    ),
                     createdAt: wire.createdAt,
                     isRead: wire.isRead,
                     retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
-                    workspaceTitle: normalizedOptional(wire.workspaceTitle),
-                    surfaceTitle: normalizedOptional(wire.surfaceTitle),
+                    workspaceTitle: normalizedOptionalText(
+                        wire.workspaceTitle,
+                        limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+                    ),
+                    surfaceTitle: normalizedOptionalText(
+                        wire.surfaceTitle,
+                        limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+                    ),
                     connectionStatus: status
                 )
             }
@@ -593,7 +617,7 @@ extension MobileShellComposite {
 
     private func normalizedForegroundNotificationFeedMacID() -> String? {
         let raw = foregroundMacDeviceID ?? activeTicket?.macDeviceID
-        return normalizedOptional(raw)
+        return normalizedOptionalIdentifier(raw)
     }
 
     private func notificationFeedDisplayName(for macDeviceID: String) -> String {
@@ -621,12 +645,55 @@ extension MobileShellComposite {
     }
 
     private func normalizedDisplayName(_ value: String?, fallback: String) -> String {
-        normalizedOptional(value) ?? fallback
+        normalizedOptionalText(
+            value,
+            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+        ) ?? Self.string(
+            fallback.trimmingCharacters(in: .whitespacesAndNewlines),
+            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+        )
     }
 
-    private func normalizedOptional(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
+    private func normalizedIdentifier(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.utf8.count <= Self.notificationFeedIdentifierByteLimit else {
+            return nil
+        }
         return trimmed
+    }
+
+    private func normalizedOptionalIdentifier(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.utf8.count <= Self.notificationFeedIdentifierByteLimit else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func normalizedOptionalText(
+        _ value: String?,
+        limitedToUTF8Bytes maxBytes: Int
+    ) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return Self.string(trimmed, limitedToUTF8Bytes: maxBytes)
+    }
+
+    private static func string(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
+        guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
+        var byteCount = 0
+        var endIndex = value.startIndex
+        while endIndex < value.endIndex {
+            let nextIndex = value.index(after: endIndex)
+            let characterByteCount = value[endIndex..<nextIndex].utf8.count
+            guard byteCount + characterByteCount <= maxBytes else { break }
+            byteCount += characterByteCount
+            endIndex = nextIndex
+        }
+        return String(value[..<endIndex])
     }
 }

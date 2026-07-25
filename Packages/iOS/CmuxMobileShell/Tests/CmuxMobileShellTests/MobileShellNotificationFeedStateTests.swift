@@ -78,6 +78,43 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedItems.first?.notificationID == "new-\(cap - 1)")
     }
 
+    @Test("Legacy Mac payloads are bounded before phone retention")
+    func legacyMacPayloadsAreBoundedBeforeRetention() throws {
+        let store = MobileShellComposite()
+        let oversizedText = String(repeating: "x", count: 4_096)
+        let oversizedIdentifier = String(repeating: "i", count: 513)
+        let response = try MobileNotificationFeedListResponse.decode(Data(
+            """
+            {"revision":1,"notifications":[
+            {"id":"valid","workspace_id":"workspace","surface_id":"\(oversizedText)",
+            "title":"\(oversizedText)","subtitle":"\(oversizedText)",
+            "body":"\(oversizedText)","created_at":200,"is_read":false,
+            "workspace_title":"\(oversizedText)","surface_title":"\(oversizedText)"},
+            {"id":"\(oversizedIdentifier)","workspace_id":"workspace",
+            "title":"Dropped","body":"Dropped","created_at":300,"is_read":false}
+            ]}
+            """.utf8
+        ))
+
+        #expect(store.applyNotificationFeedSnapshot(
+            response,
+            macDeviceID: "mac",
+            displayName: oversizedText
+        ))
+
+        let item = try #require(store.notificationFeedItems.first)
+        #expect(store.notificationFeedItems.count == 1)
+        #expect(item.notificationID == "valid")
+        #expect(item.remoteSurfaceID == nil)
+        #expect(item.macDisplayName.utf8.count == 512)
+        #expect(item.title.utf8.count == 512)
+        #expect(item.subtitle?.utf8.count == 512)
+        #expect(item.body.utf8.count == 2_048)
+        #expect(item.workspaceTitle?.utf8.count == 512)
+        #expect(item.surfaceTitle?.utf8.count == 512)
+        #expect(store.notificationFeedSnapshotsByMac["mac"]?.items.first?.body.utf8.count == 2_048)
+    }
+
     @Test("Reset drops account-scoped notification content")
     func resetDropsContent() throws {
         let store = MobileShellComposite()
