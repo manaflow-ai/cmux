@@ -63,6 +63,35 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(shortcut) == .accepted(shortcut))
     }
 
+    @Test func nonRegistrableShowHideDoesNotReserveGlobalSearch() throws {
+        let commandPeriod = StoredShortcut(
+            key: ".",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        let encoded = try JSONEncoder().encode(commandPeriod)
+        UserDefaults.standard.set(
+            encoded,
+            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
+        )
+        UserDefaults.standard.set(
+            encoded,
+            forKey: KeyboardShortcutSettings.Action.globalSearch.defaultsKey
+        )
+
+        #expect(
+            SystemWideHotkeySettings.registrationCandidate(
+                for: commandPeriod
+            ) == nil
+        )
+        #expect(
+            KeyboardShortcutSettings.shortcut(for: .globalSearch)
+                == commandPeriod
+        )
+    }
+
     @Test func controllerRegistersOnlyOptInShowHideShortcut() throws {
         SystemWideHotkeyController.shared.start()
         SystemWideHotkeySettings.setEnabled(false)
