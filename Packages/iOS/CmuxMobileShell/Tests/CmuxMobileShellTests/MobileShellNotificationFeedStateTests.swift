@@ -281,6 +281,45 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)
     }
 
+    @Test("Search result feed opens survive search view disappearance")
+    func persistentSearchOpenSurvivesFeedDisappearance() async {
+        var workspace = MobileWorkspacePreview(
+            id: "workspace-row",
+            macDeviceID: "mac",
+            name: "cmux",
+            terminals: [MobileTerminalPreview(id: "surface", name: "agent")]
+        )
+        workspace.remoteWorkspaceID = "workspace-remote"
+        let store = MobileShellComposite(
+            connectionState: .connected,
+            workspaces: [workspace]
+        )
+        store.foregroundMacDeviceID = "mac"
+        let item = MobileNotificationFeedItem(
+            macDeviceID: "mac",
+            notificationID: "notification",
+            macDisplayName: "Mac",
+            remoteWorkspaceID: "workspace-remote",
+            remoteSurfaceID: "surface",
+            title: "Approval needed",
+            body: "Allow the command?",
+            createdAt: Date(),
+            isRead: true,
+            connectionStatus: .connected
+        )
+
+        store.requestOpenNotificationFeedItem(item, survivesFeedDisappearance: true)
+        let openTask = store.notificationFeedOpenTask
+        let cancelledTask = store.cancelPendingNotificationFeedOpenForFeedDisappearance()
+        await cancelledTask?.value
+        await openTask?.value
+
+        #expect(cancelledTask == nil)
+        #expect(store.selectedWorkspaceID == "workspace-row")
+        #expect(store.selectedTerminalID == "surface")
+        #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-row")
+    }
+
     @Test("Open confines a source-scoped notification to its captured workspace")
     func openConfinesMovedSurface() async {
         var capturedWorkspace = MobileWorkspacePreview(

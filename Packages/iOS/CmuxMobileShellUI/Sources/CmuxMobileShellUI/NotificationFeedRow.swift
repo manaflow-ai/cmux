@@ -111,8 +111,8 @@ struct NotificationFeedRow: View, Equatable {
     }
 
     private func open() {
-        dismissSearch()
         actions.open(item)
+        dismissSearch()
     }
 
     private var accessibilitySuffix: String {

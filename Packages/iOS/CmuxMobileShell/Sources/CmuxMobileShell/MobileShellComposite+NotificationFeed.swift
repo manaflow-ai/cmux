@@ -140,10 +140,14 @@ extension MobileShellComposite {
     /// The operation remains cancellable until it commits navigation. Once navigation
     /// is committed, ownership is released so the accompanying read mutation may
     /// finish even though the feed view disappears.
-    public func requestOpenNotificationFeedItem(_ item: MobileNotificationFeedItem) {
+    public func requestOpenNotificationFeedItem(
+        _ item: MobileNotificationFeedItem,
+        survivesFeedDisappearance: Bool = false
+    ) {
         cancelPendingNotificationFeedOpen()
         let token = UUID()
         notificationFeedOpenToken = token
+        notificationFeedOpenSurvivesFeedDisappearance = survivesFeedDisappearance
         notificationFeedOpenTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.openNotificationFeedItem(item, operationToken: token)
@@ -159,9 +163,18 @@ extension MobileShellComposite {
         let task = notificationFeedOpenTask
         notificationFeedOpenToken = nil
         notificationFeedOpenTask = nil
+        notificationFeedOpenSurvivesFeedDisappearance = false
         task?.cancel()
         _ = cancelPendingMacSwitch(restorePreviousOnCancel: true)
         return task
+    }
+
+    /// Cancels a feed-open operation when the feed view disappears, unless the
+    /// open already transferred ownership out of the disappearing view.
+    @discardableResult
+    public func cancelPendingNotificationFeedOpenForFeedDisappearance() -> Task<Void, Never>? {
+        guard !notificationFeedOpenSurvivesFeedDisappearance else { return nil }
+        return cancelPendingNotificationFeedOpen()
     }
 
     /// Opens a feed item in its current destination workspace and pane, then marks it read.
@@ -280,6 +293,7 @@ extension MobileShellComposite {
         guard notificationFeedOpenToken == token, !Task.isCancelled else { return false }
         notificationFeedOpenToken = nil
         notificationFeedOpenTask = nil
+        notificationFeedOpenSurvivesFeedDisappearance = false
         return true
     }
 
@@ -287,6 +301,7 @@ extension MobileShellComposite {
         guard let token, notificationFeedOpenToken == token else { return }
         notificationFeedOpenToken = nil
         notificationFeedOpenTask = nil
+        notificationFeedOpenSurvivesFeedDisappearance = false
     }
 
     /// Removes one hidden Mac's content and cancels work that could restore it.

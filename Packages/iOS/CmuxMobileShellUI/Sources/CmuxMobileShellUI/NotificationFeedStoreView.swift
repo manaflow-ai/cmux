@@ -20,7 +20,7 @@ struct NotificationFeedStoreView: View {
             actions: actions
         )
         .onDisappear {
-            store.cancelPendingNotificationFeedOpen()
+            store.cancelPendingNotificationFeedOpenForFeedDisappearance()
         }
     }
 
@@ -28,7 +28,10 @@ struct NotificationFeedStoreView: View {
         let store = store
         return NotificationFeedActions(
             open: { item in
-                store.requestOpenNotificationFeedItem(item)
+                store.requestOpenNotificationFeedItem(
+                    item,
+                    survivesFeedDisappearance: isSearchDestination
+                )
             },
             markRead: { item in
                 Task { await store.markNotificationFeedItemRead(item) }

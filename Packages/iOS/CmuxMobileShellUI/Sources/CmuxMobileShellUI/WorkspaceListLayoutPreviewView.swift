@@ -111,6 +111,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     @State private var fixtureRoute: FixtureWorkspaceRoute?
+    @State private var pendingSearchFixtureRoute: FixtureWorkspaceRoute?
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -276,8 +277,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
             unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
             selectWorkspace: { id in
-                selectedWorkspaceID = id
-                fixtureRoute = FixtureWorkspaceRoute(id: id)
+                selectFixtureWorkspace(id)
             },
             createWorkspace: {},
             macSelection: $macSelection,
@@ -358,6 +358,12 @@ public struct WorkspaceListLayoutPreviewView: View {
                         }
                     }
                 }
+                .onAppear {
+                    consumePendingSearchFixtureNavigation()
+                }
+                .onChange(of: pendingSearchFixtureRoute) { _, _ in
+                    consumePendingSearchFixtureNavigation()
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if scrollMetricsEnabled {
                         WorkspaceListScrollMetricsProbe(runsSweep: scrollSweepEnabled)
@@ -393,6 +399,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                 }
             }
         }
+        .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
+            guard !isPresented else { return }
+            consumePendingSearchFixtureNavigation()
+        }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 Color.clear
@@ -424,6 +434,37 @@ public struct WorkspaceListLayoutPreviewView: View {
 
             await model.runLiveUpdates()
         }
+    }
+
+    private func selectFixtureWorkspace(_ id: MobileWorkspacePreview.ID) {
+        selectedWorkspaceID = id
+        let route = FixtureWorkspaceRoute(id: id)
+        if showsTabScaffold,
+           selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
+            pendingSearchFixtureRoute = route
+            transitionPrimaryTab(to: .workspaces)
+        } else {
+            fixtureRoute = route
+        }
+    }
+
+    private func consumePendingSearchFixtureNavigation() {
+        guard !primarySearchCoordinator.isPresented,
+              selectedPrimaryTab == .workspaces,
+              let route = pendingSearchFixtureRoute else { return }
+        pendingSearchFixtureRoute = nil
+        fixtureRoute = route
+    }
+
+    @discardableResult
+    private func transitionPrimaryTab(to tab: MobilePrimaryTab) -> Bool {
+        let previousTab = selectedPrimaryTab
+        if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
+           tab.searchScope != nil {
+            primarySearchCoordinator.deactivateCurrentSearch()
+        }
+        selectedPrimaryTab = tab
+        return previousTab != tab
     }
 }
 
