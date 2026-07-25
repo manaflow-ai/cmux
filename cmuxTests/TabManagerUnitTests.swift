@@ -84,17 +84,18 @@ private func waitForConditionSuspending(
     line: UInt = #line,
     _ condition: @MainActor () -> Bool
 ) async -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(timeout))
     while true {
         if condition() {
             return true
         }
-        guard Date() < deadline else {
+        guard clock.now < deadline else {
             XCTFail("Timed out waiting for condition", file: file, line: line)
             return false
         }
         do {
-            try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+            try await clock.sleep(for: .seconds(pollInterval))
         } catch {
             // Cancellation, not a timeout. Swallowing it would spin the condition at
             // full speed until the deadline instead of unwinding, and this helper's
