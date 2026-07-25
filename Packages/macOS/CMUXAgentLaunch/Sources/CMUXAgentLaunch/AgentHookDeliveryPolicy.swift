@@ -6,6 +6,10 @@ import Foundation
 /// does not affect the agent's next decision. Wrapper-specific auxiliary
 /// events remain explicitly scoped to the wrappers that own their contracts.
 public struct AgentHookDeliveryPolicy: Sendable {
+    /// Marks local hook routing that was resolved before queue admission.
+    public static let routeSnapshotEnvironmentKey =
+        "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"
+
     /// The largest payload accepted by the local delivery queue.
     public static let maximumPayloadBytes = 64 * 1_024
 

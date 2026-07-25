@@ -15,6 +15,7 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     private static let reservedTerminalStateSubcommands: Set<String> = [
         "stop",
         "session-end",
+        "session-finalize",
     ]
 
     private static let supersedableStateSubcommands: Set<String> = [
@@ -29,6 +30,7 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     private static let allowedHookDataEnvironmentKeys: Set<String> = [
         "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
+        AgentHookDeliveryPolicy.routeSnapshotEnvironmentKey,
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
         "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",

@@ -12,6 +12,9 @@ extension CMUXCLI {
         AgentHookDeliveryPolicy.declaredTimeoutSeconds
     static let agentHookDeclaredTimeoutMilliseconds =
         AgentHookDeliveryPolicy.declaredTimeoutMilliseconds
+    static let agentHookRouteSnapshotEnvironmentKey =
+        AgentHookDeliveryPolicy.routeSnapshotEnvironmentKey
+    private static let agentHookRouteResolutionTimeoutSeconds: TimeInterval = 0.2
     static let maximumRelayAgentHookPayloadBytes = 4 * 1_024
     static let maximumRelayAgentHookEncodedPayloadBytes = 8 * 1_024
     static let relayClaudeForkSessionPayloadKey = "_cmux_claude_fork_session"
@@ -65,6 +68,7 @@ extension CMUXCLI {
     func agentHookOrderingEnvironment(
         agent: String,
         client: SocketClient,
+        socketPassword: String? = nil,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
         var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
@@ -81,7 +85,22 @@ extension CMUXCLI {
            let inferredPID = inferredAgentPID() {
             environment[pidEnvironmentKey] = String(inferredPID)
         }
-        guard client.isRelayBacked else { return environment }
+        guard client.isRelayBacked else {
+            if let processID = environment[pidEnvironmentKey].flatMap(Int.init),
+               let binding = admittedAgentHookRoute(
+                   processID: processID,
+                   client: client,
+                   socketPassword: socketPassword
+               ) {
+                environment["CMUX_WORKSPACE_ID"] = binding.workspaceId
+                environment["CMUX_SURFACE_ID"] = binding.surfaceId
+            }
+            // Downstream replay must never promote a PID that may have exited
+            // or been reused after admission. A missing route snapshot fails
+            // closed at delivery instead of probing the old PID.
+            environment[Self.agentHookRouteSnapshotEnvironmentKey] = "1"
+            return environment
+        }
 
         let relayEnvironmentKeys: Set<String> = [
             "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
@@ -102,14 +121,97 @@ extension CMUXCLI {
         }
     }
 
+    /// Resolves the live local process binding before queue admission while the
+    /// hook PID still identifies the caller. This is a small, bounded control
+    /// response rather than a complete `system.top` process snapshot.
+    private func admittedAgentHookRoute(
+        processID: Int,
+        client: SocketClient,
+        socketPassword: String?
+    ) -> CallerTerminalBinding? {
+        guard processID > 0 else { return nil }
+        let routeClient = SocketClient(path: client.socketPath)
+        defer { routeClient.close() }
+        guard (try? routeClient.connect()) != nil,
+              (try? authenticateClientIfNeeded(
+                  routeClient,
+                  explicitPassword: socketPassword,
+                  socketPath: client.socketPath,
+                  responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds
+              )) != nil,
+              let payload = try? routeClient.sendV2(
+                  method: "agent.resolve_delivery_target",
+                  params: ["pid": processID],
+                  responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds
+              ),
+              payload["source"] as? String == "pid",
+              let workspaceID = normalizedHandleValue(
+                  payload["workspace_id"] as? String
+              ),
+              UUID(uuidString: workspaceID) != nil,
+              let surfaceID = normalizedHandleValue(
+                  payload["surface_id"] as? String
+              ),
+              UUID(uuidString: surfaceID) != nil else {
+            return nil
+        }
+        return CallerTerminalBinding(
+            workspaceId: workspaceID,
+            surfaceId: surfaceID
+        )
+    }
+
+    /// Re-homes an admitted surface snapshot at asynchronous delivery time so
+    /// pane moves remain correct without consulting the original process PID.
+    func admittedAgentHookRouteSnapshot(
+        environment: [String: String],
+        client: SocketClient
+    ) -> CallerTerminalBinding? {
+        guard environment[Self.agentHookRouteSnapshotEnvironmentKey] == "1",
+              let surfaceID = normalizedHandleValue(
+                  environment["CMUX_SURFACE_ID"]
+              ),
+              UUID(uuidString: surfaceID) != nil else {
+            return nil
+        }
+        var params: [String: Any] = ["surface_id": surfaceID]
+        if let workspaceID = normalizedHandleValue(
+            environment["CMUX_WORKSPACE_ID"]
+        ),
+        UUID(uuidString: workspaceID) != nil {
+            params["workspace_id"] = workspaceID
+        }
+        guard let payload = try? client.sendV2(
+                  method: "agent.resolve_delivery_target",
+                  params: params,
+                  responseTimeout: 2
+              ),
+              payload["source"] as? String == "surface",
+              let workspaceID = normalizedHandleValue(
+                  payload["workspace_id"] as? String
+              ),
+              UUID(uuidString: workspaceID) != nil else {
+            return nil
+        }
+        return CallerTerminalBinding(
+            workspaceId: workspaceID,
+            surfaceId: surfaceID
+        )
+    }
+
     /// Establishes the direct hook behind every earlier queued event in the
     /// same socket/surface lane. The app performs the bounded wait; this CLI
     /// retains its stdin and synchronous decision stdout/exit contract.
     func waitForPriorAgentHookDeliveries(
         agent: String,
-        client: SocketClient
+        client: SocketClient,
+        socketPassword: String? = nil
     ) throws {
-        let environment = agentHookOrderingEnvironment(agent: agent, client: client)
+        let environment = agentHookOrderingEnvironment(
+            agent: agent,
+            client: client,
+            socketPassword: socketPassword
+        )
         var params: [String: Any] = [
             "agent": agent,
             "environment": environment,
@@ -127,7 +229,11 @@ extension CMUXCLI {
 
     /// Sends one immutable hook event to the app-owned queue, then returns the
     /// agent's neutral response. Downstream CLI/socket work happens in the app.
-    func enqueueAgentHook(commandArgs: [String], client: SocketClient) throws {
+    func enqueueAgentHook(
+        commandArgs: [String],
+        client: SocketClient,
+        socketPassword: String? = nil
+    ) throws {
         guard commandArgs.count == 2 else {
             throw CLIError(message: String(
                 localized: "cli.hooks.enqueue.usage",
@@ -152,6 +258,7 @@ extension CMUXCLI {
         let environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
+            socketPassword: socketPassword,
             processEnvironment: processEnvironment
         )
         let rawPayload = Self.readBoundedAgentHookInput() ?? "{}"

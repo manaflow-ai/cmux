@@ -30180,7 +30180,11 @@ export default CMUXSessionRestore;
         if env["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] != "1",
            subcommand == "session-finalize"
             || (def.name == "codex" && subcommand == "notification") {
-            try waitForPriorAgentHookDeliveries(agent: def.name, client: client)
+            try waitForPriorAgentHookDeliveries(
+                agent: def.name,
+                client: client,
+                socketPassword: socketPassword
+            )
         }
 
         if def.name == "codex", subcommand == "monitor" {
@@ -30216,14 +30220,27 @@ export default CMUXSessionRestore;
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
         let relayOrigin = env[agentHookRelayOriginEnvironmentKey] == "1"
+        let routeWasSnapshotted =
+            env[Self.agentHookRouteSnapshotEnvironmentKey] == "1"
+        let snapshottedRoute = routeWasSnapshotted
+            ? admittedAgentHookRouteSnapshot(
+                environment: env,
+                client: client
+            )
+            : nil
         let inferredPID = relayOrigin
             ? nil
             : (agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
-        let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+        let directWorkspaceArg = hookWsFlag
+            ?? snapshottedRoute?.workspaceId
+            ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let directSurfaceArg = explicitSurfaceFlag
-            ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
+            ?? (hookWsFlag == nil
+                ? snapshottedRoute?.surfaceId
+                    ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
+                : nil)
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
@@ -30266,8 +30283,13 @@ export default CMUXSessionRestore;
                 // resume binding persists it across reload. resolveAgentHookTarget now uses this
                 // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
                 // trusted) under remote/SSH where no local TTY maps to a surface.
-                processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                processBindingCache = routeWasSnapshotted
+                    ? snapshottedRoute
+                    : resolveCallerTerminalBindingByTTY(client: client)
+                        ?? resolveAgentProcessTerminalBinding(
+                            pid: inferredPID,
+                            client: client
+                        )
             }
             return processBindingCache
         }
@@ -30287,8 +30309,14 @@ export default CMUXSessionRestore;
         // another workspace) must fall through to the PID/TTY binding instead of dropping the hook —
         // that is the stale-env variant of the codex jumble.
         let hasInvalidDirectSurfaceArg = explicitSurfaceFlag != nil && resolvedDirectSurfaceArg == nil
-        let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
+        let hasUnusableDirectBinding =
+            hasInvalidDirectWorkspaceArg
+            || hasInvalidDirectSurfaceArg
+            || (routeWasSnapshotted && snapshottedRoute == nil)
         func workspaceArg() -> String? {
+            if routeWasSnapshotted, snapshottedRoute == nil {
+                return nil
+            }
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
@@ -34019,7 +34047,8 @@ export default CMUXSessionRestore;
         do {
             try waitForPriorAgentHookDeliveries(
                 agent: source,
-                client: activeClient
+                client: activeClient,
+                socketPassword: socketPassword
             )
         } catch {
             print("{}")
@@ -34769,7 +34798,11 @@ export default CMUXSessionRestore;
             throw CLIError(message: "hooks \(first) must be handled before socket dispatch")
 
         case "enqueue":
-            try enqueueAgentHook(commandArgs: rest, client: client)
+            try enqueueAgentHook(
+                commandArgs: rest,
+                client: client,
+                socketPassword: socketPassword
+            )
 
         case "feed":
             telemetry.breadcrumb("hooks.feed.dispatch")
