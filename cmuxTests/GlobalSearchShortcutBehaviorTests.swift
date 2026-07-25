@@ -126,6 +126,61 @@ extension GlobalSearchShortcutBehaviorTests {
 #endif
     }
 
+    @Test func unrelatedChordSuffixPreservesPendingPrefixForDownstreamMonitor() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        defer { closeWindow(window, appDelegate: appDelegate) }
+
+        let shortcut = StoredShortcut(
+            key: "k",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "g"
+        )
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+        appDelegate.toggleGlobalSearchPalette()
+        let popoverWindow = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The real Search popover and its local key monitor must be active"
+        )
+        let unrelatedSuffixEvent = try makeKeyDownEvent(
+            key: "s",
+            modifiers: [],
+            keyCode: 1,
+            windowNumber: popoverWindow.windowNumber
+        )
+        let chordWindowNumber = appDelegate.configuredShortcutChordWindowNumber(
+            for: unrelatedSuffixEvent
+        )
+        appDelegate.pendingConfiguredShortcutChord = AppDelegate.PendingConfiguredShortcutChord(
+            firstStroke: shortcut.firstStroke,
+            windowNumber: chordWindowNumber
+        )
+
+        let route = appDelegate.routeVisibleGlobalSearchShortcutFromLocalMonitor(
+            unrelatedSuffixEvent
+        )
+
+        guard case .notApplicable = route else {
+            Issue.record("An unrelated suffix must continue to the downstream shortcut monitor")
+            return
+        }
+        #expect(
+            appDelegate.pendingConfiguredShortcutChord?.firstStroke == shortcut.firstStroke,
+            "The Search popover monitor must not destroy another chord sharing the prefix"
+        )
+        #expect(
+            appDelegate.pendingConfiguredShortcutChord?.windowNumber == chordWindowNumber
+        )
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+#else
+        Issue.record("Global Search local-monitor routing requires a DEBUG app-host build")
+#endif
+    }
+
     private func makeMainWindow(appDelegate: AppDelegate) throws -> NSWindow {
         let windowId = appDelegate.createMainWindow()
         let identifier = "cmux.main.\(windowId.uuidString)"

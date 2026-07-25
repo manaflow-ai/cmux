@@ -116,6 +116,161 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(fixture.store.override(for: .globalSearch) == nil)
     }
 
+    @Test func invalidManagedGlobalSearchShadowsLegacyShortcut() throws {
+        let legacyShortcut = StoredShortcut(
+            key: "j",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
+        UserDefaults.standard.set(
+            try JSONEncoder().encode(legacyShortcut),
+            forKey: KeyboardShortcutSettings.Action.globalSearch.defaultsKey
+        )
+        let fixture = try makeSettingsFileStore(
+            """
+            {
+              "shortcuts": {
+                "bindings": {
+                  "globalSearch": {
+                    "first": {
+                      "key": "media.playPause",
+                      "command": true,
+                      "shift": false,
+                      "option": false,
+                      "control": false
+                    }
+                  }
+                }
+              }
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+        KeyboardShortcutSettings.settingsFileStore = fixture.store
+
+        #expect(fixture.store.override(for: .globalSearch) == nil)
+        #expect(fixture.store.isManagedByFile(.globalSearch))
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == defaultGlobalSearchShortcut)
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) != legacyShortcut)
+    }
+
+    @Test func invalidPrimaryGlobalSearchShadowsFallbackFileShortcut() throws {
+        let fallbackShortcut = StoredShortcut(
+            key: "j",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-global-search-primary-fallback-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json")
+        let fallbackURL = directoryURL.appendingPathComponent("settings.json")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "globalSearch": "media.playPause"
+            }
+          }
+        }
+        """.write(to: primaryURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "globalSearch": "cmd+shift+j"
+            }
+          }
+        }
+        """.write(to: fallbackURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+        KeyboardShortcutSettings.settingsFileStore = store
+
+        #expect(store.override(for: .globalSearch) == nil)
+        #expect(store.isManagedByFile(.globalSearch))
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == defaultGlobalSearchShortcut)
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) != fallbackShortcut)
+    }
+
+    @Test func removingInvalidManagedGlobalSearchReactivatesLegacyAndNotifies() async throws {
+        let legacyShortcut = StoredShortcut(
+            key: "j",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
+        UserDefaults.standard.set(
+            try JSONEncoder().encode(legacyShortcut),
+            forKey: KeyboardShortcutSettings.Action.globalSearch.defaultsKey
+        )
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-global-search-remove-invalid-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "globalSearch": "media.playPause"
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            startWatching: false
+        )
+        KeyboardShortcutSettings.settingsFileStore = store
+
+        #expect(store.isManagedByFile(.globalSearch))
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == defaultGlobalSearchShortcut)
+
+        await confirmation("managed shortcut removal notification") { confirm in
+            let token = notificationCenter.addObserver(
+                forName: KeyboardShortcutSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                confirm()
+            }
+            defer { notificationCenter.removeObserver(token) }
+            try "{}".write(to: settingsFileURL, atomically: true, encoding: .utf8)
+            #expect(store.reload())
+        }
+
+        #expect(!store.isManagedByFile(.globalSearch))
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == legacyShortcut)
+    }
+
     @Test func directSetterRejectsShowHideCollision() {
         let collision = collisionShortcut
         SystemWideHotkeySettings.setShortcut(collision)
