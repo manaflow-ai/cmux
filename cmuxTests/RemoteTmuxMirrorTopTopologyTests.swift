@@ -33,19 +33,37 @@ struct RemoteTmuxMirrorTopTopologyTests {
             orientation: .vertical,
             focus: false
         ))
+        let pendingRemoteChildExitPanel = try #require(workspace.newTerminalSplit(
+            from: remotePlaceholderPanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        let endedPersistentRemotePTYPanel = try #require(workspace.newTerminalSplit(
+            from: pendingRemoteChildExitPanel.id,
+            orientation: .vertical,
+            focus: false
+        ))
 
         workspace.surfaceTTYNames[aliveID] = "/dev/ttys901"
         workspace.surfaceTTYNames[exitedPanel.id] = "/dev/ttys902"
         workspace.surfaceTTYNames[remotePlaceholderPanel.id] = "/dev/ttys903"
+        workspace.surfaceTTYNames[pendingRemoteChildExitPanel.id] = "/dev/ttys904"
+        workspace.surfaceTTYNames[endedPersistentRemotePTYPanel.id] = "/dev/ttys905"
         workspace.controlProcessAliveOverridesForTesting = [
             aliveID: true,
             exitedPanel.id: false,
             remotePlaceholderPanel.id: true,
+            pendingRemoteChildExitPanel.id: false,
+            endedPersistentRemotePTYPanel.id: false,
         ]
         workspace.remoteDisconnectPlaceholderPanelIds.insert(remotePlaceholderPanel.id)
+        workspace.pendingRemoteTerminalChildExitSurfaceIds.insert(pendingRemoteChildExitPanel.id)
+        workspace.endedPersistentRemotePTYAttachSurfaceIds.insert(endedPersistentRemotePTYPanel.id)
         defer {
             workspace.controlProcessAliveOverridesForTesting = [:]
             workspace.remoteDisconnectPlaceholderPanelIds.remove(remotePlaceholderPanel.id)
+            workspace.pendingRemoteTerminalChildExitSurfaceIds.remove(pendingRemoteChildExitPanel.id)
+            workspace.endedPersistentRemotePTYAttachSurfaceIds.remove(endedPersistentRemotePTYPanel.id)
             let identifier = "cmux.main.\(windowID.uuidString)"
             if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
                 window.performClose(nil)
@@ -66,6 +84,8 @@ struct RemoteTmuxMirrorTopTopologyTests {
         #expect(rawByID[exitedPanel.id]?.processAlive == false)
         #expect(rawByID[exitedPanel.id]?.tty == "/dev/ttys902")
         #expect(rawByID[remotePlaceholderPanel.id]?.processAlive == nil)
+        #expect(rawByID[pendingRemoteChildExitPanel.id]?.processAlive == nil)
+        #expect(rawByID[endedPersistentRemotePTYPanel.id]?.processAlive == nil)
 
         let treeResult = try #require(ControlCommandCoordinator(context: TerminalController.shared).handle(
             ControlRequest(
@@ -84,6 +104,10 @@ struct RemoteTmuxMirrorTopTopologyTests {
         #expect(treeByID[exitedPanel.id]?["tty"] == .null)
         #expect(treeByID[remotePlaceholderPanel.id]?["process_alive"] == .null)
         #expect(treeByID[remotePlaceholderPanel.id]?["tty"] == .string("/dev/ttys903"))
+        #expect(treeByID[pendingRemoteChildExitPanel.id]?["process_alive"] == .null)
+        #expect(treeByID[pendingRemoteChildExitPanel.id]?["tty"] == .string("/dev/ttys904"))
+        #expect(treeByID[endedPersistentRemotePTYPanel.id]?["process_alive"] == .null)
+        #expect(treeByID[endedPersistentRemotePTYPanel.id]?["tty"] == .string("/dev/ttys905"))
 
         let top = try await TerminalController.shared.taskManagerTopPayload(includeProcesses: false)
         let topByID = try topSurfaceRows(top, windowID: windowID, workspaceID: workspace.id)
@@ -93,6 +117,10 @@ struct RemoteTmuxMirrorTopTopologyTests {
         #expect(topByID[exitedPanel.id]?["tty"] is NSNull)
         #expect(topByID[remotePlaceholderPanel.id]?["process_alive"] is NSNull)
         #expect(topByID[remotePlaceholderPanel.id]?["tty"] as? String == "/dev/ttys903")
+        #expect(topByID[pendingRemoteChildExitPanel.id]?["process_alive"] is NSNull)
+        #expect(topByID[pendingRemoteChildExitPanel.id]?["tty"] as? String == "/dev/ttys904")
+        #expect(topByID[endedPersistentRemotePTYPanel.id]?["process_alive"] is NSNull)
+        #expect(topByID[endedPersistentRemotePTYPanel.id]?["tty"] as? String == "/dev/ttys905")
     }
 
     /// Regression for #7910: process enrichment must not mint a second view of

@@ -135,7 +135,9 @@ extension TerminalController: ControlSystemContext {
                 dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
             let browserPanel = panel as? BrowserPanel
             let processAlive: Bool?
-            if workspace.isRemoteTerminalSurfaceOrDisconnectPlaceholder(surface.surfaceID) {
+            if workspace.isRemoteTerminalSurfaceOrDisconnectPlaceholder(surface.surfaceID) ||
+                workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(surface.surfaceID) ||
+                workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(surface.surfaceID) {
                 processAlive = nil
             } else if let terminalPanel = panel as? TerminalPanel {
 #if DEBUG
