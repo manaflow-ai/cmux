@@ -186,32 +186,51 @@ extension TerminalController {
             return params
         }
 
-        var managers: [TabManager] = []
-        func append(_ manager: TabManager?) {
-            guard let manager, !managers.contains(where: { $0 === manager }) else { return }
-            managers.append(manager)
-        }
-        append(tabManager)
-        if let app = AppDelegate.shared {
-            app.listMainWindowSummaries().forEach { summary in
-                append(app.tabManagerFor(windowId: summary.windowId))
+        func workspace(for rawID: Any?) -> Workspace? {
+            guard let rawID = rawID as? String,
+                  rawID.utf8.count <= 64,
+                  !rawID.contains("\0"),
+                  let workspaceID = UUID(uuidString: rawID) else {
+                return nil
             }
+            if let workspace = tabManager?.tabs.first(where: { $0.id == workspaceID }) {
+                return workspace
+            }
+            return AppDelegate.shared?
+                .tabManagerFor(tabId: workspaceID)?
+                .tabs
+                .first(where: { $0.id == workspaceID })
         }
 
+        // Relay alias rewriting has already converted these IDs to local UUIDs.
+        // When they still identify a live panel, they are stronger evidence than
+        // a portable TTY and avoid any registry search.
+        if let rawWorkspaceID = environment["CMUX_WORKSPACE_ID"],
+           let rawSurfaceID = environment["CMUX_SURFACE_ID"],
+           rawSurfaceID.utf8.count <= 64,
+           !rawSurfaceID.contains("\0"),
+           let surfaceID = UUID(uuidString: rawSurfaceID),
+           let workspace = workspace(for: rawWorkspaceID),
+           workspace.panels[surfaceID] != nil {
+            return params
+        }
+
+        // The relay rewriter injects its owning local workspace. Restrict the
+        // TTY fallback to that workspace so one hook does not enumerate every
+        // window/workspace/surface on the main actor.
+        guard let workspace = workspace(for: params["_cmux_remote_workspace_id"]) else {
+            return params
+        }
         var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
-        for manager in managers {
-            for workspace in manager.tabs {
-                for (surfaceID, ttyName) in workspace.surfaceTTYNames
-                    where workspace.panels[surfaceID] != nil {
-                    candidates.append((
-                        binding: TerminalCallerTTYBinding(
-                            workspaceId: workspace.id,
-                            surfaceId: surfaceID
-                        ),
-                        ttyName: ttyName
-                    ))
-                }
-            }
+        for (surfaceID, ttyName) in workspace.surfaceTTYNames
+            where workspace.panels[surfaceID] != nil {
+            candidates.append((
+                binding: TerminalCallerTTYBinding(
+                    workspaceId: workspace.id,
+                    surfaceId: surfaceID
+                ),
+                ttyName: ttyName
+            ))
         }
         guard let binding = TerminalCallerTTYResolver(
             reportedCandidates: candidates

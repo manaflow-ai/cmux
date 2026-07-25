@@ -169,29 +169,28 @@ function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: stri
   }
 }
 
-function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): boolean {
-  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
-  const target = surfaceTargetArgs();
-  if (!target) return true;
-  const result = runCmux([
-    "--json",
-    "surface",
-    "resume",
-    "clear",
-    ...target,
-    "--checkpoint-id",
-    sessionId,
-    "--source",
-    "agent-hook",
-  ], cwd);
-  if (!result.ok) {
-    warn(ctx, "failed to clear Pi resume binding", {
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
+function sendDirectSessionFinalize(ctx: ExtensionContext, sessionId: string, cwd: string): void {
+  const payload: HookExtra = {
+    session_id: sessionId,
+    cwd,
+    hook_event_name: eventName("session-finalize"),
+    event: eventName("session-finalize"),
+  };
+  try {
+    const child = spawn(cmuxExecutable(), ["hooks", "pi", "session-finalize"], {
+      env: hookEnvironment(cwd, true),
+      stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
     });
+    child.on("error", () => {
+      warn(ctx, "failed to launch direct Pi finalization fallback", { session_id: sessionId });
+    });
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
+    child.unref();
+  } catch (_) {
+    warn(ctx, "failed to launch direct Pi finalization fallback", { session_id: sessionId });
   }
-  return result.ok;
 }
 
 function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext, event: unknown, extra: HookExtra = {}): void {
@@ -308,7 +307,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       sessionStates.delete(sessionId);
       return;
     }
-    if (clearResumeBinding(ctx, sessionId, cwd)) sessionStates.delete(sessionId);
+    // Queue admission failed. A detached direct finalizer waits behind the
+    // already-queued stop through the CLI barrier before performing teardown.
+    sendDirectSessionFinalize(ctx, sessionId, cwd);
+    sessionStates.delete(sessionId);
   });
 }
 """#

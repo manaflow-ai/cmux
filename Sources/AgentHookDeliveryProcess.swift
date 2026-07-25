@@ -13,6 +13,8 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         case exited(Int32)
         case deadline
         case cancelled
+        case inputFailure(String)
+        case launchFailure(String)
     }
 
     private let executableURLProvider: @Sendable () -> URL?
@@ -38,14 +40,39 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
             return
         }
 
+        // Lifecycle/status mutations are idempotent or notification-deduped, so
+        // retry one infrastructure/process failure. High-volume tool telemetry
+        // remains single-attempt best effort and cannot multiply its load.
+        let maximumAttempts = event.isBestEffortTelemetry ? 1 : 2
+        for attempt in 1...maximumAttempts {
+            let completion = await runDeliveryAttempt(
+                event,
+                executableURL: executableURL
+            )
+            switch completion {
+            case .exited(0):
+                return
+            case .cancelled:
+                return
+            default:
+                if attempt < maximumAttempts {
+                    continue
+                }
+                logFailure(completion)
+                return
+            }
+        }
+    }
+
+    private func runDeliveryAttempt(
+        _ event: AgentHookDeliveryEvent,
+        executableURL: URL
+    ) async -> Completion {
         let input: FileHandle
         do {
             input = try Self.makeAnonymousInputFile(payload: Data(event.payload.utf8))
         } catch {
-            agentHookDeliveryProcessLogger.error(
-                "Could not stage hook input: \(error.localizedDescription, privacy: .private)"
-            )
-            return
+            return .inputFailure(error.localizedDescription)
         }
         defer { try? input.close() }
 
@@ -75,10 +102,7 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
             _ = Darwin.setpgid(process.processIdentifier, process.processIdentifier)
         } catch {
             process.terminationHandler = nil
-            agentHookDeliveryProcessLogger.error(
-                "Could not launch hook delivery: \(error.localizedDescription, privacy: .private)"
-            )
-            return
+            return .launchFailure(error.localizedDescription)
         }
 
         let completion = await awaitCompletion(
@@ -87,14 +111,30 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         )
         process.terminationHandler = nil
         switch completion {
-        case .exited(0):
+        case .cancelled:
+            Self.terminateProcessGroup(processID: process.processIdentifier, signal: SIGKILL)
+        case .exited, .deadline, .inputFailure, .launchFailure:
+            break
+        }
+        return completion
+    }
+
+    private func logFailure(_ completion: Completion) {
+        switch completion {
+        case .exited(0), .cancelled:
             return
         case .exited(let status):
             agentHookDeliveryProcessLogger.error("Hook delivery exited with status \(status)")
         case .deadline:
             agentHookDeliveryProcessLogger.error("Hook delivery exceeded its process deadline")
-        case .cancelled:
-            Self.terminateProcessGroup(processID: process.processIdentifier, signal: SIGKILL)
+        case .inputFailure(let message):
+            agentHookDeliveryProcessLogger.error(
+                "Could not stage hook input: \(message, privacy: .private)"
+            )
+        case .launchFailure(let message):
+            agentHookDeliveryProcessLogger.error(
+                "Could not launch hook delivery: \(message, privacy: .private)"
+            )
         }
     }
 

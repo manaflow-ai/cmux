@@ -30171,9 +30171,9 @@ export default CMUXSessionRestore;
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
-        if def.name == "codex",
-           subcommand == "notification",
-           env["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] != "1" {
+        if env["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] != "1",
+           subcommand == "session-finalize"
+            || (def.name == "codex" && subcommand == "notification") {
             try waitForPriorAgentHookDeliveries(agent: def.name, client: client)
         }
 
