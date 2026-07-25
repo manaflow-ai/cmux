@@ -11,6 +11,19 @@ extension CMUXCLI {
     static let relayClaudeForkSessionPayloadKey = "_cmux_claude_fork_session"
     static let relayClaudeForkParentSessionIDPayloadKey = "_cmux_claude_fork_parent_session_id"
     private static let maximumAgentHookInputBytes = 1 * 1_024 * 1_024
+    private static let relayFilesystemIdentityKeys: Set<String> = [
+        "cwd",
+        "working_directory",
+        "workingDirectory",
+        "project_dir",
+        "projectDir",
+        "project_path",
+        "projectPath",
+        "workspacePaths",
+        "workspace_paths",
+        "transcript_path",
+        "transcriptPath",
+    ]
 
     /// Builds a fail-open command that admits a non-decision hook to the app's
     /// ordered delivery queue. The hook process performs no downstream delivery.
@@ -245,6 +258,10 @@ extension CMUXCLI {
             changed = true
         }
 
+        let portable = removingRelayFilesystemIdentity(from: object)
+        object = portable.value as? [String: Any] ?? [:]
+        changed = changed || portable.changed
+
         guard changed,
               JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(
@@ -255,6 +272,35 @@ extension CMUXCLI {
             return rawPayload
         }
         return payload
+    }
+
+    private func removingRelayFilesystemIdentity(
+        from value: Any
+    ) -> (value: Any, changed: Bool) {
+        if let object = value as? [String: Any] {
+            var portable: [String: Any] = [:]
+            var changed = false
+            for (key, nestedValue) in object {
+                if Self.relayFilesystemIdentityKeys.contains(key) {
+                    changed = true
+                    continue
+                }
+                let nested = removingRelayFilesystemIdentity(from: nestedValue)
+                portable[key] = nested.value
+                changed = changed || nested.changed
+            }
+            return (portable, changed)
+        }
+        if let array = value as? [Any] {
+            var changed = false
+            let portable = array.map { nestedValue in
+                let nested = removingRelayFilesystemIdentity(from: nestedValue)
+                changed = changed || nested.changed
+                return nested.value
+            }
+            return (portable, changed)
+        }
+        return (value, false)
     }
 
     /// Extracts only portable fork intent from trusted launcher capture. Remote

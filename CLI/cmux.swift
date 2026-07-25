@@ -31861,8 +31861,10 @@ export default CMUXSessionRestore;
             "session_id": "\(source)-\(sessionId)",
             "hook_event_name": hookEventName,
             "_source": source,
-            "_ppid": agentPid,
         ]
+        if let agentPid {
+            event["_ppid"] = agentPid
+        }
         if let workspaceId = feedWorkspaceId(rawObject: parsedInput.object, fallback: workspaceId) {
             event["workspace_id"] = workspaceId
         }
@@ -32014,7 +32016,10 @@ export default CMUXSessionRestore;
     private func agentPidForFeedSource(
         _ source: String,
         env: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Int {
+    ) -> Int? {
+        guard env[agentHookRelayOriginEnvironmentKey] != "1" else {
+            return nil
+        }
         let envKey: String
         switch source {
         case "claude": envKey = "CMUX_CLAUDE_PID"
@@ -32040,12 +32045,12 @@ export default CMUXSessionRestore;
     private func stableFallbackFeedSessionId(
         source: String,
         rawObject: [String: Any],
-        agentPid: Int
+        agentPid: Int?
     ) -> String {
-        var components = [
-            "source=\(source)",
-            "pid=\(max(agentPid, 0))",
-        ]
+        var components = ["source=\(source)"]
+        if let agentPid {
+            components.append("pid=\(max(agentPid, 0))")
+        }
         if let workspaceId = feedWorkspaceId(rawObject: rawObject, fallback: nil) {
             components.append("workspace=\(workspaceId)")
         }
@@ -33812,6 +33817,7 @@ export default CMUXSessionRestore;
         socketPassword: String? = nil,
         telemetry: CLISocketSentryTelemetry
     ) throws {
+        let invocationStartedAt = ProcessInfo.processInfo.systemUptime
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
@@ -33897,8 +33903,10 @@ export default CMUXSessionRestore;
             "session_id": "\(source)-\(sessionId)",
             "hook_event_name": hookEventName,
             "_source": source,
-            "_ppid": agentPid,
         ]
+        if let agentPid {
+            eventDict["_ppid"] = agentPid
+        }
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
@@ -33945,33 +33953,24 @@ export default CMUXSessionRestore;
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
-        // Sync. For actionable events we block up to 120s waiting
-        // for the user's Feed click; the hook's stdout is then a
-        // proper hookSpecificOutput that Claude honors directly
-        // (no keystroke injection, no guessing the TUI layout).
+        // Sync. For actionable events we block within the agent's shortest
+        // declared 120s hook deadline while waiting for the user's Feed click.
+        // The hook's stdout is then a proper hookSpecificOutput that Claude
+        // honors directly (no keystroke injection, no guessing the TUI layout).
         // If the user doesn't click in time the hook emits {}
         // and Claude falls back to its native TUI prompt.
         //
-        // Wait is capped at 120s and the wrapper's hook timeout
-        // is 125s so the socket always returns before Claude
-        // would kill the hook subprocess itself.
-        let waitTimeout: Double = isActionable ? 120 : 0
-        let params: [String: Any] = [
-            "event": eventDict,
-            "wait_timeout_seconds": waitTimeout,
-        ]
-
-        var request: [String: Any] = [
-            "method": "feed.push",
-            "params": params,
-        ]
-        if waitTimeout > 0 {
-            request["id"] = UUID().uuidString
-        }
-        let payload = try JSONSerialization.data(withJSONObject: request)
-        let line = String(data: payload, encoding: .utf8) ?? "{}"
-
-        if waitTimeout == 0 {
+        // Non-actionable telemetry remains one-way and best effort.
+        if !isActionable {
+            let request: [String: Any] = [
+                "method": "feed.push",
+                "params": [
+                    "event": eventDict,
+                    "wait_timeout_seconds": 0,
+                ],
+            ]
+            let payload = try JSONSerialization.data(withJSONObject: request)
+            let line = String(data: payload, encoding: .utf8) ?? "{}"
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
@@ -34020,6 +34019,29 @@ export default CMUXSessionRestore;
             print("{}")
             return
         }
+
+        // The barrier, connection, input parsing, and event construction all
+        // consume time from the same native hook deadline. Leave five seconds
+        // for the socket response plus one second for CLI startup/output.
+        let elapsed = max(
+            0,
+            ProcessInfo.processInfo.systemUptime - invocationStartedAt
+        )
+        let waitTimeout = max(0, 114 - elapsed)
+        guard waitTimeout > 0 else {
+            print("{}")
+            return
+        }
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "feed.push",
+            "params": [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ],
+        ]
+        let payload = try JSONSerialization.data(withJSONObject: request)
+        let line = String(data: payload, encoding: .utf8) ?? "{}"
 
         let response: String
         do {
