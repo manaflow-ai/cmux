@@ -300,23 +300,7 @@ jobs:
         run: bun run typecheck
 
       - name: Web tests
-        # Explicit sorted file list keeps failures replayable. Fresh globals per
-        # file prevent Bun module mocks in one route suite from replacing env or
-        # provider modules used by another concurrently loaded suite.
-        run: |
-          test_files=()
-          while IFS= read -r test_file; do
-            test_files+=("$test_file")
-          done < <(
-            find tests -maxdepth 1 -type f \
-              \( -name '*.test.ts' -o -name '*.test.tsx' \) -print |
-              sort
-          )
-          if (( ${#test_files[@]} == 0 )); then
-            echo "No top-level web test files found" >&2
-            exit 1
-          fi
-          bun test --isolate "${test_files[@]}"
+        run: bun run test
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).

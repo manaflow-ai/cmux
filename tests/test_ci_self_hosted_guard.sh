@@ -839,25 +839,31 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
-check_web_test_global_isolation() {
-  if ! awk '
-    /^  web-typecheck:/ { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /test_files=\(\)/ { saw_file_array=1 }
-    in_job && /while IFS= read -r test_file/ { saw_file_loop=1 }
-    in_job && /find tests -maxdepth 1 -type f/ { saw_find=1 }
-    in_job && /-name '\''\*\.test\.ts'\''/ { saw_ts_pattern=1 }
-    in_job && /-name '\''\*\.test\.tsx'\''/ { saw_tsx_pattern=1 }
-    in_job && /^[[:space:]]+sort$/ { saw_sort=1 }
-    in_job && /\$\{#test_files\[@\]\} == 0/ { saw_empty_guard=1 }
-    in_job && /bun test --isolate "\$\{test_files\[@\]\}"/ { saw_isolated_tests=1 }
-    END { exit !(saw_file_array && saw_file_loop && saw_find && saw_ts_pattern && saw_tsx_pattern && saw_sort && saw_empty_guard && saw_isolated_tests) }
-  ' "$CI_FILE"; then
-    echo "FAIL: web-typecheck must safely enumerate tests and run Bun with --isolate so global module mocks cannot leak between files"
+check_web_test_runner_wiring() {
+  local runner="$ROOT_DIR/web/scripts/run-tests.sh"
+  if [[ ! -f "$runner" ]]; then
+    echo "FAIL: shared web test runner is missing"
     exit 1
   fi
 
-  echo "PASS: web tests isolate each file's global module mocks"
+  if ! grep -Fq '"test": "bash scripts/run-tests.sh"' "$ROOT_DIR/web/package.json"; then
+    echo "FAIL: web/package.json must expose the shared web test runner"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  web-typecheck:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /- name: Web tests/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /run: bun run test/ { saw_shared_runner=1 }
+    END { exit !saw_shared_runner }
+  ' "$CI_FILE"; then
+    echo "FAIL: web-typecheck must use the shared local web test runner"
+    exit 1
+  fi
+
+  echo "PASS: CI and local web tests use the shared runner"
 }
 
 check_tmux_terminal_nightly_isolation() {
@@ -1048,5 +1054,5 @@ check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
-check_web_test_global_isolation
+check_web_test_runner_wiring
 check_tmux_terminal_nightly_isolation
