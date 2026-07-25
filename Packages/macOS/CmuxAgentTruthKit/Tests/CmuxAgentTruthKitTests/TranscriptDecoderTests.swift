@@ -5,6 +5,9 @@ import Testing
 
 @Suite
 struct TranscriptDecoderTests {
+    private static let png1x1Base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    private static let png1x1Data = Data(base64Encoded: png1x1Base64)!
+
     @Test
     func claudeGoldenFixture() throws {
         let lines = try fixtureLines("claude-synthetic")
@@ -105,7 +108,7 @@ struct TranscriptDecoderTests {
 
     @Test
     func codexUserImageEmitsStructuredAttachmentWithLocalPath() throws {
-        let line = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect this image.\n<image name=[Image #1] path=\"/tmp/codex-inline-test.png\">"},{"type":"input_image","image_url":"data:image/png;base64,AQID"}]}}"#
+        let line = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect this image.\n<image name=[Image #1] path=\"/tmp/codex-inline-test.png\">"},{"type":"input_image","image_url":"data:image/png;base64,\#(Self.png1x1Base64)"}]}}"#
         var decoder = CodexTranscriptDecoder()
         let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
 
@@ -117,6 +120,9 @@ struct TranscriptDecoderTests {
         #expect(attachment.displayName == "codex-inline-test.png")
         #expect(attachment.hostPath == "/tmp/codex-inline-test.png")
         #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
     }
 
     @Test
@@ -287,9 +293,9 @@ struct TranscriptDecoderTests {
 
     @Test
     func claudeBase64ImagePublishesDeferredImageSideTable() throws {
-        let encodedImage = "AQID"
+        let encodedImage = Self.png1x1Base64
         var decoder = ClaudeTranscriptDecoder()
-        let line = #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Inspect this image."},{"type":"image","file_name":"claude-inline-test.png","width":1,"height":1,"source":{"type":"base64","media_type":"image/png","data":"\#(encodedImage)"}}]}}"#
+        let line = #"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Inspect this image."},{"type":"image","file_name":"claude-inline-test.png","source":{"type":"base64","media_type":"image/png","data":"\#(encodedImage)"}}]}}"#
         let journalID = JournalID(rawValue: "journal")
         let batch = decoder.feed([line], startingAt: 0, journalID: journalID)
 
@@ -297,7 +303,7 @@ struct TranscriptDecoderTests {
         let attachment = try #require(attachmentPayload(in: batch, seq: 1))
         #expect(attachment.hostPath == nil)
         #expect(attachment.mimeType == "image/png")
-        #expect(attachment.byteCount == 3)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
         #expect(attachment.width == 1)
         #expect(attachment.height == 1)
         let embedded = try #require(batch.embeddedImages.first)
@@ -311,7 +317,7 @@ struct TranscriptDecoderTests {
 
     @Test
     func codexImageWithoutLocalPathPublishesDeferredImageSideTable() throws {
-        let encodedImage = "AQID"
+        let encodedImage = Self.png1x1Base64
         let line = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect this image."},{"type":"input_image","image_url":"data:image/png;base64,\#(encodedImage)"}]}}"#
         let journalID = JournalID(rawValue: "codex-journal")
         var decoder = CodexTranscriptDecoder()
@@ -321,12 +327,52 @@ struct TranscriptDecoderTests {
         let attachment = try #require(attachmentPayload(in: batch, seq: 41))
         #expect(attachment.hostPath == nil)
         #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
         let embedded = try #require(batch.embeddedImages.first)
         #expect(batch.embeddedImages.count == 1)
         #expect(embedded.journalID == journalID)
         #expect(embedded.entrySeq == EntrySeq(rawValue: 41))
         #expect(embedded.mimeType == "image/png")
         #expect(embedded.base64EncodedData == encodedImage)
+    }
+
+    @Test
+    func codexPathOnlyImageDerivesDimensionsFromFileHeader() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-path-only-\(UUID().uuidString).png")
+        try Self.png1x1Data.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let line = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect.\n<image name=[Image #1] path=\"\#(imageURL.path)\">"}]}}"#
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:userMessage", "1:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 1))
+        #expect(attachment.hostPath == imageURL.path)
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
+    }
+
+    @Test
+    func claudeAttachmentRecordDerivesImageDimensionsFromFileHeader() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-attachment-\(UUID().uuidString).png")
+        try Self.png1x1Data.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let line = #"{"type":"attachment","attachment":{"fileName":"fixture.png","path":"\#(imageURL.path)","mime_type":"image/png"}}"#
+        var decoder = ClaudeTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 0))
+        #expect(attachment.kind == "file")
+        #expect(attachment.hostPath == imageURL.path)
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
     }
 
     @Test

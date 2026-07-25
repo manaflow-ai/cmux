@@ -480,6 +480,10 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             let hostPath = input?.hostPath ?? reference?.hostPath
             let mimeType = input?.mimeType ?? hostPath.flatMap(imageMIMEType)
             let displayName = hostPath.flatMap(imageDisplayName) ?? input?.displayName
+            let metadata = TranscriptImageMetadataProbe.metadata(
+                hostPath: hostPath,
+                base64EncodedData: input?.base64EncodedData
+            )
             let attachment = AttachmentPayload(
                 kind: "image",
                 summary: displayName ?? "Image attachment",
@@ -487,9 +491,9 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
                 displayName: displayName,
                 hostPath: hostPath,
                 mimeType: mimeType,
-                byteCount: input?.base64EncodedData.map(estimatedDecodedByteCount),
-                width: input?.width,
-                height: input?.height
+                byteCount: metadata.byteCount ?? input?.base64EncodedData.map(estimatedDecodedByteCount),
+                width: input?.width ?? metadata.width,
+                height: input?.height ?? metadata.height
             )
             let embeddedImage: TranscriptEmbeddedImageSource? = if let base64EncodedData = input?.base64EncodedData {
                 TranscriptEmbeddedImageSource(

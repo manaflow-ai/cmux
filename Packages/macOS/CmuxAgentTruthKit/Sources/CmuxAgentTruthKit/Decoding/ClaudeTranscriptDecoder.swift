@@ -194,16 +194,21 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             let source = object["source"]?.object
             let mimeType = source?["media_type"]?.string ?? object["media_type"]?.string
             let base64EncodedData = source?["data"]?.string
+            let hostPath = source?["path"]?.string ?? object["path"]?.string
+            let metadata = TranscriptImageMetadataProbe.metadata(
+                hostPath: hostPath,
+                base64EncodedData: base64EncodedData
+            )
             let attachment = AttachmentPayload(
                 kind: "image",
                 summary: "Image attachment",
                 attachmentID: object["id"]?.string,
                 displayName: object["file_name"]?.string ?? object["fileName"]?.string,
-                hostPath: source?["path"]?.string ?? object["path"]?.string,
+                hostPath: hostPath,
                 mimeType: mimeType,
-                byteCount: base64EncodedData.map(estimatedDecodedByteCount),
-                width: object["width"]?.int,
-                height: object["height"]?.int
+                byteCount: metadata.byteCount ?? base64EncodedData.map(estimatedDecodedByteCount),
+                width: object["width"]?.int ?? metadata.width,
+                height: object["height"]?.int ?? metadata.height
             )
             return ClaudeDecodedBlock(
                 summary: "Image attachment",
@@ -473,17 +478,39 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         let kind = object["type"]?.string ?? object["kind"]?.string ?? "file"
         let displayName = object["fileName"]?.string ?? object["file_name"]?.string ?? object["name"]?.string
         let hostPath = object["path"]?.string ?? object["file_path"]?.string
+        let mimeType = object["mediaType"]?.string ?? object["media_type"]?.string ?? object["mime_type"]?.string
+        let metadata = shouldProbeImageMetadata(kind: kind, mimeType: mimeType, hostPath: hostPath)
+            ? TranscriptImageMetadataProbe.metadata(hostPath: hostPath, base64EncodedData: nil)
+            : TranscriptImageMetadataProbeResult(byteCount: nil, width: nil, height: nil)
         return AttachmentPayload(
             kind: kind,
             summary: displayName ?? hostPath ?? "\(kind.capitalized) attachment",
             attachmentID: object["id"]?.string,
             displayName: displayName,
             hostPath: hostPath,
-            mimeType: object["mediaType"]?.string ?? object["media_type"]?.string ?? object["mime_type"]?.string,
-            byteCount: object["size"]?.int ?? object["byte_count"]?.int,
-            width: object["width"]?.int,
-            height: object["height"]?.int
+            mimeType: mimeType,
+            byteCount: object["size"]?.int ?? object["byte_count"]?.int ?? metadata.byteCount,
+            width: object["width"]?.int ?? metadata.width,
+            height: object["height"]?.int ?? metadata.height
         )
+    }
+
+    private func shouldProbeImageMetadata(kind: String, mimeType: String?, hostPath: String?) -> Bool {
+        if kind.lowercased().contains("image") {
+            return true
+        }
+        if mimeType?.lowercased().hasPrefix("image/") == true {
+            return true
+        }
+        guard let hostPath else {
+            return false
+        }
+        switch URL(fileURLWithPath: hostPath).pathExtension.lowercased() {
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp":
+            return true
+        default:
+            return false
+        }
     }
 
     private func estimatedDecodedByteCount(_ base64: String) -> Int {
