@@ -669,6 +669,21 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn reliable_mouse_release_backlog_stays_bounded() {
+        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(1);
+        assert!(dispatcher.enqueue(click_event(1)));
+
+        for surface in 1..=QUEUE_CAPACITY as SurfaceId + 1 {
+            let _ = dispatcher.enqueue(release_event(surface));
+        }
+
+        assert!(
+            dispatcher.reliable_mouse_releases.lock().unwrap().len() <= 1,
+            "mouse-release reliability must not create an unbounded side queue"
+        );
+    }
+
     // Regression: a discrete control command that fails inside the worker
     // (here: RemoteBrowserUnsupported bails) must report a status event so the
     // user learns it did not take effect, instead of the old `let _ = ...` that
