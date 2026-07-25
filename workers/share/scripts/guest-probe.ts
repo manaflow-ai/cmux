@@ -18,6 +18,16 @@
 import { readFileSync } from "node:fs";
 import { createPrivateKey, sign as edSign } from "node:crypto";
 
+import {
+  BINARY_KIND_BASELINE,
+  BINARY_KIND_INPUT,
+  BINARY_KIND_OUTPUT,
+  decodeTerminalFrame,
+  encodeTerminalFrame,
+  PROTO_VERSION,
+  TERMINAL_TRANSPORT_VERSION,
+} from "../src/protocol";
+
 const args = process.argv.slice(2);
 function arg(name: string, fallback?: string): string {
   const i = args.indexOf(`--${name}`);
@@ -46,13 +56,15 @@ const signingInput = `${b64(JSON.stringify({ alg: "EdDSA", typ: "JWT" }))}.${b64
     email,
     code,
     host: false,
+    protocolVersion: PROTO_VERSION,
+    terminalTransportVersion: TERMINAL_TRANSPORT_VERSION,
     iat: now,
     exp: now + 300,
   }),
 )}`;
 const token = `${signingInput}.${b64(edSign(null, Buffer.from(signingInput), key))}`;
 
-const ws = new WebSocket(`${base}/v1/share/sessions/${code}/ws?token=${token}`);
+const ws = new WebSocket(`${base}/v2/share/sessions/${code}/ws?token=${token}`);
 ws.binaryType = "arraybuffer";
 
 let gridFrames = 0;
@@ -71,25 +83,25 @@ function findTerminalPane(tree: unknown): { pane: string; cols?: number; rows?: 
 }
 
 ws.onopen = () => {
-  ws.send(JSON.stringify({ t: "hello", proto: 1 }));
+  ws.send(JSON.stringify({ t: "hello", proto: PROTO_VERSION }));
   console.log(`connected as ${user} <${email}>`);
 };
 
 ws.onmessage = (event) => {
   if (typeof event.data !== "string") {
     const bytes = new Uint8Array(event.data as ArrayBuffer);
-    if (bytes[0] === 0x01) {
+    const frame = decodeTerminalFrame(bytes);
+    if (
+      frame?.kind === BINARY_KIND_BASELINE ||
+      frame?.kind === BINARY_KIND_OUTPUT
+    ) {
       gridFrames += 1;
       gridBytes += bytes.length;
       if (gridFrames === 1) {
-        const dec = new TextDecoder();
-        const wsLen = bytes[1] ?? 0;
-        const paneLen = bytes[2 + wsLen] ?? 0;
-        const payload = dec.decode(bytes.subarray(3 + wsLen + paneLen));
-        const frame = JSON.parse(payload) as Record<string, unknown>;
         console.log(
-          `first grid frame: ${frame.columns}x${frame.rows} full=${frame.full !== false} ` +
-            `spans=${(frame.row_spans as unknown[]).length} theme=${frame.terminal_theme ? "yes" : "no"}`,
+          `first terminal frame: ${frame.columns}x${frame.rows} ` +
+            `kind=${frame.kind === BINARY_KIND_BASELINE ? "baseline" : "output"} ` +
+            `payload=${frame.payloadLength} bytes`,
         );
       }
     }
@@ -137,7 +149,20 @@ ws.onmessage = (event) => {
           if (sendText) {
             const data = sendText.replace(/\\n/g, "\n");
             setTimeout(() => {
-              ws.send(JSON.stringify({ t: "input", ws: firstPane!.ws, pane: firstPane!.pane, data }));
+              ws.send(
+                encodeTerminalFrame({
+                  kind: BINARY_KIND_INPUT,
+                  epoch: "00000000-0000-0000-0000-000000000000",
+                  sequenceStart: 0n,
+                  sequenceEnd: 0n,
+                  rows: 0,
+                  columns: 0,
+                  ws: firstPane!.ws,
+                  pane: firstPane!.pane,
+                  user: "",
+                  payload: new TextEncoder().encode(data),
+                }),
+              );
               console.log(`sent input: ${JSON.stringify(data)}`);
             }, 1_000);
           }

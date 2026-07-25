@@ -13,6 +13,17 @@
 import { readFileSync } from "node:fs";
 import { createPrivateKey, randomBytes, sign as edSign } from "node:crypto";
 
+import {
+  BINARY_KIND_BASELINE,
+  BINARY_KIND_FORWARDED_INPUT,
+  BINARY_KIND_INPUT,
+  decodeTerminalFrame,
+  encodeTerminalFrame,
+  PROTO_VERSION,
+  TERMINAL_FRAME_HEADER_BYTES,
+  TERMINAL_TRANSPORT_VERSION,
+} from "../src/protocol";
+
 const args = process.argv.slice(2);
 function arg(name: string, fallback?: string): string {
   const i = args.indexOf(`--${name}`);
@@ -46,6 +57,8 @@ function mint(sub: string, email: string, host: boolean): string {
       email,
       code,
       host,
+      protocolVersion: PROTO_VERSION,
+      terminalTransportVersion: TERMINAL_TRANSPORT_VERSION,
       // Host tokens here stand in for the create endpoint's token.
       ...(host ? { create: true } : {}),
       iat: now,
@@ -55,7 +68,7 @@ function mint(sub: string, email: string, host: boolean): string {
   return `${input}.${b64(edSign(null, Buffer.from(input), key))}`;
 }
 
-const url = (token: string) => `${base}/v1/share/sessions/${code}/ws?token=${token}`;
+const url = (token: string) => `${base}/v2/share/sessions/${code}/ws?token=${token}`;
 
 interface Waiter {
   next(pred: (msg: Record<string, unknown>) => boolean, label: string): Promise<Record<string, unknown>>;
@@ -158,29 +171,59 @@ function connect(token: string, name: string): Promise<Waiter> {
   });
 }
 
-function encodeGridFrame(ws: string, pane: string, payload: string): Uint8Array {
-  const enc = new TextEncoder();
-  const wsB = enc.encode(ws);
-  const paneB = enc.encode(pane);
-  const payloadB = enc.encode(payload);
-  const out = new Uint8Array(3 + wsB.length + paneB.length + payloadB.length);
-  let o = 0;
-  out[o++] = 0x01;
-  out[o++] = wsB.length;
-  out.set(wsB, o);
-  o += wsB.length;
-  out[o++] = paneB.length;
-  out.set(paneB, o);
-  o += paneB.length;
-  out.set(payloadB, o);
-  return out;
+const PROOF_EPOCH = "12345678-1234-4567-89ab-123456789abc";
+const ZERO_EPOCH = "00000000-0000-0000-0000-000000000000";
+
+function encodeBaselineFrame(
+  ws: string,
+  pane: string,
+  payload: Uint8Array,
+): Uint8Array {
+  return encodeTerminalFrame({
+    kind: BINARY_KIND_BASELINE,
+    epoch: PROOF_EPOCH,
+    sequenceStart: 0n,
+    sequenceEnd: 0n,
+    rows: 24,
+    columns: 80,
+    ws,
+    pane,
+    user: "",
+    payload,
+  });
 }
 
-function encodeSizedGridFrame(ws: string, pane: string, totalBytes: number): Uint8Array {
+function encodeSizedBaselineFrame(
+  ws: string,
+  pane: string,
+  totalBytes: number,
+): Uint8Array {
   const enc = new TextEncoder();
-  const headerBytes = 3 + enc.encode(ws).byteLength + enc.encode(pane).byteLength;
+  const headerBytes =
+    TERMINAL_FRAME_HEADER_BYTES +
+    enc.encode(ws).byteLength +
+    enc.encode(pane).byteLength;
   if (totalBytes <= headerBytes) throw new Error("sized grid frame is too small");
-  return encodeGridFrame(ws, pane, "\0".repeat(totalBytes - headerBytes));
+  return encodeBaselineFrame(
+    ws,
+    pane,
+    new Uint8Array(totalBytes - headerBytes),
+  );
+}
+
+function encodeInputFrame(ws: string, pane: string, payload: Uint8Array): Uint8Array {
+  return encodeTerminalFrame({
+    kind: BINARY_KIND_INPUT,
+    epoch: ZERO_EPOCH,
+    sequenceStart: 0n,
+    sequenceEnd: 0n,
+    rows: 0,
+    columns: 0,
+    ws,
+    pane,
+    user: "",
+    payload,
+  });
 }
 
 const step = (label: string) => console.log(`✓ ${label}`);
@@ -192,7 +235,7 @@ step("host connected, session created");
 host.ws.send(
   JSON.stringify({
     t: "hello",
-    proto: 1,
+    proto: PROTO_VERSION,
     shared: [{ id: "ws-1", title: "proof" }],
     layouts: [{ ws: "ws-1", tree: { kind: "pane", pane: "pane-1", content: "terminal", cols: 80, rows: 24 } }],
   }),
@@ -200,7 +243,7 @@ host.ws.send(
 
 // 2. Guest connects, waits for approval.
 const guest = await connect(mint("proof-guest", "guest@proof.dev", false), "guest");
-guest.ws.send(JSON.stringify({ t: "hello", proto: 1 }));
+guest.ws.send(JSON.stringify({ t: "hello", proto: PROTO_VERSION }));
 await guest.next((m) => m.t === "access-pending", "access-pending");
 const request = await host.next((m) => m.t === "access-request", "access-request");
 if (request.email !== "guest@proof.dev") throw new Error("wrong requester email");
@@ -217,27 +260,45 @@ step("approval delivered a snapshot");
 guest.ws.send(JSON.stringify({ t: "sub", ws: "ws-1", pane: "pane-1" }));
 const sub = await host.next((m) => m.t === "guest-sub" && m.count === 1, "guest-sub");
 if (sub.pane !== "pane-1") throw new Error("wrong sub pane");
-host.ws.send(encodeGridFrame("ws-1", "pane-1", '{"format":"cmux.render-grid.v1"}'));
+host.ws.send(
+  encodeBaselineFrame(
+    "ws-1",
+    "pane-1",
+    new TextEncoder().encode("\u001b[2J\u001b[Hproof"),
+  ),
+);
 const frame = await guest.nextBinary("grid frame");
-if (frame[0] !== 0x01) throw new Error("wrong binary kind");
-step("grid frame fanned out to the subscribed guest");
+if (decodeTerminalFrame(frame)?.kind !== BINARY_KIND_BASELINE) {
+  throw new Error("wrong binary kind");
+}
+step("terminal baseline fanned out to the subscribed guest");
 
 // 5. Guest input relays to the host; chat broadcasts; cursors flow.
-guest.ws.send(JSON.stringify({ t: "input", ws: "ws-1", pane: "pane-1", data: "echo hi\n" }));
-const input = await host.next((m) => m.t === "guest-input", "guest-input");
-if (input.data !== "echo hi\n") throw new Error("wrong input payload");
+const inputPayload = new TextEncoder().encode("echo hi\n");
+guest.ws.send(encodeInputFrame("ws-1", "pane-1", inputPayload));
+const inputFrame = await host.nextBinary("guest terminal input");
+const decodedInput = decodeTerminalFrame(inputFrame);
+if (
+  decodedInput?.kind !== BINARY_KIND_FORWARDED_INPUT ||
+  decodedInput.user !== "proof-guest" ||
+  !inputPayload.every(
+    (byte, index) => inputFrame[decodedInput.payloadOffset + index] === byte,
+  )
+) {
+  throw new Error("wrong forwarded terminal input");
+}
 guest.ws.send(JSON.stringify({ t: "chat", text: "hello from proof" }));
 await host.next((m) => m.t === "chat", "chat");
 guest.ws.send(JSON.stringify({ t: "cursor", pos: { ws: "ws-1", pane: "pane-1", x: 0.5, y: 0.5 } }));
 await host.next((m) => m.t === "cursor", "cursor");
-step("input relayed, chat + cursor broadcast");
+step("byte-exact terminal input relayed, chat + cursor broadcast");
 
 // Optional deployed-only hibernation proof. Local workerd does not evict
 // Durable Objects, so this mode intentionally idles a deployed dev Worker.
 if (hibernationProof) {
   const binaryLimit = 1024 * 1024;
-  const firstNearLimit = encodeSizedGridFrame("ws-1", "pane-1", binaryLimit - 1);
-  const secondNearLimit = encodeSizedGridFrame("ws-1", "pane-1", binaryLimit - 512);
+  const firstNearLimit = encodeSizedBaselineFrame("ws-1", "pane-1", binaryLimit - 1);
+  const secondNearLimit = encodeSizedBaselineFrame("ws-1", "pane-1", binaryLimit - 512);
   guest.withholdNextAcks(2);
   host.ws.send(firstNearLimit);
   await guest.nextBinary("first near-limit grid frame");
@@ -276,7 +337,7 @@ if (hibernationProof) {
   host.ws.send(
     JSON.stringify({
       t: "hello",
-      proto: 1,
+      proto: PROTO_VERSION,
       shared: [{ id: "ws-1", title: "proof" }],
       layouts: [
         {
@@ -298,7 +359,13 @@ if (hibernationProof) {
     (m) => m.t === "guest-sub" && m.pane === "pane-1" && m.count === 1,
     "post-wake guest-sub",
   );
-  host.ws.send(encodeGridFrame("ws-1", "pane-1", '{"format":"cmux.render-grid.v1"}'));
+  host.ws.send(
+    encodeBaselineFrame(
+      "ws-1",
+      "pane-1",
+      new TextEncoder().encode("\u001b[Hhealthy after wake"),
+    ),
+  );
   await guest.nextBinary("post-wake grid frame");
   guest.ws.send(JSON.stringify({ t: "chat", text: "healthy after wake" }));
   await host.next(
