@@ -15392,13 +15392,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh discovers LAN and VPN paths after authenticating the Mac. Custom raw TCP routes are not accepted because they cannot prove the remote Mac."
+            "value": "Use your own VPN when relays are blocked, on restricted corporate networks, or when you prefer a private route. Keep the VPN active on both devices, then add one of the Mac's suggested addresses. Connections remain end-to-end encrypted and verify the Mac's Iroh identity."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh は Mac を認証した後、LAN および VPN 経路を検出します。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。"
+            "value": "リレーがブロックされている場合、制限のある社内ネットワークを使う場合、またはプライベート経路を優先する場合は、ご自身のVPNを使用してください。両方のデバイスでVPNを有効にしてから、Macが提案するアドレスのいずれかを追加します。接続は引き続きエンドツーエンドで暗号化され、MacのIroh IDが検証されます。"
           }
         }
       }
