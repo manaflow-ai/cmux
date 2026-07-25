@@ -17,9 +17,15 @@ pub struct GraphicsPresentation {
     pub frames: Vec<(cmux_tui_core::SurfaceId, u64)>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GraphicsCompletion {
+    Presented(GraphicsPresentation),
+    Failed,
+}
+
 pub struct GraphicsWriter {
     slot: Arc<Mutex<Option<GraphicsSubmission>>>,
-    presented: Arc<Mutex<Option<GraphicsPresentation>>>,
+    completion: Arc<Mutex<Option<GraphicsCompletion>>>,
     notify: Option<SyncSender<()>>,
     done: Option<Receiver<()>>,
     handle: Option<JoinHandle<()>>,
@@ -28,26 +34,26 @@ pub struct GraphicsWriter {
 impl GraphicsWriter {
     pub fn spawn(
         stdout_lock: Arc<Mutex<()>>,
-        on_presented: impl Fn() + Send + 'static,
+        on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
-        Self::spawn_with_output(stdout_lock, std::io::stdout(), on_presented)
+        Self::spawn_with_output(stdout_lock, std::io::stdout(), on_ready)
     }
 
     fn spawn_with_output(
         stdout_lock: Arc<Mutex<()>>,
         output: impl Write + Send + 'static,
-        on_presented: impl Fn() + Send + 'static,
+        on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
         let (tx, rx) = sync_channel(1);
         let (done_tx, done_rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(None));
-        let presented = Arc::new(Mutex::new(None));
+        let completion = Arc::new(Mutex::new(None));
         let handle = std::thread::Builder::new().name("mux-graphics-writer".into()).spawn({
             let slot = slot.clone();
-            let presented = presented.clone();
-            move || writer_loop(slot, presented, rx, stdout_lock, output, on_presented, done_tx)
+            let completion = completion.clone();
+            move || writer_loop(slot, completion, rx, stdout_lock, output, on_ready, done_tx)
         })?;
-        Ok(Self { slot, presented, notify: Some(tx), done: Some(done_rx), handle: Some(handle) })
+        Ok(Self { slot, completion, notify: Some(tx), done: Some(done_rx), handle: Some(handle) })
     }
 
     pub fn submit(&self, id: u64, placements: Vec<GraphicPlacement>) -> bool {
@@ -55,8 +61,8 @@ impl GraphicsWriter {
         submit_snapshot(&self.slot, tx, GraphicsSubmission { id, placements })
     }
 
-    pub fn take_presented(&self) -> Option<GraphicsPresentation> {
-        self.presented.lock().unwrap().take()
+    pub fn take_completion(&self) -> Option<GraphicsCompletion> {
+        self.completion.lock().unwrap().take()
     }
 
     pub fn shutdown(&mut self, timeout: Duration) {
@@ -98,11 +104,11 @@ fn submit_snapshot(
 
 fn writer_loop(
     slot: Arc<Mutex<Option<GraphicsSubmission>>>,
-    presented: Arc<Mutex<Option<GraphicsPresentation>>>,
+    completion: Arc<Mutex<Option<GraphicsCompletion>>>,
     rx: Receiver<()>,
     stdout_lock: Arc<Mutex<()>>,
     mut output: impl Write,
-    on_presented: impl Fn(),
+    on_ready: impl Fn(),
     done: SyncSender<()>,
 ) {
     let _done = DoneOnDrop(done);
@@ -119,11 +125,17 @@ fn writer_loop(
             for batch in graphics.frame_batches(&submission.placements) {
                 let _guard = stdout_lock.lock().unwrap();
                 if output.write_all(&batch).and_then(|_| output.flush()).is_err() {
+                    *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
+                    on_ready();
                     return;
                 }
             }
-            *presented.lock().unwrap() = Some(GraphicsPresentation { id: submission.id, frames });
-            on_presented();
+            *completion.lock().unwrap() =
+                Some(GraphicsCompletion::Presented(GraphicsPresentation {
+                    id: submission.id,
+                    frames,
+                }));
+            on_ready();
         }
     }
 }
@@ -225,8 +237,11 @@ mod tests {
         drop(held);
         presented_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(
-            writer.take_presented(),
-            Some(GraphicsPresentation { id: 7, frames: vec![(11, 13)] })
+            writer.take_completion(),
+            Some(GraphicsCompletion::Presented(GraphicsPresentation {
+                id: 7,
+                frames: vec![(11, 13)]
+            }))
         );
         writer.shutdown(Duration::from_secs(1));
     }
@@ -252,6 +267,7 @@ mod tests {
         ready_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("a failed accepted submission must wake the app");
+        assert_eq!(writer.take_completion(), Some(GraphicsCompletion::Failed));
         writer.shutdown(Duration::from_secs(1));
     }
 }

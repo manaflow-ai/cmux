@@ -61,7 +61,7 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
-use crate::ui::graphics_writer::{GraphicsPresentation, GraphicsWriter};
+use crate::ui::graphics_writer::{GraphicsCompletion, GraphicsPresentation, GraphicsWriter};
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
@@ -92,7 +92,7 @@ pub enum AppEvent {
     },
     Input(Event),
     BrowserResizeFailed(BrowserResizeFailure),
-    GraphicsPresentedReady,
+    GraphicsWriterReady,
     PtyFailuresReady,
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled {
@@ -4540,7 +4540,7 @@ pub fn run_with_machine_updates(
     let graphics_writer = if graphics_supported {
         let graphics_ready = tx.clone();
         Some(GraphicsWriter::spawn(stdout_lock.clone(), move || {
-            let _ = graphics_ready.try_send(AppEvent::GraphicsPresentedReady);
+            let _ = graphics_ready.try_send(AppEvent::GraphicsWriterReady);
         })?)
     } else {
         None
@@ -4892,7 +4892,7 @@ impl App {
                     Err(_) => break,
                 }
             }
-            self.apply_presented_graphics();
+            action = action.merge(self.apply_graphics_completion());
             action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens
             // the idle wait, so a failed try_send cannot create a lost wakeup.
@@ -6383,13 +6383,33 @@ impl App {
         placements
     }
 
-    fn apply_presented_graphics(&mut self) {
-        let Some(presentation) =
-            self.graphics_writer.as_ref().and_then(GraphicsWriter::take_presented)
+    fn apply_graphics_completion(&mut self) -> RenderAction {
+        let Some(completion) =
+            self.graphics_writer.as_ref().and_then(GraphicsWriter::take_completion)
         else {
-            return;
+            return RenderAction::None;
         };
-        self.commit_graphics_presentation(presentation);
+        match completion {
+            GraphicsCompletion::Presented(presentation) => {
+                self.commit_graphics_presentation(presentation);
+                RenderAction::None
+            }
+            GraphicsCompletion::Failed => self.disable_graphics_after_failure(),
+        }
+    }
+
+    fn disable_graphics_after_failure(&mut self) -> RenderAction {
+        self.pending_graphics_submission = None;
+        self.graphics_supported = false;
+        self.last_graphics_snapshot.clear();
+        self.rendered_pane_content_generations
+            .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
+        self.commit_rendered_pane_content_generations();
+        self.pointer_route_phase = PointerRoutePhase::DrawPending;
+        if let Some(mut writer) = self.graphics_writer.take() {
+            writer.shutdown(Duration::from_millis(200));
+        }
+        RenderAction::Draw
     }
 
     fn commit_graphics_presentation(&mut self, presentation: GraphicsPresentation) {
@@ -7029,10 +7049,7 @@ impl App {
             event => event,
         };
         match event {
-            AppEvent::GraphicsPresentedReady => {
-                self.apply_presented_graphics();
-                Ok(RenderAction::None)
-            }
+            AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
@@ -14637,6 +14654,33 @@ mod tests {
         assert_eq!(
             app.rendered_pointer_frame.pane_content_generations.get(&11),
             Some(&PaneContentGeneration::Browser(14))
+        );
+    }
+
+    #[test]
+    fn graphics_writer_failure_releases_the_pointer_presentation_barrier() {
+        let mux = Mux::new("graphics-failure-pointer-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.graphics_supported = true;
+        app.pending_graphics_submission = Some(9);
+        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.last_graphics_snapshot.push(GraphicIdentity {
+            surface: 11,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq: 15,
+        });
+        app.rendered_pane_content_generations.insert(11, PaneContentGeneration::Browser(15));
+
+        assert_eq!(app.disable_graphics_after_failure(), RenderAction::Draw);
+
+        assert!(!app.graphics_supported);
+        assert_eq!(app.pending_graphics_submission, None);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
+        assert!(app.last_graphics_snapshot.is_empty());
+        assert!(
+            !app.rendered_pane_content_generations
+                .values()
+                .any(|generation| matches!(generation, PaneContentGeneration::Browser(_)))
         );
     }
 
