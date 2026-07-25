@@ -370,12 +370,16 @@ extension MobileShellComposite {
         guard response.revision >= currentRevision else { return false }
 
         let status = notificationFeedConnectionStatus(for: macDeviceID)
+        // The connection this snapshot arrived on identifies the exact pairing;
+        // the wire items carry no Mac identity of their own.
+        let instanceTag = notificationFeedInstanceTag(for: macDeviceID)
         let items = response.notifications.compactMap { wire -> MobileNotificationFeedItem? in
             let id = wire.id.trimmingCharacters(in: .whitespacesAndNewlines)
             let workspaceID = wire.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty, !workspaceID.isEmpty else { return nil }
             return MobileNotificationFeedItem(
                 macDeviceID: macDeviceID,
+                macInstanceTag: instanceTag,
                 notificationID: id,
                 macDisplayName: displayName,
                 remoteWorkspaceID: workspaceID,
@@ -528,6 +532,7 @@ extension MobileShellComposite {
            supportedHostCapabilities.contains(Self.notificationFeedCapability) {
             targets.append(NotificationFeedClientTarget(
                 macDeviceID: macDeviceID,
+                instanceTag: activeMacInstanceTag,
                 displayName: notificationFeedDisplayName(for: macDeviceID),
                 client: client
             ))
@@ -536,6 +541,7 @@ extension MobileShellComposite {
         where subscription.supportedHostCapabilities.contains(Self.notificationFeedCapability) {
             targets.append(NotificationFeedClientTarget(
                 macDeviceID: macDeviceID,
+                instanceTag: subscription.authenticatedInstanceTag ?? subscription.storedInstanceTag,
                 displayName: notificationFeedDisplayName(for: macDeviceID),
                 client: subscription.client
             ))
@@ -548,9 +554,20 @@ extension MobileShellComposite {
               notificationFeedClientSupportsCapability(macDeviceID: macDeviceID) else { return nil }
         return NotificationFeedClientTarget(
             macDeviceID: macDeviceID,
+            instanceTag: notificationFeedInstanceTag(for: macDeviceID),
             displayName: notificationFeedDisplayName(for: macDeviceID),
             client: client
         )
+    }
+
+    /// The pairing tag behind a feed target: the foreground connection's tag,
+    /// or the secondary subscription's proven tag.
+    private func notificationFeedInstanceTag(for macDeviceID: String) -> String? {
+        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+            return activeMacInstanceTag
+        }
+        let subscription = secondaryMacSubscriptions[macDeviceID]
+        return subscription?.authenticatedInstanceTag ?? subscription?.storedInstanceTag
     }
 
     private func notificationFeedClient(for macDeviceID: String) -> MobileCoreRPCClient? {

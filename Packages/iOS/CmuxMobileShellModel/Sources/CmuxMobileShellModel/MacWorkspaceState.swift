@@ -18,6 +18,10 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// The stable device id of the Mac this state describes. Also the dictionary
     /// key in the aggregate, and the `id` for `Identifiable`.
     public var macDeviceID: String
+    /// The app-instance tag of the Mac pairing this state describes ("default",
+    /// "nightly", a dev tag), or `nil` for a legacy untagged pairing. Sibling
+    /// builds of one physical Mac are separate entries distinguished by tag.
+    public var instanceTag: String?
     /// The Mac's user-facing display name, for per-Mac sections/labels.
     public var displayName: String?
     /// This Mac's workspaces, each already tagged with `macDeviceID` so the
@@ -39,6 +43,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// Create one per-Mac workspace state snapshot.
     public init(
         macDeviceID: String,
+        instanceTag: String? = nil,
         displayName: String? = nil,
         workspaces: [MobileWorkspacePreview] = [],
         groups: [MobileWorkspaceGroupPreview] = [],
@@ -46,6 +51,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         actionCapabilities: MobileWorkspaceActionCapabilities = .none
     ) {
         self.macDeviceID = macDeviceID
+        self.instanceTag = instanceTag
         self.displayName = displayName
         self.workspaces = workspaces
         self.groups = groups

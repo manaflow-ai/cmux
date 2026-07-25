@@ -6,6 +6,8 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     public let id: MobileNotificationFeedItemID
     /// The stable device identifier of the Mac that emitted the notification.
     public let macDeviceID: String
+    /// The owning pairing's app-instance tag, or `nil` for a legacy pairing.
+    public let macInstanceTag: String?
     /// The notification identifier within the owning Mac.
     public let notificationID: String
     /// The owning Mac's user-facing name.
@@ -51,6 +53,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     ///   - connectionStatus: The current reachability of the owning Mac.
     public init(
         macDeviceID: String,
+        macInstanceTag: String? = nil,
         notificationID: String,
         macDisplayName: String,
         remoteWorkspaceID: String,
@@ -67,9 +70,11 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     ) {
         self.id = MobileNotificationFeedItemID(
             macDeviceID: macDeviceID,
+            macInstanceTag: macInstanceTag,
             notificationID: notificationID
         )
         self.macDeviceID = macDeviceID
+        self.macInstanceTag = macInstanceTag
         self.notificationID = notificationID
         self.macDisplayName = macDisplayName
         self.remoteWorkspaceID = remoteWorkspaceID
@@ -96,6 +101,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     ) -> MobileNotificationFeedItem {
         MobileNotificationFeedItem(
             macDeviceID: macDeviceID,
+            macInstanceTag: macInstanceTag,
             notificationID: notificationID,
             macDisplayName: macDisplayName,
             remoteWorkspaceID: remoteWorkspaceID,

@@ -36,7 +36,9 @@ extension MobileShellComposite {
             return false
         }
         guard let previews = await fetchSecondaryWorkspaces(
-                  on: sub.client, macDeviceID: macID
+                  on: sub.client,
+                  macDeviceID: macID,
+                  instanceTag: sub.authenticatedInstanceTag ?? sub.storedInstanceTag
               ),
               secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID),

@@ -3571,7 +3571,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// contributes nothing).
     func fetchSecondaryWorkspaces(
         on client: MobileCoreRPCClient,
-        macDeviceID: String
+        macDeviceID: String,
+        instanceTag: String?
     ) async -> [MobileWorkspacePreview]? {
         guard let runtime else { return nil }
         do {
@@ -3584,6 +3585,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return response.workspaces.map { remote in
                 var workspace = MobileWorkspacePreview(remote: remote)
                 workspace.macDeviceID = macDeviceID
+                workspace.macInstanceTag = instanceTag
                 return workspace
             }
         } catch {
@@ -3665,7 +3667,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await establishSecondaryMacSubscription(for: mac, scope: scope)
                     continue
                 }
-                let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
+                let previews = await fetchSecondaryWorkspaces(
+                    on: existing.client,
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: existing.authenticatedInstanceTag ?? existing.storedInstanceTag
+                )
                 guard await isSecondaryRefreshStillCurrent(
                     macDeviceID: mac.macDeviceID,
                     subscription: existing,
@@ -3871,7 +3877,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
-        let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
+        let previews = await fetchSecondaryWorkspaces(
+            on: client,
+            macDeviceID: macID,
+            instanceTag: handle.authenticatedInstanceTag ?? handle.storedInstanceTag
+        )
         // The fetch await is another sign-out window: drop the just-opened
         // connection and entry rather than seed another account's workspaces.
         let refreshedMac = try? await pairedMacStore.loadAll(
@@ -3985,7 +3995,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Clear before the fetch; an event during the await re-sets it and
                 // we loop once more (the trailing refresh).
                 self.secondaryMacSubscriptions[macID]?.refreshPending = false
-                let previews = await self.fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
+                let previews = await self.fetchSecondaryWorkspaces(
+                    on: client,
+                    macDeviceID: macID,
+                    instanceTag: subscription.authenticatedInstanceTag ?? subscription.storedInstanceTag
+                )
                 // Revalidate both scope and per-Mac authority across the fetch.
                 // A backup refresh can replace A with B while A's RPC is in flight;
                 // never attribute A's response to the now-B row.
@@ -4297,9 +4311,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let id = foregroundMacDeviceID else { return workspace }
             var copy = workspace
             copy.macDeviceID = id
+            copy.macInstanceTag = activeMacInstanceTag
             return copy
         }
         var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
+        if foregroundMacDeviceID != nil {
+            state.instanceTag = activeMacInstanceTag
+        }
         if merge {
             var merged = state.workspaces
             for workspace in stamped {
