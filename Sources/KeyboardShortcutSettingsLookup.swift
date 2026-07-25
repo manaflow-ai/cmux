@@ -8,8 +8,11 @@ extension KeyboardShortcutSettings {
         shortcutLookupObserver?(action)
         #endif
 
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return effectivePersistedShortcut(managedShortcut, for: action)
+        if settingsFileStore.isManagedByFile(action) {
+            return effectivePersistedShortcut(
+                settingsFileStore.override(for: action),
+                for: action
+            )
         }
 
         let shortcut = UserDefaults.standard.data(forKey: action.defaultsKey)

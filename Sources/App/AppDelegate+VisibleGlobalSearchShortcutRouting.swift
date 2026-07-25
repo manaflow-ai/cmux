@@ -38,6 +38,8 @@ extension AppDelegate {
             return .notApplicable
         }
 
+        let previousPendingChord = pendingConfiguredShortcutChord
+        let previousActiveChord = activeConfiguredShortcutChordPrefixForCurrentEvent
         let eventWindowNumber = configuredShortcutChordWindowNumber(for: event)
         if let pendingConfiguredShortcutChord,
            pendingConfiguredShortcutChord.windowNumber == eventWindowNumber {
@@ -47,12 +49,18 @@ extension AppDelegate {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
-        defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil }
 
-        return routeVisibleGlobalSearchShortcut(
+        let route = routeVisibleGlobalSearchShortcut(
             event,
             normalizedFlags: normalizedFlags
         )
+        if case .notApplicable = route {
+            pendingConfiguredShortcutChord = previousPendingChord
+            activeConfiguredShortcutChordPrefixForCurrentEvent = previousActiveChord
+        } else {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        }
+        return route
     }
 
     /// Applies the single visible-palette toggle policy for every local monitor.

@@ -361,17 +361,13 @@ final class ShortcutListModel {
         await write(updated, clearingLegacyFor: action)
     }
 
-    /// Persists `shortcut` for `action` and clears its rejection/restore state.
+    /// Restores `shortcut` through the same validation path as a new recording.
     func restoreBinding(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
-        guard !action.rejectsSystemDefinedMediaKey(shortcut) else {
-            markSystemReservedRejected(action)
-            return
+        if shortcut.hasChord {
+            await assignChord(shortcut, to: action)
+        } else {
+            await assign(stroke: shortcut.first, to: action)
         }
-        var updated = latestBindings
-        updated[action.rawValue] = shortcut
-        restoreShortcuts.removeValue(forKey: action.rawValue)
-        clearRejections(for: action)
-        await write(updated, clearingLegacyFor: action)
     }
 
     /// Clears every override and all in-memory rejection/restore state — the
@@ -472,7 +468,7 @@ final class ShortcutListModel {
         // Iterate a key snapshot because the loop mutates `restoreShortcuts`.
         for key in Array(restoreShortcuts.keys) {
             if let action = ShortcutAction(rawValue: key),
-               effective(for: action)?.isUnbound == true { continue }
+               effective(for: action)?.isUnbound ?? true { continue }
             restoreShortcuts.removeValue(forKey: key)
         }
     }
