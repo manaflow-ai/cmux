@@ -33,6 +33,22 @@ def wait_for_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def wait_for_occurrences(
+    path: Path,
+    needle: str,
+    expected_count: int,
+    timeout: float = 5.0,
+) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            text = path.read_text(encoding="utf-8")
+            if text.count(needle) >= expected_count:
+                return text
+        time.sleep(0.05)
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
 def payloads_from_log(text: str) -> list[dict[str, object]]:
     payloads: list[dict[str, object]] = []
     for raw in text.split("\n---\n"):
@@ -133,14 +149,17 @@ def main() -> int:
         fake_stdin_log = root / "fake-cmux-stdin.log"
         fake_env_log = root / "fake-cmux-env.log"
         fake_binding = root / "fake-surface-binding.json"
+        fake_finalize_failure = root / "fake-finalize-failure"
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
+stdin_lock="$CMUX_TEST_PI_STDIN_LOG.lock"
+while ! mkdir "$stdin_lock" 2>/dev/null; do sleep 0.01; done
+printf '%s\n---\n' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
+rmdir "$stdin_lock"
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
@@ -160,6 +179,15 @@ printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
   if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then printf 'CMUX_TEST_PI_TOKEN=present\n'; fi
 } >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
+  *"hooks enqueue pi session-finalize"*)
+    if printf '%s' "$payload" | grep -q 'pi-session-finalize-fallback' &&
+       [ ! -f "$CMUX_TEST_PI_FINALIZE_FAILURE_MARKER" ]; then
+      : > "$CMUX_TEST_PI_FINALIZE_FAILURE_MARKER"
+      printf 'forced finalization admission failure\n' >&2
+      exit 43
+    fi
+    printf '{}\n'
+    ;;
   *"hooks enqueue pi notification"*)
     if printf '%s' "$payload" | grep -q 'pi-session-notification-fails'; then
       printf 'forced notification failure\n' >&2
@@ -208,6 +236,7 @@ esac
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
         check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
+        check_env["CMUX_TEST_PI_FINALIZE_FAILURE_MARKER"] = str(fake_finalize_failure)
         check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
         check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
@@ -335,6 +364,16 @@ completionCount += 1;
 if (await completionHookCount() !== completionCount) throw new Error("interrupted shutdown did not emit one stop");
 await handlers.get("agent_settled")({}, interruptedCtx);
 if (await completionHookCount() !== completionCount) throw new Error("late settlement emitted completion after shutdown");
+const finalizeFallbackCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-finalize-fallback"; }
+  }
+};
+await handlers.get("session_start")({}, finalizeFallbackCtx);
+await handlers.get("before_agent_start")({ prompt: "finalize after queue failure" }, finalizeFallbackCtx);
+await handlers.get("session_shutdown")({ reason: "quit" }, finalizeFallbackCtx);
 process.env.CMUX_PI_HOOKS_DISABLED = "1";
 const disabledCompletionCount = await completionHookCount();
 const disabledCtx = {
@@ -454,26 +493,65 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 39, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 64, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 39 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 46, timeout=20.0)
+        stdin_log = wait_for_text(fake_stdin_log, 74, timeout=20.0)
+        stdin_log = wait_for_occurrences(
+            fake_stdin_log,
+            (
+                '"session_id":"pi-session-finalize-fallback",'
+                '"cwd":"/tmp/pi-project",'
+                '"hook_event_name":"session-finalize"'
+            ),
+            2,
+            timeout=20.0,
+        )
+        env_log = wait_for_text(fake_env_log, 46 * 3, timeout=20.0)
         for expected in [
             "hooks enqueue pi session-start",
             "hooks enqueue pi prompt-submit",
             "hooks enqueue pi stop",
             "hooks enqueue pi session-finalize",
+            "hooks pi session-finalize",
             "hooks enqueue pi notification",
             "hooks feed --source pi --event PreToolUse",
             "hooks feed --source pi --event PostToolUse",
             "surface resume get",
             "surface resume set",
-            "surface resume clear",
         ]:
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")
                 return 1
 
         arg_lines = [line for line in args_log.splitlines() if line.strip()]
+        if any("surface resume clear" in line for line in arg_lines):
+            print(f"FAIL: Pi fallback cleared resume state outside ordered finalization: {arg_lines!r}")
+            return 1
+        direct_finalize_index = next(
+            (index for index, line in enumerate(arg_lines) if "hooks pi session-finalize" in line),
+            None,
+        )
+        if direct_finalize_index is None:
+            print(f"FAIL: Pi fallback did not invoke direct finalization: {arg_lines!r}")
+            return 1
+        queued_finalize_index = max(
+            (
+                index
+                for index, line in enumerate(arg_lines[:direct_finalize_index])
+                if "hooks enqueue pi session-finalize" in line
+            ),
+            default=-1,
+        )
+        stop_index = max(
+            (
+                index
+                for index, line in enumerate(arg_lines[:queued_finalize_index])
+                if "hooks enqueue pi stop" in line
+            ),
+            default=-1,
+        )
+        if not (stop_index < queued_finalize_index < direct_finalize_index):
+            print(f"FAIL: Pi fallback did not preserve stop -> enqueue -> direct order: {arg_lines!r}")
+            return 1
         resume_ops = []
         for line in [line for line in arg_lines if "surface resume " in line]:
             if "surface resume get" in line:
@@ -483,6 +561,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
+            "set", "get",
             "set", "get",
             "set", "get",
             "set", "get",
@@ -502,6 +581,8 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
         if [payload.get("session_id") for payload in finalizations] != [
             "pi-session-test",
             "pi-session-interrupted",
+            "pi-session-finalize-fallback",
+            "pi-session-finalize-fallback",
         ]:
             print(f"FAIL: Pi shutdown did not enqueue ordered finalization: {payloads!r}")
             return 1

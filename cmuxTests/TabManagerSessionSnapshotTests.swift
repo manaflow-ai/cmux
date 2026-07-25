@@ -2865,6 +2865,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testRemoteRelayForcesQueuedHookProvenanceWithoutIDAliases() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
         for method in ["agent.hook.enqueue", "agent.hook.barrier"] {
             let request: [String: Any] = [
                 "id": "relay-hook-provenance-request",
@@ -2877,17 +2879,18 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ]
             let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
 
-            let rewrittenData = Workspace.rewriteRemoteRelayCommandLine(
-                requestData,
-                workspaceAliases: [:],
-                surfaceAliases: [:]
-            )
+            let rewrittenData = remoteWorkspace.rewriteRemoteRelayCommandLine(requestData)
             let rewritten = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: rewrittenData) as? [String: Any]
             )
             let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
 
             XCTAssertEqual(params["relay_backed"] as? Bool, true, method)
+            XCTAssertEqual(
+                params["_cmux_remote_workspace_id"] as? String,
+                remoteWorkspace.id.uuidString,
+                method
+            )
         }
     }
 

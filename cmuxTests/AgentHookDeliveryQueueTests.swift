@@ -351,6 +351,75 @@ struct AgentHookDeliveryQueueTests {
         #expect(event.environment["CMUX_AGENT_LAUNCH_ARGV_B64"] == nil)
     }
 
+    @Test("Lifecycle delivery retries one downstream process failure")
+    func lifecycleDeliveryRetriesOneProcessFailure() async throws {
+        let fixture = try AgentHookDeliveryProcessFixture()
+        defer { fixture.remove() }
+        let process = AgentHookDeliveryProcess(
+            executableURLProvider: { fixture.executableURL },
+            processTimeout: .seconds(2),
+            terminationGrace: .milliseconds(100)
+        )
+        let event = try makeEvent(
+            subcommand: "session-end",
+            payload: #"{"session_id":"retry-lifecycle"}"#,
+            surfaceID: "surface-retry"
+        )
+
+        await process.deliver(event)
+
+        #expect(try fixture.attemptCount() == 2)
+    }
+
+    @Test("Best-effort tool delivery is not retried after downstream failure")
+    func bestEffortDeliveryDoesNotRetryProcessFailure() async throws {
+        let fixture = try AgentHookDeliveryProcessFixture()
+        defer { fixture.remove() }
+        let process = AgentHookDeliveryProcess(
+            executableURLProvider: { fixture.executableURL },
+            processTimeout: .seconds(2),
+            terminationGrace: .milliseconds(100)
+        )
+        let event = try makeEvent(
+            agent: "codex",
+            subcommand: "post-tool-use",
+            payload: #"{"hook_event_name":"PostToolUse"}"#,
+            surfaceID: "surface-best-effort"
+        )
+
+        await process.deliver(event)
+
+        #expect(try fixture.attemptCount() == 1)
+    }
+
+    @MainActor
+    @Test("Relay TTY resolution is scoped to the owning remote workspace")
+    func relayTTYResolutionUsesOwningWorkspace() throws {
+        let manager = TabManager()
+        let firstWorkspace = manager.addWorkspace(select: true)
+        let firstSurfaceID = try #require(firstWorkspace.focusedPanelId)
+        let secondWorkspace = manager.addWorkspace(select: false)
+        let secondSurfaceID = try #require(secondWorkspace.focusedPanelId)
+        firstWorkspace.surfaceTTYNames[firstSurfaceID] = "/dev/ttys8535"
+        secondWorkspace.surfaceTTYNames[secondSurfaceID] = "/dev/ttys8535"
+
+        let controller = TerminalController.shared
+        let previousManager = controller.activeTabManagerForCallerNotification()
+        controller.setActiveTabManager(manager)
+        defer { controller.setActiveTabManager(previousManager) }
+
+        let resolved = controller.agentHookParametersResolvingRelayTTY([
+            "relay_backed": true,
+            "caller_tty": "/dev/ttys8535",
+            "_cmux_remote_workspace_id": secondWorkspace.id.uuidString,
+            "environment": [String: String](),
+        ])
+        let environment = try #require(resolved["environment"] as? [String: String])
+
+        #expect(environment["CMUX_WORKSPACE_ID"] == secondWorkspace.id.uuidString)
+        #expect(environment["CMUX_SURFACE_ID"] == secondSurfaceID.uuidString)
+    }
+
     private func makeEvent(
         agent: String = "claude",
         subcommand: String = "prompt-submit",
@@ -376,6 +445,54 @@ struct AgentHookDeliveryQueueTests {
             options: .regularExpression
         )
         return "CMUX_\(component)_PID"
+    }
+}
+
+private struct AgentHookDeliveryProcessFixture {
+    let directoryURL: URL
+    let executableURL: URL
+    let countURL: URL
+
+    init() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-process-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let executableURL = directoryURL.appendingPathComponent("fail-once", isDirectory: false)
+        let countURL = directoryURL.appendingPathComponent("fail-once.count", isDirectory: false)
+        let script = """
+        #!/bin/sh
+        count_file="$0.count"
+        count=0
+        if [ -f "$count_file" ]; then
+          count="$(cat "$count_file")"
+        fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        if [ "$count" -eq 1 ]; then
+          exit 42
+        fi
+        exit 0
+        """
+        try script.write(to: executableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executableURL.path
+        )
+        self.directoryURL = directoryURL
+        self.executableURL = executableURL
+        self.countURL = countURL
+    }
+
+    func attemptCount() throws -> Int {
+        let raw = try String(contentsOf: countURL, encoding: .utf8)
+        return try #require(Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: directoryURL)
     }
 }
 
