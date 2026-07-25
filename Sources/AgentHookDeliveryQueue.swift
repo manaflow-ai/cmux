@@ -10,7 +10,7 @@ nonisolated private let agentHookDeliveryQueueLogger = Logger(
 actor AgentHookDeliveryQueue {
     typealias Delivery = @Sendable (AgentHookDeliveryEvent) async -> Void
 
-    private enum AdmissionClass: Sendable {
+    private enum AdmissionClass: Equatable, Sendable {
         case lifecycle
         case bestEffortTool
         case barrier
@@ -33,16 +33,34 @@ actor AgentHookDeliveryQueue {
             if case .barrier = self { return true }
             return false
         }
+
+        var preservesLatestLifecycleState: Bool {
+            guard case .event(let event) = self else { return false }
+            return [
+                "session-start",
+                "stop",
+                "session-end",
+                "session-finalize",
+            ].contains(event.subcommand)
+        }
     }
 
-    nonisolated private let lifecycleAdmissionContinuation: AsyncStream<PendingItem>.Continuation
-    nonisolated private let toolAdmissionContinuation: AsyncStream<PendingItem>.Continuation
-    nonisolated private let barrierAdmissionContinuation: AsyncStream<PendingItem>.Continuation
-    nonisolated private let admissionOrderContinuation: AsyncStream<AdmissionClass>.Continuation
-    // A synchronous hook can publish from any socket worker. This lock only
-    // keeps the item-stream yield adjacent to its order-token yield; actor-owned
-    // queue state remains isolated below.
+    private struct AdmissionRecord: Sendable {
+        let item: PendingItem
+        let admissionClass: AdmissionClass
+    }
+
+    nonisolated private let admissionSignalContinuation: AsyncStream<Void>.Continuation
+    // Synchronous socket handlers cannot await actor admission. This lock guards
+    // only the fixed-capacity ingress records paired with admission signals;
+    // delivery lanes and all ongoing execution state remain actor-isolated.
     nonisolated private let admissionPublicationLock = NSLock()
+    // Access is serialized by `admissionPublicationLock`; the array never grows
+    // beyond the configured ingress capacities.
+    nonisolated(unsafe) private var admissionRecords: [AdmissionRecord] = []
+    nonisolated private let maximumLifecycleIngressEvents: Int
+    nonisolated private let maximumToolIngressEvents: Int
+    nonisolated private let maximumBarrierIngressEvents: Int
     private let capacityContinuation: AsyncStream<Void>.Continuation
     private let delivery: Delivery
     private let maximumConcurrentDeliveries: Int
@@ -75,20 +93,9 @@ actor AgentHookDeliveryQueue {
         precondition(maximumBarrierIngressEvents > 0)
 
         let toolIngressCapacity = 1
-        let lifecycleAdmissionPair = AsyncStream.makeStream(
-            of: PendingItem.self,
-            bufferingPolicy: .bufferingOldest(maximumIngressEvents - toolIngressCapacity)
-        )
-        let toolAdmissionPair = AsyncStream.makeStream(
-            of: PendingItem.self,
-            bufferingPolicy: .bufferingOldest(toolIngressCapacity)
-        )
-        let barrierAdmissionPair = AsyncStream.makeStream(
-            of: PendingItem.self,
-            bufferingPolicy: .bufferingOldest(maximumBarrierIngressEvents)
-        )
-        let admissionOrderPair = AsyncStream.makeStream(
-            of: AdmissionClass.self,
+        let lifecycleIngressCapacity = maximumIngressEvents - toolIngressCapacity
+        let admissionSignalPair = AsyncStream.makeStream(
+            of: Void.self,
             bufferingPolicy: .bufferingOldest(
                 maximumIngressEvents + maximumBarrierIngressEvents
             )
@@ -97,10 +104,10 @@ actor AgentHookDeliveryQueue {
             of: Void.self,
             bufferingPolicy: .bufferingOldest(maximumResidentEvents)
         )
-        lifecycleAdmissionContinuation = lifecycleAdmissionPair.continuation
-        toolAdmissionContinuation = toolAdmissionPair.continuation
-        barrierAdmissionContinuation = barrierAdmissionPair.continuation
-        admissionOrderContinuation = admissionOrderPair.continuation
+        admissionSignalContinuation = admissionSignalPair.continuation
+        maximumLifecycleIngressEvents = lifecycleIngressCapacity
+        maximumToolIngressEvents = toolIngressCapacity
+        self.maximumBarrierIngressEvents = maximumBarrierIngressEvents
         capacityContinuation = capacityPair.continuation
         self.delivery = delivery
         self.maximumConcurrentDeliveries = maximumConcurrentDeliveries
@@ -112,39 +119,27 @@ actor AgentHookDeliveryQueue {
         Task {
             [
                 weak self,
-                lifecycleAdmissionStream = lifecycleAdmissionPair.stream,
-                toolAdmissionStream = toolAdmissionPair.stream,
-                barrierAdmissionStream = barrierAdmissionPair.stream,
-                admissionOrderStream = admissionOrderPair.stream,
+                admissionSignalStream = admissionSignalPair.stream,
                 capacityStream = capacityPair.stream,
+                capacityContinuation = capacityPair.continuation,
             ] in
-            var lifecycleAdmissionIterator = lifecycleAdmissionStream.makeAsyncIterator()
-            var toolAdmissionIterator = toolAdmissionStream.makeAsyncIterator()
-            var barrierAdmissionIterator = barrierAdmissionStream.makeAsyncIterator()
-            var admissionOrderIterator = admissionOrderStream.makeAsyncIterator()
+            var admissionSignalIterator = admissionSignalStream.makeAsyncIterator()
             for await _ in capacityStream {
-                guard let admissionClass = await admissionOrderIterator.next() else { return }
-                let item: PendingItem?
-                switch admissionClass {
-                case .lifecycle:
-                    item = await lifecycleAdmissionIterator.next()
-                case .bestEffortTool:
-                    item = await toolAdmissionIterator.next()
-                case .barrier:
-                    item = await barrierAdmissionIterator.next()
-                }
+                guard await admissionSignalIterator.next() != nil,
+                      let self else { return }
                 // Reserve actor capacity before removing an item from bounded ingress.
-                guard let item, let self else { return }
+                guard let item = self.takeNextPublishedItem() else {
+                    assertionFailure("Agent hook admission signal had no item")
+                    capacityContinuation.yield(())
+                    continue
+                }
                 await self.accept(item)
             }
         }
     }
 
     deinit {
-        lifecycleAdmissionContinuation.finish()
-        toolAdmissionContinuation.finish()
-        barrierAdmissionContinuation.finish()
-        admissionOrderContinuation.finish()
+        admissionSignalContinuation.finish()
         capacityContinuation.finish()
     }
 
@@ -185,40 +180,80 @@ actor AgentHookDeliveryQueue {
         admissionPublicationLock.lock()
         defer { admissionPublicationLock.unlock() }
 
-        let result: AsyncStream<PendingItem>.Continuation.YieldResult
+        let capacity: Int
         switch admissionClass {
         case .lifecycle:
-            result = lifecycleAdmissionContinuation.yield(item)
+            capacity = maximumLifecycleIngressEvents
         case .bestEffortTool:
-            result = toolAdmissionContinuation.yield(item)
+            capacity = maximumToolIngressEvents
         case .barrier:
-            result = barrierAdmissionContinuation.yield(item)
+            capacity = maximumBarrierIngressEvents
         }
-        switch result {
-        case .enqueued:
-            switch admissionOrderContinuation.yield(admissionClass) {
-            case .enqueued:
-                return true
-            case .terminated:
-                return false
-            case .dropped:
-                // Class capacities sum to order capacity, and the consumer removes
-                // each order token before its event, so a live queue cannot overflow here.
-                assertionFailure("Agent hook admission order overflowed")
-                return false
-            @unknown default:
+        let classCount = admissionRecords.lazy.filter {
+            $0.admissionClass == admissionClass
+        }.count
+        if classCount >= capacity {
+            guard admissionClass == .lifecycle,
+                  item.preservesLatestLifecycleState,
+                  let replacementIndex = lifecycleReplacementIndex(for: item)
+            else {
+                agentHookDeliveryQueueLogger.error(
+                    "Hook admission dropped \(droppedDescription, privacy: .public)"
+                )
                 return false
             }
+            let replaced = admissionRecords.remove(at: replacementIndex)
+            admissionRecords.append(AdmissionRecord(
+                item: item,
+                admissionClass: admissionClass
+            ))
+            agentHookDeliveryQueueLogger.info(
+                "Hook admission replaced stale \(String(describing: replaced.item), privacy: .private)"
+            )
+            return true
+        }
+
+        admissionRecords.append(AdmissionRecord(
+            item: item,
+            admissionClass: admissionClass
+        ))
+        switch admissionSignalContinuation.yield(()) {
+        case .enqueued:
+            return true
         case .dropped:
+            admissionRecords.removeLast()
+            assertionFailure("Agent hook admission signal overflowed")
             agentHookDeliveryQueueLogger.error(
                 "Hook admission dropped \(droppedDescription, privacy: .public)"
             )
             return false
         case .terminated:
+            admissionRecords.removeLast()
             return false
         @unknown default:
+            admissionRecords.removeLast()
             return false
         }
+    }
+
+    private nonisolated func lifecycleReplacementIndex(
+        for item: PendingItem
+    ) -> Int? {
+        let lifecycleIndices = admissionRecords.indices.filter {
+            admissionRecords[$0].admissionClass == .lifecycle
+        }
+        return lifecycleIndices.first {
+            admissionRecords[$0].item.orderingKey == item.orderingKey
+        } ?? lifecycleIndices.first {
+            !admissionRecords[$0].item.preservesLatestLifecycleState
+        } ?? lifecycleIndices.first
+    }
+
+    private nonisolated func takeNextPublishedItem() -> PendingItem? {
+        admissionPublicationLock.lock()
+        defer { admissionPublicationLock.unlock() }
+        guard !admissionRecords.isEmpty else { return nil }
+        return admissionRecords.removeFirst().item
     }
 
     private func accept(_ item: PendingItem) {

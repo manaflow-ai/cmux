@@ -21,6 +21,35 @@ extension RemoteCLIRelayServer {
         /// preceding bounded lifecycle delivery.
         static let localSocketRoundTripTimeoutSeconds = 25
 
+        /// Returns the local socket response timeout required by one rewritten
+        /// relay request.
+        ///
+        /// Actionable Feed requests carry their remaining user-decision budget
+        /// on the wire. The relay must outlive that wait plus the CLI's five
+        /// seconds of response headroom; unrelated commands keep the shorter
+        /// bounded default.
+        static func localSocketRoundTripTimeoutSeconds(for request: Data) -> Int {
+            guard let object = try? JSONSerialization.jsonObject(with: request)
+                    as? [String: Any],
+                  object["method"] as? String == "feed.push",
+                  let params = object["params"] as? [String: Any],
+                  let waitTimeoutNumber = params["wait_timeout_seconds"] as? NSNumber
+            else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let waitTimeout = waitTimeoutNumber.doubleValue
+            guard waitTimeout.isFinite, waitTimeout > 0 else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let maximumFeedWaitSeconds = 120.0
+            let responseHeadroomSeconds = 5
+            return max(
+                localSocketRoundTripTimeoutSeconds,
+                Int(ceil(min(waitTimeout, maximumFeedWaitSeconds)))
+                    + responseHeadroomSeconds
+            )
+        }
+
         private enum Phase {
             case awaitingAuth
             case awaitingCommand
@@ -299,13 +328,19 @@ extension RemoteCLIRelayServer {
             }
             defer { Darwin.close(fd) }
 
-            var timeout = timeval(
+            var sendTimeout = timeval(
                 tv_sec: localSocketRoundTripTimeoutSeconds,
                 tv_usec: 0
             )
-            withUnsafePointer(to: &timeout) { pointer in
-                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            withUnsafePointer(to: &sendTimeout) { pointer in
                 _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            }
+            var receiveTimeout = timeval(
+                tv_sec: localSocketRoundTripTimeoutSeconds(for: request),
+                tv_usec: 0
+            )
+            withUnsafePointer(to: &receiveTimeout) { pointer in
+                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
             }
 
             var address = sockaddr_un()
