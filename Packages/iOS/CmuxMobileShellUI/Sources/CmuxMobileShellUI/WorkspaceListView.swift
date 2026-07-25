@@ -58,10 +58,6 @@ struct WorkspaceListView: View {
     /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
     /// SwiftUI's `refreshable(action:)` action type under Swift 6.
     var refresh: (@Sendable () async -> Void)?
-    /// Optional: when present, the toolbar shows a "settings" menu offering
-    /// "Rescan QR" (disconnect + re-pair) and "Sign out". When nil (e.g.
-    /// previews), the menu is hidden.
-    var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
@@ -386,7 +382,6 @@ struct WorkspaceListView: View {
         }) {
             MobileSettingsView(
                 connectedHostName: host,
-                rescanQR: rescanQR,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
                         isSettingsPresented: $showingSettings
@@ -757,17 +752,6 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
-            if let rescanQR {
-                Button {
-                    rescanQR()
-                } label: {
-                    Label(
-                        L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                        systemImage: "qrcode.viewfinder"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceRescanQRMenuItem")
-            }
             if let signOut {
                 Button(role: .destructive) {
                     signOut()

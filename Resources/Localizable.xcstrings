@@ -128205,13 +128205,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."
+            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone の cmux アプリでこのコードをスキャンして、ターミナルワークスペースを同期します。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
           }
         }
       }
@@ -166616,13 +166616,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a QR code to pair your iPhone or iPad with this Mac."
+            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR コードを表示して、iPhone または iPad をこの Mac とペアリングします。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
           }
         }
       }
