@@ -187,7 +187,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 for: [event],
                 timeout: waitTimeout
             ) { result in
-                DispatchQueue.main.sync {
+                let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
                         guard let acceptance = result.commit({
                             guard ContinuousClock.now < deliveryDeadline else {
@@ -195,13 +195,17 @@ final class FeedCoordinator: @unchecked Sendable {
                             }
                             return FeedCoordinator.shared.acceptOnMainActor(event)
                         }) else {
-                            return
+                            return nil
                         }
-                        if case .accepted(let acceptedEvent, _) = acceptance {
-                            onAcceptedOnMainActor(acceptedEvent)
-                            onAccepted(acceptedEvent)
+                        guard case .accepted(let acceptedEvent, _) = acceptance else {
+                            return nil
                         }
+                        onAcceptedOnMainActor(acceptedEvent)
+                        return acceptedEvent
                     }
+                }
+                if let acceptedEvent {
+                    onAccepted(acceptedEvent)
                 }
             }
             guard let acceptance else {
@@ -232,7 +236,7 @@ final class FeedCoordinator: @unchecked Sendable {
             for: [event],
             timeout: waitTimeout
         ) { result in
-            DispatchQueue.main.sync {
+            let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     guard let acceptance = result.commit({
                         guard ContinuousClock.now < deliveryDeadline else {
@@ -245,10 +249,10 @@ final class FeedCoordinator: @unchecked Sendable {
                         FeedCoordinator.shared.waiterLock.unlock()
                         return FeedCoordinator.shared.acceptOnMainActor(event)
                     }) else {
-                        return
+                        return nil
                     }
                     guard case .accepted(let acceptedEvent, _) = acceptance else {
-                        return
+                        return nil
                     }
                     // Surface in-app attention (needs-input status + bell +
                     // workspace elevation) for the blocking decision. This fires
@@ -294,8 +298,11 @@ final class FeedCoordinator: @unchecked Sendable {
                     #if DEBUG
                     FeedCoordinatorTestHooks.afterBlockingEventIngested?(acceptedEvent, requestId)
                     #endif
-                    onAccepted(acceptedEvent)
+                    return acceptedEvent
                 }
+            }
+            if let acceptedEvent {
+                onAccepted(acceptedEvent)
             }
         }
         guard let acceptance else {

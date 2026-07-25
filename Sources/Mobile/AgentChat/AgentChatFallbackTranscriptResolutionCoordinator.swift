@@ -9,6 +9,8 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
         ContinuousClock.Instant
     ) async -> String?
 
+    private static let maximumConcurrentResolutions = 4
+
     private var pendingResolutions: [
         String: (
             id: UUID,
@@ -19,6 +21,7 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
             expired: Bool
         )
     ] = [:]
+    private var activeResolutionIDs: Set<UUID> = []
     private let resolver: Resolver
     private let timeout: Duration
 
@@ -58,6 +61,8 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
 
     func cancel(sessionID: String) {
         guard let pending = pendingResolutions.removeValue(forKey: sessionID) else { return }
+        // Cancellation is cooperative. Keep the global slot occupied until the
+        // resolver actually returns so non-cooperative scans stay bounded.
         pending.resolverTask?.cancel()
         pending.deadlineTask?.cancel()
         for continuation in pending.waiters.values {
@@ -84,8 +89,14 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
             return
         }
 
+        guard activeResolutionIDs.count < Self.maximumConcurrentResolutions else {
+            continuation.resume(returning: nil)
+            return
+        }
+
         let id = UUID()
         let deadline = ContinuousClock.now + timeout
+        activeResolutionIDs.insert(id)
         pendingResolutions[sessionID] = (
             id: id,
             deadline: deadline,
@@ -125,6 +136,7 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
         id: UUID,
         path: String?
     ) {
+        guard activeResolutionIDs.remove(id) != nil else { return }
         guard let pending = pendingResolutions[sessionID], pending.id == id else { return }
         pending.deadlineTask?.cancel()
         pendingResolutions.removeValue(forKey: sessionID)
