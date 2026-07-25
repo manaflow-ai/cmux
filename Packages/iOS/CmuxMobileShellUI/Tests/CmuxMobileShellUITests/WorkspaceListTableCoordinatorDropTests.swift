@@ -211,6 +211,60 @@ import UIKit
         #expect(dropCoordinator.dropIntoRowCalls.isEmpty)
     }
 
+    @Test func performDropSurvivesNilSourceIndexPath() {
+        // UIKit nils UITableViewDropItem.sourceIndexPath as soon as the data
+        // source applies ANY snapshot during the drag session — which the
+        // footer-boundary reconfigure does on every drag, and live list
+        // updates do sporadically. The drop must fall back to the dragged
+        // item's identity instead of silently cancelling.
+        let recorder = DropRecorder()
+        let (coordinator, tableView, dragItem) = makeFixture(recorder: recorder)
+        let session = FakeDropSession(
+            dragItems: [dragItem],
+            location: headerEdgePoint(in: tableView)
+        )
+        let dropCoordinator = FakeDropCoordinator(
+            session: session,
+            proposal: UITableViewDropProposal(
+                operation: .move,
+                intent: .insertAtDestinationIndexPath
+            ),
+            items: [FakeDropItem(dragItem: dragItem, sourceIndexPath: nil)],
+            destinationIndexPath: IndexPath(row: 0, section: 0)
+        )
+        coordinator.tableView(tableView, performDropWith: dropCoordinator)
+
+        #expect(recorder.moveRowsCalls.count == 1)
+        #expect(recorder.moveRowsCalls.first?.0 == IndexSet(integer: 1))
+        #expect(recorder.moveRowsCalls.first?.1 == 0)
+    }
+
+    @Test func performDropOntoHeaderSurvivesNilSourceIndexPath() {
+        let recorder = DropRecorder()
+        let (coordinator, tableView, dragItem) = makeFixture(recorder: recorder)
+        let session = FakeDropSession(
+            dragItems: [dragItem],
+            location: headerMidpoint(in: tableView)
+        )
+        let proposal = coordinator.tableView(
+            tableView,
+            dropSessionDidUpdate: session,
+            withDestinationIndexPath: IndexPath(row: 0, section: 0)
+        )
+        #expect(proposal.intent == .insertIntoDestinationIndexPath)
+
+        let dropCoordinator = FakeDropCoordinator(
+            session: session,
+            proposal: proposal,
+            items: [FakeDropItem(dragItem: dragItem, sourceIndexPath: nil)],
+            destinationIndexPath: IndexPath(row: 0, section: 0)
+        )
+        coordinator.tableView(tableView, performDropWith: dropCoordinator)
+
+        #expect(recorder.dropIntoGroupCalls.count == 1)
+        #expect(recorder.dropIntoGroupCalls.first?.1.rawValue == "group-a")
+    }
+
     @Test func dragSessionLifetimeTogglesFooterBoundaryState() {
         let recorder = DropRecorder()
         let (coordinator, tableView, dragItem) = makeFixture(recorder: recorder)
