@@ -31,12 +31,13 @@ final class GlobalSearchVisiblePopoverShortcutTests {
         KeyboardShortcutSettings.resetAll()
     }
 
-    @Test func visibleGlobalSearchClosesFromAuxiliaryWindowShortcut() throws {
+    @Test func scopedVisibleGlobalSearchClosesFromAuxiliaryWindowShortcut() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
         let harness = try makeHarness(appDelegate: appDelegate)
         defer { closeHarness(harness, appDelegate: appDelegate) }
 
+        try scopeGlobalSearchToBrowserFocus()
         appDelegate.toggleGlobalSearchPalette()
         #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
 
@@ -46,6 +47,7 @@ final class GlobalSearchVisiblePopoverShortcutTests {
             keyCode: 3,
             windowNumber: harness.auxiliaryWindow.windowNumber
         )
+        #expect(!appDelegate.shortcutWhenClauseAllows(action: .globalSearch, event: event))
 
         #expect(
             appDelegate.debugHandleCustomShortcut(event: event),
@@ -57,7 +59,7 @@ final class GlobalSearchVisiblePopoverShortcutTests {
 #endif
     }
 
-    @Test func visibleGlobalSearchChordCompletesFromAuxiliaryWindow() throws {
+    @Test func scopedVisibleGlobalSearchChordCompletesFromAuxiliaryWindow() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
         let harness = try makeHarness(appDelegate: appDelegate)
@@ -74,6 +76,7 @@ final class GlobalSearchVisiblePopoverShortcutTests {
             ),
             for: .globalSearch
         )
+        try scopeGlobalSearchToBrowserFocus()
         appDelegate.toggleGlobalSearchPalette()
         #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
 
@@ -89,6 +92,7 @@ final class GlobalSearchVisiblePopoverShortcutTests {
             keyCode: 3,
             windowNumber: harness.auxiliaryWindow.windowNumber
         )
+        #expect(!appDelegate.shortcutWhenClauseAllows(action: .globalSearch, event: prefixEvent))
 
         #expect(
             appDelegate.debugHandleCustomShortcut(event: prefixEvent),
@@ -147,6 +151,23 @@ final class GlobalSearchVisiblePopoverShortcutTests {
 #else
         Issue.record("Global Search visible-popover routing requires a DEBUG build")
 #endif
+    }
+
+    private func scopeGlobalSearchToBrowserFocus() throws {
+        try """
+        {
+          "shortcuts": {
+            "when": {
+              "globalSearch": "browserFocus"
+            }
+          }
+        }
+        """.write(
+            to: KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing(),
+            atomically: true,
+            encoding: .utf8
+        )
+        KeyboardShortcutSettings.settingsFileStore.reload()
     }
 
     private func makeHarness(
