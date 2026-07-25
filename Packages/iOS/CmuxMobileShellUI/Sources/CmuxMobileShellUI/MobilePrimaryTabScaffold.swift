@@ -66,8 +66,7 @@ private extension MobilePrimarySearchScope {
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
 struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
     @Binding var selection: MobilePrimaryTab
-    @Binding var workspaceSearchText: String
-    @Binding var notificationSearchText: String
+    @Bindable var searchTextState: MobilePrimarySearchTextState
     @State private var searchScope: MobilePrimarySearchScope
     @State private var isSearchPresented = false
     @State private var searchPhase: MobilePrimarySearchPhase = .inactive
@@ -79,15 +78,13 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
 
     init(
         selection: Binding<MobilePrimaryTab>,
-        workspaceSearchText: Binding<String>,
-        notificationSearchText: Binding<String>,
+        searchTextState: MobilePrimarySearchTextState,
         notificationUnreadCount: Int,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications
     ) {
         _selection = selection
-        _workspaceSearchText = workspaceSearchText
-        _notificationSearchText = notificationSearchText
+        self.searchTextState = searchTextState
         _searchScope = State(initialValue: selection.wrappedValue.searchScope ?? .workspaces)
         self.notificationUnreadCount = notificationUnreadCount
         self.workspaces = workspaces()
@@ -215,9 +212,9 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
     private func committedSearchText(for scope: MobilePrimarySearchScope) -> String {
         switch scope {
         case .workspaces:
-            workspaceSearchText
+            searchTextState.workspaces
         case .notifications:
-            notificationSearchText
+            searchTextState.notifications
         }
     }
 
@@ -233,9 +230,9 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
     private func setCommittedSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
         switch scope {
         case .workspaces:
-            workspaceSearchText = value
+            searchTextState.workspaces = value
         case .notifications:
-            notificationSearchText = value
+            searchTextState.notifications = value
         }
     }
 

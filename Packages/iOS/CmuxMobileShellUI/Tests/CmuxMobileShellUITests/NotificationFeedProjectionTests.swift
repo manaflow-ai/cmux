@@ -11,9 +11,9 @@ import Testing
         let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
 
         projection.update(items: [
-            item(id: "yesterday", createdAt: try #require(isoDate("2026-07-14T20:00:00Z")), isRead: false),
-            item(id: "today-older", createdAt: try #require(isoDate("2026-07-15T08:00:00Z")), isRead: true),
             item(id: "today-newer", createdAt: try #require(isoDate("2026-07-15T17:00:00Z")), isRead: false),
+            item(id: "today-older", createdAt: try #require(isoDate("2026-07-15T08:00:00Z")), isRead: true),
+            item(id: "yesterday", createdAt: try #require(isoDate("2026-07-14T20:00:00Z")), isRead: false),
         ], referenceDate: referenceDate)
         await projection.waitForPendingRebuild()
 

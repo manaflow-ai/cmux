@@ -7,8 +7,7 @@ import SwiftUI
 /// verification. It mounts the production tab scaffold and production feed.
 public struct NotificationFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
-    @State private var workspaceSearchText = ""
-    @State private var notificationSearchText = ""
+    @State private var primarySearchTextState = MobilePrimarySearchTextState()
     @State private var referenceDate: Date
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
@@ -25,8 +24,7 @@ public struct NotificationFeedPreviewView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedTab,
-                workspaceSearchText: $workspaceSearchText,
-                notificationSearchText: $notificationSearchText,
+                searchTextState: primarySearchTextState,
                 notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
             ) {
                 NotificationFeedPreviewWorkspacesView()
@@ -38,6 +36,12 @@ public struct NotificationFeedPreviewView: View {
                         refreshesOnAppear: true,
                         actions: actions
                     )
+                    .background {
+                        NotificationFeedSearchProjectionSync(
+                            searchTextState: primarySearchTextState,
+                            projection: projection
+                        )
+                    }
                     .toolbar {
                         WorkspaceRootToolbarContent(
                             openSettings: {},
@@ -65,9 +69,6 @@ public struct NotificationFeedPreviewView: View {
         }
         .onChange(of: items, initial: true) { _, items in
             projection.update(items: items, referenceDate: referenceDate)
-        }
-        .onChange(of: notificationSearchText, initial: true) { _, searchText in
-            projection.searchText = searchText
         }
     }
 

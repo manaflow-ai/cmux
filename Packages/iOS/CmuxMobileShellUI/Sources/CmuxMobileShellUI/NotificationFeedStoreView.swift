@@ -20,7 +20,6 @@ struct NotificationFeedStoreView: View {
             actions: actions
         )
         .onDisappear {
-            guard !isSearchDestination else { return }
             store.cancelPendingNotificationFeedOpen()
         }
     }

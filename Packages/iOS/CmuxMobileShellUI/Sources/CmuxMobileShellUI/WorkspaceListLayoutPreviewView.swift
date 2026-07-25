@@ -55,8 +55,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var refreshGeneration = 0
     @State private var model: WorkspaceListLayoutPreviewModel
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
-    @State private var workspaceSearchText = ""
-    @State private var notificationSearchText = ""
+    @State private var primarySearchTextState = MobilePrimarySearchTextState()
     @State private var filterState = WorkspaceListFilterState()
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
@@ -275,7 +274,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
                 let workspaceListStack = NavigationStack {
-                    WorkspaceListSearchHost(searchText: $workspaceSearchText) { searchText in
+                    MobilePrimaryWorkspaceSearchHost(
+                        searchTextState: primarySearchTextState
+                    ) { searchText in
                         WorkspaceListView(
                             workspaces: model.workspaces,
                             groups: groups,
@@ -366,8 +367,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 if showsTabScaffold {
                     MobilePrimaryTabScaffold(
                         selection: $selectedPrimaryTab,
-                        workspaceSearchText: $workspaceSearchText,
-                        notificationSearchText: $notificationSearchText,
+                        searchTextState: primarySearchTextState,
                         notificationUnreadCount: 0
                     ) {
                         workspaceListStack

@@ -166,8 +166,7 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
     #endif
-    @State private var workspaceSearchText = ""
-    @State private var notificationSearchText = ""
+    @State private var primarySearchTextState = MobilePrimarySearchTextState()
     @State private var workspaceListFilterState = WorkspaceListFilterState()
     @State private var notificationFeedProjection = NotificationFeedProjection()
     @State private var hasPresentedSplitDetail = false
@@ -218,8 +217,7 @@ struct WorkspaceShellView: View {
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
-                workspaceSearchText: $workspaceSearchText,
-                notificationSearchText: $notificationSearchText,
+                searchTextState: primarySearchTextState,
                 notificationUnreadCount: presentation.notificationUnreadCount
             ) {
                 workspaceTabContent(
@@ -233,6 +231,12 @@ struct WorkspaceShellView: View {
                         status: presentation.notificationFeedStatus,
                         projection: notificationFeedProjection
                     )
+                        .background {
+                            NotificationFeedSearchProjectionSync(
+                                searchTextState: primarySearchTextState,
+                                projection: notificationFeedProjection
+                            )
+                        }
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
                                 rootToolbarContent
@@ -263,9 +267,6 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
-            }
-            .onChange(of: notificationSearchText, initial: true) { _, searchText in
-                notificationFeedProjection.searchText = searchText
             }
             .sheet(isPresented: $showingRootSettings, onDismiss: {
                 settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
@@ -362,8 +363,8 @@ struct WorkspaceShellView: View {
 
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListSearchHost(
-                searchText: $workspaceSearchText,
+            MobilePrimaryWorkspaceSearchHost(
+                searchTextState: primarySearchTextState,
                 taskComposerAction: taskComposerAction
             ) { searchText in
                 workspaceList(
@@ -457,7 +458,7 @@ struct WorkspaceShellView: View {
 
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            WorkspaceListSearchHost(searchText: $workspaceSearchText) { searchText in
+            MobilePrimaryWorkspaceSearchHost(searchTextState: primarySearchTextState) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: searchText,

@@ -16,8 +16,9 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
 }
 
 /// Prepares the user-selected, reverse-chronological day sections consumed by
-/// the feed list. Filtering, sorting, and grouping run only when their inputs
-/// change, never during a row or list body evaluation.
+/// the feed list. The source feed is already sorted newest-first by
+/// `MobileNotificationFeedAggregation`; this projection preserves that order
+/// while filtering and grouping outside row or list body evaluation.
 @MainActor
 @Observable
 final class NotificationFeedProjection {
@@ -138,31 +139,15 @@ final class NotificationFeedProjection {
         referenceDate: Date,
         calendar: Calendar
     ) -> NotificationFeedProjectionOutput? {
-        var visibleItems: [MobileNotificationFeedItem] = []
-        visibleItems.reserveCapacity(items.count)
-        for item in items {
-            guard !Task.isCancelled else { return nil }
-            if filter == .unread, item.isRead {
-                continue
-            }
-            if !query.isEmpty, !matchesSearchQuery(item: item, query: query) {
-                continue
-            }
-            visibleItems.append(item)
-        }
-        visibleItems.sort { lhs, rhs in
-            if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt > rhs.createdAt
-            }
-            return lhs.id < rhs.id
-        }
-        let grouped = Dictionary(grouping: visibleItems) { item in
-            calendar.startOfDay(for: item.createdAt)
-        }
         let today = calendar.startOfDay(for: referenceDate)
         let yesterday = calendar.date(byAdding: .day, value: -1, to: today)
+        var sections: [NotificationFeedDaySection] = []
+        sections.reserveCapacity(min(items.count, 8))
+        var currentDay: Date?
+        var currentItems: [MobileNotificationFeedItem] = []
 
-        let sections = grouped.keys.sorted(by: >).map { day in
+        func flushCurrentSection() {
+            guard let day = currentDay, !currentItems.isEmpty else { return }
             let kind: NotificationFeedDaySection.Kind
             if calendar.isDate(day, inSameDayAs: today) {
                 kind = .today
@@ -171,12 +156,31 @@ final class NotificationFeedProjection {
             } else {
                 kind = .dated
             }
-            return NotificationFeedDaySection(
+            sections.append(NotificationFeedDaySection(
                 id: day,
                 kind: kind,
-                items: grouped[day] ?? []
-            )
+                items: currentItems
+            ))
+            currentItems = []
         }
+
+        for item in items {
+            guard !Task.isCancelled else { return nil }
+            if filter == .unread, item.isRead {
+                continue
+            }
+            if !query.isEmpty, !matchesSearchQuery(item: item, query: query) {
+                continue
+            }
+            let day = calendar.startOfDay(for: item.createdAt)
+            if let currentDay, currentDay != day {
+                flushCurrentSection()
+            }
+            currentDay = day
+            currentItems.append(item)
+        }
+        guard !Task.isCancelled else { return nil }
+        flushCurrentSection()
         return NotificationFeedProjectionOutput(
             sections: sections
         )
