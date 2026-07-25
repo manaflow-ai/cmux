@@ -85,7 +85,7 @@ final class NotificationFeedHistoryStore {
     ) {
         _ = commit(
             .record(
-                NotificationFeedHistoryRecord(notification: notification),
+                NotificationFeedHistoryRecord(notification: notification).boundedForHistory(),
                 supersededIDs: supersededIDs
             )
         )
@@ -98,7 +98,9 @@ final class NotificationFeedHistoryStore {
         guard !activeNotifications.isEmpty else { return }
         _ = commit(
             .reconcileActive(
-                activeNotifications.map(NotificationFeedHistoryRecord.init(notification:))
+                activeNotifications.map {
+                    NotificationFeedHistoryRecord(notification: $0).boundedForHistory()
+                }
             )
         )
     }
@@ -208,7 +210,7 @@ final class NotificationFeedHistoryStore {
         switch outcome {
         case .loaded(let snapshot):
             loadedRevision = snapshot.revision
-            loadedNotifications = snapshot.notifications
+            loadedNotifications = snapshot.notifications.map { $0.boundedForHistory() }
         case .missing, .corrupt:
             loadedRevision = 0
             loadedNotifications = []
@@ -271,6 +273,7 @@ final class NotificationFeedHistoryStore {
         var changedExistingState = false
         switch mutation {
         case .record(let record, let supersededIDs):
+            let record = record.boundedForHistory()
             for index in records.indices
             where supersededIDs.contains(records[index].id) && !records[index].isRead {
                 records[index].isRead = true
@@ -290,6 +293,7 @@ final class NotificationFeedHistoryStore {
             }
 
         case .reconcileActive(let activeRecords):
+            let activeRecords = activeRecords.map { $0.boundedForHistory() }
             var knownIDs = Set(records.map(\.id))
             for record in retainableActiveRecords(
                 activeRecords,

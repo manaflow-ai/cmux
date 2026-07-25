@@ -19,9 +19,6 @@ nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
 /// work never runs on the main actor. Writes are serialized and stale revisions
 /// are rejected.
 actor NotificationFeedHistoryPersistence {
-    private static let titleByteLimit = 512
-    private static let subtitleByteLimit = 512
-    private static let bodyByteLimit = 2_048
     private static let oversizedSnapshotHeaderChunkByteCount = 64 * 1024
 
     private struct SnapshotHeader {
@@ -583,7 +580,7 @@ actor NotificationFeedHistoryPersistence {
         _ snapshot: NotificationFeedHistorySnapshot
     ) throws -> (snapshot: NotificationFeedHistorySnapshot, data: Data)? {
         let normalizedRecords = Self.normalized(
-            snapshot.notifications.map(Self.recordWithBoundedText),
+            snapshot.notifications.map { $0.boundedForHistory() },
             readRetentionLimit: readRetentionLimit,
             totalRetentionLimit: totalRetentionLimit
         )
@@ -629,37 +626,6 @@ actor NotificationFeedHistoryPersistence {
             }
         }
         return best
-    }
-
-    private static func recordWithBoundedText(
-        _ record: NotificationFeedHistoryRecord
-    ) -> NotificationFeedHistoryRecord {
-        NotificationFeedHistoryRecord(
-            id: record.id,
-            tabId: record.tabId,
-            surfaceId: record.surfaceId,
-            panelId: record.panelId,
-            retargetsToLiveSurfaceOwner: record.retargetsToLiveSurfaceOwner,
-            title: string(record.title, limitedToUTF8Bytes: titleByteLimit),
-            subtitle: string(record.subtitle, limitedToUTF8Bytes: subtitleByteLimit),
-            body: string(record.body, limitedToUTF8Bytes: bodyByteLimit),
-            createdAt: record.createdAt,
-            isRead: record.isRead
-        )
-    }
-
-    private static func string(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
-        guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
-        var byteCount = 0
-        var endIndex = value.startIndex
-        while endIndex < value.endIndex {
-            let nextIndex = value.index(after: endIndex)
-            let characterByteCount = value[endIndex..<nextIndex].utf8.count
-            guard byteCount + characterByteCount <= maxBytes else { break }
-            byteCount += characterByteCount
-            endIndex = nextIndex
-        }
-        return String(value[..<endIndex])
     }
 
     private static func normalized(

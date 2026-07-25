@@ -106,6 +106,29 @@ struct NotificationFeedHistoryTests {
         #expect(history.notifications.allSatisfy { !$0.isRead })
     }
 
+    @Test func liveHistoryIngressNormalizesOversizedTextBeforeSnapshot() throws {
+        let history = NotificationFeedHistoryStore(
+            fileURL: nil,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 2
+        )
+        history.record(
+            notification(
+                workspaceID: UUID(),
+                title: String(repeating: "t", count: NotificationFeedHistoryRecord.historyTitleByteLimit * 4),
+                body: String(repeating: "b", count: NotificationFeedHistoryRecord.historyBodyByteLimit * 4),
+                date: Date(timeIntervalSince1970: 1_260),
+                isRead: false
+            ),
+            supersededIDs: []
+        )
+
+        let record = try #require(history.notifications.first)
+        #expect(record.title.utf8.count == NotificationFeedHistoryRecord.historyTitleByteLimit)
+        #expect(record.body.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit)
+        #expect(history.snapshot.notifications.first?.body == record.body)
+    }
+
     @Test func oversizedActiveReconcileDoesNotChurnRevisionAfterRetentionTrim() {
         var revisions: [Int] = []
         let history = NotificationFeedHistoryStore(
@@ -182,6 +205,36 @@ struct NotificationFeedHistoryTests {
         )
         #expect(persisted.revision == 4)
         #expect(persisted.notifications.map(\.title) == loadedTitles)
+    }
+
+    @Test func loadedLegacyHistoryNormalizesOversizedTextBeforeSnapshot() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-legacy-text-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("history.json")
+        let legacyRecord = NotificationFeedHistoryRecord(notification: notification(
+            workspaceID: UUID(),
+            title: String(repeating: "l", count: NotificationFeedHistoryRecord.historyTitleByteLimit * 4),
+            body: String(repeating: "g", count: NotificationFeedHistoryRecord.historyBodyByteLimit * 4),
+            date: Date(timeIntervalSince1970: 1_560),
+            isRead: false
+        ))
+        try write(
+            NotificationFeedHistorySnapshot(
+                revision: 11,
+                notifications: [legacyRecord]
+            ),
+            to: fileURL
+        )
+        let history = NotificationFeedHistoryStore(fileURL: fileURL)
+
+        try await waitUntil {
+            history.notifications.first?.body.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit
+        }
+        let record = try #require(history.notifications.first)
+        #expect(record.title.utf8.count == NotificationFeedHistoryRecord.historyTitleByteLimit)
+        #expect(record.body.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit)
+        #expect(history.snapshot.notifications.first?.title == record.title)
     }
 
     @Test func oversizedHistoryFileIsQuarantinedWithMonotonicRevisionAndWritesRecover() async throws {
@@ -468,8 +521,9 @@ struct NotificationFeedHistoryTests {
         #expect(encoded.count <= MobileSyncFrameCodec.defaultMaximumFrameByteCount)
         let payload = try responsePayload(response)
         let rows = try #require(payload["notifications"] as? [[String: Any]])
-        #expect(rows.count < notifications.count)
+        #expect(rows.count == notifications.count)
         #expect(rows.first?["title"] as? String == "Frame budget \(notifications.count - 1)")
+        #expect((rows.first?["body"] as? String)?.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit)
     }
 
     @Test func feedListBoundsOversizedLeadingRowWithoutDroppingFeed() async throws {
