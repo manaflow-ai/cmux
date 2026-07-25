@@ -41,12 +41,40 @@ Write a named file (the name becomes the menu label; use short kebab-case):
 
     ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift (preferred)
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
+    ~/.config/cmux/sidebars/<name>.html      # a local HTML document
+    ~/.config/cmux/sidebars/<name>.url       # a page served over http(s)
 
 Each file shows up as an option in the **sidebar toggle button's right-click
 menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
 for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
-edit the file and save and it hot-reloads. If both `<name>.swift` and
-`<name>.json` exist, `.swift` wins.
+edit the file and save and it hot-reloads. When one name has several files, the
+first of `.swift`, `.json`, `.html`, `.url` wins, so adding an `.html` file never
+shadows an existing interpreted sidebar.
+
+## HTML sidebars
+
+`.swift` and `.json` sidebars describe a *render model* of rows and sections —
+the right shape for a list of workspaces, but it cannot express an arbitrary
+interface. When you want a real UI, or you already have a web app, use an HTML
+sidebar: cmux renders the page in the sidebar with no browser chrome.
+
+    ~/.config/cmux/sidebars/board.html                # rendered from disk
+
+For an app you already serve, write a `.url` file containing its address. Plain
+text or a Windows `[InternetShortcut]` file both work, so dragging a page out of
+a browser produces a valid sidebar:
+
+    printf 'http://127.0.0.1:8787/\n' > ~/.config/cmux/sidebars/board.url
+
+Only `http` and `https` are honoured. A `file://` or custom-scheme target is
+ignored, since a `.url` file is untrusted input that can arrive by drag-and-drop.
+
+The trade-off against an interpreted sidebar: the live data bindings above
+(`workspaces`, `clock`, and the rest) and `cmux(...)` tap actions are features of
+the interpreter, so an HTML sidebar does not get them. It renders a page; talk to
+cmux from it the way any other program does, through `cmux` on the CLI or its
+socket. In exchange you get the whole web platform, including the interactive
+controls the interpreter does not support (`TextField`, `@State`, popovers).
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).

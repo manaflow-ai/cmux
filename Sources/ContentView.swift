@@ -10197,9 +10197,15 @@ enum CmuxExtensionSidebarSelection {
         var extensionByName: [String: String] = [:]
         for url in entries {
             let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
+            guard customSidebarFileExtensions.contains(ext) else { continue }
             let name = url.deletingPathExtension().lastPathComponent
-            if extensionByName[name] == "swift" { continue }
+            // First match by preference order wins, so a name backed by several files resolves the
+            // same way here as in `customSidebarFileURL`.
+            if let existing = extensionByName[name],
+               customSidebarFileExtensions.firstIndex(of: existing) ?? Int.max
+                   <= customSidebarFileExtensions.firstIndex(of: ext) ?? Int.max {
+                continue
+            }
             extensionByName[name] = ext
         }
         return extensionByName.keys.sorted().map { name in
@@ -10226,12 +10232,22 @@ enum CmuxExtensionSidebarSelection {
         guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
         let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
         guard isValidCustomSidebarFileBaseName(name) else { return nil }
-        let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
-        if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
-        let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
-        if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
+        for fileExtension in customSidebarFileExtensions {
+            let candidate = sidebarsDirectory.appendingPathComponent(
+                "\(name).\(fileExtension)",
+                isDirectory: false
+            )
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
         return nil
     }
+
+    /// Recognised custom sidebar file extensions, most preferred first.
+    ///
+    /// Interpreted sources keep precedence over web ones so an existing `.swift` sidebar is never
+    /// shadowed by an `.html` file that happens to share its name.
+    static let customSidebarFileExtensions: [String] =
+        ["swift", "json"] + CustomSidebarSource.webFileExtensions
 
     private static func isValidCustomSidebarFileBaseName(_ name: String) -> Bool {
         guard !name.isEmpty, name != ".", name != ".." else { return false }
@@ -11954,6 +11970,13 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
+        } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
+                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId),
+                  case let .web(webSource)? = CustomSidebarSource.classify(fileURL: customSidebarURL) {
+            // A web-backed sidebar owns its whole surface: it renders itself, so it needs neither
+            // the interpreter's periodic re-render tick nor the scroll-edge fade that blends a
+            // scrolling row list into the sidebar footer.
+            CustomSidebarWebView(source: webSource)
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
                   let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
             // Periodic tick so the custom sidebar re-renders live (clock,
