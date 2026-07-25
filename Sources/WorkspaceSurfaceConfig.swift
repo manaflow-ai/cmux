@@ -10,12 +10,38 @@ import CmuxTerminalCore
 typealias CmuxSurfaceConfigTemplate = CmuxTerminalCore.CmuxSurfaceConfigTemplate
 
 enum WorkspaceTerminalFontSizeChange: Equatable {
-    case relative([Float32])
-    case resetThen([Float32])
+    case relative(TerminalFontSizeDeltaTransform)
+    case resetThen(TerminalFontSizeDeltaTransform)
+
+    static func relative(
+        _ orderedRuntimePointDeltas: [Float32]
+    ) -> WorkspaceTerminalFontSizeChange {
+        guard orderedRuntimePointDeltas.allSatisfy(\.isFinite) else {
+            return .relative(TerminalFontSizeDeltaTransform())
+        }
+        return .relative(
+            TerminalFontSizeDeltaTransform(
+                orderedRuntimePointDeltas: orderedRuntimePointDeltas
+            )
+        )
+    }
+
+    static func resetThen(
+        _ orderedRuntimePointDeltas: [Float32]
+    ) -> WorkspaceTerminalFontSizeChange {
+        guard orderedRuntimePointDeltas.allSatisfy(\.isFinite) else {
+            return .resetThen(TerminalFontSizeDeltaTransform())
+        }
+        return .resetThen(
+            TerminalFontSizeDeltaTransform(
+                orderedRuntimePointDeltas: orderedRuntimePointDeltas
+            )
+        )
+    }
 
     var isNoOp: Bool {
-        if case .relative(let runs) = self {
-            return runs.isEmpty
+        if case .relative(let transform) = self {
+            return transform.isIdentity
         }
         return false
     }
@@ -24,34 +50,25 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
         switch self {
         case .relative:
             return 1
-        case .resetThen(let runs):
-            return runs.isEmpty ? 1 : 2
+        case .resetThen(let transform):
+            return transform.isIdentity ? 1 : 2
         }
     }
 
     mutating func appendAdjustment(_ deltaRuntimePoints: Float32) {
         guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return }
         switch self {
-        case .relative(var runs):
-            Self.append(deltaRuntimePoints, to: &runs)
-            self = .relative(runs)
-        case .resetThen(var runs):
-            Self.append(deltaRuntimePoints, to: &runs)
-            self = .resetThen(runs)
+        case .relative(var transform):
+            transform.append(deltaRuntimePoints)
+            self = .relative(transform)
+        case .resetThen(var transform):
+            transform.append(deltaRuntimePoints)
+            self = .resetThen(transform)
         }
     }
 
     mutating func appendReset() {
         self = .resetThen([])
-    }
-
-    private static func append(_ deltaRuntimePoints: Float32, to runs: inout [Float32]) {
-        if let last = runs.last,
-           (last > 0) == (deltaRuntimePoints > 0) {
-            runs[runs.count - 1] = last + deltaRuntimePoints
-        } else {
-            runs.append(deltaRuntimePoints)
-        }
     }
 
     func resultingInheritanceLineage(
@@ -72,30 +89,27 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
         )
 
         let startingRuntimePoints: Float32
-        let orderedRuntimePointDeltas: [Float32]
+        let transform: TerminalFontSizeDeltaTransform
         switch self {
-        case .relative(let runs):
+        case .relative(let relativeTransform):
             startingRuntimePoints = sourceLineage.map {
                 CmuxSurfaceConfigTemplate.runtimeFontSize(
                     fromBasePoints: $0.basePoints,
                     percent: magnificationPercent
                 )
             } ?? configuredRuntimePoints
-            orderedRuntimePointDeltas = runs
-        case .resetThen(let runs):
+            transform = relativeTransform
+        case .resetThen(let resetTransform):
             startingRuntimePoints = configuredRuntimePoints
-            orderedRuntimePointDeltas = runs
+            transform = resetTransform
         }
 
         let boundedStartingRuntimePoints = policy.clampedRuntimePoints(
             startingRuntimePoints
         )
-        let finalRuntimePoints = orderedRuntimePointDeltas.reduce(
-            boundedStartingRuntimePoints
-        ) { current, delta in
-            guard delta.isFinite else { return current }
-            return policy.clampedRuntimePoints(current + delta)
-        }
+        let finalRuntimePoints = transform.applying(
+            to: boundedStartingRuntimePoints
+        )
         if case .relative = self,
            finalRuntimePoints == boundedStartingRuntimePoints {
             return sourceLineage ?? configuredLineage
@@ -174,6 +188,25 @@ struct TerminalFontSizeChangeInheritanceContext {
             )
         }
         return fallbackLineage
+    }
+}
+
+private struct TerminalFontSizeLineageSelection {
+    private var panelIdSortKey: String?
+    private(set) var lineage: TerminalFontSizeLineage?
+
+    @MainActor
+    mutating func consider(_ terminalPanel: TerminalPanel) {
+        guard let candidateLineage =
+                terminalPanel.surface.fontSizeLineageSnapshot() else {
+            return
+        }
+        let candidateSortKey = terminalPanel.id.uuidString
+        guard panelIdSortKey.map({ candidateSortKey < $0 }) ?? true else {
+            return
+        }
+        panelIdSortKey = candidateSortKey
+        lineage = candidateLineage
     }
 }
 
@@ -284,23 +317,25 @@ extension Workspace {
             additionalTerminalPanels: additionalTerminalPanels
         )
         let configuredRuntimePoints = configuredTerminalRuntimeFontSize()
-        var changedTerminalPanels: [TerminalPanel] = []
+        var changedCount = 0
+        var participatingLineage = TerminalFontSizeLineageSelection()
         for terminalPanel in terminalPanels {
             if applyTerminalFontSizeChange(
                 change,
                 to: terminalPanel,
                 configuredRuntimePoints: configuredRuntimePoints
             ) {
-                changedTerminalPanels.append(terminalPanel)
+                changedCount += 1
             }
+            participatingLineage.consider(terminalPanel)
         }
 
         completeTerminalFontSizeChange(
             change,
-            changedTerminalPanels: changedTerminalPanels,
+            participatingLineage: participatingLineage.lineage,
             configuredRuntimePoints: configuredRuntimePoints
         )
-        return changedTerminalPanels.count
+        return changedCount
     }
 
     func terminalPanelsForFontSizeChange(
@@ -318,7 +353,6 @@ extension Workspace {
         var seenPanelIds: Set<UUID> = []
         return terminalPanels
             .filter { seenPanelIds.insert($0.id).inserted }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
     }
 
     func configuredTerminalRuntimeFontSize() -> Float32 {
@@ -373,18 +407,18 @@ extension Workspace {
         configuredRuntimePoints: Float32
     ) -> Bool {
         switch change {
-        case .relative(let runs):
+        case .relative(let transform):
             return terminalPanel.surface.adjustFontSize(
-                byOrderedRuntimePointDeltas: runs,
+                applying: transform,
                 fallbackRuntimePoints: configuredRuntimePoints
             )
-        case .resetThen(let runs):
+        case .resetThen(let transform):
             let didReset = terminalPanel.surface.resetFontSize(
                 toConfiguredRuntimePoints: configuredRuntimePoints
             )
-            guard !runs.isEmpty else { return didReset }
+            guard !transform.isIdentity else { return didReset }
             let didAdjust = terminalPanel.surface.adjustFontSize(
-                byOrderedRuntimePointDeltas: runs,
+                applying: transform,
                 fallbackRuntimePoints: configuredRuntimePoints
             )
             return didReset || didAdjust
@@ -393,17 +427,17 @@ extension Workspace {
 
     func completeTerminalFontSizeChange(
         _ change: WorkspaceTerminalFontSizeChange,
-        changedTerminalPanels: [TerminalPanel],
+        participatingLineage: TerminalFontSizeLineage?,
         configuredRuntimePoints: Float32
     ) {
         refreshTerminalFontSizeInheritanceSource(
-            changedTerminalPanels: changedTerminalPanels
+            participatingLineage: participatingLineage
         )
-        if case .resetThen(let runs) = change {
+        if case .resetThen(let transform) = change {
             rememberTerminalFontSizeLineageForConfigInheritance(
                 configuredTerminalFontSizeLineage(
                     configuredRuntimePoints: configuredRuntimePoints,
-                    applying: runs
+                    applying: transform
                 )
             )
         }
@@ -414,17 +448,16 @@ extension Workspace {
 
     private func configuredTerminalFontSizeLineage(
         configuredRuntimePoints: Float32,
-        applying orderedRuntimePointDeltas: [Float32] = []
+        applying transform: TerminalFontSizeDeltaTransform =
+            TerminalFontSizeDeltaTransform()
     ) -> TerminalFontSizeLineage {
         let policy = TerminalFontSizePolicy()
         let configuredRuntimePoints = policy.clampedRuntimePoints(
             configuredRuntimePoints
         )
-        let finalRuntimePoints = orderedRuntimePointDeltas.reduce(
-            configuredRuntimePoints
-        ) { current, delta in
-            policy.clampedRuntimePoints(current + delta)
-        }
+        let finalRuntimePoints = transform.applying(
+            to: configuredRuntimePoints
+        )
         return TerminalFontSizeLineage(
             basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
                 fromRuntimePoints: finalRuntimePoints,
@@ -435,7 +468,7 @@ extension Workspace {
     }
 
     private func refreshTerminalFontSizeInheritanceSource(
-        changedTerminalPanels: [TerminalPanel]
+        participatingLineage: TerminalFontSizeLineage?
     ) {
         if let mainTerminalPanel =
             lastRememberedTerminalPanelForConfigInheritance()
@@ -443,9 +476,592 @@ extension Workspace {
             rememberTerminalConfigInheritanceSource(mainTerminalPanel)
             return
         }
-        if let fallbackTerminalPanel = changedTerminalPanels.first,
-           let fallbackLineage = fallbackTerminalPanel.surface.fontSizeLineageSnapshot() {
-            rememberTerminalFontSizeLineageForConfigInheritance(fallbackLineage)
+        if let participatingLineage {
+            rememberTerminalFontSizeLineageForConfigInheritance(
+                participatingLineage
+            )
+        }
+    }
+}
+
+@MainActor
+private struct WorkspaceTerminalFontSizePanelDiscovery {
+    enum Origin {
+        case workspace
+        case workspaceDock
+        case remoteMirror(mirrorId: UUID, paneId: Int)
+        case windowDock
+    }
+
+    struct Candidate {
+        let panel: TerminalPanel
+        let origin: Origin
+
+        @MainActor
+        func isMounted(
+            in workspace: Workspace,
+            windowDock: DockSplitStore?
+        ) -> Bool {
+            switch origin {
+            case .workspace:
+                return (workspace.panels[panel.id] as? TerminalPanel) === panel
+            case .workspaceDock:
+                return (workspace._dockSplit?.panels[panel.id]
+                    as? TerminalPanel) === panel
+            case .remoteMirror(let mirrorId, let paneId):
+                return workspace.remoteTmuxWindowMirror(forPanelId: mirrorId)?
+                    .panelsByPaneId[paneId] === panel
+            case .windowDock:
+                return (windowDock?.panels[panel.id] as? TerminalPanel) === panel
+            }
+        }
+    }
+
+    enum Visit {
+        case candidate(Candidate)
+        case nonTerminal
+    }
+
+    private enum Phase {
+        case workspace
+        case workspaceDock
+        case remoteMirrors
+        case windowDock
+        case finished
+    }
+
+    private var phase: Phase = .workspace
+    private var workspacePanels: Dictionary<UUID, any Panel>.Iterator
+    private var workspaceDockPanels:
+        Dictionary<UUID, any Panel>.Iterator?
+    private var remoteMirrors:
+        Dictionary<UUID, RemoteTmuxWindowMirror>.Iterator
+    private var remoteMirrorPanels:
+        Dictionary<Int, TerminalPanel>.Iterator?
+    private var remoteMirrorId: UUID?
+    private var windowDockPanels:
+        Dictionary<UUID, any Panel>.Iterator?
+
+    init(workspace: Workspace, windowDock: DockSplitStore?) {
+        workspacePanels = workspace.panels.makeIterator()
+        workspaceDockPanels = workspace._dockSplit?.panels.makeIterator()
+        remoteMirrors = workspace.remoteTmuxWindowMirrors.makeIterator()
+        windowDockPanels = windowDock?.panels.makeIterator()
+    }
+
+    mutating func nextVisit() -> Visit? {
+        while true {
+            switch phase {
+            case .workspace:
+                if let (_, panel) = workspacePanels.next() {
+                    guard let terminalPanel = panel as? TerminalPanel else {
+                        return .nonTerminal
+                    }
+                    return .candidate(
+                        Candidate(panel: terminalPanel, origin: .workspace)
+                    )
+                }
+                phase = .workspaceDock
+
+            case .workspaceDock:
+                if let (_, panel) = workspaceDockPanels?.next() {
+                    guard let terminalPanel = panel as? TerminalPanel else {
+                        return .nonTerminal
+                    }
+                    return .candidate(
+                        Candidate(panel: terminalPanel, origin: .workspaceDock)
+                    )
+                }
+                phase = .remoteMirrors
+
+            case .remoteMirrors:
+                if let (paneId, panel) = remoteMirrorPanels?.next(),
+                   let remoteMirrorId {
+                    return .candidate(
+                        Candidate(
+                            panel: panel,
+                            origin: .remoteMirror(
+                                mirrorId: remoteMirrorId,
+                                paneId: paneId
+                            )
+                        )
+                    )
+                }
+                remoteMirrorPanels = nil
+                remoteMirrorId = nil
+                if let (mirrorId, mirror) = remoteMirrors.next() {
+                    remoteMirrorId = mirrorId
+                    remoteMirrorPanels = mirror.panelsByPaneId.makeIterator()
+                    return .nonTerminal
+                }
+                phase = .windowDock
+
+            case .windowDock:
+                if let (_, panel) = windowDockPanels?.next() {
+                    guard let terminalPanel = panel as? TerminalPanel else {
+                        return .nonTerminal
+                    }
+                    return .candidate(
+                        Candidate(panel: terminalPanel, origin: .windowDock)
+                    )
+                }
+                phase = .finished
+
+            case .finished:
+                return nil
+            }
+        }
+    }
+}
+
+@MainActor
+final class WorkspaceTerminalFontSizeCoordinator {
+    private final class WeakWorkspaceReference {
+        weak var value: Workspace?
+
+        init(_ value: Workspace) {
+            self.value = value
+        }
+    }
+
+    private struct PendingRequest {
+        let workspaceId: UUID
+        var change: WorkspaceTerminalFontSizeChange
+    }
+
+    private struct ActiveRequest {
+        let request: PendingRequest
+        let workspaceReference: WeakWorkspaceReference
+        let token: UUID
+        var discovery: WorkspaceTerminalFontSizePanelDiscovery
+        var pendingCandidate:
+            WorkspaceTerminalFontSizePanelDiscovery.Candidate?
+        var seenPanelIds: Set<UUID> = []
+        var participatingLineage = TerminalFontSizeLineageSelection()
+        var windowDockLineage = TerminalFontSizeLineageSelection()
+        let configuredRuntimePoints: Float32
+    }
+
+    private weak var tabManager: TabManager?
+    private weak var windowDock: DockSplitStore?
+    private var pendingWindowDockLineage: TerminalFontSizeLineage?
+    private var pendingWindowDockInheritanceContext:
+        TerminalFontSizeChangeInheritanceContext?
+
+    private var pendingRequests: [PendingRequest] = []
+    private var pendingRequestHead = 0
+    private var activeRequest: ActiveRequest?
+    private var drainGeneration: UInt64 = 0
+    private var scheduledDrainGeneration: UInt64?
+
+    init(tabManager: TabManager) {
+        self.tabManager = tabManager
+    }
+
+    func attachWindowDock(_ dock: DockSplitStore) {
+        windowDock = dock
+        if let inheritanceContext = pendingWindowDockInheritanceContext {
+            dock.beginTerminalFontSizeChangeInheritance(
+                token: inheritanceContext.token,
+                change: inheritanceContext.change,
+                configuredRuntimePoints:
+                    inheritanceContext.configuredRuntimePoints,
+                fallbackLineage: inheritanceContext.fallbackLineage,
+                fallbackLineageAlreadyIncludesChange: true
+            )
+        } else {
+            dock.rememberTerminalFontSizeLineageForNewTerminals(
+                fallback: pendingWindowDockLineage
+            )
+        }
+        pendingWindowDockLineage = nil
+        pendingWindowDockInheritanceContext = nil
+    }
+
+    func enqueue(
+        _ change: WorkspaceTerminalFontSizeChange,
+        workspaceId: UUID,
+        deferFlush: Bool
+    ) {
+        guard !change.isNoOp else { return }
+        append(
+            PendingRequest(workspaceId: workspaceId, change: change)
+        )
+        if deferFlush {
+            scheduleDrain()
+        } else {
+            drain()
+        }
+    }
+
+    func cancelAll() {
+        invalidateScheduledDrain()
+        if let activeRequest {
+            activeRequest.workspaceReference.value?
+                .endTerminalFontSizeChangeInheritance(
+                    token: activeRequest.token
+                )
+            windowDock?.endTerminalFontSizeChangeInheritance(
+                token: activeRequest.token
+            )
+        }
+        activeRequest = nil
+        pendingRequests.removeAll(keepingCapacity: false)
+        pendingRequestHead = 0
+        pendingWindowDockLineage = nil
+        pendingWindowDockInheritanceContext = nil
+    }
+
+#if DEBUG
+    func debugFlushOneDrain() {
+        invalidateScheduledDrain()
+        drain()
+    }
+
+    func debugDrainAll() {
+        invalidateScheduledDrain()
+        while activeRequest != nil || hasPendingRequests {
+            drain(scheduleContinuation: false)
+        }
+    }
+
+    var debugPendingRequestCount: Int {
+        pendingRequestCount + (activeRequest == nil ? 0 : 1)
+    }
+#endif
+
+    private var hasPendingRequests: Bool {
+        pendingRequestHead < pendingRequests.count
+    }
+
+    private var pendingRequestCount: Int {
+        pendingRequests.count - pendingRequestHead
+    }
+
+    private func resolveWorkspace(_ workspaceId: UUID) -> Workspace? {
+        tabManager?.tabs.first { $0.id == workspaceId }
+    }
+
+    private func append(_ request: PendingRequest) {
+        guard hasPendingRequests,
+              let lastIndex = pendingRequests.indices.last,
+              pendingRequests[lastIndex].workspaceId == request.workspaceId
+        else {
+            pendingRequests.append(request)
+            return
+        }
+
+        switch request.change {
+        case .relative(let transform):
+            pendingRequests[lastIndex].change.append(transform)
+        case .resetThen(let transform):
+            pendingRequests[lastIndex].change.appendReset()
+            pendingRequests[lastIndex].change.append(transform)
+        }
+    }
+
+    private func popPendingRequest() -> PendingRequest? {
+        guard hasPendingRequests else { return nil }
+        let request = pendingRequests[pendingRequestHead]
+        pendingRequestHead += 1
+        if pendingRequestHead == pendingRequests.count {
+            pendingRequests.removeAll(keepingCapacity: true)
+            pendingRequestHead = 0
+        } else if pendingRequestHead >= 64,
+                  pendingRequestHead * 2 >= pendingRequests.count {
+            pendingRequests.removeFirst(pendingRequestHead)
+            pendingRequestHead = 0
+        }
+        return request
+    }
+
+    private func activate(_ request: PendingRequest) -> Bool {
+        guard let workspace = resolveWorkspace(request.workspaceId) else {
+            return false
+        }
+
+        let configuredRuntimePoints =
+            workspace.configuredTerminalRuntimeFontSize()
+        let token = UUID()
+        let inheritanceContext =
+            workspace.beginTerminalFontSizeChangeInheritance(
+                token: token,
+                change: request.change,
+                configuredRuntimePoints: configuredRuntimePoints
+            )
+
+        if let windowDock {
+            windowDock.beginTerminalFontSizeChangeInheritance(
+                token: token,
+                change: request.change,
+                configuredRuntimePoints: configuredRuntimePoints,
+                fallbackLineage: inheritanceContext.fallbackLineage,
+                fallbackLineageAlreadyIncludesChange: true
+            )
+        } else {
+            let previousLineage = pendingWindowDockLineage
+            let pendingContext = TerminalFontSizeChangeInheritanceContext(
+                token: token,
+                change: request.change,
+                configuredRuntimePoints: configuredRuntimePoints,
+                preferredSourcePanel: nil,
+                fallbackLineage:
+                    previousLineage ?? inheritanceContext.fallbackLineage,
+                fallbackLineageAlreadyIncludesChange:
+                    previousLineage == nil
+            )
+            pendingWindowDockLineage = pendingContext.fallbackLineage
+            pendingWindowDockInheritanceContext = pendingContext
+        }
+
+        activeRequest = ActiveRequest(
+            request: request,
+            workspaceReference: WeakWorkspaceReference(workspace),
+            token: token,
+            discovery: WorkspaceTerminalFontSizePanelDiscovery(
+                workspace: workspace,
+                windowDock: windowDock
+            ),
+            configuredRuntimePoints: configuredRuntimePoints
+        )
+        return true
+    }
+
+    private func apply(
+        _ candidate: WorkspaceTerminalFontSizePanelDiscovery.Candidate,
+        to activeRequest: inout ActiveRequest,
+        workspace: Workspace
+    ) {
+        let terminalPanel = candidate.panel
+        let alreadyIncludesChange =
+            terminalPanel.surface.hasAppliedFontSizeChange(
+                token: activeRequest.token
+            )
+        if !alreadyIncludesChange {
+            _ = workspace.applyTerminalFontSizeChange(
+                activeRequest.request.change,
+                to: terminalPanel,
+                configuredRuntimePoints:
+                    activeRequest.configuredRuntimePoints
+            )
+            terminalPanel.surface.markFontSizeChangeApplied(
+                token: activeRequest.token
+            )
+        }
+
+        activeRequest.participatingLineage.consider(terminalPanel)
+        if case .windowDock = candidate.origin {
+            activeRequest.windowDockLineage.consider(terminalPanel)
+        }
+    }
+
+    private func finish(_ activeRequest: ActiveRequest) {
+        guard let workspace = resolveWorkspace(
+            activeRequest.request.workspaceId
+        ), workspace === activeRequest.workspaceReference.value else {
+            activeRequest.workspaceReference.value?
+                .endTerminalFontSizeChangeInheritance(
+                    token: activeRequest.token
+                )
+            windowDock?.endTerminalFontSizeChangeInheritance(
+                token: activeRequest.token
+            )
+            clearPendingWindowDockContext(token: activeRequest.token)
+            return
+        }
+
+        workspace.completeTerminalFontSizeChange(
+            activeRequest.request.change,
+            participatingLineage: activeRequest.participatingLineage.lineage,
+            configuredRuntimePoints: activeRequest.configuredRuntimePoints
+        )
+        workspace.endTerminalFontSizeChangeInheritance(
+            token: activeRequest.token
+        )
+        windowDock?.endTerminalFontSizeChangeInheritance(
+            token: activeRequest.token
+        )
+        clearPendingWindowDockContext(token: activeRequest.token)
+
+        if let windowDock {
+            windowDock.rememberTerminalFontSizeLineageForNewTerminals(
+                fallback:
+                    activeRequest.windowDockLineage.lineage
+                    ?? workspace
+                        .lastRememberedTerminalFontSizeLineageForConfigInheritance()
+            )
+        } else if pendingWindowDockLineage == nil {
+            pendingWindowDockLineage =
+                workspace
+                    .lastRememberedTerminalFontSizeLineageForConfigInheritance()
+        }
+    }
+
+    private func clearPendingWindowDockContext(token: UUID) {
+        guard pendingWindowDockInheritanceContext?.token == token else {
+            return
+        }
+        pendingWindowDockInheritanceContext = nil
+    }
+
+    private func scheduleDrain() {
+        guard scheduledDrainGeneration == nil,
+              activeRequest != nil || hasPendingRequests else {
+            return
+        }
+        drainGeneration &+= 1
+        let generation = drainGeneration
+        scheduledDrainGeneration = generation
+
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.scheduledDrainGeneration == generation else {
+                    return
+                }
+                self.scheduledDrainGeneration = nil
+                self.drain()
+            }
+        }
+    }
+
+    private func invalidateScheduledDrain() {
+        drainGeneration &+= 1
+        scheduledDrainGeneration = nil
+    }
+
+    private func drain(scheduleContinuation: Bool = true) {
+        var budget = WorkspaceTerminalFontSizeDrainBudget()
+        var activeRequestHasBudgetReservation = false
+
+        drainLoop: while true {
+            if activeRequest == nil {
+                while hasPendingRequests {
+                    guard budget.reserveRequestVisit() else {
+                        break drainLoop
+                    }
+                    guard let request = popPendingRequest() else {
+                        break
+                    }
+                    guard activate(request) else { continue }
+                    activeRequestHasBudgetReservation = true
+                    break
+                }
+            }
+
+            guard var current = activeRequest else { break }
+            if !activeRequestHasBudgetReservation {
+                guard budget.reserveRequestVisit() else {
+                    break drainLoop
+                }
+                activeRequestHasBudgetReservation = true
+            }
+
+            guard let workspace = resolveWorkspace(
+                current.request.workspaceId
+            ), workspace === current.workspaceReference.value else {
+                activeRequest = nil
+                finish(current)
+                activeRequestHasBudgetReservation = false
+                continue
+            }
+
+            if let pendingCandidate = current.pendingCandidate {
+                guard pendingCandidate.isMounted(
+                    in: workspace,
+                    windowDock: windowDock
+                ) else {
+                    current.pendingCandidate = nil
+                    current.seenPanelIds.remove(pendingCandidate.panel.id)
+                    activeRequest = current
+                    continue
+                }
+                let alreadyIncludesChange =
+                    pendingCandidate.panel.surface.hasAppliedFontSizeChange(
+                        token: current.token
+                    )
+                let panelHasLiveSurface =
+                    pendingCandidate.panel.surface.hasLiveSurface
+                    && pendingCandidate.panel.surface.surface != nil
+                if panelHasLiveSurface,
+                   !alreadyIncludesChange,
+                   !budget.reserveLiveActions(
+                        current.request.change
+                            .nativeActionUpperBoundPerLiveSurface
+                   ) {
+                    activeRequest = current
+                    break drainLoop
+                }
+                current.pendingCandidate = nil
+                apply(
+                    pendingCandidate,
+                    to: &current,
+                    workspace: workspace
+                )
+                activeRequest = current
+                continue
+            }
+
+            guard budget.reservePanelVisit() else {
+                activeRequest = current
+                break drainLoop
+            }
+            guard let visit = current.discovery.nextVisit() else {
+                activeRequest = nil
+                finish(current)
+                activeRequestHasBudgetReservation = false
+                continue
+            }
+
+            guard case .candidate(let candidate) = visit,
+                  candidate.isMounted(
+                    in: workspace,
+                    windowDock: windowDock
+                  ),
+                  current.seenPanelIds.insert(candidate.panel.id).inserted
+            else {
+                activeRequest = current
+                continue
+            }
+
+            let alreadyIncludesChange =
+                candidate.panel.surface.hasAppliedFontSizeChange(
+                    token: current.token
+                )
+            let panelHasLiveSurface =
+                candidate.panel.surface.hasLiveSurface
+                && candidate.panel.surface.surface != nil
+            if panelHasLiveSurface,
+               !alreadyIncludesChange,
+               !budget.reserveLiveActions(
+                    current.request.change
+                        .nativeActionUpperBoundPerLiveSurface
+               ) {
+                current.pendingCandidate = candidate
+                activeRequest = current
+                break drainLoop
+            }
+
+            apply(candidate, to: &current, workspace: workspace)
+            activeRequest = current
+        }
+
+        if scheduleContinuation,
+           activeRequest != nil || hasPendingRequests {
+            scheduleDrain()
+        }
+    }
+}
+
+private extension WorkspaceTerminalFontSizeChange {
+    mutating func append(_ transform: TerminalFontSizeDeltaTransform) {
+        switch self {
+        case .relative(var existing):
+            existing.append(contentsOf: transform)
+            self = .relative(existing)
+        case .resetThen(var existing):
+            existing.append(contentsOf: transform)
+            self = .resetThen(existing)
         }
     }
 }

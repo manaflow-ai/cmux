@@ -55,8 +55,23 @@ extension TerminalSurface {
               orderedRuntimePointDeltas.allSatisfy(\.isFinite) else {
             return false
         }
-        let orderedRuntimePointDeltas = orderedRuntimePointDeltas.filter { $0 != 0 }
-        guard !orderedRuntimePointDeltas.isEmpty else { return false }
+        return adjustFontSize(
+            applying: TerminalFontSizeDeltaTransform(
+                orderedRuntimePointDeltas: orderedRuntimePointDeltas
+            ),
+            fallbackRuntimePoints: fallbackRuntimePoints
+        )
+    }
+
+    /// Applies a constant-size ordered clamp transform while rebuilding a live
+    /// font at most once.
+    @MainActor
+    @discardableResult
+    public func adjustFontSize(
+        applying transform: TerminalFontSizeDeltaTransform,
+        fallbackRuntimePoints: Float32? = nil
+    ) -> Bool {
+        guard !transform.isIdentity else { return false }
 
         let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.adjust")
         let percent = globalFontMagnificationPercent()
@@ -84,11 +99,9 @@ extension TerminalSurface {
 
         let policy = TerminalFontSizePolicy()
         let boundedCurrentRuntimePoints = policy.clampedRuntimePoints(currentRuntimePoints)
-        let adjustedRuntimePoints = orderedRuntimePointDeltas.reduce(
-            boundedCurrentRuntimePoints
-        ) { current, delta in
-            policy.clampedRuntimePoints(current + delta)
-        }
+        let adjustedRuntimePoints = transform.applying(
+            to: boundedCurrentRuntimePoints
+        )
         let netRuntimePointDelta = adjustedRuntimePoints - boundedCurrentRuntimePoints
         guard netRuntimePointDelta != 0 else { return false }
 

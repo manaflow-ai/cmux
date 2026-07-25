@@ -45,8 +45,8 @@ public struct GhosttyConfig {
     public static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
     /// The terminal font family.
     public var fontFamily: String = "Menlo"
-    /// The terminal font size, in points.
-    public var fontSize: CGFloat = 12
+    /// The terminal font size, in points. Ghostty's native macOS default is 13.
+    public var fontSize: CGFloat = 13
     /// The surface tab-bar font size, in points.
     public var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
     /// The sidebar font size, in points.

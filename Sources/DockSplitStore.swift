@@ -458,13 +458,7 @@ final class DockSplitStore: BonsplitDelegate {
             panels[$0] as? TerminalPanel
         }
         let focusedLineage = focusedTerminalPanel?.surface.fontSizeLineageSnapshot()
-        let deterministicLineage = panels.values
-            .compactMap { $0 as? TerminalPanel }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
-            .lazy
-            .compactMap { $0.surface.fontSizeLineageSnapshot() }
-            .first
-        if let lineage = focusedLineage ?? deterministicLineage ?? fallback {
+        if let lineage = focusedLineage ?? fallback ?? lastTerminalFontSizeLineage {
             lastTerminalFontSizeLineage = lineage
         }
     }
