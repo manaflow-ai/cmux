@@ -7,6 +7,7 @@ extension CMUXCLI {
     static let agentHookDeclaredTimeoutMilliseconds = agentHookDeclaredTimeoutSeconds * 1_000
     static let maximumRelayAgentHookPayloadBytes = 4 * 1_024
     static let maximumRelayAgentHookEncodedPayloadBytes = 8 * 1_024
+    private static let maximumAgentHookInputBytes = 1 * 1_024 * 1_024
 
     /// Builds a fail-open command that admits a non-decision hook to the app's
     /// ordered delivery queue. The hook process performs no downstream delivery.
@@ -85,10 +86,7 @@ extension CMUXCLI {
                 return value.utf8.count <= maximumBytes
             }
         }
-        let rawPayload = String(
-            data: FileHandle.standardInput.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        let rawPayload = Self.readBoundedAgentHookInput() ?? "{}"
         let payload = compactAgentHookPayload(
             rawPayload,
             maximumBytes: client.isRelayBacked
@@ -114,6 +112,31 @@ extension CMUXCLI {
             responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
         )
         print("{}")
+    }
+
+    /// Reads only a finite admission envelope before any string materialization
+    /// or JSON parsing. Hooks above 1 MiB fail open with a neutral payload: the
+    /// lifecycle event is still admitted, but oversized untrusted detail is
+    /// discarded instead of making the foreground hook process scale with stdin.
+    private static func readBoundedAgentHookInput(
+        handle: FileHandle = .standardInput
+    ) -> String? {
+        var data = Data()
+        while data.count <= maximumAgentHookInputBytes {
+            let remainingBytes = maximumAgentHookInputBytes + 1 - data.count
+            let chunkSize = min(64 * 1_024, remainingBytes)
+            let chunk: Data
+            do {
+                chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            } catch {
+                return nil
+            }
+            guard !chunk.isEmpty else {
+                return String(data: data, encoding: .utf8)
+            }
+            data.append(chunk)
+        }
+        return nil
     }
 
     private func compactAgentHookPayload(

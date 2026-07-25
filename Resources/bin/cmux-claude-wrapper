@@ -885,7 +885,104 @@ install_cmux_node_options
 # missing/older CLI or malformed output falls back atomically to decision hooks
 # only. Lifecycle telemetry is omitted in degraded mode so it cannot reintroduce
 # a blocking socket round-trip or disable Claude's native notifications.
-cmux_claude_json_object_is_valid() {
+cmux_claude_plutil_raw() {
+    local value="$1"
+    local keypath="$2"
+    local expected_type="$3"
+    printf '%s' "$value" \
+        | /usr/bin/plutil -extract "$keypath" raw -expect "$expected_type" -o - -- - 2>/dev/null
+}
+
+cmux_claude_plutil_has_command() {
+    local value="$1"
+    local event="$2"
+    local needle="$3"
+    local required_matcher="$4"
+    local require_sync="$5"
+    local group_count group_index hook_count hook_index matcher command async_value
+
+    group_count="$(cmux_claude_plutil_raw "$value" "hooks.$event" array)" || return 1
+    [[ "$group_count" =~ ^[0-9]+$ ]] || return 1
+    group_index=0
+    while (( group_index < group_count )); do
+        if [[ -n "$required_matcher" ]]; then
+            matcher="$(cmux_claude_plutil_raw "$value" "hooks.$event.$group_index.matcher" string)" \
+                || {
+                    group_index=$((group_index + 1))
+                    continue
+                }
+            if [[ "$matcher" != "$required_matcher" ]]; then
+                group_index=$((group_index + 1))
+                continue
+            fi
+        fi
+
+        hook_count="$(cmux_claude_plutil_raw "$value" "hooks.$event.$group_index.hooks" array)" \
+            || {
+                group_index=$((group_index + 1))
+                continue
+            }
+        [[ "$hook_count" =~ ^[0-9]+$ ]] || return 1
+        hook_index=0
+        while (( hook_index < hook_count )); do
+            command="$(cmux_claude_plutil_raw "$value" "hooks.$event.$group_index.hooks.$hook_index.command" string)" \
+                || {
+                    hook_index=$((hook_index + 1))
+                    continue
+                }
+            if [[ "$command" == *"$needle"* ]]; then
+                if [[ "$require_sync" != "1" ]]; then
+                    return 0
+                fi
+                async_value="$(
+                    cmux_claude_plutil_raw \
+                        "$value" \
+                        "hooks.$event.$group_index.hooks.$hook_index.async" \
+                        bool \
+                        || true
+                )"
+                if [[ "$async_value" != "true" ]]; then
+                    return 0
+                fi
+            fi
+            hook_index=$((hook_index + 1))
+        done
+        group_index=$((group_index + 1))
+    done
+    return 1
+}
+
+cmux_claude_plutil_hook_settings_are_safe() {
+    local value="$1"
+    local preferred_channel event subcommand
+
+    cmux_claude_plutil_has_command \
+        "$value" "PreToolUse" "hooks claude cron-create-guard" "CronCreate" 1 \
+        || return 1
+    cmux_claude_plutil_has_command \
+        "$value" "PermissionRequest" "hooks feed --source claude" "" 1 \
+        || return 1
+
+    preferred_channel="$(
+        cmux_claude_plutil_raw "$value" preferredNotifChannel string || true
+    )"
+    if [[ "$preferred_channel" == "notifications_disabled" ]]; then
+        while read -r event subcommand; do
+            cmux_claude_plutil_has_command \
+                "$value" "$event" "hooks enqueue claude $subcommand" "" 0 \
+                || return 1
+        done <<'CMUX_CLAUDE_LIFECYCLE_HOOKS'
+SessionStart session-start
+Stop stop
+SessionEnd session-end
+Notification notification
+UserPromptSubmit prompt-submit
+CMUX_CLAUDE_LIFECYCLE_HOOKS
+    fi
+    return 0
+}
+
+cmux_claude_generated_hook_settings_are_safe() {
     local value="$1"
     (( ${#value} > 0 && ${#value} <= 1048576 )) || return 1
     [[ "$value" =~ ^[[:space:]]*\{ ]] || return 1
@@ -893,13 +990,48 @@ cmux_claude_json_object_is_valid() {
     if command -v node >/dev/null 2>&1; then
         printf '%s' "$value" | node -e '
 const fs=require("fs");
-try { const x=JSON.parse(fs.readFileSync(0,"utf8")); if(!x||Array.isArray(x)||typeof x!=="object")process.exit(1); }
+try {
+  const x=JSON.parse(fs.readFileSync(0,"utf8"));
+  if(!x||Array.isArray(x)||typeof x!=="object")process.exit(1);
+  const hooks=x.hooks;
+  if(!hooks||Array.isArray(hooks)||typeof hooks!=="object")process.exit(1);
+  const commands=(event,matcher)=>{
+    const groups=hooks[event];
+    if(!Array.isArray(groups))return [];
+    return groups.flatMap(group=>{
+      if(!group||typeof group!=="object")return [];
+      if(matcher!==undefined&&group.matcher!==matcher)return [];
+      return Array.isArray(group.hooks)?group.hooks:[];
+    });
+  };
+  const hasSyncCommand=(event,needle,matcher)=>commands(event,matcher).some(hook=>
+    hook&&typeof hook==="object"&&typeof hook.command==="string"&&
+    hook.command.includes(needle)&&hook.async!==true
+  );
+  if(!hasSyncCommand("PreToolUse","hooks claude cron-create-guard","CronCreate"))process.exit(1);
+  if(!hasSyncCommand("PermissionRequest","hooks feed --source claude"))process.exit(1);
+  if(x.preferredNotifChannel==="notifications_disabled"){
+    const lifecycle=[
+      ["SessionStart","session-start"],
+      ["Stop","stop"],
+      ["SessionEnd","session-end"],
+      ["Notification","notification"],
+      ["UserPromptSubmit","prompt-submit"],
+    ];
+    if(!lifecycle.every(([event,subcommand])=>
+      commands(event).some(hook=>
+        hook&&typeof hook==="object"&&typeof hook.command==="string"&&
+        hook.command.includes(`hooks enqueue claude ${subcommand}`)
+      )
+    ))process.exit(1);
+  }
+}
 catch (_) { process.exit(1); }
 ' >/dev/null 2>&1
         return $?
     fi
     if [[ -x /usr/bin/plutil ]]; then
-        printf '%s' "$value" | /usr/bin/plutil -convert binary1 -o /dev/null -- - >/dev/null 2>&1
+        cmux_claude_plutil_hook_settings_are_safe "$value"
         return $?
     fi
     return 1
@@ -969,7 +1101,7 @@ cmux_claude_generate_hook_settings() {
 #   no-op when the feature is disabled.
 HOOKS_JSON='{"hooks":{"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 if CMUX_GENERATED_HOOKS_JSON="$(cmux_claude_generate_hook_settings)" \
-    && cmux_claude_json_object_is_valid "$CMUX_GENERATED_HOOKS_JSON"; then
+    && cmux_claude_generated_hook_settings_are_safe "$CMUX_GENERATED_HOOKS_JSON"; then
     HOOKS_JSON="$CMUX_GENERATED_HOOKS_JSON"
 fi
 unset CMUX_GENERATED_HOOKS_JSON
