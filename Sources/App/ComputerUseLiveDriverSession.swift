@@ -12,7 +12,16 @@ struct ComputerUseLiveDriverSession: Equatable, Sendable {
         surfaceID: UUID,
         entry: RestorableAgentSessionIndex.Entry
     ) {
-        let rootProcessIdentities = Set(entry.agentProcessIdentities.values)
+        let recordedProcessIdentities = Set(entry.agentProcessIdentities.values)
+        let rootProcessIdentities: Set<AgentPIDProcessIdentity>
+        if recordedProcessIdentities.isEmpty {
+            rootProcessIdentities = Set(entry.agentProcessIDs.compactMap { processID in
+                guard processID > 0, processID <= Int(Int32.max) else { return nil }
+                return AgentPIDProcessIdentity(pid: pid_t(processID))
+            })
+        } else {
+            rootProcessIdentities = recordedProcessIdentities
+        }
         guard !rootProcessIdentities.isEmpty else { return nil }
 
         self.workspaceID = workspaceID
