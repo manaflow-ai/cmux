@@ -13294,9 +13294,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             toggleGlobalSearchPalette()
             return true
         }
-        if commandPaletteEffectiveInTargetWindow || GlobalSearchCoordinator.shared.isPaletteVisible(),
+        if globalSearchShortcut.hasChord,
+           commandPaletteEffectiveInTargetWindow || GlobalSearchCoordinator.shared.isPaletteVisible(),
            activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           globalSearchShortcut.hasChord,
            shortcutWhenClauseAllows(action: globalSearchAction, event: event),
            armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
             return true
