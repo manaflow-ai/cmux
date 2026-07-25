@@ -155,9 +155,12 @@ struct ComputerUseDriverState: Equatable, Sendable {
         appendString(value, to: &message)
     }
 
-    /// Validates that the process which wrote this state is still rooted in the
-    /// live agent process tree. This is a bounded point lookup, not a
-    /// machine-wide process scan.
+    /// Validates that the process which wrote this state is still attached to
+    /// the live agent process tree. Most agents are the recorded root or an
+    /// ancestor of the writer. Script launchers such as Codex's Node shim can
+    /// remain as the writer's immediate parent after spawning the native agent,
+    /// so that single generation-validated parent edge is accepted as well.
+    /// This is a bounded point lookup, not a machine-wide process scan.
     func belongsToProcessTree(
         rootProcessIdentities: Set<AgentPIDProcessIdentity>
     ) -> Bool {
@@ -172,30 +175,51 @@ struct ComputerUseDriverState: Equatable, Sendable {
         belongsToProcessTree rootProcessIdentities: Set<AgentPIDProcessIdentity>
     ) -> Bool {
         guard !rootProcessIdentities.isEmpty else { return false }
-        var currentPID = processIdentity.pid
-        var expectedIdentity: AgentPIDProcessIdentity? = processIdentity
-        var visited: Set<pid_t> = []
+        guard
+            let writerSnapshot = AgentPIDProcessIdentity.processSnapshot(
+                pid: processIdentity.pid
+            ),
+            writerSnapshot.identity == processIdentity
+        else {
+            return false
+        }
+        if rootProcessIdentities.contains(processIdentity) {
+            return true
+        }
 
-        for _ in 0 ..< 64 {
+        var currentPID = writerSnapshot.parentPID
+        var visited: Set<pid_t> = [processIdentity.pid]
+        for _ in 1 ..< 64 {
             guard currentPID > 0, visited.insert(currentPID).inserted else {
-                return false
+                break
             }
             guard
-                let snapshot = AgentPIDProcessIdentity.processSnapshot(pid: currentPID),
-                expectedIdentity.map({ $0 == snapshot.identity }) ?? true
+                let snapshot = AgentPIDProcessIdentity.processSnapshot(
+                    pid: currentPID
+                )
             else {
-                return false
+                break
             }
             if rootProcessIdentities.contains(snapshot.identity) {
                 return true
             }
 
             let parentPID = snapshot.parentPID
-            guard parentPID > 0, parentPID != currentPID else { return false }
+            guard parentPID > 0, parentPID != currentPID else { break }
             currentPID = parentPID
-            expectedIdentity = nil
         }
-        return false
+
+        return rootProcessIdentities.contains { rootIdentity in
+            guard
+                let rootSnapshot = AgentPIDProcessIdentity.processSnapshot(
+                    pid: rootIdentity.pid
+                ),
+                rootSnapshot.identity == rootIdentity
+            else {
+                return false
+            }
+            return rootSnapshot.parentPID == processIdentity.pid
+        }
     }
 
     private static func positiveInt(_ value: Any?) -> Int? {
