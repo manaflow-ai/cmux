@@ -134,12 +134,10 @@ extension TerminalController {
         waitTimeout: TimeInterval
     ) -> V2CallResult {
         let waitsForDecision = waitTimeout > 0 && event.requestId != nil
-        let acceptedEvent = waitsForDecision ? UnsafeAuthoritativeFeedEventSlot() : nil
-        let result = FeedCoordinator.shared.ingestBlocking(
+        let outcome = FeedCoordinator.shared.ingestBlockingWithOutcome(
             event: event,
             waitTimeout: waitTimeout,
             onAcceptedOnMainActor: { authoritativeEvent in
-                acceptedEvent?.value = authoritativeEvent
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
             },
             onAccepted: { authoritativeEvent in
@@ -157,6 +155,7 @@ extension TerminalController {
                 }
             }
         )
+        let result = outcome.result
         switch result {
         case .notFound:
             return v2FeedTargetNotFound()
@@ -168,7 +167,7 @@ extension TerminalController {
         guard waitsForDecision else {
             return .ok(FeedSocketEncoding.payload(for: result))
         }
-        guard let acceptedEvent = acceptedEvent?.value else {
+        guard let acceptedEvent = outcome.authoritativeEvent else {
             return v2FeedTargetUnavailable()
         }
         CmuxEventBus.shared.publishWorkstreamEvent(
@@ -232,11 +231,6 @@ extension TerminalController {
             defaultValue: "feed.push event failed to decode"
         )
     }
-}
-
-/// Written on the main actor and read after the blocking callback returns.
-private final class UnsafeAuthoritativeFeedEventSlot: @unchecked Sendable {
-    var value: WorkstreamEvent?
 }
 
 private enum FeedBatchIngestion: Sendable {

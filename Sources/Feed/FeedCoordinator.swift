@@ -152,15 +152,34 @@ final class FeedCoordinator: @unchecked Sendable {
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
     ) -> IngestBlockingResult {
+        ingestBlockingWithOutcome(
+            event: event,
+            waitTimeout: waitTimeout,
+            onAcceptedOnMainActor: onAcceptedOnMainActor,
+            onAccepted: onAccepted
+        ).result
+    }
+
+    /// For positive-timeout ingress, returns the authoritative accepted event
+    /// from the same synchronized acceptance that supplies the blocking result.
+    func ingestBlockingWithOutcome(
+        event: WorkstreamEvent,
+        waitTimeout: TimeInterval,
+        onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void = { _ in },
+        onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void = { _ in }
+    ) -> IngestBlockingOutcome {
         if waitTimeout <= 0 {
             guard enqueueZeroWaitAcceptance(
                 event,
                 onAcceptedOnMainActor: onAcceptedOnMainActor,
                 onAccepted: onAccepted
             ) else {
-                return .unavailable
+                return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
             }
-            return .acknowledged(itemId: nil)
+            return IngestBlockingOutcome(
+                result: .acknowledged(itemId: nil),
+                authoritativeEvent: nil
+            )
         }
         let deliveryDeadline: ContinuousClock.Instant = .now + .seconds(waitTimeout)
         guard let requestId = event.requestId else {
@@ -185,14 +204,19 @@ final class FeedCoordinator: @unchecked Sendable {
                     }
                 }
             }
-            guard let acceptance else { return .unavailable }
+            guard let acceptance else {
+                return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+            }
             switch acceptance {
-            case .accepted(_, let itemId):
-                return .acknowledged(itemId: itemId)
+            case .accepted(let acceptedEvent, let itemId):
+                return IngestBlockingOutcome(
+                    result: .acknowledged(itemId: itemId),
+                    authoritativeEvent: acceptedEvent
+                )
             case .notFound:
-                return .notFound
+                return IngestBlockingOutcome(result: .notFound, authoritativeEvent: nil)
             case .unavailable:
-                return .unavailable
+                return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
             }
         }
 
@@ -280,7 +304,7 @@ final class FeedCoordinator: @unchecked Sendable {
             waiterLock.unlock()
             concludeAttentionOnMain(attentionTarget)
             cancelNotification(requestId: requestId)
-            return .unavailable
+            return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
         }
 
         let accepted: (event: WorkstreamEvent, itemId: UUID)
@@ -291,12 +315,12 @@ final class FeedCoordinator: @unchecked Sendable {
             waiterLock.lock()
             waiters.removeValue(forKey: requestId)
             waiterLock.unlock()
-            return .notFound
+            return IngestBlockingOutcome(result: .notFound, authoritativeEvent: nil)
         case .unavailable:
             waiterLock.lock()
             waiters.removeValue(forKey: requestId)
             waiterLock.unlock()
-            return .unavailable
+            return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
         }
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
@@ -315,17 +339,26 @@ final class FeedCoordinator: @unchecked Sendable {
         case .success:
             if let decision = w?.decision {
                 // `deliverReply` concludes the attention overlay on resolve.
-                return .resolved(itemId: accepted.itemId, decision: decision)
+                return IngestBlockingOutcome(
+                    result: .resolved(itemId: accepted.itemId, decision: decision),
+                    authoritativeEvent: accepted.event
+                )
             }
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
             expireTimedOutItem(accepted.itemId)
-            return .timedOut(itemId: accepted.itemId)
+            return IngestBlockingOutcome(
+                result: .timedOut(itemId: accepted.itemId),
+                authoritativeEvent: accepted.event
+            )
         case .timedOut:
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
             expireTimedOutItem(accepted.itemId)
-            return .timedOut(itemId: accepted.itemId)
+            return IngestBlockingOutcome(
+                result: .timedOut(itemId: accepted.itemId),
+                authoritativeEvent: accepted.event
+            )
         }
     }
 
@@ -487,6 +520,11 @@ final class FeedCoordinator: @unchecked Sendable {
         case timedOut(itemId: UUID?)
         case notFound
         case unavailable
+    }
+
+    struct IngestBlockingOutcome: Sendable {
+        let result: IngestBlockingResult
+        let authoritativeEvent: WorkstreamEvent?
     }
 }
 
