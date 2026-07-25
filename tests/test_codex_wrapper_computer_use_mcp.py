@@ -154,7 +154,7 @@ def run_wrapper(
     auth_token: bool = True,
     auth_token_file: bool = False,
     installed_broker: bool = True,
-) -> tuple[int, list[str], str, Path]:
+) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "cmux.app" / "Contents" / "Resources" / "bin"
@@ -165,6 +165,17 @@ def run_wrapper(
         wrapper = wrapper_dir / "cmux-codex-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+        bundled_skill = wrapper_dir.parent / "cmux-computer-use"
+        bundled_skill.mkdir()
+        (bundled_skill / "SKILL.md").write_text(
+            "---\n"
+            "name: cmux-computer-use\n"
+            "description: Test bundled cmux Computer Use skill.\n"
+            "---\n"
+            "\n"
+            "Use the bundled Computer Use tools.\n",
+            encoding="utf-8",
+        )
 
         args_log = tmp / "codex-args.log"
         socket_path = tmp / "cmux.sock"
@@ -308,11 +319,31 @@ exit 1
                 text=True,
                 check=False,
             )
+            installed_skill = (
+                sandbox_home
+                / ".agents"
+                / "skills"
+                / "cmux-computer-use"
+            )
+            skill_probe: dict[str, object] = {
+                "exists": installed_skill.exists(),
+                "is_symlink": installed_skill.is_symlink(),
+                "target": (
+                    os.readlink(installed_skill)
+                    if installed_skill.is_symlink()
+                    else None
+                ),
+                "content": (
+                    (installed_skill / "SKILL.md").read_text(encoding="utf-8")
+                    if (installed_skill / "SKILL.md").is_file()
+                    else None
+                ),
+            }
         finally:
             if test_socket is not None:
                 test_socket.close()
 
-        return proc.returncode, read_lines(args_log), proc.stderr, tmp
+        return proc.returncode, read_lines(args_log), proc.stderr, skill_probe
 
 
 def command_config(args: list[str]) -> str | None:
@@ -379,6 +410,35 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     expect(
         0 <= computer_use_command_index < prompt_index,
         f"expected computer-use config before user argv, got {args}",
+        failures,
+    )
+
+
+def test_codex_installs_bundled_computer_use_skill(failures: list[str]) -> None:
+    code, _, stderr, skill = run_wrapper(["hello"])
+    expect(code == 0, f"skill-install wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["exists"] is True,
+        f"expected the bundled skill in ~/.agents/skills on the first session, got {skill}",
+        failures,
+    )
+    expect(
+        skill["is_symlink"] is True,
+        f"expected a non-copying link to the current app-bundled skill, got {skill}",
+        failures,
+    )
+    expect(
+        isinstance(skill["target"], str)
+        and skill["target"].endswith(
+            "/Contents/Resources/cmux-computer-use"
+        ),
+        f"expected the skill link to target the current cmux app bundle, got {skill}",
+        failures,
+    )
+    expect(
+        isinstance(skill["content"], str)
+        and "name: cmux-computer-use" in skill["content"],
+        f"expected Codex-readable SKILL.md content, got {skill}",
         failures,
     )
 
@@ -592,6 +652,7 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_cua_driver(failures)
+    test_codex_installs_bundled_computer_use_skill(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
     test_codex_rejects_proxy_only_cua_driver_override(failures)

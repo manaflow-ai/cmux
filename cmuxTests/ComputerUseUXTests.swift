@@ -743,21 +743,78 @@ struct ComputerUseUXTests {
             "\(driverSessionID)-mcp-42-1000",
             for: driverSessionID
         ))
-        let endRequest = ComputerUseRuntimeService.endDriverSessionRequest(
+        let nativeEndRequest = ComputerUseRuntimeService.endDriverSessionRequest(
             driverSessionID: driverSessionID,
-            proxySessionID: "\(driverSessionID)-mcp-42-1000"
+            proxySessionID: "\(driverSessionID)-mcp-42-1000",
+            profile: .native
         )
+        #expect(nativeEndRequest?["method"] as? String == "call")
+        #expect(nativeEndRequest?["name"] as? String == "end_session")
         #expect(
-            (endRequest?["args"] as? [String: String])?["session"]
+            (nativeEndRequest?["args"] as? [String: String])?["session"]
                 == "\(driverSessionID)-mcp-42-1000"
         )
+        let codexEndRequest = ComputerUseRuntimeService.endDriverSessionRequest(
+            driverSessionID: driverSessionID,
+            proxySessionID: "\(driverSessionID)-mcp-42-1000",
+            profile: .codexCompatibility
+        )
+        #expect(codexEndRequest?["method"] as? String == "session_end")
+        #expect(
+            codexEndRequest?["session_id"] as? String
+                == "\(driverSessionID)-mcp-42-1000"
+        )
+        #expect(codexEndRequest?["name"] == nil)
+        #expect(codexEndRequest?["args"] == nil)
+
+        let nativeCursorRequest =
+            ComputerUseRuntimeService.setDriverCursorVisibleRequest(
+                true,
+                driverSessionID: driverSessionID,
+                profile: .native
+            )
+        #expect(nativeCursorRequest?["method"] as? String == "call")
+        #expect(
+            nativeCursorRequest?["name"] as? String
+                == "set_agent_cursor_enabled"
+        )
+        #expect(
+            (nativeCursorRequest?["args"] as? [String: Any])?["cursor_id"]
+                as? String == driverSessionID
+        )
+        #expect(
+            (nativeCursorRequest?["args"] as? [String: Any])?["enabled"]
+                as? Bool == true
+        )
+
+        let codexCursorRequest =
+            ComputerUseRuntimeService.setDriverCursorVisibleRequest(
+                false,
+                driverSessionID: driverSessionID,
+                profile: .codexCompatibility
+            )
+        #expect(
+            codexCursorRequest?["method"] as? String
+                == "set_cursor_enabled"
+        )
+        #expect(
+            (codexCursorRequest?["args"] as? [String: Any])?["session"]
+                as? String == driverSessionID
+        )
+        #expect(
+            (codexCursorRequest?["args"] as? [String: Any])?["enabled"]
+                as? Bool == false
+        )
+        #expect(codexCursorRequest?["name"] == nil)
+
         #expect(ComputerUseSessionScope.isManagedProxySessionID(
             driverSessionID,
             for: driverSessionID
         ))
         #expect(ComputerUseRuntimeService.endDriverSessionRequest(
             driverSessionID: driverSessionID,
-            proxySessionID: driverSessionID
+            proxySessionID: driverSessionID,
+            profile: .native
         ).flatMap { request in
             (request["args"] as? [String: String])?["session"]
         } == driverSessionID)
