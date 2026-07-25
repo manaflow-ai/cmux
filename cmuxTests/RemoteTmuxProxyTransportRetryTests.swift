@@ -2545,6 +2545,9 @@ private final class FuzzPeer {
         case .newWindow:
             feed(block(["@\(9000 + model.count)"]))
             return "new-window"
+        case .newPane:
+            feed(block(["%\(9000 + model.count)"]))
+            return "new-pane"
         case let .paneAltScreen(pane):
             feed(block(["0"]))
             return "alt-screen(%\(pane))"

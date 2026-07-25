@@ -271,8 +271,6 @@ final class RemoteTmuxController {
     /// created and released only on a successful connect.
     var loginOffers = RemoteTmuxLoginOffers()
 
-    /// Hosts with an authentication wait already running, so folding a repeat
-    /// auth-required into an existing offer does not start a second poll loop.
     /// Hosts with a login waiter running, and the task doing the waiting.
     ///
     /// The task is held rather than fire-and-forget so it can be cancelled: a waiter that

@@ -149,6 +149,8 @@ protocol RemoteTmuxSessionSource: AnyObject {
     func removeWindowSizeClaim(windowId: Int)
     /// Creates a tmux window in-band and reports the new `@id` (or nil) back.
     @discardableResult func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool
+    /// Creates a tmux pane in-band and reports the new `%id` (or nil) back.
+    @discardableResult func sendNewPane(_ command: String, completion: @escaping (Int?) -> Void) -> Bool
     /// Sends a window-reorder command batch with optional verification callback.
     @discardableResult func sendWindowReorder(_ commands: [String], verification: ((Bool) -> Void)?) -> Bool
     /// Forwards typed input to a pane.
