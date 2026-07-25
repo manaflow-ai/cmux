@@ -14,6 +14,7 @@ actor MobileCoreRPCSession {
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
+    static let defaultCancelledWriteCompletionGraceNanoseconds: UInt64 = 250_000_000
     static let maximumReceiveBufferByteCount =
         MobileSyncFrameCodec.defaultMaximumFrameByteCount
         + MobileSyncFrameCodec.headerByteCount
@@ -35,6 +36,13 @@ actor MobileCoreRPCSession {
         let frame: Data
     }
 
+    private struct ActiveWrite: Sendable {
+        let connectionID: UUID
+        let requestID: String
+        let task: Task<Void, any Error>
+        var cancelledRequestResolutionTask: Task<Void, Never>?
+    }
+
     struct IndependentEventPreparation: Sendable {
         let id: UUID
         let task: Task<CmxIndependentEventByteStream, any Error>
@@ -50,6 +58,7 @@ actor MobileCoreRPCSession {
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
+    let cancelledWriteCompletionGraceNanoseconds: UInt64
     private let makeTransport: TransportFactory
     let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
@@ -78,11 +87,7 @@ actor MobileCoreRPCSession {
     var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
-    private var activeWrite: (
-        connectionID: UUID,
-        requestID: String,
-        task: Task<Void, any Error>
-    )?
+    private var activeWrite: ActiveWrite?
     private var transportCloseTask: Task<Void, Never>?
     private var transportCloseTaskID: UUID?
     private var pendingTransportCloses: [any CmxByteTransport] = []
@@ -92,6 +97,8 @@ actor MobileCoreRPCSession {
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
+        cancelledWriteCompletionGraceNanoseconds: UInt64 =
+            MobileCoreRPCSession.defaultCancelledWriteCompletionGraceNanoseconds,
         makeTransport: @escaping TransportFactory,
         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
@@ -102,6 +109,8 @@ actor MobileCoreRPCSession {
         self.connectAttemptRegistry = connectAttemptRegistry
         self.abandonedConnectCleanupTimeoutNanoseconds = abandonedConnectCleanupTimeoutNanoseconds
         self.lateAbandonedConnectCloseTimeoutNanoseconds = lateAbandonedConnectCloseTimeoutNanoseconds
+        self.cancelledWriteCompletionGraceNanoseconds =
+            cancelledWriteCompletionGraceNanoseconds
         self.makeTransport = makeTransport
         self.makeIndependentEventByteStream = makeIndependentEventByteStream
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
@@ -115,12 +124,14 @@ actor MobileCoreRPCSession {
         independentEventPreparation?.task.cancel()
         independentEventReader?.task.cancel()
         activeWrite?.task.cancel()
+        activeWrite?.cancelledRequestResolutionTask?.cancel()
         writerTask?.cancel()
         transportCloseTask?.cancel()
         writeQueue?.finish()
     }
 
     func send(payload: Data, requestID: String, deadlineUptimeNanoseconds: UInt64) async throws -> Data {
+        try await waitForCancelledActiveWriteResolution()
         _ = try await ensureConnected(
             timeoutNanoseconds: try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
         )
@@ -203,6 +214,7 @@ actor MobileCoreRPCSession {
         writeQueue?.finish()
         writeQueue = nil
         activeWrite?.task.cancel()
+        activeWrite?.cancelledRequestResolutionTask?.cancel()
         activeWrite = nil
         writerTask?.cancel()
         writerTask = nil
@@ -546,7 +558,11 @@ actor MobileCoreRPCSession {
             let sendTask = Task {
                 try await transport.send(write.frame)
             }
-            activeWrite = (connectionID, write.requestID, sendTask)
+            activeWrite = ActiveWrite(
+                connectionID: connectionID,
+                requestID: write.requestID,
+                task: sendTask
+            )
             do {
                 try await sendTask.value
                 clearActiveWrite(
@@ -635,7 +651,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        _ = await recycleTransportIfActiveWrite(requestID: requestID)
+        startCancelledActiveWriteResolution(requestID: requestID)
         cont.resume(returning: .cancelled)
     }
 
@@ -670,6 +686,75 @@ actor MobileCoreRPCSession {
         guard activeWrite?.connectionID == connectionID,
               activeWrite?.requestID == requestID else { return }
         activeWrite = nil
+    }
+
+    private func startCancelledActiveWriteResolution(requestID: String) {
+        guard var write = activeWrite,
+              write.requestID == requestID,
+              write.cancelledRequestResolutionTask == nil else { return }
+        let connectionID = write.connectionID
+        let sendTask = write.task
+        let graceNanoseconds = cancelledWriteCompletionGraceNanoseconds
+        write.cancelledRequestResolutionTask = Task { [weak self, taskTimeout] in
+            do {
+                try await taskTimeout.value(
+                    sendTask,
+                    timeoutNanoseconds: graceNanoseconds
+                )
+                await self?.cancelledActiveWriteDidComplete(
+                    connectionID: connectionID,
+                    requestID: requestID
+                )
+            } catch MobileShellConnectionError.requestTimedOut {
+                await self?.cancelledActiveWriteDidTimeOut(
+                    connectionID: connectionID,
+                    requestID: requestID
+                )
+            } catch {
+                await self?.cancelledActiveWriteDidFail(
+                    connectionID: connectionID,
+                    requestID: requestID
+                )
+            }
+        }
+        activeWrite = write
+    }
+
+    private func waitForCancelledActiveWriteResolution() async throws {
+        while let resolutionTask = activeWrite?.cancelledRequestResolutionTask {
+            await resolutionTask.value
+        }
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+    }
+
+    private func cancelledActiveWriteDidComplete(
+        connectionID: UUID,
+        requestID: String
+    ) {
+        clearActiveWrite(connectionID: connectionID, requestID: requestID)
+    }
+
+    private func cancelledActiveWriteDidTimeOut(
+        connectionID: UUID,
+        requestID: String
+    ) async {
+        guard activeWrite?.connectionID == connectionID else { return }
+        _ = await recycleTransportIfActiveWrite(requestID: requestID)
+    }
+
+    private func cancelledActiveWriteDidFail(
+        connectionID: UUID,
+        requestID: String
+    ) async {
+        guard activeWrite?.connectionID == connectionID,
+              activeWrite?.requestID == requestID else { return }
+        activeWrite = nil
+        await tearDownIfInstalled(
+            connectionID: connectionID,
+            error: .connectionClosed
+        )
     }
 
     private func recycleTransportIfActiveWrite(requestID: String) async -> Bool {
