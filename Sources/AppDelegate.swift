@@ -13288,13 +13288,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let globalSearchShortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
         let matchesGlobalSearchShortcut = matchCachedGlobalSearchShortcut(event: event)
         if matchesGlobalSearchShortcut,
-           activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteEffectiveInTargetWindow {
-            // Once armed, the chord owns its suffix. The command palette is the
-            // only unarmed early route because it swallows unmatched input below.
+           activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteEffectiveInTargetWindow || GlobalSearchCoordinator.shared.isPaletteVisible() {
+            // An armed chord owns its suffix; the command palette routes before
+            // swallowing, and visible Search owns its auxiliary popover.
             toggleGlobalSearchPalette()
             return true
         }
-        if commandPaletteEffectiveInTargetWindow,
+        if commandPaletteEffectiveInTargetWindow || GlobalSearchCoordinator.shared.isPaletteVisible(),
            activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            globalSearchShortcut.hasChord,
            shortcutWhenClauseAllows(action: globalSearchAction, event: event),
