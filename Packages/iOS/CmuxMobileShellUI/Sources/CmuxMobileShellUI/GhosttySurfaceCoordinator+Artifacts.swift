@@ -95,25 +95,26 @@ extension GhosttySurfaceRepresentable.Coordinator {
             let artifactChipGate = artifactChipGate
             artifactCountTaskRequest = request
             artifactCountTask = Task { @MainActor [weak self, weak surfaceView] in
-                let sessionTotal: Int?
+                let scan: (sessionTotal: Int?, sessionID: String?)?
                 do {
-                    sessionTotal = try await artifactChipGate.performScan { [weak self] in
+                    scan = try await artifactChipGate.performScan { [weak self] in
                         guard let source = self?.store?.makeChatEventSource() else { return nil }
                         let response = try await source.terminalArtifactScan(
                             workspaceID: workspaceID,
                             surfaceID: surfaceID,
                             countOnly: true
                         )
-                        return response.sessionArtifactTotal
+                        return (response.sessionArtifactTotal, response.sessionID)
                     }
                 } catch {
-                    sessionTotal = nil
+                    scan = nil
                 }
 
                 guard let self, let surfaceView else { return }
                 let completion = self.artifactCountState.complete(
                     request,
-                    sessionTotal: sessionTotal,
+                    sessionTotal: scan?.sessionTotal,
+                    sessionID: scan?.sessionID,
                     currentSurfaceGeneration: surfaceView.visibleArtifactCountGeneration,
                     freshestLocalCount: self.freshestLocalArtifactCount
                 )
@@ -202,6 +203,16 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 )
                 guard !Task.isCancelled else { return }
                 self.artifactChipHideTask = nil
+                // A positive report can land in the delegate just before this
+                // deadline and only cancel the hide after its SwiftUI round
+                // trip; hiding then would remount moments later — the exact
+                // flicker this grace exists to remove. Re-drive the state
+                // machine with the fresh count instead: it remounts and
+                // clears the pending-hide state in one step.
+                guard self.visibleArtifactCount <= 0 else {
+                    self.updateArtifactChip(count: self.visibleArtifactCount)
+                    return
+                }
                 self.artifactChipVisibility.hideCompleted()
                 self.surfaceView?.mountArtifactChipView(nil, animated: true)
             }

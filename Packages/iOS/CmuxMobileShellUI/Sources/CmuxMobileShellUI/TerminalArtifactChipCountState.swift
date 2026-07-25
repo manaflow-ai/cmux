@@ -60,6 +60,11 @@ struct TerminalArtifactChipCountState: Sendable {
     /// the chip does not regress to the viewport-only count (which oscillates
     /// while output streams) whenever one RPC drops.
     private var lastSessionTotal: Int?
+    /// Session the held total belongs to. A terminal can bind a new agent
+    /// session without remounting the coordinator, and its first count-only
+    /// responses can carry the new session's ID with no total yet — the held
+    /// total from the previous session must be invalidated then, not shown.
+    private var lastSessionTotalSessionID: String?
 
     static let maxConsecutiveRearms = 3
 
@@ -69,6 +74,7 @@ struct TerminalArtifactChipCountState: Sendable {
         trailing = nil
         consecutiveRearmCount = 0
         lastSessionTotal = nil
+        lastSessionTotalSessionID = nil
     }
 
     mutating func trigger(
@@ -107,6 +113,7 @@ struct TerminalArtifactChipCountState: Sendable {
     mutating func complete(
         _ request: Request,
         sessionTotal: Int?,
+        sessionID: String? = nil,
         currentSurfaceGeneration: UInt64,
         freshestLocalCount: Int
     ) -> Completion {
@@ -123,8 +130,16 @@ struct TerminalArtifactChipCountState: Sendable {
             // bump can coincide with a new agent session binding), and its
             // total must not seed provisional reports for the new one. The
             // re-armed request re-fetches under the current generation.
+            if let sessionID, sessionID != lastSessionTotalSessionID {
+                // The surface is bound to a different session now; the held
+                // total belongs to the old one and must not keep the chip
+                // mounted for the new session while its index warms up.
+                lastSessionTotal = nil
+                lastSessionTotalSessionID = sessionID
+            }
             if let sessionTotal {
                 lastSessionTotal = sessionTotal
+                lastSessionTotalSessionID = sessionID ?? lastSessionTotalSessionID
             }
             outcome = .reported(Report(
                 count: displayCount(forLocalCount: request.localCount),

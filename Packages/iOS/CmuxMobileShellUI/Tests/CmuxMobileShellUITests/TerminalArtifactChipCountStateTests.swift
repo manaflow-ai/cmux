@@ -190,6 +190,39 @@ struct TerminalArtifactChipCountStateTests {
         #expect(reported.nextRequest == nil)
     }
 
+    @Test("a new session binding invalidates the held total from the old session")
+    func sessionSwitchInvalidatesHeldTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: 12,
+            sessionID: "session-a",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+
+        // The terminal binds a new session whose transcript is not indexed
+        // yet: the response carries the new session's ID with no total. The
+        // old session's 12 must not be shown for it.
+        let second = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            sessionTotal: nil,
+            sessionID: "session-b",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 7)))
+    }
+
     @Test("a dropped response's total does not seed provisional reports")
     func droppedResponseDoesNotSeedProvisional() throws {
         var state = TerminalArtifactChipCountState()
