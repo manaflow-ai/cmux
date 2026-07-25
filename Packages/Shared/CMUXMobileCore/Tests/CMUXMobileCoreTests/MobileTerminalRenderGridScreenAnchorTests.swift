@@ -364,3 +364,21 @@ private func screenFrame(
     #expect(full.anchor == .viewport)
     #expect(replay.contains("\u{1B}[3J"))
 }
+
+@Test func scrollbackPreferenceResolvesClampsAndDefaults() throws {
+    let defaults = UserDefaults(suiteName: "scrollback-preference-tests")!
+    defaults.removePersistentDomain(forName: "scrollback-preference-tests")
+
+    #expect(MobileTerminalScrollbackPreference.resolve(from: defaults) == 4000)
+
+    defaults.set(10000, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+    #expect(MobileTerminalScrollbackPreference.resolve(from: defaults) == 10000)
+
+    defaults.set(999_999, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+    #expect(MobileTerminalScrollbackPreference.resolve(from: defaults) == 20000)
+
+    defaults.set(-5, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+    #expect(MobileTerminalScrollbackPreference.resolve(from: defaults) == 0)
+
+    defaults.removePersistentDomain(forName: "scrollback-preference-tests")
+}

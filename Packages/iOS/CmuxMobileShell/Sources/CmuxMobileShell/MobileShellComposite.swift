@@ -7670,7 +7670,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil
                         || self.terminalMirrorHydrationNeededSurfaceIDs.contains(surfaceID)
                     params["max_scrollback_rows"] = needsHydration
-                        ? MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
+                        ? MobileTerminalScrollbackPreference.resolve()
                         : 0
                 }
                 let request = try MobileCoreRPCClient.requestData(

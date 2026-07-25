@@ -447,11 +447,11 @@ private extension GhosttyRuntime {
 
     func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
         // Screen-anchored sessions scroll a deep LOCAL scrollback: replays
-        // hydrate thousands of history rows and live deltas keep appending, so
-        // the limit must hold the hydration budget even at wide iPad grids
-        // (bytes, not rows). Still capped below Ghostty's 10MB default.
+        // hydrate up to the user-configurable 20k-row window and live deltas
+        // keep appending, so the byte limit must hold that even at wide iPad
+        // grids (bytes, not rows).
         let defaults = """
-        scrollback-limit = 8000000
+        scrollback-limit = 16000000
         font-family = Menlo
         font-size = 10
         window-padding-balance = false

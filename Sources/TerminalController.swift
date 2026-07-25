@@ -14393,11 +14393,8 @@ class TerminalController {
         let scrollbackLines: Int
         if anchor == .screen {
             let requested = v2Int(params, "max_scrollback_rows")
-                ?? MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
-            scrollbackLines = min(
-                max(requested, 0),
-                MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
-            )
+                ?? MobileTerminalScrollbackPreference.defaultRows
+            scrollbackLines = MobileTerminalScrollbackPreference.clamped(requested)
         } else {
             scrollbackLines = TerminalController.mobileReplayScrollbackLineBudget
         }
