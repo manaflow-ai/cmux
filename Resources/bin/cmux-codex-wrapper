@@ -210,18 +210,15 @@ cmux_computer_use_canonical_executable() {
 }
 
 cmux_computer_use_resolve_client() {
-    local self_dir app_contents bundled_client override client_real
-    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    app_contents="$(cd "$self_dir/../.." 2>/dev/null && pwd)" || return 1
-    bundled_client="$app_contents/Resources/bin/cmux-computer-use-client"
-    if [[ -x "$bundled_client" ]]; then
-        printf '%s' "$bundled_client"
-        return 0
-    fi
-
-    override="${CMUX_CUA_DRIVER:-}"
-    [[ -n "$override" ]] || return 1
-    client_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
+    # Codex compatibility mode brokers per-app approval. The daemon verifies
+    # that broker as the exact executable already serving the cmux-owned
+    # socket, then verifies the broker's parent as signed OpenAI Codex. A
+    # separately signed Resources/bin client (or CMUX_CUA_DRIVER override)
+    # cannot satisfy that invariant even when its bytes are related.
+    local installed_client client_real
+    installed_client="${CMUX_CUA_CLIENT_PATH:-}"
+    [[ -n "$installed_client" ]] || return 1
+    client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
     cmux_computer_use_trusted_path_ancestors "$client_real" || return 1
     cmux_computer_use_trusted_executable_file "$client_real" || return 1
     printf '%s' "$client_real"

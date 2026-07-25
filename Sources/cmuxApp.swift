@@ -179,6 +179,15 @@ struct cmuxApp: App {
             computerUsePaths.scope,
             1
         )
+        // Codex app approval authenticates the MCP broker as the exact
+        // executable already serving this cmux-owned helper generation.
+        // Export the installed helper path rather than the separately signed
+        // Resources/bin client; the wrapper validates the path before use.
+        setenv(
+            ComputerUseRuntimePaths.clientExecutableEnvironmentKey,
+            computerUsePaths.installedHelperExecutableURL.path,
+            1
+        )
         // The helper bearer token is written to a private per-user runtime file
         // and read only by the agent wrappers. Never place the capability in the
         // app environment inherited by every terminal child.

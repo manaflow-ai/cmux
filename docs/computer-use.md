@@ -8,10 +8,12 @@ Claude Code and Codex CLI sessions launched by cmux receive the server
 automatically at session start (injection is implemented in
 `cmux-claude-wrapper` and `cmux-codex-wrapper`); no user MCP configuration is
 required for them. The Claude wrapper retains cmux's broad native tool surface.
-The Codex wrapper adds `--codex-computer-use-compat`, which presents the exact
-Codex Computer Use server identity, ten-tool order, schemas, annotations,
-app-oriented arguments, screenshot/tree result shape, and approval flow while
-still running on cmux's own engine. Other agents are not currently supported:
+The Codex wrapper launches the tag-installed helper executable as its
+authenticated MCP broker and adds `--codex-computer-use-compat`, which
+presents the exact Codex Computer Use server identity, ten-tool order, schemas,
+annotations, app-oriented arguments, screenshot/tree result shape, and
+approval flow while still running on cmux's own engine. Other agents are not
+currently supported:
 the socket proxy requires the per-launch credential that cmux injects into its
 own terminal process tree. Do not configure the bundled driver with
 `--embedded`; that would grant Accessibility and Screen Recording to the main
@@ -55,10 +57,12 @@ profiles separate prevents a cmux extension from silently changing Codex's
 built-in Computer Use schema.
 
 Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
-automatic computer-use MCP injection. Development builds may set
-`CMUX_CUA_DRIVER=/absolute/path/to/cua-driver`; cmux only uses that override
-when the bundled driver is absent and the override path is executable with
-trusted ancestors.
+automatic computer-use MCP injection. Native-profile development builds may
+set `CMUX_CUA_DRIVER=/absolute/path/to/cua-driver`; the Claude wrapper only
+uses that override when the bundled driver is absent and the override path is
+executable with trusted ancestors. Codex compatibility mode intentionally
+ignores proxy-only overrides because its approval broker must be the exact
+installed helper executable serving the cmux-owned socket.
 
 ## Building the bundled driver
 

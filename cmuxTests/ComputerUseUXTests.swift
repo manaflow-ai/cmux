@@ -716,6 +716,12 @@ struct ComputerUseUXTests {
         #expect(paths.installedHelperAppURL.path.hasSuffix(
             "/Library/Application Support/cmux/computer-use/helper/\(paths.scope)/cmux Computer Use.app"
         ))
+        #expect(
+            paths.installedHelperExecutableURL.path
+                == paths.installedHelperAppURL
+                    .appendingPathComponent("Contents/MacOS/cmux Computer Use")
+                    .path
+        )
     }
 
     @Test func onlyExactSurfaceDerivedDriverSessionsAreManaged() {

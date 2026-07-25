@@ -415,15 +415,15 @@ def test_codex_reads_private_daemon_credential_file(failures: list[str]) -> None
     expect_scrubbed_mcp_env(args, failures, "private daemon credential file", helper_owned=True)
 
 
-def test_codex_uses_trusted_cua_driver_override(failures: list[str]) -> None:
+def test_codex_rejects_proxy_only_cua_driver_override(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(["hello"], bundled_driver=False, override_driver=True)
     expect(code == 0, f"override wrapper exited {code}: {stderr}", failures)
     cmd = command_config(args)
-    expect(cmd is not None, f"override missing command config in {args}", failures)
-    if cmd is not None:
-        command = json.loads(cmd)
-        expect(Path(command).name == "echo", f"expected override driver command, got {cmd}", failures)
-    expect_scrubbed_mcp_env(args, failures, "override cua-driver", helper_owned=False)
+    expect(
+        cmd is None,
+        f"Codex must not attach a proxy-only override that cannot authenticate as the installed daemon: {args}",
+        failures,
+    )
 
 
 def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
@@ -591,7 +591,7 @@ def main() -> int:
     test_codex_gets_cmux_cua_driver(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
-    test_codex_uses_trusted_cua_driver_override(failures)
+    test_codex_rejects_proxy_only_cua_driver_override(failures)
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_installed_broker_is_unavailable(failures)

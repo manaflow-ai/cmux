@@ -21,7 +21,9 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
 - The `cmux-claude-wrapper` and `cmux-codex-wrapper` inject the driver as an
   MCP proxy using `mcp --socket <cmux-owned socket>` plus cursor-branding and
-  state-dir env. The Codex wrapper additionally passes
+  state-dir env. Codex launches the exact tag-installed helper executable as
+  its authenticated approval broker; Claude uses the bundled native-profile
+  proxy client. The Codex wrapper additionally passes
   `--codex-computer-use-compat`; the Claude wrapper deliberately does not.
   No user setup per session — start `claude` or `codex` inside cmux and the
   corresponding tool profile is there.
@@ -189,9 +191,10 @@ Settings → Computer Use.
 - The helper daemon's `CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=1` prevents
   agent-supplied `check_permissions {prompt:true}` from bypassing cmux
   onboarding. The wrappers set `CUA_DRIVER_RS_MCP_FORCE_PROXY=1` and keep that
-  flag off in the proxy process so its first-call grant wait remains active;
-  `CMUX_CUA_DRIVER` may replace only the proxy executable and never enables
-  embedded mode.
+  flag off in the proxy process so its first-call grant wait remains active.
+  `CMUX_CUA_DRIVER` may replace only Claude's native-profile proxy executable
+  and never enables embedded mode. Codex ignores proxy-only overrides because
+  its approval broker must match the running installed helper executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cua-driver`
   directly through Bash and do not start its default socket. Tell the user to
   open Settings → Computer Use or restart the tagged cmux build, then retry the

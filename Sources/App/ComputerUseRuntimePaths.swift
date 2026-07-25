@@ -6,6 +6,7 @@ struct ComputerUseRuntimePaths: Sendable {
     static let daemonSocketEnvironmentKey = "CMUX_CUA_SOCKET_PATH"
     static let stateDirectoryEnvironmentKey = "CMUX_CUA_STATE_DIR"
     static let runtimeScopeEnvironmentKey = "CMUX_CUA_RUNTIME_SCOPE"
+    static let clientExecutableEnvironmentKey = "CMUX_CUA_CLIENT_PATH"
     static let authenticationTokenEnvironmentKey = "CUA_DRIVER_SOCKET_AUTH_TOKEN"
     static let hostAuthenticationTokenEnvironmentKey = "CUA_DRIVER_SOCKET_HOST_AUTH_TOKEN"
     static let authenticationTokenFileEnvironmentKey = "CMUX_CUA_AUTH_TOKEN_FILE"
@@ -26,6 +27,7 @@ struct ComputerUseRuntimePaths: Sendable {
     let permissionDatabaseDirectoryURL: URL
     let installedHelperDirectoryURL: URL
     let installedHelperAppURL: URL
+    let installedHelperExecutableURL: URL
 
     init(
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -83,6 +85,8 @@ struct ComputerUseRuntimePaths: Sendable {
             .appendingPathComponent(scope, isDirectory: true)
         installedHelperAppURL = installedHelperDirectoryURL
             .appendingPathComponent("cmux Computer Use.app", isDirectory: true)
+        installedHelperExecutableURL = installedHelperAppURL
+            .appendingPathComponent("Contents/MacOS/cmux Computer Use")
     }
 
     private static func sanitizedScope(_ rawValue: String?) -> String {
