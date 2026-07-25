@@ -153,6 +153,69 @@ final class GlobalSearchShortcutPriorityTests {
 #endif
     }
 
+    @Test func browserEditingOwnsUnarmedGlobalSearchChordPrefix() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeOmnibarHarness(appDelegate: appDelegate)
+        let webView = try #require(harness.panel.webView as? CmuxWebView)
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+            closeWindow(harness.window, appDelegate: appDelegate)
+        }
+
+        if webView.cmuxBrowserViewportAttachmentSuperview == nil,
+           let contentView = harness.window.contentView {
+            let presentationView = webView.cmuxBrowserViewportPresentationView
+            contentView.addSubview(presentationView)
+            webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
+        }
+        #expect(harness.window.makeFirstResponder(webView))
+        #expect(harness.window.firstResponder === webView)
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "c",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                chordKey: "g",
+                chordCommand: true
+            ),
+            for: .globalSearch
+        )
+        appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+
+        let prefixEvent = try makeKeyEvent(
+            type: .keyDown,
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: harness.window.windowNumber
+        )
+        let suffixEvent = try makeKeyEvent(
+            type: .keyDown,
+            key: "g",
+            modifiers: [.command],
+            keyCode: 5,
+            windowNumber: harness.window.windowNumber
+        )
+
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+            "Focused browser editing must own Cmd-C before an unarmed Global Search chord"
+        )
+        _ = appDelegate.debugHandleCustomShortcut(event: suffixEvent)
+        #expect(
+            !GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "A browser-owned editing command must not leave a Global Search chord armed"
+        )
+#else
+        Issue.record("Global Search shortcut-priority routing requires a DEBUG build")
+#endif
+    }
+
     private func assertOmnibarOwnsGlobalSearchChordPrefix(
         key: String,
         keyCode: UInt16,
