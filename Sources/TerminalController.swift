@@ -1240,6 +1240,21 @@ class TerminalController {
                 return v2Error(id: request.id, code: "queue_full", message: "Agent hook delivery queue is full")
             }
             return v2Ok(id: request.id, result: ["queued": true])
+        case "agent.hook.barrier":
+            guard let localSocketPath = currentSocketPathForRemoteRestore(),
+                  let orderingKey = AgentHookDeliveryEvent.orderingKey(
+                      params: request.params,
+                      deliverySocketPath: localSocketPath
+                  ) else {
+                return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook barrier")
+            }
+            guard agentHookDeliveryQueue.waitForPriorDeliveries(
+                orderingKey: orderingKey,
+                timeout: 18
+            ) else {
+                return v2Error(id: request.id, code: "barrier_timeout", message: "Agent hook barrier timed out")
+            }
+            return v2Ok(id: request.id, result: ["completed": true])
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",

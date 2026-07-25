@@ -90,6 +90,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Admission only appends an immutable event to the actor-owned queue;
         // all downstream process/socket work happens after the reply.
         "agent.hook.enqueue",
+        "agent.hook.barrier",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

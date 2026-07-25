@@ -13,15 +13,40 @@ actor AgentHookDeliveryQueue {
     private enum AdmissionClass: Sendable {
         case lifecycle
         case bestEffortTool
+        case barrier
     }
 
-    nonisolated private let lifecycleAdmissionContinuation: AsyncStream<AgentHookDeliveryEvent>.Continuation
-    nonisolated private let toolAdmissionContinuation: AsyncStream<AgentHookDeliveryEvent>.Continuation
+    private enum PendingItem: Sendable {
+        case event(AgentHookDeliveryEvent)
+        case barrier(orderingKey: String, signal: DispatchSemaphore)
+
+        var orderingKey: String {
+            switch self {
+            case .event(let event):
+                return event.orderingKey
+            case .barrier(let orderingKey, _):
+                return orderingKey
+            }
+        }
+
+        var isBarrier: Bool {
+            if case .barrier = self { return true }
+            return false
+        }
+    }
+
+    nonisolated private let lifecycleAdmissionContinuation: AsyncStream<PendingItem>.Continuation
+    nonisolated private let toolAdmissionContinuation: AsyncStream<PendingItem>.Continuation
+    nonisolated private let barrierAdmissionContinuation: AsyncStream<PendingItem>.Continuation
     nonisolated private let admissionOrderContinuation: AsyncStream<AdmissionClass>.Continuation
+    // A synchronous hook can publish from any socket worker. This lock only
+    // keeps the item-stream yield adjacent to its order-token yield; actor-owned
+    // queue state remains isolated below.
+    nonisolated private let admissionPublicationLock = NSLock()
     private let capacityContinuation: AsyncStream<Void>.Continuation
     private let delivery: Delivery
     private let maximumConcurrentDeliveries: Int
-    private var pendingByOrderingKey: [String: [AgentHookDeliveryEvent]] = [:]
+    private var pendingByOrderingKey: [String: [PendingItem]] = [:]
     private var readyOrderingKeys: [String] = []
     private var activeOrderingKeys: Set<String> = []
 
@@ -31,34 +56,42 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    /// Builds a queue whose defaults retain at most sixteen compact validated
-    /// events: eight actor-resident events and eight events in synchronous ingress.
-    /// Ingress reserves one slot for best-effort Codex PostToolUse telemetry;
-    /// lifecycle, needs-input, and notification events use the remaining slots.
+    /// Builds a queue whose defaults retain at most twenty bounded items:
+    /// eight actor-resident items, eight event-ingress items, and four barriers.
+    /// Event ingress reserves one replaceable slot for high-volume tool and shell
+    /// telemetry; lifecycle, needs-input, and notification events use the rest.
     /// The event validator's payload and environment limits therefore also
     /// place a finite byte bound on the complete accepted backlog.
     init(
         maximumConcurrentDeliveries: Int = 4,
         maximumResidentEvents: Int = 8,
         maximumIngressEvents: Int = 8,
+        maximumBarrierIngressEvents: Int = 4,
         delivery: @escaping Delivery
     ) {
         precondition(maximumConcurrentDeliveries > 0)
         precondition(maximumResidentEvents >= maximumConcurrentDeliveries)
         precondition(maximumIngressEvents >= 2)
+        precondition(maximumBarrierIngressEvents > 0)
 
         let toolIngressCapacity = 1
         let lifecycleAdmissionPair = AsyncStream.makeStream(
-            of: AgentHookDeliveryEvent.self,
+            of: PendingItem.self,
             bufferingPolicy: .bufferingOldest(maximumIngressEvents - toolIngressCapacity)
         )
         let toolAdmissionPair = AsyncStream.makeStream(
-            of: AgentHookDeliveryEvent.self,
+            of: PendingItem.self,
             bufferingPolicy: .bufferingOldest(toolIngressCapacity)
+        )
+        let barrierAdmissionPair = AsyncStream.makeStream(
+            of: PendingItem.self,
+            bufferingPolicy: .bufferingOldest(maximumBarrierIngressEvents)
         )
         let admissionOrderPair = AsyncStream.makeStream(
             of: AdmissionClass.self,
-            bufferingPolicy: .bufferingOldest(maximumIngressEvents)
+            bufferingPolicy: .bufferingOldest(
+                maximumIngressEvents + maximumBarrierIngressEvents
+            )
         )
         let capacityPair = AsyncStream.makeStream(
             of: Void.self,
@@ -66,6 +99,7 @@ actor AgentHookDeliveryQueue {
         )
         lifecycleAdmissionContinuation = lifecycleAdmissionPair.continuation
         toolAdmissionContinuation = toolAdmissionPair.continuation
+        barrierAdmissionContinuation = barrierAdmissionPair.continuation
         admissionOrderContinuation = admissionOrderPair.continuation
         capacityContinuation = capacityPair.continuation
         self.delivery = delivery
@@ -80,24 +114,28 @@ actor AgentHookDeliveryQueue {
                 weak self,
                 lifecycleAdmissionStream = lifecycleAdmissionPair.stream,
                 toolAdmissionStream = toolAdmissionPair.stream,
+                barrierAdmissionStream = barrierAdmissionPair.stream,
                 admissionOrderStream = admissionOrderPair.stream,
                 capacityStream = capacityPair.stream,
             ] in
             var lifecycleAdmissionIterator = lifecycleAdmissionStream.makeAsyncIterator()
             var toolAdmissionIterator = toolAdmissionStream.makeAsyncIterator()
+            var barrierAdmissionIterator = barrierAdmissionStream.makeAsyncIterator()
             var admissionOrderIterator = admissionOrderStream.makeAsyncIterator()
             for await _ in capacityStream {
                 guard let admissionClass = await admissionOrderIterator.next() else { return }
-                let event: AgentHookDeliveryEvent?
+                let item: PendingItem?
                 switch admissionClass {
                 case .lifecycle:
-                    event = await lifecycleAdmissionIterator.next()
+                    item = await lifecycleAdmissionIterator.next()
                 case .bestEffortTool:
-                    event = await toolAdmissionIterator.next()
+                    item = await toolAdmissionIterator.next()
+                case .barrier:
+                    item = await barrierAdmissionIterator.next()
                 }
-                // Reserve actor capacity before removing an event from bounded ingress.
-                guard let event, let self else { return }
-                await self.accept(event)
+                // Reserve actor capacity before removing an item from bounded ingress.
+                guard let item, let self else { return }
+                await self.accept(item)
             }
         }
     }
@@ -105,6 +143,7 @@ actor AgentHookDeliveryQueue {
     deinit {
         lifecycleAdmissionContinuation.finish()
         toolAdmissionContinuation.finish()
+        barrierAdmissionContinuation.finish()
         admissionOrderContinuation.finish()
         capacityContinuation.finish()
     }
@@ -112,14 +151,48 @@ actor AgentHookDeliveryQueue {
     /// Synchronously transfers ownership to bounded ingress. The socket can
     /// acknowledge immediately after this returns true; false fails open.
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) -> Bool {
-        let admissionClass: AdmissionClass
-        let result: AsyncStream<AgentHookDeliveryEvent>.Continuation.YieldResult
-        if event.isBestEffortTelemetry {
-            admissionClass = .bestEffortTool
-            result = toolAdmissionContinuation.yield(event)
-        } else {
-            admissionClass = .lifecycle
-            result = lifecycleAdmissionContinuation.yield(event)
+        publish(
+            .event(event),
+            admissionClass: event.isBestEffortTelemetry ? .bestEffortTool : .lifecycle,
+            droppedDescription: "agent=\(event.agent) subcommand=\(event.subcommand)"
+        )
+    }
+
+    /// Waits until every earlier item in one delivery lane has completed.
+    /// The signal occupies bounded ingress/resident capacity but never a global
+    /// child-process delivery slot. A timeout leaves the eventual signal inert.
+    nonisolated func waitForPriorDeliveries(
+        orderingKey: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        guard timeout > 0, timeout.isFinite else { return false }
+        let signal = DispatchSemaphore(value: 0)
+        guard publish(
+            .barrier(orderingKey: orderingKey, signal: signal),
+            admissionClass: .barrier,
+            droppedDescription: "barrier"
+        ) else {
+            return false
+        }
+        return signal.wait(timeout: .now() + timeout) == .success
+    }
+
+    private nonisolated func publish(
+        _ item: PendingItem,
+        admissionClass: AdmissionClass,
+        droppedDescription: String
+    ) -> Bool {
+        admissionPublicationLock.lock()
+        defer { admissionPublicationLock.unlock() }
+
+        let result: AsyncStream<PendingItem>.Continuation.YieldResult
+        switch admissionClass {
+        case .lifecycle:
+            result = lifecycleAdmissionContinuation.yield(item)
+        case .bestEffortTool:
+            result = toolAdmissionContinuation.yield(item)
+        case .barrier:
+            result = barrierAdmissionContinuation.yield(item)
         }
         switch result {
         case .enqueued:
@@ -138,7 +211,7 @@ actor AgentHookDeliveryQueue {
             }
         case .dropped:
             agentHookDeliveryQueueLogger.error(
-                "Hook admission dropped agent=\(event.agent, privacy: .public) subcommand=\(event.subcommand, privacy: .public)"
+                "Hook admission dropped \(droppedDescription, privacy: .public)"
             )
             return false
         case .terminated:
@@ -148,9 +221,9 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    private func accept(_ event: AgentHookDeliveryEvent) {
-        let orderingKey = event.orderingKey
-        pendingByOrderingKey[orderingKey, default: []].append(event)
+    private func accept(_ item: PendingItem) {
+        let orderingKey = item.orderingKey
+        pendingByOrderingKey[orderingKey, default: []].append(item)
         if !activeOrderingKeys.contains(orderingKey), !readyOrderingKeys.contains(orderingKey) {
             readyOrderingKeys.append(orderingKey)
         }
@@ -158,16 +231,34 @@ actor AgentHookDeliveryQueue {
     }
 
     private func startReadyDeliveries() {
-        while activeOrderingKeys.count < maximumConcurrentDeliveries,
-              let orderingKey = readyOrderingKeys.first {
-            readyOrderingKeys.removeFirst()
-            guard let event = takeNextEvent(orderingKey: orderingKey) else { continue }
-            activeOrderingKeys.insert(orderingKey)
-            let delivery = self.delivery
-            Task { [weak self] in
-                await delivery(event)
-                await self?.deliveryFinished(orderingKey: orderingKey)
+        while let readyIndex = nextReadyOrderingKeyIndex() {
+            let orderingKey = readyOrderingKeys.remove(at: readyIndex)
+            guard let item = takeNextItem(orderingKey: orderingKey) else { continue }
+            switch item {
+            case .barrier(_, let signal):
+                signal.signal()
+                capacityContinuation.yield(())
+                if pendingByOrderingKey[orderingKey]?.isEmpty == false {
+                    readyOrderingKeys.append(orderingKey)
+                }
+            case .event(let event):
+                activeOrderingKeys.insert(orderingKey)
+                let delivery = self.delivery
+                Task { [weak self] in
+                    await delivery(event)
+                    await self?.deliveryFinished(orderingKey: orderingKey)
+                }
             }
+        }
+    }
+
+    private func nextReadyOrderingKeyIndex() -> Int? {
+        guard !readyOrderingKeys.isEmpty else { return nil }
+        if activeOrderingKeys.count < maximumConcurrentDeliveries {
+            return readyOrderingKeys.startIndex
+        }
+        return readyOrderingKeys.firstIndex { orderingKey in
+            pendingByOrderingKey[orderingKey]?.first?.isBarrier == true
         }
     }
 
@@ -181,17 +272,17 @@ actor AgentHookDeliveryQueue {
         startReadyDeliveries()
     }
 
-    private func takeNextEvent(orderingKey: String) -> AgentHookDeliveryEvent? {
+    private func takeNextItem(orderingKey: String) -> PendingItem? {
         guard var pending = pendingByOrderingKey[orderingKey], !pending.isEmpty else {
             pendingByOrderingKey.removeValue(forKey: orderingKey)
             return nil
         }
-        let event = pending.removeFirst()
+        let item = pending.removeFirst()
         if pending.isEmpty {
             pendingByOrderingKey.removeValue(forKey: orderingKey)
         } else {
             pendingByOrderingKey[orderingKey] = pending
         }
-        return event
+        return item
     }
 }

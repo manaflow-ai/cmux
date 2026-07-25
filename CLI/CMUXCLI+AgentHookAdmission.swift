@@ -3,10 +3,13 @@ import CMUXAgentLaunch
 
 extension CMUXCLI {
     static let agentHookAdmissionResponseTimeoutSeconds = 1
+    static let agentHookBarrierResponseTimeoutSeconds = 20
     static let agentHookDeclaredTimeoutSeconds = 3
     static let agentHookDeclaredTimeoutMilliseconds = agentHookDeclaredTimeoutSeconds * 1_000
     static let maximumRelayAgentHookPayloadBytes = 4 * 1_024
     static let maximumRelayAgentHookEncodedPayloadBytes = 8 * 1_024
+    static let relayClaudeForkSessionPayloadKey = "_cmux_claude_fork_session"
+    static let relayClaudeForkParentSessionIDPayloadKey = "_cmux_claude_fork_parent_session_id"
     private static let maximumAgentHookInputBytes = 1 * 1_024 * 1_024
 
     /// Builds a fail-open command that admits a non-decision hook to the app's
@@ -37,20 +40,15 @@ extension CMUXCLI {
         }
     }
 
-    /// Sends one immutable hook event to the app-owned queue, then returns the
-    /// agent's neutral response. Downstream CLI/socket work happens in the app.
-    func enqueueAgentHook(commandArgs: [String], client: SocketClient) throws {
-        guard commandArgs.count == 2 else {
-            throw CLIError(message: "Usage: cmux hooks enqueue <agent> <subcommand>")
-        }
-        let agent = commandArgs[0].lowercased()
-        let subcommand = commandArgs[1].lowercased()
-        let deliveryPolicy = AgentHookDeliveryPolicy()
-        guard deliveryPolicy.supportsQueuedDelivery(agent: agent, subcommand: subcommand) else {
-            throw CLIError(message: "Unsupported queued hook: \(agent) \(subcommand)")
-        }
-
-        let processEnvironment = ProcessInfo.processInfo.environment
+    /// Captures the identity shared by queued lifecycle events and direct
+    /// decision barriers. Remote-only TTY/PID evidence is resolved while the
+    /// CLI is still connected to the remote cmux; the relay alias-rewrites the
+    /// resulting workspace/surface ids before local admission.
+    func agentHookOrderingEnvironment(
+        agent: String,
+        client: SocketClient,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
         var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: processEnvironment,
             kind: agent
@@ -65,35 +63,70 @@ extension CMUXCLI {
            let inferredPID = inferredAgentPID() {
             environment[pidEnvironmentKey] = String(inferredPID)
         }
-        if client.isRelayBacked {
-            // Resolve remote-only process/TTY evidence while the CLI is still
-            // connected to the remote cmux. The relay rewrites these stable
-            // IDs to their local aliases; remote PIDs and paths are filtered
-            // from the eventual local delivery environment.
-            let remotePID = environment[pidEnvironmentKey].flatMap(Int.init)
-            if let binding = uniqueCallerTerminalBindingByTTY(client: client)
-                ?? resolveAgentProcessTerminalBinding(pid: remotePID, client: client) {
-                environment["CMUX_WORKSPACE_ID"] = binding.workspaceId
-                environment["CMUX_SURFACE_ID"] = binding.surfaceId
-            }
-            let relayEnvironmentKeys: Set<String> = [
-                "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
-                "CMUX_AGENT_MANAGED_SUBAGENT",
-                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
-                "CMUX_SURFACE_ID",
-                "CMUX_WORKSPACE_ID",
-                Self.agentHookPIDEnvironmentVariable(agentName: agent),
-            ]
-            environment = environment.filter { key, value in
-                guard relayEnvironmentKeys.contains(key), !value.contains("\0") else {
-                    return false
-                }
-                let maximumBytes = key == "CMUX_SURFACE_ID" || key == "CMUX_WORKSPACE_ID"
-                    ? 256
-                    : 32
-                return value.utf8.count <= maximumBytes
-            }
+        guard client.isRelayBacked else { return environment }
+
+        let remotePID = environment[pidEnvironmentKey].flatMap(Int.init)
+        if let binding = uniqueCallerTerminalBindingByTTY(client: client)
+            ?? resolveAgentProcessTerminalBinding(pid: remotePID, client: client) {
+            environment["CMUX_WORKSPACE_ID"] = binding.workspaceId
+            environment["CMUX_SURFACE_ID"] = binding.surfaceId
         }
+        let relayEnvironmentKeys: Set<String> = [
+            "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
+            "CMUX_AGENT_MANAGED_SUBAGENT",
+            "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
+            "CMUX_SURFACE_ID",
+            "CMUX_WORKSPACE_ID",
+            pidEnvironmentKey,
+        ]
+        return environment.filter { key, value in
+            guard relayEnvironmentKeys.contains(key), !value.contains("\0") else {
+                return false
+            }
+            let maximumBytes = key == "CMUX_SURFACE_ID" || key == "CMUX_WORKSPACE_ID"
+                ? 256
+                : 32
+            return value.utf8.count <= maximumBytes
+        }
+    }
+
+    /// Establishes the direct hook behind every earlier queued event in the
+    /// same socket/surface lane. The app performs the bounded wait; this CLI
+    /// retains its stdin and synchronous decision stdout/exit contract.
+    func waitForPriorAgentHookDeliveries(
+        agent: String,
+        client: SocketClient
+    ) throws {
+        let environment = agentHookOrderingEnvironment(agent: agent, client: client)
+        _ = try client.sendV2(
+            method: "agent.hook.barrier",
+            params: [
+                "agent": agent,
+                "environment": environment,
+            ],
+            responseTimeout: TimeInterval(Self.agentHookBarrierResponseTimeoutSeconds)
+        )
+    }
+
+    /// Sends one immutable hook event to the app-owned queue, then returns the
+    /// agent's neutral response. Downstream CLI/socket work happens in the app.
+    func enqueueAgentHook(commandArgs: [String], client: SocketClient) throws {
+        guard commandArgs.count == 2 else {
+            throw CLIError(message: "Usage: cmux hooks enqueue <agent> <subcommand>")
+        }
+        let agent = commandArgs[0].lowercased()
+        let subcommand = commandArgs[1].lowercased()
+        let deliveryPolicy = AgentHookDeliveryPolicy()
+        guard deliveryPolicy.supportsQueuedDelivery(agent: agent, subcommand: subcommand) else {
+            throw CLIError(message: "Unsupported queued hook: \(agent) \(subcommand)")
+        }
+
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let environment = agentHookOrderingEnvironment(
+            agent: agent,
+            client: client,
+            processEnvironment: processEnvironment
+        )
         let rawPayload = Self.readBoundedAgentHookInput() ?? "{}"
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
@@ -142,6 +175,28 @@ extension CMUXCLI {
         let parsed = parseClaudeHookInput(rawInput: rawPayload)
         guard var object = parsed.rawObject else { return rawPayload }
         var changed = false
+
+        if agent == "claude" {
+            if object.removeValue(forKey: Self.relayClaudeForkSessionPayloadKey) != nil {
+                changed = true
+            }
+            if object.removeValue(
+                forKey: Self.relayClaudeForkParentSessionIDPayloadKey
+            ) != nil {
+                changed = true
+            }
+            if let forkParentSessionID = relayClaudeForkParentSessionID(
+                processEnvironment: processEnvironment
+            ) {
+                object[Self.relayClaudeForkSessionPayloadKey] = true
+                object[Self.relayClaudeForkParentSessionIDPayloadKey] =
+                    compactQueuedAgentHookString(
+                        forkParentSessionID,
+                        maximumLength: 256
+                    )
+                changed = true
+            }
+        }
 
         if agent == "codex",
            subcommand == "stop",
@@ -200,6 +255,49 @@ extension CMUXCLI {
             return rawPayload
         }
         return payload
+    }
+
+    /// Extracts only portable fork intent from trusted launcher capture. Remote
+    /// executable paths and the rest of argv never cross the relay boundary.
+    private func relayClaudeForkParentSessionID(
+        processEnvironment: [String: String]
+    ) -> String? {
+        guard normalizedHookValue(
+            processEnvironment["CMUX_AGENT_LAUNCH_KIND"]
+        )?.lowercased() == "claude",
+        let encodedArguments = normalizedHookValue(
+            processEnvironment["CMUX_AGENT_LAUNCH_ARGV_B64"]
+        ),
+        let data = Data(base64Encoded: encodedArguments) else {
+            return nil
+        }
+        let arguments = data.split(
+            separator: 0,
+            omittingEmptySubsequences: false
+        ).compactMap { String(data: $0, encoding: .utf8) }
+        guard arguments.count > 1,
+              arguments.contains(where: { argument in
+                  if argument == "--fork-session" { return true }
+                  guard argument.hasPrefix("--fork-session=") else { return false }
+                  let value = argument
+                      .dropFirst("--fork-session=".count)
+                      .lowercased()
+                  return !["false", "0", "no", "off"].contains(value)
+              }) else {
+            return nil
+        }
+        for (index, argument) in arguments.enumerated() {
+            if argument == "--resume" || argument == "-r" {
+                guard index + 1 < arguments.count else { return nil }
+                return normalizedHookValue(arguments[index + 1])
+            }
+            if argument.hasPrefix("--resume=") {
+                return normalizedHookValue(
+                    String(argument.dropFirst("--resume=".count))
+                )
+            }
+        }
+        return nil
     }
 
     /// Reads only a finite admission envelope before any string materialization
@@ -316,10 +414,23 @@ extension CMUXCLI {
         ).map {
             compactQueuedAgentHookString($0, maximumLength: 80)
         }
-        for key in ["fullyIdle", "cmux_notification_routed"] {
+        for key in [
+            "fullyIdle",
+            "cmux_notification_routed",
+            Self.relayClaudeForkSessionPayloadKey,
+        ] {
             if let value = rawObject[key] as? Bool {
                 fallback[key] = value
             }
+        }
+        if let forkParentSessionID = rawObject[
+            Self.relayClaudeForkParentSessionIDPayloadKey
+        ] as? String {
+            fallback[Self.relayClaudeForkParentSessionIDPayloadKey] =
+                compactQueuedAgentHookString(
+                    forkParentSessionID,
+                    maximumLength: 256
+                )
         }
         if let toolName,
            let compactToolInput = parsed.object?["tool_input"] as? [String: Any],

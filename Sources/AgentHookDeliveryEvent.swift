@@ -30,14 +30,7 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     /// Events for one socket and surface retain lifecycle order. The agent PID
     /// is the fallback identity when no surface is available.
     var orderingKey: String {
-        if let surfaceID = environment["CMUX_SURFACE_ID"], !surfaceID.isEmpty {
-            return "\(socketPath)\0surface\0\(surfaceID)"
-        }
-        let pidKey = AgentHookDeliveryPolicy().pidEnvironmentVariable(agentName: agent)
-        if let processID = environment[pidKey], !processID.isEmpty {
-            return "\(socketPath)\0process\0\(agent)\0\(processID)"
-        }
-        return "\(socketPath)\0agent\0\(agent)"
+        Self.orderingKey(agent: agent, socketPath: socketPath, environment: environment)
     }
 
     var deliveryArguments: [String] {
@@ -53,6 +46,9 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     /// tool events that can surface Needs input remain protected with lifecycle
     /// transitions and notifications.
     var isBestEffortTelemetry: Bool {
+        if subcommand == "shell-exec" || subcommand == "shell-done" {
+            return true
+        }
         if agent == "codex", subcommand == "post-tool-use" {
             return true
         }
@@ -86,6 +82,43 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         self.socketPath = socketPath
         self.relayBacked = params["relay_backed"] as? Bool ?? false
         self.environment = environment
+    }
+
+    /// Resolves a direct hook's barrier onto the same lane as queued events.
+    static func orderingKey(
+        params: [String: Any],
+        deliverySocketPath: String
+    ) -> String? {
+        guard let agent = params["agent"] as? String,
+              !agent.isEmpty,
+              agent.utf8.count <= 128,
+              !agent.contains("\0"),
+              !deliverySocketPath.isEmpty,
+              deliverySocketPath.utf8.count <= 4_096,
+              !deliverySocketPath.contains("\0"),
+              let environment = validatedEnvironment(params["environment"], agent: agent) else {
+            return nil
+        }
+        return orderingKey(
+            agent: agent,
+            socketPath: deliverySocketPath,
+            environment: environment
+        )
+    }
+
+    private static func orderingKey(
+        agent: String,
+        socketPath: String,
+        environment: [String: String]
+    ) -> String {
+        if let surfaceID = environment["CMUX_SURFACE_ID"], !surfaceID.isEmpty {
+            return "\(socketPath)\0surface\0\(surfaceID)"
+        }
+        let pidKey = AgentHookDeliveryPolicy().pidEnvironmentVariable(agentName: agent)
+        if let processID = environment[pidKey], !processID.isEmpty {
+            return "\(socketPath)\0process\0\(agent)\0\(processID)"
+        }
+        return "\(socketPath)\0agent\0\(agent)"
     }
 
     private static func validatedEnvironment(_ rawValue: Any?, agent: String) -> [String: String]? {

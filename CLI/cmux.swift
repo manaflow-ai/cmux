@@ -23992,6 +23992,7 @@ struct CMUXCLI {
             // session is recorded once its own id appears on prompt-submit.
             // https://github.com/manaflow-ai/cmux/issues/5908
             let isForkSessionLaunch = isClaudeForkSessionLaunch(
+                payload: parsedInput.rawObject,
                 env: ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid
             )
@@ -24532,6 +24533,7 @@ struct CMUXCLI {
             if let reportedSessionId = parsedInput.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
                !reportedSessionId.isEmpty,
                let forkParentSessionId = claudeForkSessionParentId(
+                   payload: parsedInput.rawObject,
                    env: ProcessInfo.processInfo.environment,
                    fallbackPID: hookAgentPID
                ),
@@ -27562,7 +27564,14 @@ struct CMUXCLI {
     /// so hook state keyed by the reported id must not be rebound to the fork
     /// pane. Reads the raw launch argv — the sanitized launch-command record
     /// strips `--fork-session`. https://github.com/manaflow-ai/cmux/issues/5908
-    private func isClaudeForkSessionLaunch(env: [String: String], fallbackPID: Int?) -> Bool {
+    private func isClaudeForkSessionLaunch(
+        payload: [String: Any]?,
+        env: [String: String],
+        fallbackPID: Int?
+    ) -> Bool {
+        if env[agentHookRelayOriginEnvironmentKey] == "1" {
+            return payload?[Self.relayClaudeForkSessionPayloadKey] as? Bool == true
+        }
         guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
             return false
         }
@@ -27588,7 +27597,19 @@ struct CMUXCLI {
     /// and SessionEnd when the fork exits before its first prompt) describe a
     /// conversation another pane still owns and must not mutate or consume its
     /// record. https://github.com/manaflow-ai/cmux/issues/5908
-    private func claudeForkSessionParentId(env: [String: String], fallbackPID: Int?) -> String? {
+    private func claudeForkSessionParentId(
+        payload: [String: Any]?,
+        env: [String: String],
+        fallbackPID: Int?
+    ) -> String? {
+        if env[agentHookRelayOriginEnvironmentKey] == "1" {
+            guard payload?[Self.relayClaudeForkSessionPayloadKey] as? Bool == true else {
+                return nil
+            }
+            return normalizedHookValue(
+                payload?[Self.relayClaudeForkParentSessionIDPayloadKey] as? String
+            )
+        }
         guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID),
               claudeLaunchArgumentsContainForkSession(arguments) else {
             return nil
@@ -30149,6 +30170,12 @@ export default CMUXSessionRestore;
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
+
+        if def.name == "codex",
+           subcommand == "notification",
+           env["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] != "1" {
+            try waitForPriorAgentHookDeliveries(agent: def.name, client: client)
+        }
 
         if def.name == "codex", subcommand == "monitor" {
             try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
@@ -33980,6 +34007,16 @@ export default CMUXSessionRestore;
             ownedClient = feedClient
             activeClient = feedClient
         } else {
+            print("{}")
+            return
+        }
+
+        do {
+            try waitForPriorAgentHookDeliveries(
+                agent: source,
+                client: activeClient
+            )
+        } catch {
             print("{}")
             return
         }
