@@ -1283,6 +1283,127 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testLazyDestinationDockTransferUsesForeignRequestCoordinator() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let movedWorkspace = sourceManager.selectedWorkspace,
+              let unrelatedWorkspace =
+                destinationManager.selectedWorkspace,
+              let unrelatedPane =
+                unrelatedWorkspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected source and destination workspaces")
+            return
+        }
+        let sourceOtherWorkspace = sourceManager.addTab(select: false)
+        for panel in movedWorkspace.panels.values.compactMap({
+            $0 as? TerminalPanel
+        }) {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+
+        let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: sourceManager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        let destinationCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: destinationManager,
+                schedule: ManualWorkspaceFontSizeDrainScheduler()
+                    .schedule(delay:action:)
+            )
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+        }
+
+        sourceCoordinator.enqueue(
+            .relative([1]),
+            workspaceId: movedWorkspace.id,
+            deferFlush: true
+        )
+        guard let detachedWorkspace =
+                sourceManager.detachWorkspace(
+                    tabId: movedWorkspace.id
+                ) else {
+            XCTFail("Expected the source workspace to detach")
+            return
+        }
+        destinationManager.attachWorkspace(
+            detachedWorkspace,
+            select: true
+        )
+        destinationCoordinator.enqueue(
+            .relative([-1]),
+            workspaceId: movedWorkspace.id,
+            deferFlush: true
+        )
+        sourceCoordinator.enqueue(
+            .relative([1]),
+            workspaceId: sourceOtherWorkspace.id,
+            deferFlush: true
+        )
+
+        let destinationDock = destinationManager.makeWindowDockStore(
+            windowId: UUID()
+        )
+        destinationCoordinator.attachWindowDock(destinationDock)
+        defer { destinationDock.closeAllPanels() }
+        guard let dockPane =
+                destinationDock.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a destination Dock pane")
+            return
+        }
+        let transferringPanel = TerminalPanel(
+            workspaceId: destinationDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        transferringPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard destinationDock.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: transferringPanel,
+                sourceWorkspaceId: destinationDock.workspaceId
+            ),
+            inPane: dockPane,
+            focus: false
+        ) != nil,
+        let detachedPanel = destinationDock.detachSurface(
+            panelId: transferringPanel.id
+        ),
+        unrelatedWorkspace.attachDetachedSurface(
+            detachedPanel,
+            inPane: unrelatedPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a Dock terminal to transfer into another workspace")
+            return
+        }
+
+#if DEBUG
+        sourceCoordinator.debugDrainAll()
+        destinationCoordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        XCTAssertEqual(
+            transferringPanel.surface
+                .fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "A lazy Dock transfer must retain the request owned by a foreign coordinator"
+        )
+    }
+
     func testForwardedShortcutWaitsForDestinationDockOwner() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
@@ -2028,6 +2149,64 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             TerminalFontSizePolicy.minimumRuntimePoints,
             accuracy: 0.001,
             "Budgeted transfer work must preserve every request in order"
+        )
+    }
+
+    func testFailedTransferFontSizeActionRetriesBeforeRecordingProvenance() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelID) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                guard candidate === panel else { return true }
+                applyAttemptCount += 1
+                guard applyAttemptCount > 1 else { return false }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+
+        coordinator.terminalDidEnterWorkspace(
+            panel,
+            workspace: workspace
+        )
+        coordinator.terminalDidEnterWorkspace(
+            panel,
+            workspace: workspace
+        )
+
+        XCTAssertEqual(
+            applyAttemptCount,
+            2,
+            "A failed transfer action must remain eligible for reconciliation"
+        )
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19
         )
     }
 
