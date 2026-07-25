@@ -39,7 +39,6 @@ struct MobileSettingsView: View {
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
-    @Environment(ToastCenter.self) private var toasts
     #if DEBUG
     @State private var showingTerminalDemo = false
     @State private var showingToastGallery = false

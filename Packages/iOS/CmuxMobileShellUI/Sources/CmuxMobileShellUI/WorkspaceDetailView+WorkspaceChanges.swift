@@ -15,9 +15,7 @@ extension WorkspaceDetailView {
     /// Dirty terminal-title entry point. Chat and browser headers keep their
     /// existing labels and chrome unchanged.
     var workspaceTitleChangesChip: MobileWorkspaceChangesChip? {
-        let showsChatHeader = isChatMode
-            && chosenChatSession.map { chatConversationStores[$0.id] != nil } == true
-        guard !showsChatHeader,
+        guard !isAgentGUIVisible,
               activeBrowser == nil,
               workspaceChangesAreAvailable,
               let chip = workspaceChangesChip,
