@@ -206,6 +206,6 @@ extension SessionWindowSnapshot {
         tabManager.workspaces.isEmpty &&
             dock == nil &&
             !liveWorkspaces.isEmpty &&
-            liveWorkspaces.allSatisfy { $0.isRemoteTmuxMirror }
+            liveWorkspaces.allSatisfy(\.isRemoteTmuxMirror)
     }
 }

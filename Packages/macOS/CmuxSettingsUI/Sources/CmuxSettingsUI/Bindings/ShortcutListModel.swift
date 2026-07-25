@@ -17,6 +17,7 @@ final class ShortcutListModel {
     private(set) var chordModeActions: Set<String> = []
     private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
     private(set) var bareKeyRejections: Set<String> = []
+    private(set) var systemReservedRejections: Set<String> = []
     /// Per-action set marking a numbered action rejected for a non-`1…9` key.
     private(set) var numberedDigitRejections: Set<String> = []
     /// Per-action conflict target for the red validation banner.
@@ -117,38 +118,6 @@ final class ShortcutListModel {
         let eff = effective(for: action)
         let isUnbound = eff?.isUnbound ?? true
         return isUnbound && restoreShortcuts[action.rawValue] != nil
-    }
-
-    /// The red validation-banner text for `action` (bare-key, numbered-digit, or
-    /// conflict rejection), or `nil` when the row has no pending rejection.
-    func validationMessage(for action: ShortcutAction) -> String? {
-        let numberedDigitRejected = numberedDigitRejections.contains(action.rawValue)
-        let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
-        let conflict = conflictRejections[action.rawValue]
-        if numberedDigitRejected {
-            return String(
-                localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
-                defaultValue: "Use a digit from 1 through 9."
-            )
-        }
-        if bareKeyRejected {
-            return String(
-                localized: "shortcut.recorder.error.bareKeyNotAllowed",
-                defaultValue: "Shortcuts must include ⌘ ⌥ ⌃ or ⇧"
-            )
-        }
-        if let conflict {
-            let conflictEffective = effective(for: conflict)
-            let conflictShortcutString = conflictEffective.map {
-                format($0, numbered: conflict.usesNumberedDigitMatching)
-            } ?? ""
-            let messageFormat = String(
-                localized: "shortcut.recorder.error.conflictsWithAction",
-                defaultValue: "This shortcut conflicts with %@ (%@)."
-            )
-            return String.localizedStringWithFormat(messageFormat, conflict.displayName, conflictShortcutString)
-        }
-        return nil
     }
 
     // MARK: - Conflict helpers (moved verbatim from section)
@@ -255,16 +224,20 @@ final class ShortcutListModel {
     /// Dismisses all rejection banners for the action (the Undo button handler).
     func clearRejections(for action: ShortcutAction) {
         bareKeyRejections.remove(action.rawValue)
+        systemReservedRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
     }
 
     func markBareKeyRejected(_ action: ShortcutAction) {
+        clearRejections(for: action)
         bareKeyRejections.insert(action.rawValue)
-        numberedDigitRejections.remove(action.rawValue)
-        conflictRejections.removeValue(forKey: action.rawValue)
-        rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
+    }
+
+    private func markSystemReservedRejected(_ action: ShortcutAction) {
+        clearRejections(for: action)
+        systemReservedRejections.insert(action.rawValue)
     }
 
     /// The X/restore button handler: clears rejections then either restores a
@@ -273,10 +246,7 @@ final class ShortcutListModel {
     func clearOrRestore(for action: ShortcutAction) async {
         let eff = effective(for: action)
         let canRestoreAction = canRestore(for: action)
-        bareKeyRejections.remove(action.rawValue)
-        numberedDigitRejections.remove(action.rawValue)
-        conflictRejections.removeValue(forKey: action.rawValue)
-        rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
+        clearRejections(for: action)
         if canRestoreAction, let restore = restoreShortcuts[action.rawValue] {
             await restoreBinding(restore, for: action)
         } else if let eff, !eff.isUnbound {
@@ -297,10 +267,8 @@ final class ShortcutListModel {
         }
         if action.usesNumberedDigitMatching {
             guard isNumberedDigitKey(stroke.key) else {
+                clearRejections(for: action)
                 numberedDigitRejections.insert(action.rawValue)
-                bareKeyRejections.remove(action.rawValue)
-                conflictRejections.removeValue(forKey: action.rawValue)
-                rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
                 return
             }
             stroke = ShortcutStroke(
@@ -313,24 +281,24 @@ final class ShortcutListModel {
             )
         }
         let proposed = StoredShortcut(first: stroke)
+        if rejectsSystemDefinedMediaKey(proposed, for: action) {
+            markSystemReservedRejected(action)
+            return
+        }
         if let conflict = detectConflict(for: action, stroke: proposed) {
             // Mirror legacy `KeyboardShortcutSettings.Action.normalizedRecordedShortcutResult`:
             // never write a conflicting binding. Surface the rejection
             // through `conflictRejections` so the banner + Undo button
             // can drive the user back to a usable state.
+            clearRejections(for: action)
             conflictRejections[action.rawValue] = conflict
             rejectedConflictShortcuts[action.rawValue] = proposed
-            bareKeyRejections.remove(action.rawValue)
-            numberedDigitRejections.remove(action.rawValue)
             return
         }
         var updated = latestBindings
         updated[action.rawValue] = proposed
         restoreShortcuts.removeValue(forKey: action.rawValue)
-        bareKeyRejections.remove(action.rawValue)
-        numberedDigitRejections.remove(action.rawValue)
-        conflictRejections.removeValue(forKey: action.rawValue)
-        rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
+        clearRejections(for: action)
         await write(updated, clearingLegacyFor: action)
     }
 
@@ -349,29 +317,28 @@ final class ShortcutListModel {
             return
         }
         guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
+            clearRejections(for: action)
             numberedDigitRejections.insert(action.rawValue)
             chordModeActions.remove(action.rawValue)
-            bareKeyRejections.remove(action.rawValue)
-            conflictRejections.removeValue(forKey: action.rawValue)
-            rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
+            return
+        }
+        if rejectsSystemDefinedMediaKey(proposed, for: action) {
+            markSystemReservedRejected(action)
+            chordModeActions.remove(action.rawValue)
             return
         }
         if let conflict = detectConflict(for: action, stroke: proposed) {
+            clearRejections(for: action)
             conflictRejections[action.rawValue] = conflict
             rejectedConflictShortcuts[action.rawValue] = proposed
             chordModeActions.remove(action.rawValue)
-            bareKeyRejections.remove(action.rawValue)
-            numberedDigitRejections.remove(action.rawValue)
             return
         }
         var updated = latestBindings
         updated[action.rawValue] = proposed
         chordModeActions.remove(action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
-        bareKeyRejections.remove(action.rawValue)
-        numberedDigitRejections.remove(action.rawValue)
-        conflictRejections.removeValue(forKey: action.rawValue)
-        rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
+        clearRejections(for: action)
         await write(updated, clearingLegacyFor: action)
     }
 
@@ -387,10 +354,7 @@ final class ShortcutListModel {
         var updated = latestBindings
         updated[action.rawValue] = shortcut
         restoreShortcuts.removeValue(forKey: action.rawValue)
-        bareKeyRejections.remove(action.rawValue)
-        numberedDigitRejections.remove(action.rawValue)
-        conflictRejections.removeValue(forKey: action.rawValue)
-        rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
+        clearRejections(for: action)
         await write(updated, clearingLegacyFor: action)
     }
 
@@ -399,6 +363,7 @@ final class ShortcutListModel {
     func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
+        systemReservedRejections.removeAll()
         numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         rejectedConflictShortcuts.removeAll()
