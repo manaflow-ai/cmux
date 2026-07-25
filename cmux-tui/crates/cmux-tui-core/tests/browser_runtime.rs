@@ -506,6 +506,21 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         }),
     );
     assert_eq!(stale_mouse["ok"], true);
+    let stale_release = rpc(
+        &socket_path,
+        json!({
+            "id": 103,
+            "cmd": "browser-mouse",
+            "surface": surface,
+            "kind": "up",
+            "x_px": 1.0,
+            "y_px": 1.0,
+            "button": "left",
+            "click_count": 1,
+            "frame_seq": 1
+        }),
+    );
+    assert_eq!(stale_release["ok"], true);
     let mouse = rpc(
         &socket_path,
         json!({

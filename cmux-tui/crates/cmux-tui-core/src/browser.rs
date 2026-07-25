@@ -3305,6 +3305,50 @@ mod tests {
     }
 
     #[test]
+    fn failed_navigation_dispatch_restores_the_presented_frame_admission() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let navigate = read_ws_json(&mut ws);
+            assert_eq!(navigate["method"], "Page.navigate");
+            write_ws_json(
+                &mut ws,
+                json!({"id": navigate["id"], "error": {"message": "injected failure"}}),
+            );
+            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
+
+        assert!(browser.navigate_blocking("https://next.test").is_err());
+
+        let restored = browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some();
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+        assert!(restored, "a rejected navigation must leave the still-presented frame interactive");
+    }
+
+    #[test]
     fn frames_stalled_requires_live_surface_over_threshold() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");

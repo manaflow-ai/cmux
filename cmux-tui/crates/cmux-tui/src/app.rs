@@ -12753,6 +12753,7 @@ mod tests {
         pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
         preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
         sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        thumb_geometry,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -14659,6 +14660,37 @@ mod tests {
     }
 
     #[test]
+    fn browser_graphics_presentation_does_not_block_terminal_pointer_input() {
+        let (mux, surface) = test_mux("graphics-terminal-pointer-scope-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert!(
+            app.deferred_input.is_empty(),
+            "an unrelated terminal click must not wait for a browser bitmap"
+        );
+        assert!(matches!(app.drag, Some(Drag::Select { .. })));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn browser_click_requires_a_presented_frame() {
         let mux = Mux::new("browser-presented-frame-test", SurfaceOptions::default());
         let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
@@ -15040,6 +15072,53 @@ mod tests {
             "a click rendered on the old thumb must not become a live track jump"
         );
         assert!(app.drag.is_none());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn active_scrollbar_drag_rebases_after_terminal_output_changes_geometry() {
+        let (mux, surface) = test_mux("scrollbar-drag-rebase-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let (track, scrollbar) = app
+            .hits
+            .iter()
+            .find_map(|(_, hit)| match hit {
+                super::Hit::Scrollbar { surface: id, track, scrollbar } if *id == surface.id => {
+                    Some((*track, *scrollbar))
+                }
+                _ => None,
+            })
+            .expect("rendered scrollbar");
+        let (thumb_y, thumb_len) = thumb_geometry(&scrollbar, track.height);
+        let pointer_y = track.y + thumb_y + thumb_len.saturating_sub(1) / 2;
+        app.start_scrollbar_drag(surface.id, track, scrollbar, pointer_y);
+        assert!(matches!(app.drag, Some(Drag::Scrollbar { .. })));
+
+        surface.with_terminal(|terminal| {
+            for index in 100..200 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.handle_left_drag(track.x, pointer_y).unwrap();
+
+        assert!(
+            matches!(app.drag, Some(Drag::Scrollbar { .. })),
+            "terminal output must rebase the active drag instead of releasing capture"
+        );
         mux.close_surface(surface.id).unwrap();
     }
 
