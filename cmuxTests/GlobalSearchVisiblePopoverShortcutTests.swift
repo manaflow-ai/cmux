@@ -242,6 +242,44 @@ final class GlobalSearchVisiblePopoverShortcutTests {
         )
     }
 
+    @Test func visibleGlobalSearchQueryOwnsBareSpaceShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeHarness(appDelegate: appDelegate)
+        defer { closeHarness(harness, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "space",
+                command: false,
+                shift: false,
+                option: false,
+                control: false
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        let event = try makeKeyDownEvent(
+            key: " ",
+            modifiers: [],
+            keyCode: 49,
+            windowNumber: harness.auxiliaryWindow.windowNumber
+        )
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: event),
+            "The visible Search query must own an unmodified Space"
+        )
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "Typing a space in the Search query must not close Global Search"
+        )
+#else
+        Issue.record("Global Search visible-popover routing requires a DEBUG build")
+#endif
+    }
+
     @Test func markedTextOwnsInputWhileGlobalSearchIsVisible() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
