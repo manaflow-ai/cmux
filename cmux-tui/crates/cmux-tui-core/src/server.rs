@@ -5110,6 +5110,59 @@ mod tests {
     }
 
     #[test]
+    fn render_graphics_message_borrows_the_shared_base64_payload() {
+        let service = RenderService::new();
+        let pixels: Arc<[u8]> = Arc::from([1_u8, 2, 3, 4, 5, 6]);
+        let encoded = service.encode_graphic(&pixels);
+        let graphics = ghostty_vt::KittyGraphicsSnapshot {
+            generation: 1,
+            images: vec![ghostty_vt::KittyImage {
+                id: 1,
+                number: 0,
+                generation: 1,
+                width: 2,
+                height: 1,
+                format: ghostty_vt::KittyImageFormat::Rgb,
+                data: pixels,
+            }],
+            placements: Vec::new(),
+        };
+
+        let message = render_graphics_message(&service, &graphics, None, &[], true);
+        let data = &message.images.as_ref().unwrap()[0].data;
+
+        assert!(
+            Arc::ptr_eq(data, &encoded),
+            "render message copied the cached base64 payload before serialization"
+        );
+    }
+
+    #[test]
+    fn outbound_memory_budget_is_shared_across_connections() {
+        let service = Arc::new(RenderService::new_with_outbound_budget(512));
+        let first_outbound = Arc::new(BoundedOutbound::default());
+        let second_outbound = Arc::new(BoundedOutbound::default());
+        let first = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: first_outbound.clone(), control: None },
+            service.clone(),
+        );
+        let second = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: second_outbound.clone(), control: None },
+            service,
+        );
+        let first_stream = first.start_stream(&attach_overflow_json(1)).unwrap();
+        let second_stream = second.start_stream(&attach_overflow_json(2)).unwrap();
+        let message = json!({"event": "render-state", "data": "x".repeat(300)});
+
+        first.send_initial(&message, &first_stream).unwrap();
+        let error = second.send_initial(&message, &second_stream).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+
+        drop(first_outbound.try_pop().expect("first queued message"));
+        second.send_initial(&message, &second_stream).unwrap();
+    }
+
+    #[test]
     fn render_service_shares_cache_across_connections_and_releases_it_with_its_owner() {
         let service = Arc::new(RenderService::new());
         let weak = Arc::downgrade(&service);

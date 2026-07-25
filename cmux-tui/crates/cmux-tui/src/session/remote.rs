@@ -2491,6 +2491,62 @@ mod tests {
         peer.join().unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn unrelated_remote_traffic_does_not_extend_attach_idle_deadline() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "attach-surface");
+            let traffic_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT * 8;
+            while Instant::now() < traffic_deadline {
+                if writeln!(peer.get_mut(), "{}", json!({"event": "tree-changed"})).is_err() {
+                    break;
+                }
+                std::thread::sleep(REMOTE_ATTACH_IDLE_TIMEOUT / 4);
+            }
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+
+        let started = Instant::now();
+        let error = session
+            .try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
+            .err()
+            .expect("missing attach response must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < REMOTE_ATTACH_IDLE_TIMEOUT * 3,
+            "unrelated traffic extended the attach idle deadline to {:?}",
+            started.elapsed()
+        );
+        peer.join().unwrap();
+    }
+
     #[test]
     fn timed_out_attach_closes_transport_and_removes_local_mirror() {
         let closed = Arc::new(AtomicBool::new(false));

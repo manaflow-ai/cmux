@@ -1108,6 +1108,26 @@ mod tests {
     }
 
     #[test]
+    fn forced_empty_terminal_rebind_releases_cached_pixels() {
+        let mut populated = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
+        populated.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
+        let mut pixel_cache = HashMap::new();
+        let graphics = snapshot_for_render(&populated, &mut pixel_cache, true)
+            .unwrap()
+            .expect("populated terminal snapshot");
+        assert_eq!(graphics.images.len(), 1);
+        assert_eq!(pixel_cache.len(), 1);
+
+        let empty = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
+        let rebound = snapshot_for_render(&empty, &mut pixel_cache, true)
+            .unwrap()
+            .expect("forced empty terminal snapshot");
+
+        assert!(rebound.is_empty());
+        assert!(pixel_cache.is_empty(), "rebound render state retained stale image pixels");
+    }
+
+    #[test]
     fn png_header_rejects_dimensions_above_the_decode_bound() {
         let mut header = Vec::from(*PNG_SIGNATURE);
         header.extend_from_slice(&13_u32.to_be_bytes());

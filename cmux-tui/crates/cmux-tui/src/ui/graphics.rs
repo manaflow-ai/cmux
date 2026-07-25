@@ -1152,6 +1152,45 @@ mod tests {
     }
 
     #[test]
+    fn descending_image_insertion_keeps_existing_ids_and_linear_transmission() {
+        const IMAGE_COUNT: u32 = 256;
+        let mut state = GraphicsState::default();
+        let mut placements = Vec::new();
+        let mut transmissions = 0;
+        let mut deletions = 0;
+
+        for image_id in (1..=IMAGE_COUNT).rev() {
+            placements.push(placement(
+                image(22, image_id, 1, GraphicFormat::Rgb, &[255; 12]),
+                image_id,
+                0,
+                Rect {
+                    x: u16::try_from(image_id % 80).unwrap(),
+                    y: u16::try_from(image_id / 80).unwrap(),
+                    width: 1,
+                    height: 1,
+                },
+            ));
+            let output = joined(&state.frame_batches(&placements));
+            transmissions += output.matches("a=t,t=d").count();
+            deletions += output.matches("a=d,d=I").count();
+        }
+
+        assert_eq!(
+            transmissions, IMAGE_COUNT as usize,
+            "inserting one lower image retransmitted existing pixel payloads"
+        );
+        assert_eq!(deletions, 0, "stable image IDs must not delete existing host images");
+        let mut ordered = state.image_ids.iter().collect::<Vec<_>>();
+        ordered.sort_unstable_by_key(|(key, _)| **key);
+        assert!(
+            ordered.windows(2).all(|pair| pair[0].1 < pair[1].1),
+            "outer image IDs must preserve inner image ordering: {:?}",
+            state.image_ids
+        );
+    }
+
+    #[test]
     fn reconnect_namespace_prevents_surface_and_generation_reuse_from_aliasing() {
         let rect = Rect { x: 0, y: 0, width: 2, height: 2 };
         let first = GraphicPlacement::browser(10, 7, rect, 1, 20, 20, "AAAA".to_string());

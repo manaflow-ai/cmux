@@ -3668,6 +3668,38 @@ mod tests {
         assert!(lifecycle.overflowed());
     }
 
+    #[test]
+    fn resized_replay_payload_is_shared_across_attach_taps() {
+        let mux = Mux::new("shared-resize-replay", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let first = surface.attach_stream().unwrap();
+        let second = surface.attach_stream().unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+            cols: 80,
+            rows: 24,
+            replay: vec![7; 1024].into(),
+            kitty_image_aliases: Vec::new(),
+            colors: Box::new(TerminalColors::default()),
+        });
+
+        let first_replay = match first.stream.recv_timeout(Duration::from_secs(1)).unwrap() {
+            AttachFrame::ResizedWithColors { replay, .. } => replay,
+            frame => panic!("unexpected first attach frame: {frame:?}"),
+        };
+        let second_replay = match second.stream.recv_timeout(Duration::from_secs(1)).unwrap() {
+            AttachFrame::ResizedWithColors { replay, .. } => replay,
+            frame => panic!("unexpected second attach frame: {frame:?}"),
+        };
+        assert_eq!(
+            first_replay.as_ptr(),
+            second_replay.as_ptr(),
+            "resize replay bytes were deep-cloned for each attach subscriber"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn hosted_stager_exposes_coupled_state_only_after_colors() {
