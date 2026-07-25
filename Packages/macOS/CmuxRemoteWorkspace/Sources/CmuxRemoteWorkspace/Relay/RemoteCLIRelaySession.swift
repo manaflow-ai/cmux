@@ -16,6 +16,11 @@ extension RemoteCLIRelayServer {
     /// `@unchecked Sendable` because `@Sendable` Network/Task callbacks
     /// capture `self`; queue confinement is the safety argument.
     final class Session: @unchecked Sendable {
+        /// Longer than the CLI's 20-second `agent.hook.barrier` response
+        /// budget so remote decision hooks can observe completion of a
+        /// preceding bounded lifecycle delivery.
+        static let localSocketRoundTripTimeoutSeconds = 25
+
         private enum Phase {
             case awaitingAuth
             case awaitingCommand
@@ -294,7 +299,10 @@ extension RemoteCLIRelayServer {
             }
             defer { Darwin.close(fd) }
 
-            var timeout = timeval(tv_sec: 15, tv_usec: 0)
+            var timeout = timeval(
+                tv_sec: localSocketRoundTripTimeoutSeconds,
+                tv_usec: 0
+            )
             withUnsafePointer(to: &timeout) { pointer in
                 _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
                 _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
