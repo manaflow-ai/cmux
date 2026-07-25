@@ -170,7 +170,7 @@ final class GlobalSearchShortcutPriorityTests {
             contentView.addSubview(presentationView)
             webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         }
-        #expect(harness.window.makeFirstResponder(webView))
+        #expect(harness.panel.requestExplicitWebViewFocus())
         #expect(harness.window.firstResponder === webView)
 
         KeyboardShortcutSettings.setShortcut(
