@@ -29259,13 +29259,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+            "value": "Multiple cmux browser profiles match '%@': %@. Use a profile UUID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります。代わりにプロファイル ID を使用してください。"
+            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります: %@。プロファイル UUID を使用してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.browserDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles cannot be used while the cmux browser is disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザーが無効な間はブラウザープロファイルを使用できません"
           }
         }
       }
@@ -29304,6 +29321,23 @@
         }
       }
     },
+    "browser.profile.automation.error.invalidProfileSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile must be a non-empty name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルには空でない名前または UUID を指定してください"
+          }
+        }
+      }
+    },
     "browser.profile.automation.error.missingName": {
       "extractionState": "manual",
       "localizations": {
@@ -29334,6 +29368,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブラウザープロファイルがありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.multipleProfileSelectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specify only one browser profile selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルセレクターは 1 つだけ指定してください"
           }
         }
       }
@@ -29412,13 +29463,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No cmux browser profile matches '%@'"
+            "value": "No cmux browser profile matches '%@'. Run 'cmux browser profiles' to list available profiles."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません。使用可能なプロファイルを表示するには 'cmux browser profiles' を実行してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileRequiresBrowserPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles can only be used when creating a browser pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルはブラウザーペインの作成時にのみ使用できます"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileUnavailableInRemoteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles cannot be selected when creating a browser pane in a remote workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートワークスペースでブラウザーペインを作成する場合、ブラウザープロファイルは選択できません"
           }
         }
       }
@@ -32611,6 +32696,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "viewport <width> <height> | reset"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.error.emptySelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile requires a non-empty profile name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile には空でないプロファイル名または UUID が必要です"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.error.navigateUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile is only supported when browser open creates a new pane; omit the surface selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile は browser open が新しいペインを作成する場合にのみ使用できます。サーフェスセレクターを省略してください"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <名前|UUID>]"
+          }
+        }
+      }
+    },
+    "cli.browser.profiles.marker.lastUsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "last used"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回使用"
           }
         }
       }
@@ -43258,6 +43411,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "使い方: cmux mobile set-font <ポイント数> [--surface <id>] [--workspace <id>]"
+          }
+        }
+      }
+    },
+    "cli.newPane.help.profileDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>                Browser profile name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <名前|UUID>                 ブラウザープロファイル名または UUID"
           }
         }
       }
@@ -126923,6 +127093,176 @@
         }
       }
     },
+    "mobile.workspaceChanges.error.invalidContentRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace, path, or revision is missing or invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース、パス、またはリビジョンの指定が無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスが指定されていないか、無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace identifier is missing or invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの識別子が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidWorkspaceIDs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A selected workspace identifier is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したワークスペースの識別子が無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.notRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace directory is not a Git repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのディレクトリはGitリポジトリではありません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.pathNotChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path is not in the workspace changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスはワークスペースの変更に含まれていません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.pathOutsideRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path must stay inside the repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスはリポジトリ内に収まっている必要があります"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read workspace diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの差分を読み込めませんでした"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.workspaceIDsCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Between 1 and 64 workspaces can be requested at once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度にリクエストできるワークスペースは1〜64件です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace or effective directory not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースまたは有効なディレクトリが見つかりません"
+          }
+        }
+      }
+    },
     "mobile.pairing.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -127831,13 +128171,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."
+            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone の cmux アプリでこのコードをスキャンして、ターミナルワークスペースを同期します。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
           }
         }
       }
@@ -166242,13 +166582,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a QR code to pair your iPhone or iPad with this Mac."
+            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR コードを表示して、iPhone または iPad をこの Mac とペアリングします。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
           }
         }
       }
@@ -211177,7 +211517,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing or invalid workspace_id"
+            "value": "The workspace identifier is missing or invalid"
           }
         },
         "ja": {
@@ -211330,7 +211670,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing or invalid workspace_id"
+            "value": "The workspace identifier is missing or invalid"
           }
         },
         "ja": {
@@ -215878,6 +216218,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "なし"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.pending.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume approval data is still loading. Retry the request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元の承認データを読み込み中です。リクエストを再試行してください。"
           }
         }
       }
