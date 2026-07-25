@@ -218636,6 +218636,74 @@
         }
       }
     },
+    "terminal.clipboardAccess.read.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program in this terminal wants to read these clipboard contents."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナル内のプログラムが、これらのクリップボードの内容を読み取ろうとしています。"
+          }
+        }
+      }
+    },
+    "terminal.clipboardAccess.read.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Clipboard Read?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードの読み取りを許可しますか？"
+          }
+        }
+      }
+    },
+    "terminal.clipboardAccess.write.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program in this terminal wants to replace your clipboard with these contents."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナル内のプログラムが、クリップボードをこれらの内容に置き換えようとしています。"
+          }
+        }
+      }
+    },
+    "terminal.clipboardAccess.write.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Clipboard Change?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードの変更を許可しますか？"
+          }
+        }
+      }
+    },
     "terminal.notification.action.show": {
       "extractionState": "manual",
       "localizations": {
