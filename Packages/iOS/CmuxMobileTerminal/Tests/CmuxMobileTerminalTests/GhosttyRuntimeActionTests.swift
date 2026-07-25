@@ -89,6 +89,24 @@ struct GhosttyRuntimeActionTests {
         }
         #expect(replacementView.renderWakeupRequestCount == replacementWakeups)
     }
+
+    @MainActor
+    @Test("a detached callback bridge does not own the terminal view")
+    func detachedCallbackBridgeDoesNotOwnTerminalView() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let delegate = RendererContinuationTestDelegate()
+        var view: GhosttySurfaceView? = GhosttySurfaceView(runtime: runtime, delegate: delegate)
+        _ = try #require(view?.surface)
+        let bridge = try #require(view?.bridge)
+
+        weak let releasedView = view
+        bridge.detach()
+        view = nil
+
+        #expect(releasedView == nil)
+        releasedView?.prepareForDismantle()
+        withExtendedLifetime(bridge) {}
+    }
 }
 
 @MainActor
