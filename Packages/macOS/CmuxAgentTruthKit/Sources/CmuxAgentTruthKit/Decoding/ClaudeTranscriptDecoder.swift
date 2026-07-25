@@ -12,12 +12,14 @@ import Foundation
 public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
     private let lineDecoder: JSONLineDecoder
     private let textBudget: TranscriptTextBudget
+    private let previewAttachments: TranscriptToolPreviewAttachmentExtractor
     private var pendingTools: [String: PendingToolUse]
 
     /// Creates a Claude transcript decoder.
     public init() {
         self.lineDecoder = JSONLineDecoder()
         self.textBudget = TranscriptTextBudget()
+        self.previewAttachments = TranscriptToolPreviewAttachmentExtractor()
         self.pendingTools = [:]
     }
 
@@ -395,7 +397,12 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
                 toolCallID: toolCallID,
                 inputDetail: detail,
                 command: textBudget.inputDetail(commandSummary(in: input)),
-                status: "running"
+                status: "running",
+                previewAttachments: previewAttachments.previewAttachments(
+                    toolName: name,
+                    input: input,
+                    authorRole: "agent"
+                )
             ))
         default:
             .toolRun(ToolRunPayload(
@@ -405,7 +412,12 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
                 isRunning: true,
                 toolCallID: toolCallID,
                 inputDetail: detail,
-                status: "running"
+                status: "running",
+                previewAttachments: previewAttachments.previewAttachments(
+                    toolName: name,
+                    input: input,
+                    authorRole: "agent"
+                )
             ))
         }
     }
@@ -509,7 +521,8 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
                 command: tool.command,
                 output: boundedResult,
                 durationSeconds: durationSeconds,
-                status: status
+                status: status,
+                previewAttachments: tool.previewAttachments
             ))
         case .fileChange(let file):
             .fileChange(FileChangePayload(

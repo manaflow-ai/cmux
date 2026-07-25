@@ -101,6 +101,45 @@ import Testing
         #expect(payload.height == 900)
     }
 
+    @Test func toolRunPayloadPreservesPreviewAttachmentMetadataAndDecodesLegacyPayloads() throws {
+        let payload = EntryPayload.toolRun(ToolRunPayload(
+            toolName: "view_image",
+            argumentSummary: "/tmp/preview.png",
+            isTerminal: false,
+            isRunning: true,
+            previewAttachments: [
+                AttachmentPayload(
+                    kind: "image",
+                    summary: "preview.png",
+                    displayName: "preview.png",
+                    hostPath: "/tmp/preview.png",
+                    mimeType: "image/png",
+                    byteCount: 68,
+                    width: 1,
+                    height: 1,
+                    authorRole: "agent"
+                ),
+            ]
+        ))
+        let decoded = try JSONDecoder().decode(EntryPayload.self, from: try JSONEncoder().encode(payload))
+
+        guard case .toolRun(let tool) = decoded else {
+            Issue.record("Expected tool run payload")
+            return
+        }
+        #expect(tool.previewAttachments?.count == 1)
+        #expect(tool.previewAttachments?.first?.hostPath == "/tmp/preview.png")
+        #expect(tool.previewAttachments?.first?.width == 1)
+        #expect(tool.previewAttachments?.first?.height == 1)
+
+        let legacy = Data(#"{"kind":"toolRun","tool_name":"Read","argument_summary":"file","is_terminal":false,"is_running":false}"#.utf8)
+        guard case .toolRun(let legacyTool) = try JSONDecoder().decode(EntryPayload.self, from: legacy) else {
+            Issue.record("Expected legacy tool run payload")
+            return
+        }
+        #expect(legacyTool.previewAttachments == nil)
+    }
+
     @Test func unknownSentinelRoundTripsWithoutRawJSONDrift() throws {
         let payload = EntryPayload.unknown(UnknownPayload(
             rawKind: "unknown",

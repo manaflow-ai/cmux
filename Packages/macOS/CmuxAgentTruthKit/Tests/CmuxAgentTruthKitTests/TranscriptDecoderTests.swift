@@ -378,6 +378,34 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexViewImageToolCarriesPreviewMetadataThroughCompletion() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-view-image-\(UUID().uuidString).png")
+        try Self.png1x1Data.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let callLine = #"{"type":"response_item","payload":{"type":"function_call","name":"view_image","call_id":"call_image","arguments":"{\"path\":\"\#(imageURL.path)\"}"}}"#
+        let resultLine = #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_image","output":"loaded preview"}}"#
+        var decoder = CodexTranscriptDecoder()
+
+        let call = decoder.feed([callLine], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+        let result = decoder.feed([resultLine], startingAt: 1, journalID: JournalID(rawValue: "journal"))
+
+        let running = try #require(toolRunPayload(in: call, seq: 0))
+        let completed = try #require(toolRunPayload(in: result, seq: 1))
+        #expect(running.previewAttachments?.count == 1)
+        #expect(completed.previewAttachments?.count == 1)
+        let attachment = try #require(completed.previewAttachments?.first)
+        #expect(attachment.kind == "image")
+        #expect(attachment.hostPath == imageURL.path)
+        #expect(attachment.displayName == imageURL.lastPathComponent)
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
+        #expect(attachment.authorRole == "agent")
+    }
+
+    @Test
     func claudeAttachmentRecordDerivesImageDimensionsFromFileHeader() throws {
         let imageURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-attachment-\(UUID().uuidString).png")
@@ -431,6 +459,34 @@ struct TranscriptDecoderTests {
         let attachment = try #require(attachmentPayload(in: batch, seq: 1))
         #expect(attachment.hostPath == imageURL.path)
         #expect(attachment.displayName == "Claude Preview")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
+        #expect(attachment.authorRole == "agent")
+    }
+
+    @Test
+    func claudeViewImageToolCarriesPreviewMetadataThroughCompletion() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-view-image-\(UUID().uuidString).png")
+        try Self.png1x1Data.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let callLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool_image","name":"view_image","input":{"path":"\#(imageURL.path)"}}]}}"#
+        let resultLine = #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_image","content":"loaded preview","is_error":false}]}}"#
+        var decoder = ClaudeTranscriptDecoder()
+
+        let call = decoder.feed([callLine], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+        let result = decoder.feed([resultLine], startingAt: 10, journalID: JournalID(rawValue: "journal"))
+
+        let running = try #require(toolRunPayload(in: call, seq: 0))
+        let completed = try #require(toolRunPayload(in: result, seq: 10))
+        #expect(running.previewAttachments?.count == 1)
+        #expect(completed.previewAttachments?.count == 1)
+        let attachment = try #require(completed.previewAttachments?.first)
+        #expect(attachment.kind == "image")
+        #expect(attachment.hostPath == imageURL.path)
+        #expect(attachment.displayName == imageURL.lastPathComponent)
         #expect(attachment.mimeType == "image/png")
         #expect(attachment.width == 1)
         #expect(attachment.height == 1)

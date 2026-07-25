@@ -5,6 +5,7 @@ import Foundation
 public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     private let lineDecoder: JSONLineDecoder
     private let textBudget: TranscriptTextBudget
+    private let previewAttachments: TranscriptToolPreviewAttachmentExtractor
     private var pendingCalls: [String: PendingToolUse]
     private var seenQuestionCallIDs: Set<String>
     private var sawCompactedRecord: Bool
@@ -13,6 +14,7 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     public init() {
         self.lineDecoder = JSONLineDecoder()
         self.textBudget = TranscriptTextBudget()
+        self.previewAttachments = TranscriptToolPreviewAttachmentExtractor()
         self.pendingCalls = [:]
         self.seenQuestionCallIDs = []
         self.sawCompactedRecord = false
@@ -268,7 +270,12 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
                 toolCallID: callID,
                 inputDetail: textBudget.inputDetail(rendered(argumentValue)),
                 command: terminal ? textBudget.inputDetail(command(in: argumentValue)) : nil,
-                status: payload["status"]?.string ?? "running"
+                status: payload["status"]?.string ?? "running",
+                previewAttachments: previewAttachments.previewAttachments(
+                    toolName: name,
+                    input: argumentValue,
+                    authorRole: "agent"
+                )
             ))
         }
         if let callID {
@@ -737,7 +744,8 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
                 command: tool.command,
                 output: boundedResult,
                 durationSeconds: durationSeconds,
-                status: status
+                status: status,
+                previewAttachments: tool.previewAttachments
             ))
         case .fileChange(let file):
             .fileChange(FileChangePayload(

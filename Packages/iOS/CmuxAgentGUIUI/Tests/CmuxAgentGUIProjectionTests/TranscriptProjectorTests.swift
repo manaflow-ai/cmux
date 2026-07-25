@@ -149,6 +149,46 @@ struct TranscriptProjectorTests {
     }
 
     @Test
+    func toolPreviewAttachmentsRenderInlineInsteadOfActivityText() throws {
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "prompt"),
+            Self.entry(seq: 2, payload: .toolRun(ToolRunPayload(
+                toolName: "view_image",
+                argumentSummary: "/tmp/preview.png",
+                isTerminal: false,
+                isRunning: false,
+                previewAttachments: [
+                    AttachmentPayload(
+                        kind: "image",
+                        summary: "preview.png",
+                        displayName: "preview.png",
+                        hostPath: "/tmp/preview.png",
+                        mimeType: "image/png",
+                        byteCount: 68,
+                        width: 1,
+                        height: 1,
+                        authorRole: "agent"
+                    ),
+                ]
+            ))),
+        ])).rows
+
+        #expect(rows.activitySummaries.isEmpty)
+        let preview = try #require(rows.first {
+            $0.rowID == .entryAttachment(journalID: Self.journal, seq: EntrySeq(rawValue: 2), index: 0)
+        })
+        guard case .attachment(let attachment) = preview.rowKind else {
+            Issue.record("Expected preview attachment row")
+            return
+        }
+        #expect(attachment.hostPath == "/tmp/preview.png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.authorRole == "agent")
+        #expect(preview.endsTurn)
+    }
+
+    @Test
     func liveTurnKeepsPromptIdentityAcrossHole() {
         let hole = EntryRange(lowerBound: EntrySeq(rawValue: 3), upperBound: EntrySeq(rawValue: 4))
         let rows = projector.project(TranscriptProjectionInput(

@@ -26,6 +26,12 @@ public struct ToolRunPayload: Codable, Hashable, Sendable {
     public let durationSeconds: Double?
     /// Runtime lifecycle status, retained as a fail-open string.
     public let status: String?
+    /// Inline preview attachments referenced by this tool run.
+    ///
+    /// Producers attach only lightweight metadata here. Binary bytes remain
+    /// out-of-band so mobile renderers can reserve image geometry before a
+    /// thumbnail request finishes.
+    public let previewAttachments: [AttachmentPayload]?
 
     private enum CodingKeys: String, CodingKey {
         case toolName = "tool_name"
@@ -40,6 +46,7 @@ public struct ToolRunPayload: Codable, Hashable, Sendable {
         case output
         case durationSeconds = "duration_seconds"
         case status
+        case previewAttachments = "preview_attachments"
     }
 
     /// Creates a tool run payload.
@@ -62,7 +69,8 @@ public struct ToolRunPayload: Codable, Hashable, Sendable {
         command: String? = nil,
         output: String? = nil,
         durationSeconds: Double? = nil,
-        status: String? = nil
+        status: String? = nil,
+        previewAttachments: [AttachmentPayload]? = nil
     ) {
         self.toolName = toolName
         self.argumentSummary = argumentSummary
@@ -76,5 +84,6 @@ public struct ToolRunPayload: Codable, Hashable, Sendable {
         self.output = output
         self.durationSeconds = durationSeconds
         self.status = status
+        self.previewAttachments = previewAttachments
     }
 }

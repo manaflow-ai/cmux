@@ -1,4 +1,5 @@
 import CmuxAgentReplica
+import Foundation
 
 /// Projects replica snapshots into immutable transcript row values.
 public struct TranscriptProjector: Sendable {
@@ -198,6 +199,22 @@ public struct TranscriptProjector: Sendable {
                     turnID: current.id,
                     unreadPointer: input.unreadPointer
                 ))
+            case .toolRun(let payload):
+                let previews = Self.previewAttachments(in: payload)
+                guard !previews.isEmpty else {
+                    activityRun.append(event)
+                    break
+                }
+                flushActivityRun()
+                turnRows.append(contentsOf: previews.enumerated().map { index, attachment in
+                    Self.previewAttachmentRow(
+                        event,
+                        attachment: attachment,
+                        index: index,
+                        turnID: current.id,
+                        unreadPointer: input.unreadPointer
+                    )
+                })
             default:
                 activityRun.append(event)
             }
@@ -282,6 +299,48 @@ public struct TranscriptProjector: Sendable {
             sourceEntry: context.entry,
             displayTick: context.tick
         )
+    }
+
+    private static func previewAttachmentRow(
+        _ context: EntryContext,
+        attachment: AttachmentPayload,
+        index: Int,
+        turnID: TranscriptTurnID,
+        unreadPointer: EntrySeq
+    ) -> TranscriptRow {
+        TranscriptRow(
+            rowID: .entryAttachment(journalID: context.entry.journalID, seq: context.entry.seq, index: index),
+            rowKind: .attachment(attachment),
+            isUnread: context.entry.seq > unreadPointer,
+            turnID: turnID,
+            sourceEntry: context.entry,
+            displayTick: context.tick
+        )
+    }
+
+    private static func previewAttachments(in payload: ToolRunPayload) -> [AttachmentPayload] {
+        payload.previewAttachments?.filter(isImageAttachment) ?? []
+    }
+
+    private static func isImageAttachment(_ attachment: AttachmentPayload) -> Bool {
+        if attachment.mimeType?.lowercased().hasPrefix("image/") == true {
+            return true
+        }
+        if attachment.kind.lowercased().contains("image") {
+            return true
+        }
+        if (attachment.width ?? 0) > 0, (attachment.height ?? 0) > 0 {
+            return true
+        }
+        guard let path = attachment.hostPath ?? attachment.displayName else {
+            return false
+        }
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func activityItem(_ context: EntryContext) -> TranscriptActivityItem {

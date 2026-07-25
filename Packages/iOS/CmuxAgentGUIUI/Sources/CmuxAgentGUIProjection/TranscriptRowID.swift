@@ -5,6 +5,8 @@ public import CmuxAgentReplica
 public enum TranscriptRowID: Hashable, Sendable, CustomStringConvertible {
     /// A row derived from a journal entry.
     case entry(journalID: JournalID, seq: EntrySeq)
+    /// A synthetic inline preview attachment derived from a journal entry.
+    case entryAttachment(journalID: JournalID, seq: EntrySeq, index: Int)
     /// A synthetic date header for a display day.
     case dateHeader(String)
     /// The oldest-history boundary marker.
@@ -27,6 +29,8 @@ public enum TranscriptRowID: Hashable, Sendable, CustomStringConvertible {
         switch self {
         case .entry(let journalID, let seq):
             "entry:\(journalID.rawValue):\(seq.rawValue)"
+        case .entryAttachment(let journalID, let seq, let index):
+            "entry:\(journalID.rawValue):\(seq.rawValue):attachment:\(index)"
         case .dateHeader(let dayKey):
             "date:\(dayKey)"
         case .boundary:

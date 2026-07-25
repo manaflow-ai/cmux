@@ -475,6 +475,56 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(callbacks.loadAfterCount == 3)
     }
 
+    @Test("top prefetch uses opaque page boundaries and reset retries")
+    func topPrefetchUsesOpaquePageBoundariesAndResetRetries() async throws {
+        let rows = (80..<160).map { TranscriptTestRow(id: $0, text: "Response \($0)") }
+        let callbacks = TranscriptCallbackBox()
+        let state = TranscriptFollowStateBox(.detached(anchorID: 100, offset: 0, unseenCount: 0))
+        var harness = TranscriptTestHarness(
+            rows: rows,
+            hasMoreBefore: true,
+            beforePageID: "older-page-a",
+            followState: state,
+            onLoadBefore: { callbacks.loadBeforeCount += 1 }
+        )
+        let mounted = mount(harness)
+        defer { mounted.window.isHidden = true }
+        await settle(mounted.host, passes: 16)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        table.setContentOffset(CGPoint(x: 0, y: -table.adjustedContentInset.top), animated: false)
+        table.delegate?.scrollViewDidScroll?(table)
+        #expect(callbacks.loadBeforeCount == 1)
+        #expect(isDetached(state.value))
+
+        table.delegate?.scrollViewDidScroll?(table)
+        #expect(callbacks.loadBeforeCount == 1)
+
+        harness = TranscriptTestHarness(
+            rows: rows,
+            hasMoreBefore: true,
+            beforePageID: "older-page-b",
+            followState: state,
+            onLoadBefore: { callbacks.loadBeforeCount += 1 }
+        )
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 10)
+        #expect(callbacks.loadBeforeCount == 2)
+
+        harness = TranscriptTestHarness(
+            rows: rows,
+            hasMoreBefore: true,
+            beforePageID: "older-page-b",
+            prefetchResetGeneration: 1,
+            followState: state,
+            onLoadBefore: { callbacks.loadBeforeCount += 1 }
+        )
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 8)
+        table.delegate?.scrollViewDidScroll?(table)
+        #expect(callbacks.loadBeforeCount == 3)
+    }
+
     @Test("semantic tail loads the authoritative window then reaches its real bottom")
     func semanticTailLoadsAuthoritativeWindowAndReachesBottom() async throws {
         let state = TranscriptFollowStateBox(.detached(anchorID: 40, offset: 0, unseenCount: 0))
@@ -691,6 +741,7 @@ private final class TranscriptFollowStateBox {
 private final class TranscriptCallbackBox {
     var semanticHeadCount = 0
     var semanticTailCount = 0
+    var loadBeforeCount = 0
     var loadAfterCount = 0
 }
 
@@ -705,6 +756,7 @@ private struct TranscriptTestHarness: View {
     var prefetchResetGeneration = 0
     var followState: TranscriptFollowStateBox
     var command: ConversationScrollCommand?
+    var onLoadBefore: () -> Void
     var onLoadAfter: () -> Void
     var onSemanticHead: () -> Void
     var onSemanticTail: () -> Void
@@ -723,6 +775,7 @@ private struct TranscriptTestHarness: View {
             unseenCount: 0
         )),
         command: ConversationScrollCommand? = nil,
+        onLoadBefore: @escaping () -> Void = {},
         onLoadAfter: @escaping () -> Void = {},
         onSemanticHead: @escaping () -> Void = {},
         onSemanticTail: @escaping () -> Void = {}
@@ -736,6 +789,7 @@ private struct TranscriptTestHarness: View {
         self.prefetchResetGeneration = prefetchResetGeneration
         self.followState = followState
         self.command = command
+        self.onLoadBefore = onLoadBefore
         self.onLoadAfter = onLoadAfter
         self.onSemanticHead = onSemanticHead
         self.onSemanticTail = onSemanticTail
@@ -755,6 +809,7 @@ private struct TranscriptTestHarness: View {
             beforePageID: beforePageID,
             afterPageID: afterPageID,
             prefetchResetGeneration: prefetchResetGeneration,
+            onLoadBefore: onLoadBefore,
             onLoadAfter: onLoadAfter,
             onSemanticHead: onSemanticHead,
             onSemanticTail: onSemanticTail
