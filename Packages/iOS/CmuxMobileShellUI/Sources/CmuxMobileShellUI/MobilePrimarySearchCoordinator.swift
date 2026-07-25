@@ -18,6 +18,7 @@ final class MobilePrimarySearchCoordinator {
     private(set) var activationGeneration: UInt64 = 0
 
     private var phase: MobilePrimarySearchPhase = .inactive
+    private var platformSearchingScope: MobilePrimarySearchScope?
     private var workspaceNativeSearchText = ""
     private var notificationNativeSearchText = ""
     private let searchQueryBounds = MobileSearchQueryBounds()
@@ -61,7 +62,9 @@ final class MobilePrimarySearchCoordinator {
     func updateLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
         if isSearching {
             activate(scope: scope)
+            platformSearchingScope = scope
         } else if phase == .active(scope) {
+            guard platformSearchingScope == scope else { return }
             commitNativeDraft(for: scope)
             beginDeactivation(for: scope)
         }
@@ -183,17 +186,22 @@ final class MobilePrimarySearchCoordinator {
 
     private func beginDeactivation(for scope: MobilePrimarySearchScope) {
         phase = .deactivating(scope)
+        platformSearchingScope = nil
         syncNativeSearchText(fromCommittedQueryFor: scope)
     }
 
     private func activate(scope: MobilePrimarySearchScope) {
-        if phase != .active(scope) || !isPresented {
+        let startsNewActivation = phase != .active(scope) || !isPresented
+        if startsNewActivation {
             activationGeneration &+= 1
+            platformSearchingScope = nil
         }
         self.scope = scope
         isPresented = true
         phase = .active(scope)
-        syncNativeSearchText(fromCommittedQueryFor: scope)
+        if startsNewActivation {
+            syncNativeSearchText(fromCommittedQueryFor: scope)
+        }
     }
 }
 

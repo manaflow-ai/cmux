@@ -163,6 +163,48 @@ import Testing
         #expect(coordinator.activeNativeSearchText() == "")
     }
 
+    @Test func initialFalseLifecycleCallbackDoesNotEndPresentedSearch() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        coordinator.synchronizeSelection(.notifications)
+        coordinator.setPresentation(true)
+        let activation = coordinator.activationGeneration
+
+        coordinator.updateLifecycle(scope: .notifications, isSearching: false)
+        coordinator.updateNativeSearchText(
+            "alerts",
+            for: .notifications,
+            activationGeneration: activation
+        )
+
+        #expect(coordinator.notifications == "")
+        #expect(coordinator.activeNativeSearchText() == "alerts")
+        #expect(coordinator.searchDestinationText(for: .notifications) == "alerts")
+    }
+
+    @Test func falseLifecycleCallbackAfterObservedSearchDismissesAndCommitsDraft() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        coordinator.synchronizeSelection(.notifications)
+        coordinator.setPresentation(true)
+        coordinator.updateLifecycle(scope: .notifications, isSearching: true)
+        let activation = coordinator.activationGeneration
+        coordinator.updateNativeSearchText(
+            "alerts",
+            for: .notifications,
+            activationGeneration: activation
+        )
+
+        coordinator.updateLifecycle(scope: .notifications, isSearching: false)
+        coordinator.updateNativeSearchText(
+            "",
+            for: .notifications,
+            activationGeneration: activation
+        )
+
+        #expect(coordinator.notifications == "alerts")
+        #expect(coordinator.activeNativeSearchText() == "alerts")
+        #expect(coordinator.searchDestinationText(for: .notifications) == "alerts")
+    }
+
     @Test func notificationDeepLinkUsesNotificationSearchOnlyWhenThatSearchScopeIsMounted() {
         let coordinator = MobilePrimarySearchCoordinator()
 
