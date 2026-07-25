@@ -4,17 +4,30 @@ import SwiftUI
 struct WorkspaceTitleMenuContent: View {
     let workspaceName: String
     let hasUnread: Bool
+    let canCustomizeWorkspace: Bool
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
+    let presentCustomization: () -> Void
     let presentRename: () -> Void
     let toggleReadState: () -> Void
     let requestClose: () -> Void
 
     var body: some View {
-        if canRenameWorkspace || canToggleReadState || canCloseWorkspace {
+        if canCustomizeWorkspace || canRenameWorkspace || canToggleReadState || canCloseWorkspace {
             Section(workspaceName) {
-                if canRenameWorkspace {
+                if canCustomizeWorkspace {
+                    Button(action: presentCustomization) {
+                        Label(
+                            L10n.string(
+                                "mobile.workspace.customize.title",
+                                defaultValue: "Customize Workspace"
+                            ),
+                            systemImage: "slider.horizontal.3"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceTitleCustomizeMenuItem")
+                } else if canRenameWorkspace {
                     Button(action: presentRename) {
                         Label(
                             L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),

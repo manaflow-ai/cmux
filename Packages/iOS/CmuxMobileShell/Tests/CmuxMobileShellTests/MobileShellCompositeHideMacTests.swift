@@ -279,6 +279,150 @@ import Testing
         #expect(restored.customIcon == "laptopcomputer")
     }
 
+    @Test(arguments: ["stable", "nightly"])
+    func hidingTaggedRowLeavesSiblingInstanceVisible(hiddenTag: String) async throws {
+        let siblingTag = hiddenTag == "stable" ? "nightly" : "stable"
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50922,
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "stable"
+                    ),
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50923,
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        let representative = try #require(
+            store.displayPairedMacs.first { $0.instanceTag == hiddenTag }
+        )
+
+        await store.hideStoredPairedMacEntries(
+            representativeID: representative.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: representative.macDeviceID,
+                instanceTag: representative.instanceTag
+            )
+        )
+
+        #expect(store.pairedMacs.map(\.instanceTag) == [siblingTag])
+        #expect(store.displayPairedMacs.map(\.instanceTag) == [siblingTag])
+        #expect(store.hiddenComputers.map(\.instanceTag) == [hiddenTag])
+        #expect(
+            store.connectionState
+                == (hiddenTag == "stable" ? .disconnected : .connected)
+        )
+    }
+
+    @Test func hidingTaggedRowKeepsSharedWorkspaceStateUntilLastInstanceHides() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50922,
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "stable"
+                    ),
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50923,
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        // Production keys workspace state by PHYSICAL device id, shared by
+        // every app instance of the Mac.
+        store.setWorkspaceStatesForTesting([
+            "shared-mac": MacWorkspaceState(
+                macDeviceID: "shared-mac",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "shared-workspace",
+                        macDeviceID: "shared-mac",
+                        name: "Shared",
+                        terminals: []
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "shared-mac")
+        let stable = try #require(
+            store.displayPairedMacs.first { $0.instanceTag == "stable" }
+        )
+
+        await store.hideStoredPairedMacEntries(
+            representativeID: stable.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: stable.macDeviceID,
+                instanceTag: stable.instanceTag
+            )
+        )
+
+        // A visible sibling instance remains, so the shared physical
+        // workspace state must survive the per-instance hide.
+        #expect(store.connectionState == .disconnected)
+        #expect(store.displayPairedMacs.map(\.instanceTag) == ["nightly"])
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["shared-workspace"])
+
+        let nightly = try #require(
+            store.displayPairedMacs.first { $0.instanceTag == "nightly" }
+        )
+        await store.hideStoredPairedMacEntries(
+            representativeID: nightly.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: nightly.macDeviceID,
+                instanceTag: nightly.instanceTag
+            )
+        )
+
+        // No instance remains visible: the physical state is pruned.
+        #expect(store.displayPairedMacs.isEmpty)
+        #expect(store.workspaces.isEmpty)
+        #expect(store.foregroundMacDeviceIDForTesting() == nil)
+    }
+
     @Test func hideKeepsSQLiteRowAndCreatesNoPendingDeleteOrTombstone() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

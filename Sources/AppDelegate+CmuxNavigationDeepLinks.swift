@@ -26,6 +26,24 @@ extension AppDelegate {
         isApplyingSessionRestore && !includeScrollback
     }
 
+    /// Protects the previous launch snapshot until startup restoration has
+    /// either completed or been explicitly cancelled.
+    ///
+    /// A pending signing-secret load can outlive autosave, window-close, and
+    /// termination events. No persistence path may replace the authoritative
+    /// startup snapshot during that interval.
+    nonisolated static func shouldSkipSessionSaveDuringStartupTransition(
+        isStartupSessionRestorePending: Bool,
+        isApplyingSessionRestore: Bool,
+        includeScrollback: Bool
+    ) -> Bool {
+        isStartupSessionRestorePending
+            || shouldSkipSessionSaveDuringRestore(
+                isApplyingSessionRestore: isApplyingSessionRestore,
+                includeScrollback: includeScrollback
+            )
+    }
+
     @discardableResult
     func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
         let lookup = cmuxNavigationWorkspaceLookup()

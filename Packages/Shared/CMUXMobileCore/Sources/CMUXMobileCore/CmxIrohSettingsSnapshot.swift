@@ -124,6 +124,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     /// Redacted selected-path attribution, independent from lifecycle status.
     public let selectedTransportPath: CmxIrohSelectedTransportPath
     public let preference: CmxIrohRelayPreferenceDraft
+    /// Device-local path constraint selected in Settings.
+    public let pathPreference: CmxIrohPathPreference
     public let managedRelays: [ManagedRelay]
     public let customRelays: [CustomRelay]
     public let privateNetworkMacs: [PrivateNetworkMac]
@@ -145,6 +147,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         runtimeStatus: RuntimeStatus,
         selectedTransportPath: CmxIrohSelectedTransportPath = .unavailable,
         preference: CmxIrohRelayPreferenceDraft,
+        pathPreference: CmxIrohPathPreference = .automatic,
         managedRelays: [ManagedRelay],
         customRelays: [CustomRelay],
         privateNetworkMacs: [PrivateNetworkMac] = [],
@@ -159,6 +162,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         self.runtimeStatus = runtimeStatus
         self.selectedTransportPath = selectedTransportPath
         self.preference = preference
+        self.pathPreference = pathPreference
         self.managedRelays = managedRelays
         self.customRelays = customRelays
         self.privateNetworkMacs = privateNetworkMacs

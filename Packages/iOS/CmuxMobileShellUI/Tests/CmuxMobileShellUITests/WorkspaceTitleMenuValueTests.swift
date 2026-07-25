@@ -32,7 +32,23 @@ import Testing
         #expect(chat != browser)
     }
 
-    private func menuValue(labelToken: WorkspaceTitleMenuLabelToken) -> WorkspaceTitleMenuValue {
+    @Test func customizationCapabilityInvalidatesTheMenuValue() {
+        let available = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal"),
+            canCustomizeWorkspace: true
+        )
+        let unavailable = menuValue(
+            labelToken: available.labelToken,
+            canCustomizeWorkspace: false
+        )
+
+        #expect(available != unavailable)
+    }
+
+    private func menuValue(
+        labelToken: WorkspaceTitleMenuLabelToken,
+        canCustomizeWorkspace: Bool = true
+    ) -> WorkspaceTitleMenuValue {
         WorkspaceTitleMenuValue(
             contentWidth: 390,
             hasBackButton: true,
@@ -41,6 +57,7 @@ import Testing
             isEnabled: true,
             workspaceName: "Workspace",
             hasUnread: false,
+            canCustomizeWorkspace: canCustomizeWorkspace,
             canRenameWorkspace: true,
             canToggleReadState: true,
             canCloseWorkspace: true,
