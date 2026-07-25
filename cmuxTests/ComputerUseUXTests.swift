@@ -317,6 +317,71 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test func menuStateScanAcceptsAuthenticatedWrapperParentOfRecordedAgent() throws {
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let recordedAgent = Process()
+        recordedAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        recordedAgent.arguments = ["30"]
+        try recordedAgent.run()
+        defer {
+            if recordedAgent.isRunning {
+                recordedAgent.terminate()
+            }
+            recordedAgent.waitUntilExit()
+        }
+        let recordedAgentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: recordedAgent.processIdentifier
+        ))
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: UUID()
+        )
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        try withStateDirectory { directory in
+            let data = try Self.authenticatedStateData(
+                driverPID: 70_001,
+                writerPID: Int(writerIdentity.pid),
+                writerStartSeconds: writerIdentity.startSeconds,
+                writerStartMicroseconds: writerIdentity.startMicroseconds,
+                session: driverSessionID,
+                targetApp: "Calculator",
+                targetPID: Int(writerIdentity.pid),
+                targetWindowID: 1,
+                lastActionAt: formatter.string(from: now)
+            )
+            try data.write(
+                to: directory.appendingPathComponent("wrapper-parent.json"),
+                options: .atomic
+            )
+
+            let result = ComputerUseStateRepository(
+                authenticationKey: Self.stateAuthenticationKey
+            ).scan(
+                directoryURL: directory,
+                sessions: [
+                    ComputerUseSessionScope(
+                        id: "live-agent",
+                        driverSessionID: driverSessionID
+                    ),
+                ],
+                now: now
+            ) { _, state in
+                state.belongsToProcessTree(
+                    rootProcessIdentities: [recordedAgentIdentity]
+                )
+            }
+
+            #expect(
+                result.newestStateByScopeID["live-agent"]?.writerProcessIdentity
+                    == writerIdentity
+            )
+        }
+    }
+
     @Test func stateEligibilityRejectsReusedWriterPIDGeneration() throws {
         let currentIdentity = try #require(AgentPIDProcessIdentity(
             pid: ProcessInfo.processInfo.processIdentifier
