@@ -24,8 +24,12 @@ actor NotificationFeedHistoryPersistence {
     private static let defaultOversizedSnapshotMigrationScanByteLimit = 64 * 1024 * 1024
 
     private enum OversizedSnapshotMigrationError: Error {
-        case scanBudgetExceeded
         case replacementValidationFailed
+    }
+
+    private struct OversizedSnapshotRecovery {
+        let snapshot: NotificationFeedHistorySnapshot
+        let shouldRetainQuarantineBackup: Bool
     }
 
     private struct SnapshotHeader {
@@ -275,32 +279,17 @@ actor NotificationFeedHistoryPersistence {
                 } else if header.version == NotificationFeedHistorySnapshot.currentVersion,
                           let revision = header.revision {
                     do {
-                        let snapshot = try recoverOversizedCurrentSnapshot(
+                        let recovery = try recoverOversizedCurrentSnapshot(
                             fileURL,
                             revision: max(0, revision)
                         )
                         try replaceOversizedSnapshotFile(
                             fileURL,
-                            replacementSnapshot: snapshot
+                            replacementSnapshot: recovery.snapshot,
+                            shouldRetainQuarantineBackup: recovery.shouldRetainQuarantineBackup
                         )
-                        lastPersistedRevision = snapshot.revision
-                        outcome = .loaded(snapshot)
-                    } catch OversizedSnapshotMigrationError.scanBudgetExceeded {
-                        let snapshot = NotificationFeedHistorySnapshot(
-                            revision: max(0, revision),
-                            notifications: []
-                        )
-                        do {
-                            try replaceOversizedSnapshotFile(
-                                fileURL,
-                                replacementSnapshot: snapshot
-                            )
-                            lastPersistedRevision = snapshot.revision
-                            outcome = .loaded(snapshot)
-                        } catch {
-                            allowsWrites = false
-                            outcome = .corrupt
-                        }
+                        lastPersistedRevision = recovery.snapshot.revision
+                        outcome = .loaded(recovery.snapshot)
                     } catch {
                         allowsWrites = false
                         outcome = .corrupt
@@ -459,9 +448,12 @@ actor NotificationFeedHistoryPersistence {
     private func recoverOversizedCurrentSnapshot(
         _ fileURL: URL,
         revision: Int
-    ) throws -> NotificationFeedHistorySnapshot {
+    ) throws -> OversizedSnapshotRecovery {
         guard totalRetentionLimit > 0 else {
-            return NotificationFeedHistorySnapshot(revision: revision, notifications: [])
+            return OversizedSnapshotRecovery(
+                snapshot: NotificationFeedHistorySnapshot(revision: revision, notifications: []),
+                shouldRetainQuarantineBackup: false
+            )
         }
 
         let handle = try FileHandle(forReadingFrom: fileURL)
@@ -478,6 +470,7 @@ actor NotificationFeedHistoryPersistence {
         var remainingReadSlots = readRetentionLimit
         var shouldContinue = true
         var scannedBytes = 0
+        var scanBudgetWasExceeded = false
 
         while shouldContinue {
             guard !Task.isCancelled else {
@@ -490,9 +483,10 @@ actor NotificationFeedHistoryPersistence {
             }
             scannedBytes += chunk.count
             guard scannedBytes <= oversizedSnapshotMigrationScanByteLimit else {
-                throw OversizedSnapshotMigrationError.scanBudgetExceeded
+                scanBudgetWasExceeded = true
+                break
             }
-            shouldContinue = try scanner.consume(chunk) { recordData in
+            shouldContinue = scanner.consume(chunk) { recordData in
                 guard retainedRecords.count < totalRetentionLimit else {
                     return false
                 }
@@ -522,9 +516,15 @@ actor NotificationFeedHistoryPersistence {
             records: normalizedRecords,
             maxBytes: maxSnapshotBytes
         ) else {
-            return NotificationFeedHistorySnapshot(revision: revision, notifications: [])
+            return OversizedSnapshotRecovery(
+                snapshot: NotificationFeedHistorySnapshot(revision: revision, notifications: []),
+                shouldRetainQuarantineBackup: true
+            )
         }
-        return fitted.snapshot
+        return OversizedSnapshotRecovery(
+            snapshot: fitted.snapshot,
+            shouldRetainQuarantineBackup: scanBudgetWasExceeded
+        )
     }
 
     struct OversizedCurrentSnapshotRecordScanner {
@@ -766,7 +766,8 @@ actor NotificationFeedHistoryPersistence {
 
     private func replaceOversizedSnapshotFile(
         _ fileURL: URL,
-        replacementSnapshot snapshot: NotificationFeedHistorySnapshot
+        replacementSnapshot snapshot: NotificationFeedHistorySnapshot,
+        shouldRetainQuarantineBackup: Bool = false
     ) throws {
         let replacementURL = fileURL
             .deletingLastPathComponent()
@@ -793,10 +794,19 @@ actor NotificationFeedHistoryPersistence {
                 restoreQuarantineBackup(backupURL, to: fileURL)
                 throw error
             }
-            pruneQuarantineBackups(for: fileURL, keeping: nil)
-            notificationFeedPersistenceLogger.notice(
-                "Notification feed oversized file replaced file=\(fileURL.path, privacy: .private) backup_removed=\(backupURL.lastPathComponent, privacy: .private) revision=\(snapshot.revision, privacy: .public)"
+            pruneQuarantineBackups(
+                for: fileURL,
+                keeping: shouldRetainQuarantineBackup ? backupURL : nil
             )
+            if shouldRetainQuarantineBackup {
+                notificationFeedPersistenceLogger.notice(
+                    "Notification feed oversized file replaced file=\(fileURL.path, privacy: .private) backup_retained=\(backupURL.lastPathComponent, privacy: .private) revision=\(snapshot.revision, privacy: .public)"
+                )
+            } else {
+                notificationFeedPersistenceLogger.notice(
+                    "Notification feed oversized file replaced file=\(fileURL.path, privacy: .private) backup_removed=\(backupURL.lastPathComponent, privacy: .private) revision=\(snapshot.revision, privacy: .public)"
+                )
+            }
         } catch {
             try? fileManager.removeItem(at: replacementURL)
             notificationFeedPersistenceLogger.error(

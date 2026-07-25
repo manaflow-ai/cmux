@@ -136,6 +136,7 @@ private struct WorkspaceShellRenderPresentation {
     let notificationFeedItems: [MobileNotificationFeedItem]
     let notificationUnreadCount: Int
     let notificationFeedStatus: MobileNotificationFeedStatus
+    let selectedNotificationFeedMacDeviceIDs: Set<String>?
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
 }
@@ -232,7 +233,8 @@ struct WorkspaceShellView: View {
                         store: store,
                         items: presentation.notificationFeedItems,
                         status: presentation.notificationFeedStatus,
-                        projection: notificationFeedProjection
+                        projection: notificationFeedProjection,
+                        selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
                     )
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
@@ -387,7 +389,8 @@ struct WorkspaceShellView: View {
                 store: store,
                 items: presentation.notificationFeedItems,
                 status: presentation.notificationFeedStatus,
-                projection: notificationFeedProjection
+                projection: notificationFeedProjection,
+                selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
             )
             .toolbar {
                 if notificationSearchNavigationPath.isEmpty {
@@ -718,6 +721,7 @@ struct WorkspaceShellView: View {
             notificationFeedItems: visibleNotificationFeedItems,
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
+            selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             canCreateWorkspaceForSelection: scope.canCreateWorkspace(
                 base: canCreateWorkspace,

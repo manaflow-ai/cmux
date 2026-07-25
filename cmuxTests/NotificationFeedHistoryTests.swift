@@ -560,7 +560,9 @@ struct NotificationFeedHistoryTests {
         ).filter {
             $0.lastPathComponent.hasPrefix("history.json.oversized")
         }
-        #expect(migrationQuarantines.isEmpty)
+        let backupURL = try #require(migrationQuarantines.first)
+        #expect(migrationQuarantines.count == 1)
+        #expect(try Data(contentsOf: backupURL) == data)
 
         let persisted = NotificationFeedHistoryRecord(notification: notification(
             workspaceID: UUID(),
@@ -585,6 +587,54 @@ struct NotificationFeedHistoryTests {
         }
         #expect(verifiedSnapshot.revision == 23)
         #expect(verifiedSnapshot.notifications.map(\.title) == ["Recovered"])
+    }
+
+    @Test func oversizedCurrentSnapshotMigrationScanBudgetPreservesRecoveredPrefix() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-scan-prefix-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("history.json")
+        let firstID = UUID().uuidString
+        let secondID = UUID().uuidString
+        let firstWorkspaceID = UUID().uuidString
+        let secondWorkspaceID = UUID().uuidString
+        let largeBody = String(repeating: "x", count: 140_000)
+        let rawJSON = """
+        {"notifications":[{"body":"Prefix body","createdAt":3,"id":"\(firstID)","isRead":false,"retargetsToLiveSurfaceOwner":false,"subtitle":"Agent","tabId":"\(firstWorkspaceID)","title":"Prefix"},{"body":"\(largeBody)","createdAt":2,"id":"\(secondID)","isRead":false,"retargetsToLiveSurfaceOwner":false,"subtitle":"Agent","tabId":"\(secondWorkspaceID)","title":"Tail"}],"revision":33,"version":\(NotificationFeedHistorySnapshot.currentVersion)}
+        """
+        let data = Data(rawJSON.utf8)
+        try data.write(to: fileURL, options: .atomic)
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: UInt64(data.count - 1),
+            oversizedSnapshotMigrationScanByteLimit: 70_000
+        )
+
+        let outcome = await persistence.load()
+        guard case .loaded(let snapshot) = outcome else {
+            Issue.record("Expected recovered prefix snapshot, got \(outcome)")
+            return
+        }
+        #expect(snapshot.revision == 33)
+        #expect(snapshot.notifications.map(\.title) == ["Prefix"])
+        let recovered = try JSONDecoder().decode(
+            NotificationFeedHistorySnapshot.self,
+            from: Data(contentsOf: fileURL)
+        )
+        #expect(recovered.notifications.map(\.title) == ["Prefix"])
+        let migrationQuarantines = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("history.json.oversized")
+        }
+        let backupURL = try #require(migrationQuarantines.first)
+        #expect(migrationQuarantines.count == 1)
+        #expect(try Data(contentsOf: backupURL) == data)
     }
 
     @Test func oversizedCurrentSnapshotScannerCapsEscapedTopLevelKeyBytes() throws {

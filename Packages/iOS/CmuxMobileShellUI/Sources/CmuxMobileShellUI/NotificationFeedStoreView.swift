@@ -11,6 +11,7 @@ struct NotificationFeedStoreView: View {
     let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
     let projection: NotificationFeedProjection
+    let selectedMacDeviceIDs: Set<String>?
 
     var body: some View {
         NotificationFeedView(
@@ -37,7 +38,7 @@ struct NotificationFeedStoreView: View {
                 Task { await store.markNotificationFeedItemUnread(item) }
             },
             markAllRead: {
-                Task { await store.markNotificationFeedItemsRead(items) }
+                Task { await store.markNotificationFeedItemsRead(scopedTo: selectedMacDeviceIDs) }
             },
             refresh: {
                 await store.refreshNotificationFeed()

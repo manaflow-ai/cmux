@@ -116,6 +116,59 @@ struct MobileShellNotificationFeedStateTests {
         #expect(scopedItems.allSatisfy { $0.macDeviceID == "mac-b" })
     }
 
+    @Test("Mark All targets all selected Macs before applying the visible feed cap")
+    func markAllTargetsSelectedMacsBeforeVisibleFeedCap() async throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let macAEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "a-\(offset)",
+                createdAt: 10_000 + Double(offset),
+                isRead: false
+            )
+        }
+        let macBEntries = (0..<3).map { offset in
+            NotificationResponseEntry(
+                id: "b-\(offset)",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: macAEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: macBEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+        #expect(store.notificationFeedItems.count == cap)
+        #expect(store.notificationFeedItems.allSatisfy { $0.macDeviceID == "mac-a" })
+
+        let macARouter = RoutingHostRouter()
+        let macBRouter = RoutingHostRouter()
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-a",
+            router: macARouter,
+            supportedHostCapabilities: [MobileShellComposite.notificationFeedCapability]
+        )
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-b",
+            router: macBRouter,
+            supportedHostCapabilities: [MobileShellComposite.notificationFeedCapability]
+        )
+
+        await store.markNotificationFeedItemsRead(scopedTo: nil)
+
+        #expect(await macARouter.recordedNotificationFeedMarkAllReadCount() == 1)
+        #expect(await macBRouter.recordedNotificationFeedMarkAllReadCount() == 1)
+    }
+
     @Test("Source cache preserves per-Mac tails so aggregation refills after another source disappears")
     func sourceCachePreservesPerMacTailsForAggregateRefill() throws {
         let store = MobileShellComposite()

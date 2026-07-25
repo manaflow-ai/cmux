@@ -146,16 +146,16 @@ extension MobileShellComposite {
 
     /// Marks every retained notification read on each currently connected capable Mac.
     public func markAllNotificationFeedItemsRead() async {
-        await markNotificationFeedItemsRead(notificationFeedItems)
+        await markNotificationFeedItemsRead(scopedTo: nil)
     }
 
-    /// Marks every retained notification read for the Macs represented by `items`.
+    /// Marks every retained notification read for the selected computer scope.
     /// This keeps a computer-scoped feed's bulk action within the scope visible to
-    /// the user while still using the host's atomic mark-all mutation per Mac.
-    public func markNotificationFeedItemsRead(_ items: [MobileNotificationFeedItem]) async {
-        let macDeviceIDs = Set(items.lazy.filter { !$0.isRead }.map(\.macDeviceID))
+    /// the user without deriving mutation targets from the capped visible rows.
+    public func markNotificationFeedItemsRead(scopedTo macDeviceIDs: Set<String>?) async {
+        if macDeviceIDs?.isEmpty == true { return }
         let targets = notificationFeedTargets().filter { target in
-            macDeviceIDs.contains(target.macDeviceID)
+            (macDeviceIDs?.contains(target.macDeviceID) ?? true)
                 && notificationFeedSnapshotsByMac[target.macDeviceID]?.items.contains(where: { !$0.isRead }) == true
         }
         for target in targets {
