@@ -1434,6 +1434,8 @@ pub fn load_runtime_info(
 
 #[cfg(test)]
 mod tests {
+    use cmux_remote::daemon::RemoteDaemon;
+
     use super::*;
 
     fn resolved_test_route(
@@ -1467,6 +1469,12 @@ mod tests {
             BTreeMap::new(),
             supported_auth,
         )
+    }
+
+    fn unix_test_route(path: &Path) -> Url {
+        let mut endpoint = Url::parse("unix:///").unwrap();
+        endpoint.set_path(path.to_str().unwrap());
+        endpoint
     }
 
     fn test_providers(ssh: SshProviderConfig) -> Arc<cmux_remote::provider::ProviderRegistry> {
@@ -1556,6 +1564,90 @@ mod tests {
             endpoint.set_path(self.unix_path.to_str().unwrap());
             request.endpoint = endpoint;
             self.unix.connect(request).await
+        }
+    }
+
+    struct HangingStartupProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl TransportProvider for HangingStartupProvider {
+        fn name(&self) -> &'static str {
+            "hanging-startup"
+        }
+
+        fn schemes(&self) -> &'static [&'static str] {
+            &["hanging-startup"]
+        }
+
+        fn supported_client_auth(&self) -> SupportedClientAuthModes {
+            SupportedClientAuthModes::DeviceOrCarrier
+        }
+
+        async fn connect(
+            &self,
+            _request: ConnectRequest,
+        ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+            self.calls.fetch_add(1, Ordering::AcqRel);
+            std::future::pending().await
+        }
+    }
+
+    struct HangingOpenProvider {
+        close_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl TransportProvider for HangingOpenProvider {
+        fn name(&self) -> &'static str {
+            "hanging-open"
+        }
+
+        fn schemes(&self) -> &'static [&'static str] {
+            &["hanging-open"]
+        }
+
+        fn supported_client_auth(&self) -> SupportedClientAuthModes {
+            SupportedClientAuthModes::DeviceOrCarrier
+        }
+
+        async fn connect(
+            &self,
+            _request: ConnectRequest,
+        ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+            Ok(Arc::new(HangingOpenGroup { close_calls: self.close_calls.clone() }))
+        }
+    }
+
+    struct HangingOpenGroup {
+        close_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LinkGroup for HangingOpenGroup {
+        fn description(&self) -> &str {
+            "hanging-open://daemon"
+        }
+
+        fn capabilities(&self) -> cmux_remote::provider::ProviderCapabilities {
+            cmux_remote::provider::ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &cmux_remote::provider::CarrierEvidence {
+            &cmux_remote::provider::CarrierEvidence::None
+        }
+
+        async fn open(
+            &self,
+            _request: cmux_remote::provider::LinkRequest,
+        ) -> Result<Box<dyn cmux_remote::link::FrameLink>, ProviderError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            self.close_calls.fetch_add(1, Ordering::AcqRel);
+            Ok(())
         }
     }
 
@@ -2211,8 +2303,6 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn initial_client_connection_retries_transient_carrier_failure() {
-        use cmux_remote::daemon::RemoteDaemon;
-
         let directory = tempfile::tempdir().unwrap();
         let daemon_auth =
             AuthDatabase::load_or_create(directory.path().join("daemon"), "startup-retry", true)
@@ -2278,6 +2368,96 @@ mod tests {
         .expect("transient initial carrier failure stopped the client");
 
         assert_eq!(calls.load(Ordering::Acquire), 2);
+        connection.close().await.unwrap();
+        server.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn initial_provider_timeout_falls_back_to_next_route() {
+        let directory = tempfile::tempdir().unwrap();
+        let daemon_auth =
+            AuthDatabase::load_or_create(directory.path().join("daemon"), "dial-timeout", true)
+                .unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(daemon_auth, SessionLimits::default());
+        let unix_path = directory.path().join("daemon.sock");
+        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut providers = cmux_remote::provider::ProviderRegistry::default();
+        providers.register(Arc::new(HangingStartupProvider { calls: calls.clone() })).unwrap();
+        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
+        let providers = Arc::new(providers);
+        let routes = [Url::parse("hanging-startup://daemon").unwrap(), unix_test_route(&unix_path)]
+            .into_iter()
+            .map(|route| {
+                ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
+            })
+            .collect();
+        let mut options = reconnect_test_options(routes);
+        options.providers = providers;
+        options.auth = ClientAuthMode::Carrier;
+        options.reconnect.maximum_attempts = Some(1);
+        options.reconnect.attempt_timeout = Duration::from_millis(20);
+        options.reconnect.full_jitter = false;
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let (connection, selected) = tokio::time::timeout(
+            Duration::from_millis(500),
+            connect_first_available(&options, shutdown_rx),
+        )
+        .await
+        .expect("a stalled provider monopolized initial route selection")
+        .expect("the next initial route did not connect");
+
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        assert_eq!(selected, format!("unix://{}", unix_path.display()));
+        connection.close().await.unwrap();
+        server.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn initial_link_timeout_closes_group_and_falls_back_to_next_route() {
+        let directory = tempfile::tempdir().unwrap();
+        let daemon_auth =
+            AuthDatabase::load_or_create(directory.path().join("daemon"), "link-timeout", true)
+                .unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(daemon_auth, SessionLimits::default());
+        let unix_path = directory.path().join("daemon.sock");
+        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
+
+        let close_calls = Arc::new(AtomicUsize::new(0));
+        let mut providers = cmux_remote::provider::ProviderRegistry::default();
+        providers
+            .register(Arc::new(HangingOpenProvider { close_calls: close_calls.clone() }))
+            .unwrap();
+        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
+        let providers = Arc::new(providers);
+        let routes = [Url::parse("hanging-open://daemon").unwrap(), unix_test_route(&unix_path)]
+            .into_iter()
+            .map(|route| {
+                ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
+            })
+            .collect();
+        let mut options = reconnect_test_options(routes);
+        options.providers = providers;
+        options.auth = ClientAuthMode::Carrier;
+        options.reconnect.maximum_attempts = Some(1);
+        options.reconnect.attempt_timeout = Duration::from_millis(20);
+        options.reconnect.full_jitter = false;
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let (connection, selected) = tokio::time::timeout(
+            Duration::from_millis(500),
+            connect_first_available(&options, shutdown_rx),
+        )
+        .await
+        .expect("a stalled physical link monopolized initial route selection")
+        .expect("the next initial route did not connect");
+
+        assert_eq!(close_calls.load(Ordering::Acquire), 1);
+        assert_eq!(selected, format!("unix://{}", unix_path.display()));
         connection.close().await.unwrap();
         server.shutdown().await;
     }
