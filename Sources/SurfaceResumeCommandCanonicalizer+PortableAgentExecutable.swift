@@ -45,7 +45,8 @@ extension SurfaceResumeBindingSnapshot {
         guard let inlineInput = inlineStartupInput(
             repairPortableAgentExecutable: repairPortableAgentExecutable
         ) else { return nil }
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        let requiresLauncherScript = isAgentHookBinding && allowLauncherScript
+        guard requiresLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
         guard allowLauncherScript else { return inlineInput }
@@ -67,24 +68,6 @@ extension SurfaceResumeBindingSnapshot {
             allowLauncherScript: allowLauncherScript,
             repairPortableAgentExecutable: false
         )
-    }
-
-    func startupCommandWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        repairPortableAgentExecutable: Bool
-    ) -> String? {
-        guard let inlineInput = inlineStartupInput(repairPortableAgentExecutable: repairPortableAgentExecutable),
-              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-                  inlineInput: inlineInput,
-                  binding: self,
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
-              ) else {
-            return nil
-        }
-        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
