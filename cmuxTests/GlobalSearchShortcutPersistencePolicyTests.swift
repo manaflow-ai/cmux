@@ -254,7 +254,7 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(store.isManagedByFile(.globalSearch))
         #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == defaultGlobalSearchShortcut)
 
-        await confirmation("managed shortcut removal notification") { confirm in
+        try await confirmation("managed shortcut removal notification") { confirm in
             let token = notificationCenter.addObserver(
                 forName: KeyboardShortcutSettings.didChangeNotification,
                 object: nil,
