@@ -150,7 +150,9 @@ extension CMUXCLI {
             }
         }
         let surface = rawSurface.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !surface.isEmpty else { return nil }
+        guard !surface.isEmpty else {
+            throw piHookSurfaceNotFoundError(rawSurface)
+        }
 
         let workspace = normalizedHandleValue(arguments.workspace)
         if isUUID(surface), workspace == nil || workspace.map(isUUID) == true {

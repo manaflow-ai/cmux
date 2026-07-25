@@ -1975,8 +1975,9 @@ final class SocketClient {
         recordOperation(operation)
 
         let payload = capabilityWrappedCommand(command) + "\n"
-        try writeAll(
+        try writeAllNonBlocking(
             Data(payload.utf8),
+            deadline: responseDeadline,
             timeoutMessage: "Command timed out",
             failureMessage: "Failed to write to socket"
         )
@@ -2070,7 +2071,7 @@ final class SocketClient {
         do {
             try writeAllNonBlocking(
                 Data((capabilityWrappedCommand(command) + "\n").utf8),
-                deadline: Date().addingTimeInterval(writeTimeout),
+                deadline: ContinuousClock.now + .seconds(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
             )
@@ -2311,8 +2312,9 @@ final class SocketClient {
             "mac": Self.hexString(from: mac),
         ])
         try configureSocketWriteSafety(remainingSocketTimeout(until: deadline))
-        try writeAll(
+        try writeAllNonBlocking(
             authPayload + Data([0x0A]),
+            deadline: deadline,
             timeoutMessage: "Relay command timed out",
             failureMessage: "Failed to write to relay socket"
         )
@@ -2362,7 +2364,7 @@ final class SocketClient {
 
     func writeAllNonBlocking(
         _ data: Data,
-        deadline: Date,
+        deadline: ContinuousClock.Instant,
         timeoutMessage: String,
         failureMessage: String
     ) throws {
@@ -2385,7 +2387,9 @@ final class SocketClient {
             }
             var offset = 0
             while offset < data.count {
-                let remaining = deadline.timeIntervalSinceNow
+                let remainingComponents = ContinuousClock.now.duration(to: deadline).components
+                let remaining = TimeInterval(remainingComponents.seconds)
+                    + TimeInterval(remainingComponents.attoseconds) / 1_000_000_000_000_000_000
                 guard remaining > 0 else {
                     close()
                     throw CLIError(message: timeoutMessage)
