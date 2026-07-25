@@ -52,6 +52,7 @@ struct GhosttyRuntimeActionTests {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
+            replacementView.surface = nil
             sourceView.prepareForDismantle()
             replacementView.prepareForDismantle()
             window.isHidden = true
@@ -61,8 +62,14 @@ struct GhosttyRuntimeActionTests {
         let bridge = try #require(
             GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(sourceSurface))
         )
+        // Remove the replacement's own renderer as a source of wakeups, then
+        // give it the source pointer only as a non-owning identity probe. A
+        // pointer-registry continuation would now target this view, while the
+        // source bridge must remain detached.
+        replacementView.disposeSurface()
+        replacementView.surface = sourceSurface
         replacementView.stopDisplayLink()
-        replacementView.needsDraw = false
+        let replacementWakeups = replacementView.renderWakeupRequestCountForTesting
 
         #expect(
             GhosttyRuntime.simulateSurfaceActionForTesting(
@@ -76,10 +83,11 @@ struct GhosttyRuntimeActionTests {
         bridge.detach()
         GhosttySurfaceView.register(surface: sourceSurface, for: replacementView)
 
-        for _ in 0..<10 where !replacementView.needsDraw {
+        for _ in 0..<10
+            where replacementView.renderWakeupRequestCountForTesting == replacementWakeups {
             await Task.yield()
         }
-        #expect(!replacementView.needsDraw)
+        #expect(replacementView.renderWakeupRequestCountForTesting == replacementWakeups)
     }
 }
 
