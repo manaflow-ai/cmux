@@ -91,6 +91,14 @@ struct WorkspaceMacSelectionScope {
         return foregroundMachineIDs.isDisjoint(with: targetIDs)
     }
 
+    /// Empty/whitespace tags read as "no tag", matching the store's authority
+    /// normalization.
+    private static func normalizedTag(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     /// The selection's filter entries projected to bare device ids (entries may
     /// be pairing ids since the tuple-aware filter).
     private func selectedDeviceIDs(for id: String) -> Set<String> {
@@ -113,9 +121,7 @@ struct WorkspaceMacSelectionScope {
                   let activePairing = displayPairedMacs.first(where: \.isActive) else {
                 return true
             }
-            return MobileMacInstanceTagAuthority.sameStoredAuthority(
-                activePairing.instanceTag, selectedTag
-            )
+            return Self.normalizedTag(activePairing.instanceTag) == Self.normalizedTag(selectedTag)
         case .all, .automatic:
             return true
         }
