@@ -75,6 +75,7 @@ extension RemoteCLIRelayServer {
         private var challengeNonce = ""
         private var challengeSentAt = Date()
         private var isClosed = false
+        private var forwardingSocketDescriptor: Int32?
 
         init(
             connection: NWConnection,
@@ -215,12 +216,35 @@ extension RemoteCLIRelayServer {
             }
             phase = .forwarding
             let forwardedCommandLine = commandRewriter(commandLine)
-            DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
+            let socketDescriptor: Int32
+            do {
+                socketDescriptor = try Self.makeLocalSocketDescriptor()
+            } catch {
+                sendFailureAndClose()
+                return
+            }
+            forwardingSocketDescriptor = socketDescriptor
+            DispatchQueue.global(qos: .utility).async {
+                [self, localSocketPath, forwardedCommandLine, queue] in
                 let result = Result {
-                    try Self.roundTripUnixSocket(socketPath: localSocketPath, request: forwardedCommandLine)
+                    try Self.roundTripUnixSocket(
+                        socketDescriptor: socketDescriptor,
+                        socketPath: localSocketPath,
+                        request: forwardedCommandLine,
+                        shouldContinue: {
+                            queue.sync {
+                                !isClosed
+                                    && forwardingSocketDescriptor == socketDescriptor
+                            }
+                        }
+                    )
                 }
-                queue.async { [weak self] in
-                    guard let self else { return }
+                queue.async { [self] in
+                    if forwardingSocketDescriptor == socketDescriptor {
+                        forwardingSocketDescriptor = nil
+                    }
+                    Darwin.close(socketDescriptor)
+                    guard !isClosed else { return }
                     switch result {
                     case .success(let response):
                         self.connection.send(content: response, completion: .contentProcessed { [weak self] _ in
@@ -275,6 +299,11 @@ extension RemoteCLIRelayServer {
             guard !isClosed else { return }
             isClosed = true
             phase = .closed
+            if let forwardingSocketDescriptor {
+                // `shutdown` interrupts a blocking local read without racing
+                // descriptor reuse; the forwarding completion owns `close`.
+                _ = Darwin.shutdown(forwardingSocketDescriptor, SHUT_RDWR)
+            }
             connection.stateUpdateHandler = nil
             connection.cancel()
             onClose()
@@ -319,15 +348,27 @@ extension RemoteCLIRelayServer {
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
 
-        private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+        private static func makeLocalSocketDescriptor() throws -> Int32 {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else {
                 throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "failed to create local relay socket",
                 ])
             }
-            defer { Darwin.close(fd) }
+            return fd
+        }
 
+        private static func roundTripUnixSocket(
+            socketDescriptor fd: Int32,
+            socketPath: String,
+            request: Data,
+            shouldContinue: () -> Bool
+        ) throws -> Data {
+            guard shouldContinue() else {
+                throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to read local cmux response",
+                ])
+            }
             var sendTimeout = timeval(
                 tv_sec: localSocketRoundTripTimeoutSeconds,
                 tv_usec: 0
@@ -368,6 +409,11 @@ extension RemoteCLIRelayServer {
             guard connectResult == 0 else {
                 throw NSError(domain: "cmux.remote.relay", code: 3, userInfo: [
                     NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
+                ])
+            }
+            guard shouldContinue() else {
+                throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to read local cmux response",
                 ])
             }
 

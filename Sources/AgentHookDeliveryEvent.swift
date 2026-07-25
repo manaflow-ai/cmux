@@ -6,6 +6,21 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     static let maximumPayloadBytes = AgentHookDeliveryPolicy.maximumPayloadBytes
     static let maximumEnvironmentBytes = 64 * 1_024
 
+    private static let terminalStateSubcommands: Set<String> = [
+        "session-start",
+        "stop",
+        "session-end",
+    ]
+
+    private static let supersedableStateSubcommands: Set<String> = [
+        "session-start",
+        "prompt-submit",
+        "stop",
+        "agent-response",
+        "approval-response",
+        "session-end",
+    ]
+
     private static let allowedHookDataEnvironmentKeys: Set<String> = [
         "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
@@ -26,6 +41,7 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     let socketPath: String
     let relayBacked: Bool
     let environment: [String: String]
+    let sessionID: String?
     private(set) var queueAdmissionInstant: ContinuousClock.Instant?
 
     /// Events for one socket and surface retain lifecycle order. The agent PID
@@ -88,7 +104,22 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         self.socketPath = socketPath
         self.relayBacked = params["relay_backed"] as? Bool ?? false
         self.environment = environment
+        self.sessionID = Self.sessionID(from: payload)
         self.queueAdmissionInstant = nil
+    }
+
+    /// Returns whether this newer terminal state can supersede an older
+    /// buffered state snapshot without discarding an independent side effect.
+    func canReplaceBufferedLifecycleState(_ earlier: Self) -> Bool {
+        guard Self.terminalStateSubcommands.contains(subcommand),
+              Self.supersedableStateSubcommands.contains(earlier.subcommand),
+              agent == earlier.agent,
+              orderingKey == earlier.orderingKey,
+              let sessionID,
+              sessionID == earlier.sessionID else {
+            return false
+        }
+        return true
     }
 
     /// Anchors the delivery deadline to queue admission instead of process
@@ -136,6 +167,39 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
             return "\(socketPath)\0process\0\(agent)\0\(processID)"
         }
         return "\(socketPath)\0agent\0\(agent)"
+    }
+
+    private static func sessionID(from payload: String) -> String? {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+        let keys = ["session_id", "sessionId", "conversation_id", "conversationId"]
+        let candidates: [[String: Any]] = [
+            object,
+            object["notification"] as? [String: Any] ?? [:],
+            object["data"] as? [String: Any] ?? [:],
+            object["session"] as? [String: Any] ?? [:],
+            object["context"] as? [String: Any] ?? [:],
+        ]
+        for candidate in candidates {
+            for key in keys where candidate[key] is String {
+                guard let value = candidate[key] as? String else { continue }
+                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !normalized.isEmpty {
+                    return String(normalized.prefix(256))
+                }
+            }
+        }
+        if let session = object["session"] as? [String: Any],
+           let value = session["id"] as? String {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                return String(normalized.prefix(256))
+            }
+        }
+        return nil
     }
 
     private static func validatedEnvironment(_ rawValue: Any?, agent: String) -> [String: String]? {

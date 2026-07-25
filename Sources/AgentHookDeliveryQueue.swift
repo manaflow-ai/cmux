@@ -34,14 +34,12 @@ actor AgentHookDeliveryQueue {
             return false
         }
 
-        var preservesLatestLifecycleState: Bool {
-            guard case .event(let event) = self else { return false }
-            return [
-                "session-start",
-                "stop",
-                "session-end",
-                "session-finalize",
-            ].contains(event.subcommand)
+        func canBeReplaced(by newerItem: Self) -> Bool {
+            guard case .event(let earlierEvent) = self,
+                  case .event(let newerEvent) = newerItem else {
+                return false
+            }
+            return newerEvent.canReplaceBufferedLifecycleState(earlierEvent)
         }
     }
 
@@ -201,8 +199,7 @@ actor AgentHookDeliveryQueue {
         }.count
         if classCount >= capacity {
             guard admissionClass == .lifecycle,
-                  item.preservesLatestLifecycleState,
-                  let replacementIndex = lifecycleReplacementIndex(for: item)
+                  let replacementIndex = lifecycleReplacementIndex(replacedBy: item)
             else {
                 agentHookDeliveryQueueLogger.error(
                     "Hook admission dropped \(droppedDescription, privacy: .public)"
@@ -280,13 +277,13 @@ actor AgentHookDeliveryQueue {
     }
 
     private nonisolated func lifecycleReplacementIndex(
-        for item: PendingItem
+        replacedBy item: PendingItem
     ) -> Int? {
         let lifecycleIndices = admissionRecords.indices.filter {
             admissionRecords[$0].admissionClass == .lifecycle
         }
         return lifecycleIndices.first {
-            admissionRecords[$0].item.orderingKey == item.orderingKey
+            admissionRecords[$0].item.canBeReplaced(by: item)
         }
     }
 
