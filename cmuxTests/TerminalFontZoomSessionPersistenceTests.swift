@@ -374,6 +374,75 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("queued Window Dock zoom seeds a terminal-free workspace")
+    func queuedWindowDockZoomSeedsTerminalFreeWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        _ = try #require(
+            workspace.newBrowserSurface(
+                inPane: paneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(workspace.closePanel(firstPanelID, force: true))
+
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        var configTemplate = CmuxSurfaceConfigTemplate()
+        configTemplate.fontSizeLineage = TerminalFontSizeLineage(
+            basePoints: 5,
+            isExplicitOverride: true
+        )
+        let dockPanel = TerminalPanel(
+            workspaceId: windowDock.workspaceId,
+            configTemplate: configTemplate,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        windowDock.panels[dockPanel.id] = dockPanel
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: false
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+
+        #expect(
+            dockPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 4,
+                    isExplicitOverride: true
+                )
+        )
+        let inheritedPanel = try #require(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        #expect(
+            inheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 4,
+                    isExplicitOverride: true
+                )
+        )
+    }
+
     @Test("Dock terminal at the clamp bound still seeds first main terminal")
     func boundedWindowDockFontSizeAdjustmentSeedsFirstMainTerminal() throws {
         let workspace = Workspace()
@@ -647,6 +716,22 @@ struct TerminalFontZoomSessionPersistenceTests {
             newMirrorPanel.surface.fontSizeLineageSnapshot()
                 == TerminalFontSizeLineage(basePoints: 7, isExplicitOverride: true)
         )
+    }
+
+    @Test("remote tmux pane fanout avoids full inherited config rebuilds")
+    func remoteTmuxPaneFanoutUsesFontOnlyInheritance() {
+        let workspace = Workspace()
+#if DEBUG
+        let fullConfigCount =
+            workspace.debugInheritedTerminalConfigInvocationCount
+        for _ in 0..<32 {
+            _ = workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
+        }
+        #expect(
+            workspace.debugInheritedTerminalConfigInvocationCount
+                == fullConfigCount
+        )
+#endif
     }
 
     @Test("temporary mobile fit does not replace remembered durable lineage")
