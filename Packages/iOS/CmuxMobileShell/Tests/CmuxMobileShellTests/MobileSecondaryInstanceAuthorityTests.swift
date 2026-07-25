@@ -55,6 +55,20 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
+        let foregroundTicket = try CmxAttachTicket(
+            workspaceID: "foreground-workspace",
+            terminalID: "foreground-terminal",
+            macDeviceID: "mac-a",
+            macDisplayName: "Studio A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let foregroundClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: foregroundTicket,
+            allowsStackAuthFallback: true
+        )
         let shell = MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
@@ -69,6 +83,21 @@ import Testing
         )
         shell.foregroundMacDeviceID = "mac-a"
         shell.activeMacInstanceTag = "feature-a"
+        shell.activeTicket = foregroundTicket
+        shell.activeRoute = route
+        shell.connectedHostName = "Studio A"
+        shell.remoteClient = foregroundClient
+        shell.connections["mac-a"] = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: foregroundTicket,
+            route: route,
+            client: foregroundClient,
+            generation: UUID(),
+            displayName: "Studio A",
+            instanceTag: "feature-a",
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none
+        )
         shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
             macDeviceID: "mac-b",
             client: client,
@@ -80,7 +109,10 @@ import Testing
             actionCapabilities: .none
         )
 
-        #expect(await shell.switchToMac(macDeviceID: "mac-b"))
+        #expect(await shell.switchToMac(
+            macDeviceID: "mac-b",
+            instanceTag: "feature-b"
+        ))
         #expect(shell.activeMacInstanceTag == "feature-b")
         #expect(shell.foregroundMacDeviceID == "mac-b")
         let statusResolved = await router.waitForCount(
@@ -90,6 +122,16 @@ import Testing
         )
         #expect(statusResolved)
         #expect(shell.connectionState == .connected)
+        #expect(shell.secondaryMacSubscriptions["mac-a"]?.client === foregroundClient)
+        #expect(shell.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
+        #expect(shell.liveMacConnections.map(\.role) == [.focused, .control])
+        let foregroundStillWarm = try? await foregroundClient.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        #expect(foregroundStillWarm != nil)
     }
 
     @Test func promotionRejectsAWhenStoreChangesToBDuringWorkspaceProbe() async throws {
