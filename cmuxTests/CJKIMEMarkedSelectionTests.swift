@@ -167,6 +167,116 @@ struct CJKIMEMarkedSelectionTests {
         #expect(pressedKeyCodes.isEmpty)
     }
 
+    @Test func consumedRepeatCannotStealReleaseFromForwardedPress() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        var interpretationCount = 0
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
+            guard candidateView === hostedTerminal.surfaceView else { return false }
+            defer { interpretationCount += 1 }
+            return interpretationCount > 0
+        }
+
+        var lifecycle: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.keycode == UInt32(kVK_ANSI_A) else { return }
+            switch keyEvent.action {
+            case GHOSTTY_ACTION_PRESS:
+                lifecycle.append("press")
+            case GHOSTTY_ACTION_REPEAT:
+                lifecycle.append("repeat")
+            case GHOSTTY_ACTION_RELEASE:
+                lifecycle.append("release")
+            default:
+                break
+            }
+        }
+
+        let press = try keyEvent(
+            text: "a",
+            keyCode: UInt16(kVK_ANSI_A),
+            windowNumber: hostedTerminal.window.windowNumber
+        )
+        let repeatEvent = try keyEvent(
+            text: "a",
+            keyCode: UInt16(kVK_ANSI_A),
+            windowNumber: hostedTerminal.window.windowNumber,
+            isRepeat: true
+        )
+        let release = try keyUpEvent(matching: press)
+
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: press)
+        hostedTerminal.surfaceView.keyDown(with: repeatEvent)
+        hostedTerminal.surfaceView.keyUp(with: release)
+
+        #expect(lifecycle == ["press", "release"])
+    }
+
+    @Test func forwardedRepeatCannotCreateLifecycleForConsumedPress() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        var interpretationCount = 0
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
+            guard candidateView === hostedTerminal.surfaceView else { return false }
+            defer { interpretationCount += 1 }
+            return interpretationCount == 0
+        }
+
+        var lifecycle: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.keycode == UInt32(kVK_ANSI_A) else { return }
+            switch keyEvent.action {
+            case GHOSTTY_ACTION_PRESS:
+                lifecycle.append("press")
+            case GHOSTTY_ACTION_REPEAT:
+                lifecycle.append("repeat")
+            case GHOSTTY_ACTION_RELEASE:
+                lifecycle.append("release")
+            default:
+                break
+            }
+        }
+
+        let press = try keyEvent(
+            text: "a",
+            keyCode: UInt16(kVK_ANSI_A),
+            windowNumber: hostedTerminal.window.windowNumber
+        )
+        let repeatEvent = try keyEvent(
+            text: "a",
+            keyCode: UInt16(kVK_ANSI_A),
+            windowNumber: hostedTerminal.window.windowNumber,
+            isRepeat: true
+        )
+        let release = try keyUpEvent(matching: press)
+
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: press)
+        hostedTerminal.surfaceView.keyDown(with: repeatEvent)
+        hostedTerminal.surfaceView.keyUp(with: release)
+
+        #expect(lifecycle.isEmpty)
+    }
+
     @Test func textInputCommandAfterPreeditCommitDoesNotReplayPhysicalKey() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
@@ -393,7 +503,8 @@ struct CJKIMEMarkedSelectionTests {
     private func keyEvent(
         text: String,
         keyCode: UInt16,
-        windowNumber: Int
+        windowNumber: Int,
+        isRepeat: Bool = false
     ) throws -> NSEvent {
         try #require(NSEvent.keyEvent(
             with: .keyDown,
@@ -404,8 +515,23 @@ struct CJKIMEMarkedSelectionTests {
             context: nil,
             characters: text,
             charactersIgnoringModifiers: text,
-            isARepeat: false,
+            isARepeat: isRepeat,
             keyCode: keyCode
+        ))
+    }
+
+    private func keyUpEvent(matching keyDown: NSEvent) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyUp,
+            location: keyDown.locationInWindow,
+            modifierFlags: keyDown.modifierFlags,
+            timestamp: keyDown.timestamp + 0.01,
+            windowNumber: keyDown.windowNumber,
+            context: nil,
+            characters: keyDown.characters ?? "",
+            charactersIgnoringModifiers: keyDown.charactersIgnoringModifiers ?? "",
+            isARepeat: false,
+            keyCode: keyDown.keyCode
         ))
     }
 }
