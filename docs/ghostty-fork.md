@@ -29,7 +29,7 @@ Its universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-518ac28d58b188e5131b7d01e1c1b672d88b6819-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
-### Issue 8808 typing-lag rollback
+### Issue 8808 typing-lag correction
 
 - Commits:
   - `3a43d5edc` (test: require serial frame slot rotation)
@@ -60,8 +60,67 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - Retains bounded renderer mailbox drains, redraw delivery tickets, and
     surface action retention. Reverting those would restore the starvation and
     teardown bugs covered by PRs 135, 136, and 139.
-  - This pin is the nightly unblock. It does not change the upstream Ghostty
-    base or Zig version; the next clean update performs that upgrade together.
+  - This correction preserves PR 8848's renderer, iOS continuation, and
+    terminal-input fixes while replacing only its superseded ownership API.
+    It does not change the upstream Ghostty base or Zig version; the next clean
+    update performs that upgrade together.
+
+### Bounded renderer mailbox turns and continuation recovery
+
+- Commits:
+  - `188d31a97` (fix: bound renderer mailbox drain turns)
+  - `18c3fd311` (renderer: preserve progress across wake errors)
+  - `727a7dc02` (fix: drain external renderer continuations)
+  - `994fee1b0` (merge the complete bounded-drain follow-up)
+- Files:
+  - `src/datastruct/blocking_queue.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Limits one renderer turn to the mailbox depth observed when the turn
+    begins. Messages added by concurrent producers remain FIFO-ordered for the
+    next turn.
+  - Applies latest-value lifecycle state and performs the pending render after
+    every bounded batch, even when terminal output keeps refilling the mailbox.
+  - Rechecks after rendering and explicitly re-wakes the normal renderer when
+    work arrived during either the drain or render, because producer
+    notifications may have coalesced with the wake being handled.
+  - External iOS rendering, which permanently disables the xev callback, drains
+    each finite continuation batch until quiescent on its serial render queue.
+  - Restores failed focus/display lifecycle requests only when their atomic
+    slots are still empty, preserving newer concurrent publications and making
+    focus application transactional for a later retry.
+  - Conflict note: future renderer-loop changes must preserve bounded progress
+    for lifecycle state and rendering, normal-path post-render re-wakes, and
+    external-path continuation consumption. Do not replace the snapshot drain
+    with an unbounded producer-refillable drain-until-empty loop.
+
+### External redraw delivery and surface lifetime
+
+- Commits:
+  - `d1efafd78` (fix: retain rejected external redraw requests)
+  - `62e1de720` (fix: ticket external redraw deliveries)
+  - `741b11662` (fix: bind redraw tickets to surface lifetimes)
+  - `cf1dee45d` (fix: retain surfaces through app action dispatch)
+  - `d3265f4c5` (merge the reviewed redraw-delivery follow-up)
+- Files:
+  - `src/App.zig`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/apprt/gtk/Surface.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Assigns one generation-scoped redraw ticket to each external surface so a
+    rejected app-mailbox enqueue has one retained retry owner.
+  - Distinguishes queued work from enqueue failure, retries only after mailbox
+    capacity returns, and rejects stale acknowledgments or allocator-address
+    reuse from an older surface lifetime.
+  - Retains the surface allocation while the host render action is dispatched,
+    allowing reentrant teardown to unregister immediately while deferring final
+    destruction until the callback returns.
+  - Conflict note: external redraw changes must preserve per-surface ticket
+    ownership, generation checks, enqueue-failure retry ownership, and the app
+    action lifetime lease. A raw surface pointer is not a sufficient delivery
+    identity across asynchronous dispatch.
 
 ### Nonblocking renderer lifecycle state
 
@@ -124,6 +183,28 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     Platform enum values and the combined surface ABI are externally consumed
     and must not be renumbered implicitly.
 
+### Serial frame-lease rotation
+
+- Commits:
+  - `3a43d5edc` (test: require serial frame slot rotation)
+  - `fcafac572` (fix: rotate serial frame leases)
+  - `50ad1963d` (merge the frame-lease rotation fix)
+- File:
+  - `src/renderer/frame_lease.zig`
+- Summary:
+  - Rotates the free-slot search after every successful acquisition. A serial
+    producer therefore presents distinct IOSurface objects even when each Metal
+    frame completes before the next input event.
+  - Preserves exact-slot ownership, generation tokens, out-of-order release
+    safety, and semaphore backpressure; only the choice among currently free
+    slots changes.
+  - Prevents Core Animation from deduplicating repeated assignments of one
+    IOSurface while its pixels change underneath it, which otherwise batches
+    low-rate terminal echo until unrelated layer activity triggers recomposition.
+  - Conflict note: future lease-pool refactors must retain round-robin selection
+    among free slots. A fixed first-free scan reintroduces serial-render stalls
+    even when every GPU completion and renderer wake is timely.
+
 ### Cursor visual and replay continuity state
 
 - Commits:
@@ -160,6 +241,53 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     reusing one C render state, matching long-lived external frontends.
   - Conflict note: reset must continue to mean "no override"; snapshotting the
     current default recreates stale colors after a later frontend theme update.
+
+### Unindented hard-newline link continuations
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/134
+- Commits:
+  - `823641e234c3c6bf4bc5badb72261d8a6fc37232` (fix: join unindented wrapped links)
+  - `f6b47c8371991a4555f907737e808f161c368661` (merge the link continuation fix)
+- Files:
+  - `src/Surface.zig`
+  - `src/link.zig`
+  - `src/link_wrap.zig`
+- Summary:
+  - Uses one shared continuation classifier for terminal-grid candidate
+    expansion and newline normalization, so hover, copy, preview, and open all
+    resolve the same complete link.
+  - Recognizes unindented hard-newline continuations after link punctuation
+    while preserving the existing indented continuation behavior.
+  - Keeps conservative boundaries for explicit schemes and roots, semantic
+    prompt transitions, unrelated indentation, and trailing sentence
+    punctuation.
+  - Conflict note: link-grid expansion and newline normalization must continue
+    to share the classifier; duplicating the continuation decision can make
+    hover and activation disagree.
+
+### Bounded Kitty graphics state
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/137
+- Commit:
+  - `b7feeea5c0ee041f8cb79aace2129efad31df19d` (merge bounded Kitty graphics state)
+- Files:
+  - `include/ghostty/vt/{kitty_graphics.h,terminal.h,types.h}`
+  - `src/lib_vt.zig`
+  - `src/terminal/{Screen.zig,Terminal.zig}`
+  - `src/terminal/c/{kitty_graphics.zig,main.zig,terminal.zig}`
+  - `src/terminal/kitty/{graphics.zig,graphics_exec.zig,graphics_image.zig,graphics_storage.zig,graphics_unicode.zig}`
+- Summary:
+  - Bounds per-screen Kitty image and placement storage, in-progress image
+    loads, allocation sizes, and eviction scans.
+  - Exposes the lib-vt C ABI for image and placement enumeration, restores
+    image-number aliases, and reports anonymous placement identity.
+  - Adds renderer-owned graphics dirty/damage state for incremental external
+    snapshots.
+  - Applies limit changes atomically and preserves replacements while cleaning
+    placement pins during replacement and eviction.
+  - Conflict note: future Kitty storage changes must preserve bounded resource
+    use, atomic limit updates, alias/enumeration ABI behavior, and placement-pin
+    cleanup.
 
 ## Reconciled product-main line
 

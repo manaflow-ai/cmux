@@ -18,9 +18,8 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     // while queued renderer work still dereferences that pointer
     // (use-after-free). The cycle means a closed terminal's view/bridge/
     // surface are reclaimed only by the render-pipeline recovery rebuild, not
-    // by dismantle; fixing the leak needs retained-uiview / free-on-dismantle
-    // choreography, tracked in
-    // https://github.com/manaflow-ai/cmux/issues/7199.
+    // by dismantle; fixing that requires moving the UIKit owner out of the
+    // raw libghostty platform pointer rather than weakening this edge.
     private var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {
