@@ -505,6 +505,27 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Bare env keeps its PATH-resolved executable semantics")
+    func bareEnvRemainsPathResolved() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let parts = [
+            "env",
+            "-u",
+            "CODEX_HOME",
+            "/opt/company/bin/codex",
+            "resume",
+            "SID",
+        ]
+
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: parts,
+                quote: quote
+            ) == parts.map(quote),
+            "A bare env token must keep resolving through the captured PATH."
+        )
+    }
+
     @Test("Absolute Codex wrapper fallback executes the captured binary")
     func absoluteCodexWrapperFallbackExecutesCapturedBinary() throws {
         let root = FileManager.default.temporaryDirectory
