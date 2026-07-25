@@ -43,7 +43,10 @@ struct CrashDiagnosticSessionPolicyTests {
         try Data("MDMP".utf8).write(to: crashReport)
         let symlink = root.appendingPathComponent("crash-link.ghosttycrash", isDirectory: false)
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: crashReport)
-        let previousStateHome = ProcessInfo.processInfo.environment["XDG_STATE_HOME"]
+        // Read the live value with getenv: ProcessInfo caches the environment at first
+        // access, so if an earlier test setenv'd this variable at runtime, restoring the
+        // ProcessInfo snapshot in the defer below would clobber that test's state.
+        let previousStateHome = getenv("XDG_STATE_HOME").map { String(cString: $0) }
         setenv("XDG_STATE_HOME", stateHome.path(percentEncoded: false), 1)
         defer {
             if let previousStateHome {
