@@ -61,6 +61,37 @@ import Testing
         #expect(coordinator.searchDestinationText(for: .notifications) == "alerts")
     }
 
+    @Test func nativeNotificationSearchBoundsDisplayedDraftAndCommittedQuery() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        coordinator.synchronizeSelection(.notifications)
+        coordinator.setPresentation(true)
+
+        coordinator.updateNativeSearchText(
+            "target" + String(repeating: "\u{0301}", count: 10_000),
+            for: .notifications,
+            activationGeneration: coordinator.activationGeneration
+        )
+
+        let displayedQuery = coordinator.activeNativeSearchText()
+        #expect(displayedQuery.unicodeScalars.count <= MobileSearchQueryBounds.maxUnicodeScalars)
+        #expect(displayedQuery.utf8.count <= MobileSearchQueryBounds.maxUTF8Bytes)
+        #expect(coordinator.searchDestinationText(for: .notifications) == displayedQuery)
+
+        #expect(coordinator.commitSubmit() == .notifications)
+        #expect(coordinator.notifications == displayedQuery)
+        #expect(coordinator.activeNativeSearchText() == displayedQuery)
+    }
+
+    @Test func directCommittedSearchBindingUsesSharedBounds() {
+        let coordinator = MobilePrimarySearchCoordinator()
+
+        coordinator.workspaces = "workspace" + String(repeating: "\u{0301}", count: 10_000)
+
+        #expect(coordinator.workspaces.unicodeScalars.count <= MobileSearchQueryBounds.maxUnicodeScalars)
+        #expect(coordinator.workspaces.utf8.count <= MobileSearchQueryBounds.maxUTF8Bytes)
+        #expect(coordinator.activeNativeSearchText() == coordinator.workspaces)
+    }
+
     @Test func deactivatingSearchRejectsPlatformCleanupWrite() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)

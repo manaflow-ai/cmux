@@ -9,8 +9,12 @@ import Observation
 final class MobilePrimarySearchCoordinator {
     var scope: MobilePrimarySearchScope
     var isPresented = false
-    var workspaces = ""
-    var notifications = ""
+    var workspaces = "" {
+        didSet { normalizeCommittedSearchText(for: .workspaces, oldValue: oldValue) }
+    }
+    var notifications = "" {
+        didSet { normalizeCommittedSearchText(for: .notifications, oldValue: oldValue) }
+    }
     private(set) var activationGeneration: UInt64 = 0
 
     private var phase: MobilePrimarySearchPhase = .inactive
@@ -115,6 +119,7 @@ final class MobilePrimarySearchCoordinator {
     }
 
     private func setNativeSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
+        let value = MobileSearchQueryBounds.normalized(value).value
         switch scope {
         case .workspaces:
             guard workspaceNativeSearchText != value else { return }
@@ -126,6 +131,7 @@ final class MobilePrimarySearchCoordinator {
     }
 
     private func setCommittedSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
+        let value = MobileSearchQueryBounds.normalized(value).value
         switch scope {
         case .workspaces:
             guard workspaces != value else { return }
@@ -133,6 +139,19 @@ final class MobilePrimarySearchCoordinator {
         case .notifications:
             guard notifications != value else { return }
             notifications = value
+        }
+    }
+
+    private func normalizeCommittedSearchText(
+        for scope: MobilePrimarySearchScope,
+        oldValue: String
+    ) {
+        let normalized = MobileSearchQueryBounds.normalized(committedSearchText(for: scope))
+        if normalized.didChange {
+            setCommittedSearchText(normalized.value, for: scope)
+        }
+        if normalized.value != oldValue {
+            setNativeSearchText(normalized.value, for: scope)
         }
     }
 

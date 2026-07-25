@@ -30,7 +30,7 @@ final class NotificationFeedProjection {
     }
     var searchText = "" {
         didSet {
-            let normalized = Self.boundedNormalizedSearchQuery(searchText)
+            let normalized = MobileSearchQueryBounds.normalized(searchText)
             if normalized.didChange {
                 searchText = normalized.value
             }
@@ -137,8 +137,8 @@ final class NotificationFeedProjection {
     }
 
     nonisolated static let maxSourceItemCount = MobileNotificationFeedAggregation.maxItemCount
-    nonisolated static let maxSearchQueryUnicodeScalars = 128
-    nonisolated static let maxSearchQueryUTF8Bytes = 512
+    nonisolated static let maxSearchQueryUnicodeScalars = MobileSearchQueryBounds.maxUnicodeScalars
+    nonisolated static let maxSearchQueryUTF8Bytes = MobileSearchQueryBounds.maxUTF8Bytes
     nonisolated private static let maxMetadataSearchableCharactersPerField = 512
     nonisolated private static let maxTitleSearchableCharacters = 1_024
     nonisolated private static let maxSubtitleSearchableCharacters = 2_048
@@ -152,34 +152,7 @@ final class NotificationFeedProjection {
     }
 
     nonisolated private static func normalizedSearchQuery(_ value: String) -> String {
-        boundedNormalizedSearchQuery(value).value
-    }
-
-    nonisolated private static func boundedNormalizedSearchQuery(
-        _ value: String
-    ) -> (value: String, didChange: Bool) {
-        var output = String()
-        output.reserveCapacity(min(maxSearchQueryUnicodeScalars, maxSearchQueryUTF8Bytes))
-        var scalarCount = 0
-        var utf8ByteCount = 0
-        var didTruncate = false
-        for scalar in value.unicodeScalars {
-            let scalarUTF8ByteCount = scalar.utf8.count
-            guard scalarCount < maxSearchQueryUnicodeScalars,
-                  utf8ByteCount + scalarUTF8ByteCount <= maxSearchQueryUTF8Bytes else {
-                didTruncate = true
-                break
-            }
-            output.unicodeScalars.append(scalar)
-            scalarCount += 1
-            utf8ByteCount += scalarUTF8ByteCount
-        }
-
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (
-            value: trimmed,
-            didChange: didTruncate || trimmed != output
-        )
+        MobileSearchQueryBounds.normalized(value).value
     }
 
     nonisolated private static func build(
