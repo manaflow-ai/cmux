@@ -19,6 +19,7 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
 
     private let executableURLProvider: @Sendable () -> URL?
     private let processTimeout: Duration
+    private let deliveryTimeout: Duration
     private let terminationGrace: Duration
 
     init(
@@ -26,10 +27,12 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
             Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
         },
         processTimeout: Duration = .seconds(15),
+        deliveryTimeout: Duration = .seconds(16),
         terminationGrace: Duration = .milliseconds(250)
     ) {
         self.executableURLProvider = executableURLProvider
         self.processTimeout = processTimeout
+        self.deliveryTimeout = deliveryTimeout
         self.terminationGrace = terminationGrace
     }
 
@@ -44,10 +47,23 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         // retry one infrastructure/process failure. High-volume tool telemetry
         // remains single-attempt best effort and cannot multiply its load.
         let maximumAttempts = event.isBestEffortTelemetry ? 1 : 2
+        let clock = ContinuousClock()
+        // The complete retry sequence stays below the app's 18-second lane
+        // barrier; retries consume the same budget instead of resetting it.
+        let deliveryDeadline = clock.now.advanced(by: deliveryTimeout)
         for attempt in 1...maximumAttempts {
+            let remainingDeliveryTime = clock.now.duration(to: deliveryDeadline)
+            guard remainingDeliveryTime > terminationGrace else {
+                logFailure(.deadline)
+                return
+            }
             let completion = await runDeliveryAttempt(
                 event,
-                executableURL: executableURL
+                executableURL: executableURL,
+                processTimeout: min(
+                    processTimeout,
+                    remainingDeliveryTime - terminationGrace
+                )
             )
             switch completion {
             case .exited(0):
@@ -66,7 +82,8 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
 
     private func runDeliveryAttempt(
         _ event: AgentHookDeliveryEvent,
-        executableURL: URL
+        executableURL: URL,
+        processTimeout: Duration
     ) async -> Completion {
         let input: FileHandle
         do {
@@ -107,7 +124,8 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
 
         let completion = await awaitCompletion(
             terminations: terminations,
-            processID: process.processIdentifier
+            processID: process.processIdentifier,
+            processTimeout: processTimeout
         )
         process.terminationHandler = nil
         switch completion {
@@ -185,7 +203,8 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
 
     private func awaitCompletion(
         terminations: AsyncStream<Int32>,
-        processID: pid_t
+        processID: pid_t,
+        processTimeout: Duration
     ) async -> Completion {
         await withTaskGroup(of: Completion.self) { group in
             group.addTask {
@@ -194,7 +213,6 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
                 }
                 return .cancelled
             }
-            let processTimeout = processTimeout
             let terminationGrace = terminationGrace
             group.addTask {
                 do {

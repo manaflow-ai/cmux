@@ -34,7 +34,7 @@ def queued_hook_command(agent: str, subcommand: str, disabled_key: str) -> str:
             f'cmux_cli="{executable}"',
             'if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi',
             f'agent_pid="${{{pid_key}:-${{PPID:-}}}}"',
-            f'if [ -n "$CMUX_SURFACE_ID" ] && [ "${disabled_key}" != "1" ] && [ -n "$cmux_cli" ]; then if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$cmux_cli" --socket "$CMUX_SOCKET_PATH" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; else {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$cmux_cli" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; fi; else echo \'{{}}\'; fi',
+            f'if [ -n "$CMUX_SURFACE_ID" ] && [ "${disabled_key}" != "1" ] && [ -n "$cmux_cli" ]; then if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" --socket "$CMUX_SOCKET_PATH" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; else {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; fi; else echo \'{{}}\'; fi',
         ]
     )
 
@@ -51,7 +51,7 @@ def generated_claude_hook_settings() -> str:
     def queued(subcommand: str, *, matcher: str = "") -> dict:
         return direct(
             queued_hook_command("claude", subcommand, "CMUX_CLAUDE_HOOKS_DISABLED"),
-            3,
+            5,
             matcher=matcher,
         )
 
@@ -634,7 +634,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         expect(
             any(
                 "hooks enqueue claude push-notification" in h.get("command", "")
-                and h.get("timeout") == 3
+                and h.get("timeout") == 5
                 for h in push_hooks
             ),
             f"PushNotification bridge should use queued admission, got {push_hooks}",
@@ -652,7 +652,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     expect(
         any(
             "hooks enqueue claude pre-tool-use" in h.get("command", "")
-            and h.get("timeout") == 3
+            and h.get("timeout") == 5
             for h in pre_tool_use_hooks
         ),
         f"PreToolUse hook should use queued admission, got {pre_tool_use_hooks}",
@@ -668,7 +668,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     expect(
         any(
             "hooks enqueue claude feed" in h.get("command", "")
-            and h.get("timeout") == 3
+            and h.get("timeout") == 5
             for h in subagent_stop_hooks
         ),
         f"SubagentStop hook should use queued feed admission, got {subagent_stop_hooks}",
@@ -682,7 +682,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     # SessionEnd only waits for short queue admission (session is exiting).
     session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("timeout") == 3 for h in session_end_hooks),
+        any(h.get("timeout") == 5 for h in session_end_hooks),
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
         failures,
     )

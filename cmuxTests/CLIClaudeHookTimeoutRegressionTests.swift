@@ -1007,10 +1007,10 @@ struct CLIClaudeHookTimeoutRegressionTests {
             guard let entries = group["hooks"] as? [[String: Any]] else { return nil }
             return entries.first { $0["command"] as? String == command }
         }.first)
-        #expect(hook["timeout"] as? Int == 3)
+        #expect(hook["timeout"] as? Int == 5)
         #expect(hook["async"] == nil)
         #expect(command.contains(#"--socket "$CMUX_SOCKET_PATH""#))
-        #expect(command.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1"))
+        #expect(command.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5"))
         #expect(!command.contains("nohup"))
         #expect(!command.contains("sleep "))
         #expect(!command.contains("watchdog"))

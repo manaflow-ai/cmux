@@ -27,7 +27,7 @@ extension CMUXCLI {
     /// splice ahead of the user's args to enable + inject cmux's hooks for one
     /// codex invocation. Returns the arg list:
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
-    ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<command>''',timeout=3000}]}]\0
+    ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<command>''',timeout=5000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
     /// where non-decision hooks enqueue ordered app-owned delivery and decision
     /// hooks call cmux directly so Codex receives their output and exit status.

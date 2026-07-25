@@ -2,9 +2,12 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
-    static let agentHookAdmissionResponseTimeoutSeconds = 1
+    static let agentHookAdmissionResponseTimeoutSeconds = 0.5
     static let agentHookBarrierResponseTimeoutSeconds = 20
-    static let agentHookDeclaredTimeoutSeconds = 3
+    // Relay authentication has three bounded response phases. Their combined
+    // 1.5-second ceiling leaves 3.5 seconds for process startup, writes, and the
+    // fail-open shell response before the agent terminates the hook.
+    static let agentHookDeclaredTimeoutSeconds = 5
     static let agentHookDeclaredTimeoutMilliseconds = agentHookDeclaredTimeoutSeconds * 1_000
     static let maximumRelayAgentHookPayloadBytes = 4 * 1_024
     static let maximumRelayAgentHookEncodedPayloadBytes = 8 * 1_024
