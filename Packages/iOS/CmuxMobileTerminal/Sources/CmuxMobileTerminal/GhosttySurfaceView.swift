@@ -1488,6 +1488,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private var artifactChipShouldBeVisible: Bool {
         artifactChipHost.isRequestedVisible
+            && artifactChipScrollRevealed
             && dockedToolbarShouldBeVisible
             && dockedToolbar?.isHidden == false
             && !zoomOverlayShown
@@ -1498,6 +1499,63 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             shouldShow: artifactChipShouldBeVisible,
             animated: animated
         )
+    }
+
+    /// The chip is scroll-revealed: hidden at rest, shown while the user
+    /// scrolls, and faded out after a short linger once scrolling settles —
+    /// scrollbar-style, so it never sits over terminal content the user is
+    /// reading. Mount state (whether there are files to show) is orthogonal
+    /// and owned by the host content above.
+    private var artifactChipScrollRevealed = false
+    private var artifactChipRevealHideTask: Task<Void, Never>?
+    /// Injected so the linger is testable and cancellable
+    /// (`DispatchQueue.asyncAfter` is banned for intentional delays).
+    var artifactChipRevealClock: any Clock<Duration> = ContinuousClock()
+    /// How long the chip stays after the last scroll movement. Long enough to
+    /// move a thumb from mid-screen to the chip and tap it.
+    static let artifactChipRevealLinger: Duration = .seconds(2.2)
+
+    /// Reveals the chip for scroll activity and re-arms the idle linger.
+    ///
+    /// - Parameter armLinger: Pass `false` while a drag is beginning; the
+    ///   linger is then armed by the drag-end/deceleration-end callbacks (or
+    ///   by movement deltas), so a held-still finger keeps the chip up.
+    private func noteArtifactChipScrollActivity(armLinger: Bool = true) {
+        artifactChipRevealHideTask?.cancel()
+        artifactChipRevealHideTask = nil
+        if !artifactChipScrollRevealed {
+            artifactChipScrollRevealed = true
+            updateArtifactChipVisibility(animated: true)
+        }
+        guard armLinger else { return }
+        armArtifactChipRevealLinger()
+    }
+
+    private func armArtifactChipRevealLinger() {
+        artifactChipRevealHideTask?.cancel()
+        artifactChipRevealHideTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await self.artifactChipRevealClock.sleep(
+                for: Self.artifactChipRevealLinger,
+                tolerance: nil
+            )
+            guard !Task.isCancelled else { return }
+            self.artifactChipRevealHideTask = nil
+            // A finger resting on the screen mid-drag produces no deltas;
+            // keep the chip up until the touch actually ends.
+            if self.scrollMechanicsView.isTracking {
+                self.armArtifactChipRevealLinger()
+                return
+            }
+            self.artifactChipScrollRevealed = false
+            self.updateArtifactChipVisibility(animated: true)
+        }
+    }
+
+    private func resetArtifactChipReveal() {
+        artifactChipRevealHideTask?.cancel()
+        artifactChipRevealHideTask = nil
+        artifactChipScrollRevealed = false
     }
 
     /// Mount (or unmount, with `nil`) the host-built compose field into the surface's
@@ -1733,6 +1791,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
+        // Every real scroll movement (tracking and momentum) keeps the
+        // scroll-revealed chip up and pushes its idle linger out.
+        noteArtifactChipScrollActivity()
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
@@ -2476,6 +2537,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedVisibleArtifactCount = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
         artifactChipHost.setContent(nil)
+        resetArtifactChipReveal()
         updateArtifactChipVisibility(animated: false)
         completePendingSurfaceOperations(returning: false)
         cancelRenderPipelineRecoveryResumeTimer()
@@ -3929,6 +3991,26 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
             : fallbackPoint
         enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
         recenterScrollMechanicsViewIfNeeded()
+    }
+
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView else { return }
+        // Reveal on touch-down and hold the chip (no linger) while the finger
+        // is down; the end/deceleration callbacks arm the fade-out.
+        noteArtifactChipScrollActivity(armLinger: false)
+    }
+
+    public func scrollViewDidEndDragging(
+        _ scrollView: UIScrollView,
+        willDecelerate decelerate: Bool
+    ) {
+        guard scrollView === scrollMechanicsView, !decelerate else { return }
+        armArtifactChipRevealLinger()
+    }
+
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView else { return }
+        armArtifactChipRevealLinger()
     }
 }
 
