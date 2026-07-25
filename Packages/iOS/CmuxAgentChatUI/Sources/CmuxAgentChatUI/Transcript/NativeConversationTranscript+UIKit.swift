@@ -74,7 +74,7 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         private var onSemanticHead: () -> Void = {}
         private var onSemanticTail: () -> Void = {}
         private var lastCommandGeneration: Int?
-        private var pendingSemanticCommandGeneration: Int?
+        private var pendingSemanticCommand: PendingSemanticCommand?
         private var prefetchGate = ConversationPrefetchGate<ConversationPrefetchBoundary<Row.ID>>()
         private var beforePageID: String?
         private var afterPageID: String?
@@ -414,28 +414,50 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
             case .head:
                 guard !hasMoreBefore else {
                     followState.wrappedValue = .jumpingToHead
-                    if pendingSemanticCommandGeneration != command.generation {
-                        pendingSemanticCommandGeneration = command.generation
+                    if shouldRequestSemanticLoad(for: command) {
                         onSemanticHead()
                     }
                     return
                 }
-                pendingSemanticCommandGeneration = nil
+                pendingSemanticCommand = nil
                 lastCommandGeneration = command.generation
                 followState.wrappedValue = .jumpingToHead
                 scrollToHead(in: tableView, animated: command.animated)
             case .tail:
                 guard !hasMoreAfter else {
                     followState.wrappedValue = .jumpingToTail
-                    if pendingSemanticCommandGeneration != command.generation {
-                        pendingSemanticCommandGeneration = command.generation
+                    if shouldRequestSemanticLoad(for: command) {
                         onSemanticTail()
                     }
                     return
                 }
-                pendingSemanticCommandGeneration = nil
+                pendingSemanticCommand = nil
                 lastCommandGeneration = command.generation
                 scrollToTail(in: tableView, animated: command.animated)
+            }
+        }
+
+        private func shouldRequestSemanticLoad(for command: ConversationScrollCommand) -> Bool {
+            let nextCommand = PendingSemanticCommand(
+                generation: command.generation,
+                target: command.target,
+                boundary: semanticBoundary(for: command.target)
+            )
+            guard pendingSemanticCommand != nextCommand else { return false }
+            pendingSemanticCommand = nextCommand
+            return true
+        }
+
+        private func semanticBoundary(
+            for target: ConversationScrollTarget
+        ) -> ConversationPrefetchBoundary<Row.ID>? {
+            switch target {
+            case .head:
+                beforePageID.map(ConversationPrefetchBoundary.page)
+                    ?? orderedIDs.first.map(ConversationPrefetchBoundary.row)
+            case .tail:
+                afterPageID.map(ConversationPrefetchBoundary.page)
+                    ?? orderedIDs.last.map(ConversationPrefetchBoundary.row)
             }
         }
 
@@ -627,6 +649,12 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         private struct Anchor {
             let id: Row.ID
             let offset: CGFloat
+        }
+
+        private struct PendingSemanticCommand: Equatable {
+            let generation: Int
+            let target: ConversationScrollTarget
+            let boundary: ConversationPrefetchBoundary<Row.ID>?
         }
     }
 }

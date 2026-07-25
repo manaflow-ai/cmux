@@ -372,6 +372,62 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(visibleRows.contains(IndexPath(row: 0, section: 0)))
     }
 
+    @Test("semantic head command advances across multiple page boundaries")
+    func semanticHeadCommandAdvancesAcrossMultiplePageBoundaries() async throws {
+        let state = TranscriptFollowStateBox(.detached(anchorID: 200, offset: 0, unseenCount: 0))
+        let callbacks = TranscriptCallbackBox()
+        var harness = TranscriptTestHarness(
+            rows: (160..<240).map { TranscriptTestRow(id: $0, text: "Loaded response \($0)") },
+            hasMoreBefore: true,
+            beforePageID: "older-c",
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .head, animated: false),
+            onSemanticHead: { callbacks.semanticHeadCount += 1 }
+        )
+        let mounted = mount(harness)
+        defer { mounted.window.isHidden = true }
+        await settle(mounted.host, passes: 20)
+
+        #expect(callbacks.semanticHeadCount == 1)
+        #expect(state.value == .jumpingToHead)
+
+        harness = TranscriptTestHarness(
+            rows: (80..<160).map { TranscriptTestRow(id: $0, text: "Loaded response \($0)") },
+            hasMoreBefore: true,
+            beforePageID: "older-b",
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .head, animated: false),
+            onSemanticHead: { callbacks.semanticHeadCount += 1 }
+        )
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 20)
+
+        #expect(callbacks.semanticHeadCount == 2)
+        #expect(state.value == .jumpingToHead)
+
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 8)
+        #expect(callbacks.semanticHeadCount == 2)
+
+        let authoritativeRows = (0..<80).map {
+            TranscriptTestRow(id: $0, text: "Authoritative head response \($0)")
+        }
+        harness = TranscriptTestHarness(
+            rows: authoritativeRows,
+            hasMoreBefore: false,
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .head, animated: false),
+            onSemanticHead: { callbacks.semanticHeadCount += 1 }
+        )
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 24)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        #expect(callbacks.semanticHeadCount == 2)
+        #expect(state.value == .detached(anchorID: authoritativeRows[0].id, offset: 0, unseenCount: 0))
+        #expect(abs(table.contentOffset.y + table.adjustedContentInset.top) <= 1.5)
+    }
+
     @Test("opaque page boundaries and reset generations permit edge retries")
     func opaquePageBoundariesAndResetPermitRetries() async throws {
         let rows = (0..<12).map { TranscriptTestRow(id: $0, text: "Response \($0)") }
@@ -458,6 +514,62 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(distanceFromTail(in: updatedTable) <= 1.5)
         let visibleRows = try #require(updatedTable.indexPathsForVisibleRows)
         #expect(visibleRows.contains(IndexPath(row: authoritativeRows.count - 1, section: 0)))
+    }
+
+    @Test("semantic tail command advances across multiple page boundaries")
+    func semanticTailCommandAdvancesAcrossMultiplePageBoundaries() async throws {
+        let state = TranscriptFollowStateBox(.detached(anchorID: 40, offset: 0, unseenCount: 0))
+        let callbacks = TranscriptCallbackBox()
+        var harness = TranscriptTestHarness(
+            rows: (0..<80).map { TranscriptTestRow(id: $0, text: "Loaded response \($0)") },
+            hasMoreAfter: true,
+            afterPageID: "newer-a",
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .tail, animated: false),
+            onSemanticTail: { callbacks.semanticTailCount += 1 }
+        )
+        let mounted = mount(harness)
+        defer { mounted.window.isHidden = true }
+        await settle(mounted.host, passes: 20)
+
+        #expect(callbacks.semanticTailCount == 1)
+        #expect(state.value == .jumpingToTail)
+
+        harness = TranscriptTestHarness(
+            rows: (80..<160).map { TranscriptTestRow(id: $0, text: "Loaded response \($0)") },
+            hasMoreAfter: true,
+            afterPageID: "newer-b",
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .tail, animated: false),
+            onSemanticTail: { callbacks.semanticTailCount += 1 }
+        )
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 20)
+
+        #expect(callbacks.semanticTailCount == 2)
+        #expect(state.value == .jumpingToTail)
+
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 8)
+        #expect(callbacks.semanticTailCount == 2)
+
+        let authoritativeRows = (160..<240).map {
+            TranscriptTestRow(id: $0, text: "Authoritative tail response \($0)")
+        }
+        harness = TranscriptTestHarness(
+            rows: authoritativeRows,
+            hasMoreAfter: false,
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .tail, animated: false),
+            onSemanticTail: { callbacks.semanticTailCount += 1 }
+        )
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 32)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        #expect(callbacks.semanticTailCount == 2)
+        #expect(state.value == .followingTail)
+        #expect(distanceFromTail(in: table) <= 1.5)
     }
 
     private func mount(
@@ -588,6 +700,7 @@ private struct TranscriptTestHarness: View {
     var hasMoreBefore = false
     var hasMoreAfter = false
     var isActive = true
+    var beforePageID: String?
     var afterPageID: String?
     var prefetchResetGeneration = 0
     var followState: TranscriptFollowStateBox
@@ -601,6 +714,7 @@ private struct TranscriptTestHarness: View {
         hasMoreBefore: Bool = false,
         hasMoreAfter: Bool = false,
         isActive: Bool = true,
+        beforePageID: String? = nil,
         afterPageID: String? = nil,
         prefetchResetGeneration: Int = 0,
         followState: TranscriptFollowStateBox = TranscriptFollowStateBox(.detached(
@@ -617,6 +731,7 @@ private struct TranscriptTestHarness: View {
         self.hasMoreBefore = hasMoreBefore
         self.hasMoreAfter = hasMoreAfter
         self.isActive = isActive
+        self.beforePageID = beforePageID
         self.afterPageID = afterPageID
         self.prefetchResetGeneration = prefetchResetGeneration
         self.followState = followState
@@ -637,6 +752,7 @@ private struct TranscriptTestHarness: View {
             ),
             command: command,
             isActive: isActive,
+            beforePageID: beforePageID,
             afterPageID: afterPageID,
             prefetchResetGeneration: prefetchResetGeneration,
             onLoadAfter: onLoadAfter,
