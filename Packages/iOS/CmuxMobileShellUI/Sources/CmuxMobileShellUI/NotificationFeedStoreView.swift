@@ -10,12 +10,14 @@ struct NotificationFeedStoreView: View {
     let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
     let searchText: String
+    let projection: NotificationFeedProjection
 
     var body: some View {
         NotificationFeedView(
             items: items,
             status: status,
             searchText: searchText,
+            projection: projection,
             actions: actions
         )
         .onDisappear {

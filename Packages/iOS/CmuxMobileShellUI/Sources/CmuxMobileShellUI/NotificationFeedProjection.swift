@@ -41,6 +41,7 @@ final class NotificationFeedProjection {
     private(set) var sections: [NotificationFeedDaySection] = []
     private(set) var sourceItemCount = 0
     private(set) var sourceUnreadCount = 0
+    private(set) var isSourceRebuilding = false
 
     @ObservationIgnored private var sourceItems: [MobileNotificationFeedItem] = []
     @ObservationIgnored private var referenceDate: Date
@@ -66,6 +67,8 @@ final class NotificationFeedProjection {
         sourceRevision &+= 1
         sourceItemCount = items.count
         sourceUnreadCount = items.lazy.filter { !$0.isRead }.count
+        sections = []
+        isSourceRebuilding = true
         scheduleRebuild()
     }
 
@@ -73,6 +76,9 @@ final class NotificationFeedProjection {
         await rebuildTask?.value
     }
 
+    /// Debounces query changes, reuses the index only for the same source
+    /// revision, and cancels superseded work. Results publish only while both
+    /// captured revisions still match the current projection.
     private func scheduleRebuild(debounce: Duration? = nil) {
         rebuildRevision &+= 1
         let requestedRebuildRevision = rebuildRevision
@@ -123,6 +129,7 @@ final class NotificationFeedProjection {
             self.indexedItems = output.indexedItems
             self.indexedSourceRevision = requestedSourceRevision
             self.sections = output.sections
+            self.isSourceRebuilding = false
         }
     }
 

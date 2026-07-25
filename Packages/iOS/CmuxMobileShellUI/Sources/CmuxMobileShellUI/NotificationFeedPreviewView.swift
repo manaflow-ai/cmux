@@ -10,6 +10,7 @@ public struct NotificationFeedPreviewView: View {
     @State private var workspaceSearchText = ""
     @State private var notificationSearchText = ""
     @State private var items: [MobileNotificationFeedItem]
+    @State private var projection = NotificationFeedProjection()
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var macSelection: WorkspaceMacSelection = .all
 
@@ -32,6 +33,7 @@ public struct NotificationFeedPreviewView: View {
                         items: items,
                         status: .ready,
                         searchText: notificationSearchText,
+                        projection: projection,
                         actions: actions
                     )
                     .toolbar {

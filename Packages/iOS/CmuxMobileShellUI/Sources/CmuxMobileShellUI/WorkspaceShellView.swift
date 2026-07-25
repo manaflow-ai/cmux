@@ -168,6 +168,8 @@ struct WorkspaceShellView: View {
     #endif
     @State private var workspaceSearchText = ""
     @State private var notificationSearchText = ""
+    @State private var workspaceListFilterState = WorkspaceListFilterState()
+    @State private var notificationFeedProjection = NotificationFeedProjection()
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
@@ -229,7 +231,8 @@ struct WorkspaceShellView: View {
                         store: store,
                         items: presentation.notificationFeedItems,
                         status: presentation.notificationFeedStatus,
-                        searchText: notificationSearchText
+                        searchText: notificationSearchText,
+                        projection: notificationFeedProjection
                     )
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
@@ -541,6 +544,7 @@ struct WorkspaceShellView: View {
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut,
             retryInitialConnection: retryInitialConnection,
+            filterState: workspaceListFilterState,
             searchText: searchText
         )
     }

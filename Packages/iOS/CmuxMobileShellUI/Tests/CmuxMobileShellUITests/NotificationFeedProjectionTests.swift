@@ -108,6 +108,37 @@ import Testing
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["latest"])
     }
 
+    @Test @MainActor func sourceUpdateRetiresPriorRowsBeforeAsyncRebuild() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        projection.update(items: [
+            item(
+                id: "old-scope",
+                createdAt: try #require(isoDate("2026-07-15T17:30:00Z")),
+                isRead: false
+            ),
+        ], referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["old-scope"])
+
+        projection.update(items: [
+            item(
+                id: "new-scope",
+                createdAt: try #require(isoDate("2026-07-15T17:00:00Z")),
+                isRead: false
+            ),
+        ], referenceDate: referenceDate)
+
+        #expect(projection.sections.isEmpty)
+        #expect(projection.isSourceRebuilding)
+
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["new-scope"])
+        #expect(!projection.isSourceRebuilding)
+    }
+
     #if os(iOS)
     @Test func emptyPresentationDistinguishesFilterAndAvailability() {
         #expect(NotificationFeedEmptyState.resolve(
@@ -153,6 +184,13 @@ import Testing
             hasSearchQuery: true,
             status: .requiresMacUpdate
         ) == .requiresMacUpdate)
+        #expect(NotificationFeedEmptyState.resolve(
+            sourceItemCount: 0,
+            filter: .all,
+            hasSearchQuery: true,
+            isSourceRebuilding: true,
+            status: .ready
+        ) == .loading)
         #expect(NotificationFeedEmptyState.resolve(
             sourceItemCount: 0,
             filter: .all,

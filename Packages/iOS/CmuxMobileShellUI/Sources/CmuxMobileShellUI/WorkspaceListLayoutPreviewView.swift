@@ -35,6 +35,11 @@ private final class WorkspaceListLayoutPreviewModel {
             updateLane = (updateLane + 1) % 10
         }
     }
+
+    func rotateForRefresh() {
+        let current = workspaces
+        workspaces = Array(current.dropFirst()) + Array(current.prefix(1))
+    }
 }
 
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
@@ -51,6 +56,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var workspaceSearchText = ""
     @State private var notificationSearchText = ""
+    @State private var filterState = WorkspaceListFilterState()
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -220,9 +226,12 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS"] == "1"
     }
 
+    private func performPreviewRefresh() {
+        model.rotateForRefresh()
+        refreshGeneration += 1
+    }
+
     public var body: some View {
-        let workspacesBinding = $model.workspaces
-        let refreshGenerationBinding = $refreshGeneration
         Group {
             if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
                 WorkspaceDetailCreateDelayedTerminalPreviewView()
@@ -255,9 +264,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                             macSelection: $macSelection,
                             refresh: {
                                 await MainActor.run {
-                                    let current = workspacesBinding.wrappedValue
-                                    workspacesBinding.wrappedValue = Array(current.dropFirst()) + Array(current.prefix(1))
-                                    refreshGenerationBinding.wrappedValue += 1
+                                    performPreviewRefresh()
                                 }
                             },
                             renameWorkspace: reorderEnabled ? { id, newName in
@@ -290,6 +297,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                                 )
                                 return true
                             } : nil,
+                            filterState: filterState,
                             searchText: searchText
                         )
                     }
@@ -341,10 +349,26 @@ public struct WorkspaceListLayoutPreviewView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            Color.clear
-                .frame(width: 1, height: 1)
-                .accessibilityElement()
-                .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
+                if showsTabScaffold {
+                    Button {
+                        performPreviewRefresh()
+                    } label: {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.01))
+                            .frame(width: 44, height: 44)
+                    }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("MobileWorkspaceListPreviewRefresh")
+                        .accessibilityAction {
+                            performPreviewRefresh()
+                        }
+                }
+            }
         }
         .task {
             // Fire a REAL local notification (not a drawn banner) so the system

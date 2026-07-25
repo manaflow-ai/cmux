@@ -365,8 +365,13 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let scroll = app.descendants(matching: .any)["MobileWorkspaceList"]
-        XCTAssertTrue(scroll.waitForExistence(timeout: 8))
+        let workspaceListTables = app.tables.matching(
+            NSPredicate(format: "identifier == %@", "MobileWorkspaceList")
+        )
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 8) != nil else {
+            XCTFail("Workspace list never became visible")
+            return
+        }
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-0"]
                 .waitForExistence(timeout: 3)
@@ -419,13 +424,18 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
-        let refreshStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
-        let refreshEnd = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
-        refreshStart.press(forDuration: 0.01, thenDragTo: refreshEnd)
+        let previewRefreshButtons = app.buttons.matching(
+            NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
+        )
+        guard let previewRefresh = waitForVisibleElement(in: previewRefreshButtons, app: app, timeout: 3) else {
+            XCTFail("Visible preview refresh trigger disappeared after leaving Search")
+            return
+        }
+        tap(previewRefresh, in: app)
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-1"]
                 .waitForExistence(timeout: 5),
-            "Pull-to-refresh did not replace the preview workspace snapshot"
+            "Preview refresh did not replace the workspace snapshot"
         )
 
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
@@ -539,14 +549,26 @@ final class cmuxUITests: XCTestCase {
         let nonmatchingRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-studio-codex-approval"
         ]
+        let readRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-localization-complete"
+        ]
         XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
         XCTAssertTrue(waitForHittable(nonmatchingRow, timeout: 3))
+        XCTAssertTrue(waitForHittable(readRow, timeout: 3))
+
+        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
+        XCTAssertTrue(waitForHittable(unreadFilter, timeout: 3))
+        unreadFilter.tap()
+        XCTAssertTrue(unreadFilter.isSelected)
+        XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
         let searchButton = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
             .firstMatch
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         tap(searchButton, in: app)
+        XCTAssertTrue(unreadFilter.isSelected)
+        XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
         let searchField = app.searchFields["Search notifications"]
         XCTAssertTrue(waitForHittable(searchField, timeout: 3))
@@ -4040,6 +4062,47 @@ final class cmuxUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    @MainActor
+    private func waitForVisibleElement(
+        identifier: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        let query = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@", identifier))
+        return waitForVisibleElement(in: query, app: app, timeout: timeout)
+    }
+
+    @MainActor
+    private func waitForVisibleElement(
+        in query: XCUIElementQuery,
+        app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let element = query.allElementsBoundByIndex.first(where: { element in
+                let frame = element.frame
+                return element.exists
+                    && element.isHittable
+                    && !frame.isNull
+                    && !frame.isEmpty
+                    && frame.intersects(app.frame)
+            }) {
+                return element
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return query.allElementsBoundByIndex.first(where: { element in
+            let frame = element.frame
+            return element.exists
+                && element.isHittable
+                && !frame.isNull
+                && !frame.isEmpty
+                && frame.intersects(app.frame)
+        })
     }
 
     @MainActor

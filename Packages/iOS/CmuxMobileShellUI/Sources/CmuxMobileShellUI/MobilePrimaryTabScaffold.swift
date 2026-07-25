@@ -13,9 +13,20 @@ enum MobilePrimaryTab: Hashable {
 ///
 /// New primary tabs must explicitly choose whether they introduce a search
 /// scope or preserve the most recent searchable destination.
-private enum MobilePrimarySearchScope {
+private enum MobilePrimarySearchScope: Equatable {
     case workspaces
     case notifications
+}
+
+private enum MobilePrimarySearchPhase: Equatable {
+    case inactive
+    case active(MobilePrimarySearchScope)
+    case deactivating(MobilePrimarySearchScope)
+}
+
+private struct MobilePrimaryPendingEmptyCommit: Equatable {
+    let scope: MobilePrimarySearchScope
+    let previousCommittedQuery: String
 }
 
 private extension MobilePrimaryTab {
@@ -39,6 +50,11 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
     @Binding var workspaceSearchText: String
     @Binding var notificationSearchText: String
     @State private var searchScope: MobilePrimarySearchScope
+    @State private var isSearchPresented = false
+    @State private var searchPhase: MobilePrimarySearchPhase = .inactive
+    @State private var workspaceNativeSearchText = ""
+    @State private var notificationNativeSearchText = ""
+    @State private var pendingEmptyCommit: MobilePrimaryPendingEmptyCommit?
     let notificationUnreadCount: Int
     let workspaces: Workspaces
     let notifications: Notifications
@@ -62,7 +78,7 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
 
     var body: some View {
         if #available(iOS 26.0, *) {
-            TabView(selection: $selection) {
+            TabView(selection: tabSelection) {
                 primaryTabs
 
                 Tab(value: MobilePrimaryTab.search, role: .search) {
@@ -70,11 +86,17 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
                 }
                 .accessibilityIdentifier("MobilePrimaryTabSearch")
             }
+            .searchable(
+                text: activeSearchText,
+                isPresented: searchPresentation,
+                prompt: activeSearchPrompt
+            )
             .tabViewSearchActivation(.searchTabSelection)
             .accessibilityIdentifier("MobilePrimaryTabs")
             .onChange(of: selection, initial: true) { _, selection in
                 guard let scope = selection.searchScope else { return }
                 searchScope = scope
+                syncNativeSearchText(fromCommittedQueryFor: scope)
             }
         } else {
             TabView(selection: $selection) {
@@ -84,28 +106,167 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
         }
     }
 
+    private var tabSelection: Binding<MobilePrimaryTab> {
+        Binding(
+            get: { selection },
+            set: { newValue in
+                if selection == .search, newValue.searchScope != nil {
+                    beginSearchDeactivation(for: searchScope)
+                }
+                selection = newValue
+            }
+        )
+    }
+
+    private var searchPresentation: Binding<Bool> {
+        Binding(
+            get: { isSearchPresented },
+            set: { presented in
+                if isSearchPresented, !presented {
+                    beginSearchDeactivation(for: searchScope)
+                }
+                isSearchPresented = presented
+                if presented {
+                    searchPhase = .active(searchScope)
+                    resolvePendingEmptyCommitIfNeeded(for: searchScope)
+                    if pendingEmptyCommit == nil {
+                        syncNativeSearchText(fromCommittedQueryFor: searchScope)
+                    }
+                }
+            }
+        )
+    }
+
     @ViewBuilder
     private var searchDestination: some View {
         switch searchScope {
         case .workspaces:
             workspaces
-                .searchable(
-                    text: $workspaceSearchText,
-                    prompt: L10n.string(
-                        "mobile.workspaces.search.placeholder",
-                        defaultValue: "Search workspaces"
-                    )
-                )
+                .modifier(MobilePrimarySearchLifecycleModifier(
+                    scope: .workspaces,
+                    update: updateSearchLifecycle
+                ))
         case .notifications:
             notifications
-                .searchable(
-                    text: $notificationSearchText,
-                    prompt: L10n.string(
-                        "mobile.notificationFeed.search.placeholder",
-                        defaultValue: "Search notifications"
-                    )
-                )
+                .modifier(MobilePrimarySearchLifecycleModifier(
+                    scope: .notifications,
+                    update: updateSearchLifecycle
+                ))
         }
+    }
+
+    private var activeSearchText: Binding<String> {
+        return Binding(
+            get: { nativeSearchText(for: searchScope) },
+            set: { value in
+                commitNativeSearchText(value, for: searchScope)
+            }
+        )
+    }
+
+    private var activeSearchPrompt: Text {
+        switch searchScope {
+        case .workspaces:
+            Text(
+                L10n.string(
+                    "mobile.workspaces.search.placeholder",
+                    defaultValue: "Search workspaces"
+                )
+            )
+        case .notifications:
+            Text(
+                L10n.string(
+                    "mobile.notificationFeed.search.placeholder",
+                    defaultValue: "Search notifications"
+                )
+            )
+        }
+    }
+
+    private func nativeSearchText(for scope: MobilePrimarySearchScope) -> String {
+        switch scope {
+        case .workspaces:
+            workspaceNativeSearchText
+        case .notifications:
+            notificationNativeSearchText
+        }
+    }
+
+    private func committedSearchText(for scope: MobilePrimarySearchScope) -> String {
+        switch scope {
+        case .workspaces:
+            workspaceSearchText
+        case .notifications:
+            notificationSearchText
+        }
+    }
+
+    private func setNativeSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
+        switch scope {
+        case .workspaces:
+            workspaceNativeSearchText = value
+        case .notifications:
+            notificationNativeSearchText = value
+        }
+    }
+
+    private func setCommittedSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
+        switch scope {
+        case .workspaces:
+            workspaceSearchText = value
+        case .notifications:
+            notificationSearchText = value
+        }
+    }
+
+    private func syncNativeSearchText(fromCommittedQueryFor scope: MobilePrimarySearchScope) {
+        setNativeSearchText(committedSearchText(for: scope), for: scope)
+    }
+
+    private func commitNativeSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
+        setNativeSearchText(value, for: scope)
+        guard value.isEmpty, !committedSearchText(for: scope).isEmpty else {
+            pendingEmptyCommit = nil
+            setCommittedSearchText(value, for: scope)
+            return
+        }
+        pendingEmptyCommit = MobilePrimaryPendingEmptyCommit(
+            scope: scope,
+            previousCommittedQuery: committedSearchText(for: scope)
+        )
+    }
+
+    private func updateSearchLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
+        if isSearching {
+            searchPhase = .active(scope)
+            resolvePendingEmptyCommitIfNeeded(for: scope)
+            if pendingEmptyCommit == nil {
+                syncNativeSearchText(fromCommittedQueryFor: scope)
+            }
+        } else if searchPhase == .active(scope) {
+            beginSearchDeactivation(for: scope)
+        }
+    }
+
+    private func beginSearchDeactivation(for scope: MobilePrimarySearchScope) {
+        searchPhase = .deactivating(scope)
+        pendingEmptyCommit = nil
+        syncNativeSearchText(fromCommittedQueryFor: scope)
+    }
+
+    private func resolvePendingEmptyCommitIfNeeded(for scope: MobilePrimarySearchScope) {
+        guard
+            pendingEmptyCommit == MobilePrimaryPendingEmptyCommit(
+                scope: scope,
+                previousCommittedQuery: committedSearchText(for: scope)
+            ),
+            searchPhase == .active(scope),
+            nativeSearchText(for: scope).isEmpty
+        else {
+            return
+        }
+        pendingEmptyCommit = nil
+        setCommittedSearchText("", for: scope)
     }
 
     @TabContentBuilder<MobilePrimaryTab>
@@ -130,6 +291,23 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
             .accessibilityIdentifier("MobilePrimaryTabNotifications")
         }
         .badge(notificationUnreadCount)
+    }
+}
+
+private struct MobilePrimarySearchLifecycleModifier: ViewModifier {
+    @Environment(\.isSearching) private var isSearching
+
+    let scope: MobilePrimarySearchScope
+    let update: (MobilePrimarySearchScope, Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: isSearching, initial: true) { _, isSearching in
+                update(scope, isSearching)
+            }
+            .onDisappear {
+                update(scope, false)
+            }
     }
 }
 #endif
