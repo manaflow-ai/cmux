@@ -1357,6 +1357,106 @@ if (!completionFailed) {
 
 
 def check_completion_drain_deadline(bun: str, root: Path, extension_path: Path) -> int:
+    ordered_log = root / "completion-drain-order-cmux.log"
+    ordered_cmux = root / "completion-drain-order-cmux"
+    make_executable(
+        ordered_cmux,
+        """#!/usr/bin/env python3
+import os
+import sys
+import time
+
+args = " ".join(sys.argv[1:])
+payload = sys.stdin.read()
+with open(os.environ["CMUX_TEST_PI_DRAIN_ORDER_LOG"], "a", encoding="utf-8") as stream:
+    stream.write(f"{args}|{payload}\\n")
+    stream.flush()
+
+if "hooks feed" in args and "PostToolUse" in args:
+    time.sleep(3.2)
+
+print("{}")
+""",
+    )
+    ordered_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-completion-drain-order-project",
+  sessionManager: { getSessionId() { return "pi-completion-drain-order-session"; } }
+};
+handlers.get("tool_execution_end")({
+  toolCallId: "drain-order-tool",
+  toolName: "bash",
+  result: { content: [{ type: "text", text: "done" }] },
+  isError: false
+}, ctx);
+const logPath = process.env.CMUX_TEST_PI_DRAIN_ORDER_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const startedAt = performance.now();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx);
+console.log(`ordered_completion_ms=${performance.now() - startedAt}`);
+"""
+    ordered = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=ordered_cmux,
+        source=ordered_source,
+        extra_env={"CMUX_TEST_PI_DRAIN_ORDER_LOG": str(ordered_log)},
+    )
+    if ordered.returncode != 0:
+        print(f"FAIL: completion-drain ordering harness failed: {ordered.stderr!r}")
+        return 1
+    timing_lines = [
+        line for line in ordered.stdout.splitlines() if line.startswith("ordered_completion_ms=")
+    ]
+    if len(timing_lines) != 1:
+        print(f"FAIL: completion-drain ordering harness did not report timing: {ordered.stdout!r}")
+        return 1
+    ordered_elapsed_ms = float(timing_lines[0].split("=", 1)[1])
+    if ordered_elapsed_ms < 2_800:
+        print(
+            "FAIL: lifecycle completed before the late successful Feed result: "
+            f"{ordered_elapsed_ms:.0f}ms"
+        )
+        return 1
+    ordered_calls = ordered_log.read_text(encoding="utf-8").splitlines()
+    ordered_feed_indexes = [
+        index for index, line in enumerate(ordered_calls) if "hooks feed" in line
+    ]
+    ordered_notification_indexes = [
+        index for index, line in enumerate(ordered_calls) if "hooks pi notification" in line
+    ]
+    ordered_stop_indexes = [
+        index for index, line in enumerate(ordered_calls) if "hooks pi stop" in line
+    ]
+    if (
+        len(ordered_feed_indexes) != 1
+        or len(ordered_notification_indexes) != 1
+        or len(ordered_stop_indexes) != 1
+        or not (
+            ordered_feed_indexes[0]
+            < ordered_notification_indexes[0]
+            < ordered_stop_indexes[0]
+        )
+    ):
+        print(
+            "FAIL: late successful terminal Feed result did not precede notification/stop: "
+            f"{ordered_calls!r}"
+        )
+        return 1
+    if '"message":"cmux hook command failed"' in ordered.stderr:
+        print(f"FAIL: late successful terminal Feed result was marked failed: {ordered.stderr!r}")
+        return 1
+
     deadline_log = root / "completion-deadline-cmux.log"
     deadline_cmux = root / "completion-deadline-cmux"
     make_executable(
@@ -1426,7 +1526,7 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
         print(f"FAIL: completion-drain harness did not report timing: {deadline.stdout!r}")
         return 1
     elapsed_ms = float(timing_lines[0].split("=", 1)[1])
-    if elapsed_ms >= 3_000:
+    if elapsed_ms >= 6_000:
         print(f"FAIL: stalled terminal feed delayed lifecycle completion by {elapsed_ms:.0f}ms")
         return 1
     deadline_calls = deadline_log.read_text(encoding="utf-8").splitlines()

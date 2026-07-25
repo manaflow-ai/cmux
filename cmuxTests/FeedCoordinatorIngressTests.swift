@@ -120,10 +120,11 @@ extension FeedCoordinatorTests {
         #expect(deliveryFinished.wait(timeout: .now()) == .timedOut)
     }
 
-    @Test func committedDeliveryWaitsForCompletionPublicationPastDeadline() async {
+    @Test func committedDeliveryReturnsAtDeadlineWhenPublicationStalls() async {
         let lane = FeedIngressDeliveryLane()
         let mutationCommitted = DispatchSemaphore(value: 0)
         let releasePublication = DispatchSemaphore(value: 0)
+        let publicationFinished = DispatchSemaphore(value: 0)
         let callerReturned = DispatchSemaphore(value: 0)
         defer { releasePublication.signal() }
 
@@ -143,19 +144,24 @@ extension FeedCoordinatorTests {
                     return true
                 }
                 releasePublication.wait()
+                publicationFinished.signal()
             }
             callerReturned.signal()
             return value
         }
 
         #expect(mutationCommitted.wait(timeout: .now() + 1) == .success)
+        let returnedBeforePublicationReleased = callerReturned.wait(timeout: .now() + 1)
         #expect(
-            callerReturned.wait(timeout: .now() + 0.2) == .timedOut,
-            "a committed mutation must not acknowledge before publication completes"
+            returnedBeforePublicationReleased == .success,
+            "a committed mutation must not pin socket ingress behind stalled publication"
         )
         releasePublication.signal()
-        #expect(callerReturned.wait(timeout: .now() + 1) == .success)
+        if returnedBeforePublicationReleased != .success {
+            #expect(callerReturned.wait(timeout: .now() + 1) == .success)
+        }
         #expect(await resultTask.value == true)
+        #expect(publicationFinished.wait(timeout: .now() + 1) == .success)
     }
 
     @Test func positiveTimeoutAcceptanceCallbackCompletesBeforeAcknowledgedCallerReturns() async {

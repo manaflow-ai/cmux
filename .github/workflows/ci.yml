@@ -663,6 +663,7 @@ jobs:
           # a fresh app-host process so Swift Testing cannot interleave them.
           for suite in \
             FeedCoordinatorTests \
+            FeedCoordinatorIngressTests \
             PiFeedOwnershipTests \
             PiFeedDockOwnershipTests
           do
