@@ -159,21 +159,25 @@ extension MobileShellComposite {
         // it was diffed against. If that is not the last delivered frame, a
         // frame was missed and dirty-row patching can no longer realign the
         // grid or local scrollback; request a full replay instead of painting.
-        // Skipped while a replay barrier is active - the barrier already drops
-        // deltas and resolves with an authoritative replay.
+        // The producer sets the base on every screen delta, so a missing base
+        // is malformed and fails closed the same way. Skipped while a replay
+        // barrier is active - the barrier already drops deltas and resolves
+        // with an authoritative replay.
         if !renderGrid.full,
            renderGrid.anchor == .screen,
            renderGrid.activeScreen == .primary,
-           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil,
-           let deltaBase = renderGrid.deltaBaseHistoryRows,
-           terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] != deltaBase {
+           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil {
+            let deltaBase = renderGrid.deltaBaseHistoryRows
             let delivered = terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID]
-            MobileDebugLog.anchormux(
-                "sync.render_grid_history_chain_break surface=\(renderGrid.surfaceID) " +
-                    "base=\(deltaBase) delivered=\(delivered.map(String.init) ?? "nil") seq=\(renderGrid.stateSeq)"
-            )
-            terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
-            return
+            if deltaBase == nil || deltaBase != delivered {
+                MobileDebugLog.anchormux(
+                    "sync.render_grid_history_chain_break surface=\(renderGrid.surfaceID) " +
+                        "base=\(deltaBase.map(String.init) ?? "nil") " +
+                        "delivered=\(delivered.map(String.init) ?? "nil") seq=\(renderGrid.stateSeq)"
+                )
+                terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+                return
+            }
         }
         let activeReplayBarrierToken = terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID]
         let bypassLiveBaselineBarrier = source == "event"

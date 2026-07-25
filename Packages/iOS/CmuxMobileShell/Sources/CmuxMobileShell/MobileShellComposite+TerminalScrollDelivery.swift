@@ -23,9 +23,14 @@ extension MobileShellComposite {
         // already moved the local mirror's viewport over locally accumulated
         // scrollback, the Mac's viewport is not shared, and no prefetch window
         // is needed. Only alternate-screen scrolls still round-trip (they are
-        // mouse-wheel input for the TUI, not viewport movement).
+        // mouse-wheel input for the TUI, not viewport movement). Suppress only
+        // on a CONFIRMED primary screen: with no per-surface entry yet (before
+        // the first frame, after surface removal) the screen is unknown, and
+        // dropping what may be alternate-screen wheel input would eat TUI
+        // scrolling, while forwarding a primary-screen scroll merely moves the
+        // Mac's own viewport, which screen-anchored frames ignore.
         if usesScreenAnchoredRenderGrid,
-           terminalActiveScreenBySurfaceID[surfaceID] != .alternate {
+           terminalActiveScreenBySurfaceID[surfaceID] == .primary {
             return
         }
         var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]
