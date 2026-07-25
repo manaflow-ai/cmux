@@ -26,23 +26,38 @@ public extension CmxIrohClientRuntime {
         privatePathProbeActive = true
         defer { privatePathProbeActive = false }
 
+        // Broker discovery, grant, and current-port resolution measure account
+        // state, not the probed address, so they run before the dial deadline
+        // starts. A slow first discovery keeps the button in its testing state
+        // instead of reporting a spurious timeout against the address.
+        let targetIdentity: CmxIrohPeerIdentity
+        let context: CmxIrohClientContext
+        do {
+            (targetIdentity, context) = try await resolveCustomPrivatePathProbe(
+                for: request,
+                path: path
+            )
+        } catch {
+            return .unreachable(CmxIrohPrivatePathProbe.classify(error))
+        }
+
         return await CmxIrohPrivatePathProbe(
             dial: { [weak self] in
                 guard let self else {
                     throw CmxIrohClientRuntimeError.inactive
                 }
                 try await self.dialCustomPrivatePathProbe(
-                    for: request,
-                    path: path
+                    targetIdentity: targetIdentity,
+                    context: context
                 )
             }
         ).run(timeout: timeout)
     }
 
-    private func dialCustomPrivatePathProbe(
+    private func resolveCustomPrivatePathProbe(
         for request: CmxByteTransportRequest,
         path: CmxIrohCustomPrivatePathBootstrap
-    ) async throws {
+    ) async throws -> (CmxIrohPeerIdentity, CmxIrohClientContext) {
         guard lifecyclePhase == .active,
               request.sessionPurpose == .probe,
               let provider = registryContextProvider,
@@ -57,6 +72,13 @@ public extension CmxIrohClientRuntime {
               context.dialPlan.privateFallbackPaths.count == 1 else {
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
+        return (targetIdentity, context)
+    }
+
+    private func dialCustomPrivatePathProbe(
+        targetIdentity: CmxIrohPeerIdentity,
+        context: CmxIrohClientContext
+    ) async throws {
         let endpoint = try await supervisor.activeEndpoint()
         var connection: (any CmxIrohConnection)?
         do {

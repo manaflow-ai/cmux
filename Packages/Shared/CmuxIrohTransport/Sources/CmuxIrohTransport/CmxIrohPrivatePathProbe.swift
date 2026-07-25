@@ -71,7 +71,7 @@ struct CmxIrohPrivatePathProbe: Sendable {
         }
     }
 
-    private static func classify(_ error: any Error) -> CmxIrohPrivatePathProbeFailure {
+    static func classify(_ error: any Error) -> CmxIrohPrivatePathProbeFailure {
         if let probeError = error as? CmxIrohPrivatePathProbeDialError {
             switch probeError {
             case .stalePort:
