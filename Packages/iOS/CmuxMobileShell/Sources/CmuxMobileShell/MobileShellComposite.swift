@@ -3385,6 +3385,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Backs the "Rescan QR" action.
     public func disconnectAndHideActiveMac() {
         let staleMacID = connectedMacDeviceID ?? activeTicket?.macDeviceID
+        let staleMacInstanceTag = connectedMacInstanceTag
+        let staleRepresentativeID = staleMacID.map {
+            MobilePairedMac.pairingID(
+                macDeviceID: $0,
+                instanceTag: staleMacInstanceTag
+            )
+        }
+        let staleAliasIDs = staleMacID.map {
+            pairedMacAliasIDs(for: $0, instanceTag: staleMacInstanceTag)
+        } ?? []
         disconnectLiveConnection()
         // Bump the reconnect generation so an in-flight reconnect cannot reclaim
         // the foreground while the retained pairing is being hidden. Preserve the
@@ -3392,13 +3402,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
-        if let macID = staleMacID {
+        if let representativeID = staleRepresentativeID {
             hasKnownPairedMac = true
             // The shell action is synchronous for its UI caller; the device-local
             // marker and list pruning continue on the main actor without deleting
             // the retained paired-Mac row.
             Task {
-                await self.hideMac(macDeviceID: macID)
+                await self.hideStoredPairedMacEntries(
+                    representativeID: representativeID,
+                    aliasIDs: staleAliasIDs
+                )
             }
         }
     }
