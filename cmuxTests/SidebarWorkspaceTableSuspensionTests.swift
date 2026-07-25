@@ -445,6 +445,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,

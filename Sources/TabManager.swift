@@ -1668,6 +1668,23 @@ class TabManager: ObservableObject {
         )
     }
 
+    @discardableResult
+    func reorderSidebarWorkspaces(
+        tabIds: [UUID],
+        toIndex targetIndex: Int,
+        isDragOperation: Bool = false,
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
+    ) -> Bool {
+        workspaceReordering.reorderSidebarWorkspaces(
+            tabIds: tabIds,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation,
+            usesTopLevelRows: usesTopLevelRows,
+            explicitGroupId: explicitGroupId
+        )
+    }
+
     func sidebarReorderUsesTopLevelRows(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?

@@ -452,6 +452,232 @@ struct WorkspaceCoordinatorTests {
         #expect(explicitGroupRange == (firstMemberIndex + 1)...(lastMemberIndex + 1))
     }
 
+    @Test
+    func sidebarBlockLandsContiguouslyAtGapInSourceOrder() {
+        let (model, host, _, reorder) = makeWorld()
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        let e = CoordinatorStubTab()
+        model.tabs = [a, b, c, d, e]
+        model.selectedTabId = c.id
+
+        let moved = reorder.reorderSidebarWorkspaces(
+            tabIds: [b.id, d.id],
+            toIndex: 4,
+            isDragOperation: true
+        )
+
+        #expect(moved)
+        #expect(model.tabs.map(\.id) == [a.id, c.id, b.id, d.id, e.id])
+        #expect(model.selectedTabId == c.id)
+        #expect(host.orderChanges == [[b.id, d.id]])
+    }
+
+    @Test
+    func sidebarBlockSpanningGapStillLandsContiguously() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        let e = CoordinatorStubTab()
+        model.tabs = [a, b, c, d, e]
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [a.id, d.id],
+            toIndex: 2,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [b.id, a.id, d.id, c.id, e.id])
+    }
+
+    @Test
+    func sidebarBlockClampsMixedPinTiersAndKeepsEachContiguous() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let pinned1 = CoordinatorStubTab(isPinned: true)
+        let pinned2 = CoordinatorStubTab(isPinned: true)
+        let pinned3 = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        let plain3 = CoordinatorStubTab()
+        let plain4 = CoordinatorStubTab()
+        model.tabs = [pinned1, pinned2, pinned3, plain1, plain2, plain3, plain4]
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [pinned1.id, pinned3.id, plain2.id, plain4.id],
+            toIndex: 3,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [
+            pinned2.id,
+            pinned1.id,
+            pinned3.id,
+            plain2.id,
+            plain4.id,
+            plain1.id,
+            plain3.id,
+        ])
+    }
+
+    @Test
+    func sidebarBlockExplicitGroupDropAssignsEveryMember() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let moving1 = CoordinatorStubTab()
+        let moving2 = CoordinatorStubTab()
+        let target1 = CoordinatorStubTab()
+        let target2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [moving1, moving2, target1, target2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [target1.id, target2.id]
+        ))
+        let group = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let targetIndex = try #require(model.tabs.firstIndex { $0.id == target2.id })
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [moving1.id, moving2.id],
+            toIndex: targetIndex,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        ))
+        #expect(moving1.groupId == groupId)
+        #expect(moving2.groupId == groupId)
+        #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            target1.id,
+            moving1.id,
+            moving2.id,
+            target2.id,
+        ])
+    }
+
+    @Test
+    func sidebarBlockPlainGroupGapAbsorbsEveryMember() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let moving1 = CoordinatorStubTab()
+        let moving2 = CoordinatorStubTab()
+        let target1 = CoordinatorStubTab()
+        let target2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [moving1, moving2, target1, target2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [target1.id, target2.id]
+        ))
+        let targetIndex = try #require(model.tabs.firstIndex { $0.id == target2.id })
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [moving1.id, moving2.id],
+            toIndex: targetIndex,
+            isDragOperation: true
+        ))
+        #expect(moving1.groupId == groupId)
+        #expect(moving2.groupId == groupId)
+    }
+
+    @Test
+    func sidebarBlockTopLevelDropPromotesGroupedChildren() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside1 = CoordinatorStubTab()
+        let outside2 = CoordinatorStubTab()
+        model.tabs = [child1, child2, outside1, outside2]
+        _ = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [child1.id, child2.id]
+        ))
+        let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [child1.id, child2.id],
+            toIndex: 2,
+            isDragOperation: true,
+            usesTopLevelRows: true
+        ))
+        #expect(child1.groupId == nil)
+        #expect(child2.groupId == nil)
+        #expect(model.tabs.map(\.id) == [
+            anchorId,
+            outside1.id,
+            child1.id,
+            child2.id,
+            outside2.id,
+        ])
+    }
+
+    @Test
+    func sidebarSingleElementBlockMatchesSingleWorkspaceAPI() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        model.tabs = [a, b, c, d]
+
+        let blockResult = reorder.reorderSidebarWorkspaces(
+            tabIds: [a.id],
+            toIndex: 2,
+            isDragOperation: true
+        )
+        let blockOrder = model.tabs.map(\.id)
+
+        model.tabs = [a, b, c, d]
+        let singleResult = reorder.reorderSidebarWorkspace(
+            tabId: a.id,
+            toIndex: 2,
+            isDragOperation: true
+        )
+
+        #expect(blockResult == singleResult)
+        #expect(blockOrder == model.tabs.map(\.id))
+    }
+
+    @Test
+    func sidebarBlockReferenceInsideSelectionWalksToNextRow() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        let e = CoordinatorStubTab()
+        model.tabs = [a, b, c, d, e]
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [b.id, d.id],
+            toIndex: 1,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [a.id, b.id, d.id, c.id, e.id])
+    }
+
+    @Test
+    func sidebarBlockIgnoresWorkspaceIdsMissingFromLiveTabs() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        model.tabs = [a, b, c]
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [b.id, UUID()],
+            toIndex: 0,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
+    }
+
     // MARK: Groups
 
     @Test

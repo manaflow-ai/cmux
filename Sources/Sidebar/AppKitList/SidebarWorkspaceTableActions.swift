@@ -29,6 +29,7 @@ struct SidebarWorkspaceTableActions {
     let createWorkspaceAtEnd: () -> Void
     let createEmptyWorkspaceGroup: () -> Void
     let beginWorkspaceDrag: (UUID) -> Void
+    let movingWorkspaceCount: ((UUID) -> Int)?
     let endWorkspaceDrag: () -> Void
     let isValidWorkspaceDrag: () -> Bool
     /// The trailing UUID is the drag pasteboard's workspace id, used to
