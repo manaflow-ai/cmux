@@ -980,6 +980,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */; };
 		8561A0028561A0028561A002 /* GlobalSearchShortcutPriorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0028561B0028561B002 /* GlobalSearchShortcutPriorityTests.swift */; };
 		3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */; };
+		8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */; };
 		5B11E5A100000000000000B1 /* GPUSpinner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B11E5A100000000000000B2 /* GPUSpinner.swift */; };
 		A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72010000000000000002 /* GPUSpinnerNSView.swift */; };
 		A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72020000000000000002 /* GPUSpinnerStyle.swift */; };
@@ -3231,6 +3232,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchPanelCaptureManager.swift; sourceTree = "<group>"; };
 		8561B0028561B0028561B002 /* GlobalSearchShortcutPriorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchShortcutPriorityTests.swift; sourceTree = "<group>"; };
 		3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchShortcutSettingsTests.swift; sourceTree = "<group>"; };
+		8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchVisiblePopoverShortcutTests.swift; sourceTree = "<group>"; };
 		5B11E5A100000000000000B2 /* GPUSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/GPUSpinner.swift; sourceTree = "<group>"; };
 		A6AC72010000000000000002 /* GPUSpinnerNSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/GPUSpinnerNSView.swift; sourceTree = "<group>"; };
 		A6AC72020000000000000002 /* GPUSpinnerStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/GPUSpinnerStyle.swift; sourceTree = "<group>"; };
@@ -6384,6 +6386,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */,
 				8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */,
 				8561B0028561B0028561B002 /* GlobalSearchShortcutPriorityTests.swift */,
+				8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */,
 				65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */,
 				E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */,
 				F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */,
@@ -9166,6 +9169,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8561A0018561A0018561A001 /* GlobalSearchInputOwnershipTests.swift in Sources */,
 				8561A0028561A0028561A002 /* GlobalSearchShortcutPriorityTests.swift in Sources */,
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
+				8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */,
 				4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */,
 				B1F0C0040000000000000001 /* HostedInspectorDockControlScriptTests.swift in Sources */,
 				809100000000000000000001 /* HostSettingsShortcutNotificationTests.swift in Sources */,
