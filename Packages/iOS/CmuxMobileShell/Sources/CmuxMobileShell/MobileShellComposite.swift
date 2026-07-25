@@ -3381,9 +3381,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext(preservingOtherMacWorkspaceState: preservingOtherMacWorkspaceState)
     }
 
-    /// Disconnect from and hide the currently paired Mac so the next session
-    /// starts from a fresh QR scan without deleting local or server state.
-    /// Backs the "Rescan QR" action.
+    /// Disconnect from and hide the currently paired Mac on this device without
+    /// deleting local or server pairing state.
+    /// Backs the "Forget This Computer" action.
     public func disconnectAndHideActiveMac() {
         let staleMacID = connectedMacDeviceID ?? activeTicket?.macDeviceID
         let staleMacInstanceTag = connectedMacInstanceTag
