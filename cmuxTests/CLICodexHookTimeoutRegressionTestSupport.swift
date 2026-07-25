@@ -213,16 +213,47 @@ func runCodexHookProcess(
     arguments: [String],
     environment: [String: String],
     standardInput: String? = nil,
+    fileBackedStandardInput: Bool = false,
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
     let process = Process()
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
-    let stdinPipe = standardInput == nil ? nil : Pipe()
+    let stdinPipe = standardInput == nil || fileBackedStandardInput ? nil : Pipe()
+    var standardInputURL: URL?
+    var standardInputHandle: FileHandle?
+    if let standardInput, fileBackedStandardInput {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-hook-input-\(UUID().uuidString).json",
+            isDirectory: false
+        )
+        do {
+            try Data(standardInput.utf8).write(to: url, options: .atomic)
+            standardInputURL = url
+            standardInputHandle = try FileHandle(forReadingFrom: url)
+        } catch {
+            return CodexHookProcessRunResult(
+                status: -1,
+                stdout: "",
+                stderr: String(describing: error),
+                timedOut: false
+            )
+        }
+    }
+    defer {
+        try? standardInputHandle?.close()
+        if let standardInputURL {
+            try? FileManager.default.removeItem(at: standardInputURL)
+        }
+    }
     process.executableURL = URL(fileURLWithPath: executablePath)
     process.arguments = arguments
     process.environment = environment
-    process.standardInput = stdinPipe ?? FileHandle.nullDevice
+    if let standardInputHandle {
+        process.standardInput = standardInputHandle
+    } else {
+        process.standardInput = stdinPipe ?? FileHandle.nullDevice
+    }
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
 

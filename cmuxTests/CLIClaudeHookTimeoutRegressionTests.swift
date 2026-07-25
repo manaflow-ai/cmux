@@ -402,6 +402,85 @@ struct CLIClaudeHookTimeoutRegressionTests {
     }
 
     @Test(
+        "Queue compaction preserves Boolean lifecycle flags",
+        arguments: [
+            ("antigravity", "fullyIdle", false),
+            ("pi", "cmux_notification_routed", true),
+        ]
+    )
+    func queueCompactionPreservesBooleanLifecycleFlags(
+        agent: String,
+        flag: String,
+        value: Bool
+    ) throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let socketPath = makeCodexHookSocketPath("\(agent)-lifecycle-flags")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "surface-\(agent)-lifecycle-flags",
+            connectionLimit: 1
+        )
+        let input: [String: Any] = [
+            "session_id": "lifecycle-\(agent)",
+            "hook_event_name": "Stop",
+            flag: value,
+            "additional_details": String(repeating: "z", count: 70 * 1_024),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: input)
+        let rawPayload = try #require(String(data: data, encoding: .utf8))
+        #expect(rawPayload.utf8.count > 64 * 1_024)
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath, "hooks", "enqueue", agent, "stop",
+            ],
+            environment: [
+                "HOME": FileManager.default.temporaryDirectory.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_SURFACE_ID": "surface-\(agent)-lifecycle-flags",
+                "CMUX_\(agent.uppercased())_PID": "8535",
+            ],
+            standardInput: rawPayload,
+            fileBackedStandardInput: true,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(
+            result.stdout == "{}\n",
+            Comment(rawValue: "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        )
+        let commands = capturedCommands.snapshot()
+        let request = try #require(commands.compactMap(codexHookJSONObject).last {
+            guard $0["method"] as? String == "agent.hook.enqueue",
+                  let params = $0["params"] as? [String: Any] else {
+                return false
+            }
+            return params["agent"] as? String == agent
+        }, Comment(rawValue: "captured commands:\n\(commands.joined(separator: "\n"))"))
+        let params = try #require(request["params"] as? [String: Any])
+        let compactPayload = try #require(params["payload"] as? String)
+        #expect(compactPayload.utf8.count <= 64 * 1_024)
+        let compact = try #require(
+            JSONSerialization.jsonObject(with: Data(compactPayload.utf8)) as? [String: Any]
+        )
+        #expect(
+            compact[flag] as? Bool == value,
+            Comment(rawValue: compactPayload)
+        )
+    }
+
+    @Test(
         "Pinned agent queue admission uses its explicit socket without ambient cmux target IDs",
         arguments: ["grok", "antigravity"]
     )
@@ -448,6 +527,11 @@ struct CLIClaudeHookTimeoutRegressionTests {
         let admittedEnvironment = try #require(params["environment"] as? [String: Any])
         #expect(admittedEnvironment["CMUX_SURFACE_ID"] == nil)
         #expect(admittedEnvironment["CMUX_WORKSPACE_ID"] == nil)
+        let pidKey = "CMUX_\(agent.uppercased())_PID"
+        #expect(
+            admittedEnvironment[pidKey] as? String ==
+                String(ProcessInfo.processInfo.processIdentifier)
+        )
     }
 
     @Test(
