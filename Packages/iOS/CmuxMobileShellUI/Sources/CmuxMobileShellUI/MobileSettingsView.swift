@@ -328,6 +328,20 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
                     }
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
+
+                    Picker(selection: $displaySettings.terminalScrollbackRows) {
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows1k", defaultValue: "1,000 Rows"))
+                            .tag(1000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows4k", defaultValue: "4,000 Rows"))
+                            .tag(4000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows10k", defaultValue: "10,000 Rows"))
+                            .tag(10000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows20k", defaultValue: "20,000 Rows"))
+                            .tag(20000)
+                    } label: {
+                        Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalScrollback")
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
