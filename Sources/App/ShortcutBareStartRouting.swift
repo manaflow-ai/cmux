@@ -69,43 +69,6 @@ func bareShortcutFastPathKey(for event: NSEvent) -> String? {
 }
 
 extension AppDelegate {
-#if DEBUG
-    /// Process environment is fixed at launch; snapshot this DEBUG-only trace
-    /// opt-in instead of rebuilding the environment on every keystroke.
-    static let shortcutMonitorTraceEnvironmentEnabled =
-        ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
-#endif
-
-    /// Returns the already-resolved tab manager when plain terminal text can
-    /// bypass browser, palette, and workspace shortcut-context resolution.
-    func terminalTextShortcutBypassTabManagerBeforeContextResolution(
-        event: NSEvent,
-        normalizedFlags: NSEvent.ModifierFlags
-    ) -> TabManager? {
-        guard normalizedFlags.isEmpty,
-              activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-              event.cmuxIsPrintableTextInput,
-              let window = event.window ?? shortcutRoutingKeyWindow,
-              window.firstResponder is GhosttyNSView,
-              NSApp.modalWindow == nil,
-              window.attachedSheet == nil,
-              let windowId = mainWindowId(from: window),
-              let tabManager = tabManagerFor(windowId: windowId),
-              !commandPaletteWindowStore.isVisible(windowId),
-              !commandPaletteWindowStore.isPendingOpenRaw(windowId),
-              !NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber) else {
-            return nil
-        }
-
-        guard shouldBypassPlainKeyShortcutRouting(
-            event: event,
-            normalizedFlags: normalizedFlags
-        ) else {
-            return nil
-        }
-        return tabManager
-    }
-
     func shouldBypassPlainKeyShortcutRouting(
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
@@ -126,16 +89,6 @@ extension AppDelegate {
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
         return !configuredCmuxShortcutActions(for: configuredCmuxShortcutContext).contains {
             $0.shortcut?.bareShortcutStartKey == bareShortcutKey
-        }
-    }
-}
-
-private extension NSEvent {
-    var cmuxIsPrintableTextInput: Bool {
-        guard let characters, !characters.isEmpty else { return false }
-        return characters.unicodeScalars.allSatisfy { scalar in
-            !CharacterSet.controlCharacters.contains(scalar)
-                && (scalar.value < 0xF700 || scalar.value > 0xF8FF)
         }
     }
 }

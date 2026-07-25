@@ -1,5 +1,4 @@
 import AppKit
-import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
 import Testing

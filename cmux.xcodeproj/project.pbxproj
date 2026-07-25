@@ -190,7 +190,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
 		C6711A030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */; };
 		4E6A6F5C1D2B4980A1234568 /* AppDelegateSurfaceShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6A6F5C1D2B4980A1234567 /* AppDelegateSurfaceShortcutRoutingTests.swift */; };
-		F8808A000000000000000001 /* AppDelegateTerminalTypingShortcutFastPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8808A000000000000000002 /* AppDelegateTerminalTypingShortcutFastPathTests.swift */; };
 		F47126CFDAE244988A92E2D0 /* AppDelegateWindowFrameReconcileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD21AD844E5D4D50A6DFC442 /* AppDelegateWindowFrameReconcileTests.swift */; };
 		A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAB000000000000000001 /* AppearanceSettings.swift */; };
 		A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAA000000000000000001 /* AppearanceSettingsTests.swift */; };
@@ -2501,7 +2500,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateSurfaceResumeTerminalIdTests.swift; sourceTree = "<group>"; };
 		4E6A6F5C1D2B4980A1234567 /* AppDelegateSurfaceShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateSurfaceShortcutRoutingTests.swift; sourceTree = "<group>"; };
-		F8808A000000000000000002 /* AppDelegateTerminalTypingShortcutFastPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTerminalTypingShortcutFastPathTests.swift; sourceTree = "<group>"; };
 		FD21AD844E5D4D50A6DFC442 /* AppDelegateWindowFrameReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateWindowFrameReconcileTests.swift; sourceTree = "<group>"; };
 		A11EAB000000000000000001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		A11EAA000000000000000001 /* AppearanceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsTests.swift; sourceTree = "<group>"; };
@@ -6363,7 +6361,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
 				F5588001A1B2C3D4E5F60718 /* AppDelegateOptionDigitShortcutRoutingTests.swift */,
-				F8808A000000000000000002 /* AppDelegateTerminalTypingShortcutFastPathTests.swift */,
 				6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */,
 				4E6A6F5C1D2B4980A1234567 /* AppDelegateSurfaceShortcutRoutingTests.swift */,
 				6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */,
@@ -8938,7 +8935,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 				C6711A030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift in Sources */,
 				4E6A6F5C1D2B4980A1234568 /* AppDelegateSurfaceShortcutRoutingTests.swift in Sources */,
-				F8808A000000000000000001 /* AppDelegateTerminalTypingShortcutFastPathTests.swift in Sources */,
 				F47126CFDAE244988A92E2D0 /* AppDelegateWindowFrameReconcileTests.swift in Sources */,
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */,

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxFoundation
 import SwiftUI
 import Testing
 @testable import cmux_DEV

@@ -207,6 +207,7 @@ extension GhosttySurfaceView {
             pendingSurfaceFreeCount += 1
             enqueueSurfaceFree(
                 oldSurface,
+                bridge: oldBridge,
                 generation: surfaceGeneration,
                 on: oldQueue
             ) { [weak self] in
