@@ -196,9 +196,14 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206E020000000000000001 /* AppIconAppearanceObserverTests.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
+		A88100000000000000000002 /* ApplicationCaptureRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */; };
+		A88100000000000000000004 /* ApplicationCaptureStreamDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000003 /* ApplicationCaptureStreamDelegate.swift */; };
+		A88100000000000000000006 /* ApplicationCaptureStreamOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000005 /* ApplicationCaptureStreamOutput.swift */; };
 		2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */; };
+		A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */; };
 		B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */; };
 		86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */; };
+		A88200000000000000000002 /* ApplicationSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88200000000000000000001 /* ApplicationSurfaceTests.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
@@ -2510,9 +2515,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A7206E020000000000000001 /* AppIconAppearanceObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconAppearanceObserverTests.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
+		A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureRepresentable.swift; sourceTree = "<group>"; };
+		A88100000000000000000003 /* ApplicationCaptureStreamDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureStreamDelegate.swift; sourceTree = "<group>"; };
+		A88100000000000000000005 /* ApplicationCaptureStreamOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureStreamOutput.swift; sourceTree = "<group>"; };
 		3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureView.swift; sourceTree = "<group>"; };
+		A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationNamedKeySendResult.swift; sourceTree = "<group>"; };
 		FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanel.swift; sourceTree = "<group>"; };
 		1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanelView.swift; sourceTree = "<group>"; };
+		A88200000000000000000001 /* ApplicationSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceTests.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -5861,7 +5871,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C57B00090000000000000002 /* CustomSidebarPanelView.swift */,
 				FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */,
 				1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */,
+				A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */,
+				A88100000000000000000003 /* ApplicationCaptureStreamDelegate.swift */,
+				A88100000000000000000005 /* ApplicationCaptureStreamOutput.swift */,
 				3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */,
+				A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001223 /* UpdateLogStore.swift */,
 				D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */,
@@ -6258,6 +6272,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				A88200000000000000000001 /* ApplicationSurfaceTests.swift */,
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
@@ -7458,7 +7473,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D37777040000000000000001 /* AppDelegateSettingsPresentation.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
+				A88100000000000000000002 /* ApplicationCaptureRepresentable.swift in Sources */,
+				A88100000000000000000004 /* ApplicationCaptureStreamDelegate.swift in Sources */,
+				A88100000000000000000006 /* ApplicationCaptureStreamOutput.swift in Sources */,
 				2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */,
+				A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */,
 				B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */,
 				86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
@@ -8950,6 +8969,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F47126CFDAE244988A92E2D0 /* AppDelegateWindowFrameReconcileTests.swift in Sources */,
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */,
+				A88200000000000000000002 /* ApplicationSurfaceTests.swift in Sources */,
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
 				FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */,
 				7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */,

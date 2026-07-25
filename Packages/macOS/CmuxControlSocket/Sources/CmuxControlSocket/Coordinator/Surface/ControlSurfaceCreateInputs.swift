@@ -47,6 +47,25 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let placementRaw: String?
 
     /// Creates surface-create inputs.
+    ///
+    /// - Parameters:
+    ///   - typeRaw: Raw surface type token.
+    ///   - providerRaw: Raw agent-session provider token.
+    ///   - rendererRaw: Raw agent-session renderer token.
+    ///   - urlRaw: Raw browser URL.
+    ///   - applicationWindowID: Native application window identifier.
+    ///   - applicationProcessID: Native application process identifier.
+    ///   - applicationTitle: Application surface title.
+    ///   - applicationFrameRate: Requested capture frame rate.
+    ///   - workingDirectory: Working directory for supported surface types.
+    ///   - initialCommand: Initial terminal command.
+    ///   - tmuxStartCommand: Initial tmux command.
+    ///   - remotePTYSessionID: Remote PTY session identifier.
+    ///   - remoteContextRaw: Raw remote context token.
+    ///   - startupEnvironment: Startup environment variables.
+    ///   - requestedPaneID: Target pane identifier.
+    ///   - requestedFocus: Whether to focus the new surface.
+    ///   - placementRaw: Raw workspace or Dock placement token.
     public init(
         typeRaw: String?,
         providerRaw: String?,

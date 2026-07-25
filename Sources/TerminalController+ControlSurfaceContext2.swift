@@ -79,6 +79,9 @@ extension TerminalController {
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
+        if panelType == .application {
+            return .applicationRejected(typeRawValue: panelType.rawValue)
+        }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return .browserDisabled(surfaceBrowserDisabledOutcome(
@@ -87,7 +90,6 @@ extension TerminalController {
                 tabManager: tabManager
             ))
         }
-
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
@@ -318,6 +320,12 @@ extension TerminalController {
                 tabManager: tabManager
             ))
         }
+        if panelType == .application, socketServer.accessMode == .allowAll {
+            return .applicationControlUnavailable(message: String(
+                localized: "socket.application.allowAllUnavailable",
+                defaultValue: "Application control is unavailable in allowAll socket mode. Use cmuxOnly, automation, or password mode."
+            ))
+        }
 
         if case .dock = placement {
             return dockSurfaceCreate(
@@ -366,7 +374,10 @@ extension TerminalController {
         let newPanelId: UUID?
         if panelType == .application {
             guard let applicationWindowID = inputs.applicationWindowID,
-                  let applicationProcessID = inputs.applicationProcessID
+                  applicationWindowID > 0,
+                  let applicationProcessID = inputs.applicationProcessID,
+                  applicationProcessID > 0,
+                  (1...120).contains(inputs.applicationFrameRate ?? 60)
             else {
                 return .createFailed
             }

@@ -13,6 +13,15 @@ Application surfaces require macOS Screen Recording permission. Interactive
 input also requires Accessibility permission. macOS presents these approvals
 and does not provide a supported way for CMUX to grant them silently.
 
+CMUX verifies that the native window still belongs to the requested process
+before capture and while forwarding input. Input fails closed when ownership
+changes or Accessibility permission is unavailable. Hidden application surfaces
+stop capturing until they become visible again.
+
+Application control is disabled when the automation socket uses `allowAll`
+mode. Use `cmuxOnly`, `automation`, or password mode so arbitrary local clients
+cannot turn CMUX's Accessibility permission into native application input.
+
 ## CLI
 
 List capturable windows:
@@ -37,3 +46,6 @@ cmux new-surface \
 Application lifecycle remains outside CMUX. Launch or stop the application with
 its own CLI, launcher, or automation, then attach the resulting window using the
 CMUX CLI.
+
+`surface.split` does not accept `type=application`; use `surface.create` with
+`window_id_native` and `process_id`.

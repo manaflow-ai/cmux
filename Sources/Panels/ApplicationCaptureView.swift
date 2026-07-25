@@ -1,49 +1,75 @@
 import AppKit
+import ApplicationServices
 import AVFoundation
 import Carbon.HIToolbox
 import CoreMedia
+import os
 import ScreenCaptureKit
-import SwiftUI
 
-struct ApplicationCaptureRepresentable: NSViewRepresentable {
-    let panel: ApplicationPanel
-    let windowID: CGWindowID
-
-    func makeNSView(context: Context) -> ApplicationCaptureView {
-        let captureToken = panel.beginCaptureSession()
-        let view = ApplicationCaptureView(
-            windowID: windowID,
-            processID: panel.processID,
-            targetFrameRate: panel.targetFrameRate,
-            onStateChanged: { [weak panel] state in
-                panel?.updateCaptureState(state, token: captureToken)
-            }
-        )
-        panel.attach(view, token: captureToken)
-        view.startCapture()
-        return view
-    }
-
-    func updateNSView(_ nsView: ApplicationCaptureView, context: Context) {}
-
-    static func dismantleNSView(_ nsView: ApplicationCaptureView, coordinator: ()) {
-        nsView.stopCapture()
-    }
-}
-
+@MainActor
 final class ApplicationCaptureView: NSView {
+    private static let targetValidationInterval: TimeInterval = 0.25
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.cmux",
+        category: "ApplicationCapture"
+    )
+    private static let namedKeyCodes: [String: CGKeyCode] = [
+        "a": CGKeyCode(kVK_ANSI_A), "b": CGKeyCode(kVK_ANSI_B),
+        "c": CGKeyCode(kVK_ANSI_C), "d": CGKeyCode(kVK_ANSI_D),
+        "e": CGKeyCode(kVK_ANSI_E), "f": CGKeyCode(kVK_ANSI_F),
+        "g": CGKeyCode(kVK_ANSI_G), "h": CGKeyCode(kVK_ANSI_H),
+        "i": CGKeyCode(kVK_ANSI_I), "j": CGKeyCode(kVK_ANSI_J),
+        "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
+        "m": CGKeyCode(kVK_ANSI_M), "n": CGKeyCode(kVK_ANSI_N),
+        "o": CGKeyCode(kVK_ANSI_O), "p": CGKeyCode(kVK_ANSI_P),
+        "q": CGKeyCode(kVK_ANSI_Q), "r": CGKeyCode(kVK_ANSI_R),
+        "s": CGKeyCode(kVK_ANSI_S), "t": CGKeyCode(kVK_ANSI_T),
+        "u": CGKeyCode(kVK_ANSI_U), "v": CGKeyCode(kVK_ANSI_V),
+        "w": CGKeyCode(kVK_ANSI_W), "x": CGKeyCode(kVK_ANSI_X),
+        "y": CGKeyCode(kVK_ANSI_Y), "z": CGKeyCode(kVK_ANSI_Z),
+        "0": CGKeyCode(kVK_ANSI_0), "1": CGKeyCode(kVK_ANSI_1),
+        "2": CGKeyCode(kVK_ANSI_2), "3": CGKeyCode(kVK_ANSI_3),
+        "4": CGKeyCode(kVK_ANSI_4), "5": CGKeyCode(kVK_ANSI_5),
+        "6": CGKeyCode(kVK_ANSI_6), "7": CGKeyCode(kVK_ANSI_7),
+        "8": CGKeyCode(kVK_ANSI_8), "9": CGKeyCode(kVK_ANSI_9),
+        "enter": CGKeyCode(kVK_Return), "return": CGKeyCode(kVK_Return),
+        "tab": CGKeyCode(kVK_Tab), "space": CGKeyCode(kVK_Space),
+        "escape": CGKeyCode(kVK_Escape), "esc": CGKeyCode(kVK_Escape),
+        "backspace": CGKeyCode(kVK_Delete),
+        "delete": CGKeyCode(kVK_ForwardDelete),
+        "del": CGKeyCode(kVK_ForwardDelete),
+        "home": CGKeyCode(kVK_Home), "end": CGKeyCode(kVK_End),
+        "pageup": CGKeyCode(kVK_PageUp), "page_up": CGKeyCode(kVK_PageUp),
+        "pagedown": CGKeyCode(kVK_PageDown), "page_down": CGKeyCode(kVK_PageDown),
+        "f1": CGKeyCode(kVK_F1), "f2": CGKeyCode(kVK_F2),
+        "f3": CGKeyCode(kVK_F3), "f4": CGKeyCode(kVK_F4),
+        "f5": CGKeyCode(kVK_F5), "f6": CGKeyCode(kVK_F6),
+        "f7": CGKeyCode(kVK_F7), "f8": CGKeyCode(kVK_F8),
+        "f9": CGKeyCode(kVK_F9), "f10": CGKeyCode(kVK_F10),
+        "f11": CGKeyCode(kVK_F11), "f12": CGKeyCode(kVK_F12),
+        "left": CGKeyCode(kVK_LeftArrow), "right": CGKeyCode(kVK_RightArrow),
+        "down": CGKeyCode(kVK_DownArrow), "up": CGKeyCode(kVK_UpArrow),
+    ]
+
     private let sourceWindowID: CGWindowID
     private let processID: pid_t
     private let targetFrameRate: Int
     private let onStateChanged: (ApplicationPanel.CaptureState) -> Void
+    private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let streamOutput: ApplicationCaptureStreamOutput
     private let streamDelegate: ApplicationCaptureStreamDelegate
     private var captureTask: Task<Void, Never>?
+    private var teardownTask: Task<Void, Never>?
+    private var startupToken: UUID?
     private var stream: SCStream?
     private var sourceFrame: CGRect = .zero
+    private var lastTargetValidationAt: TimeInterval = 0
+    private var captureDesired = false
+    private var targetUnavailable = false
     private var pendingScrollX = 0.0
     private var pendingScrollY = 0.0
+    private var mouseTrackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -52,16 +78,18 @@ final class ApplicationCaptureView: NSView {
         windowID: CGWindowID,
         processID: pid_t,
         targetFrameRate: Int,
-        onStateChanged: @escaping (ApplicationPanel.CaptureState) -> Void
+        onStateChanged: @escaping (ApplicationPanel.CaptureState) -> Void,
+        onMovedToWindow: @escaping (ApplicationCaptureView) -> Void
     ) {
         self.sourceWindowID = windowID
         self.processID = processID
         self.targetFrameRate = targetFrameRate
         self.onStateChanged = onStateChanged
+        self.onMovedToWindow = onMovedToWindow
         self.streamOutput = ApplicationCaptureStreamOutput(displayLayer: displayLayer)
-        self.streamDelegate = ApplicationCaptureStreamDelegate { detail in
+        self.streamDelegate = ApplicationCaptureStreamDelegate {
             Task { @MainActor in
-                onStateChanged(.failed(detail))
+                onStateChanged(.failed)
             }
         }
         super.init(frame: .zero)
@@ -77,6 +105,28 @@ final class ApplicationCaptureView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            onMovedToWindow(self)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        if let mouseTrackingArea {
+            removeTrackingArea(mouseTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        mouseTrackingArea = trackingArea
+        super.updateTrackingAreas()
+    }
+
     override func layout() {
         super.layout()
         CATransaction.begin()
@@ -85,45 +135,84 @@ final class ApplicationCaptureView: NSView {
         CATransaction.commit()
     }
 
+    func setCaptureActive(_ active: Bool) {
+        if active {
+            captureDesired = true
+            startCapture()
+        } else {
+            stopCapture()
+        }
+    }
+
     func startCapture() {
-        guard captureTask == nil else { return }
+        guard captureDesired, !targetUnavailable, captureTask == nil, stream == nil else { return }
+        let token = UUID()
+        startupToken = token
+        let previousTeardown = teardownTask
         captureTask = Task { [weak self] in
-            await self?.beginCapture()
+            await previousTeardown?.value
+            guard let self,
+                  self.captureDesired,
+                  self.startupToken == token,
+                  !Task.isCancelled else { return }
+            await self.beginCapture(token: token)
+            if self.startupToken == token {
+                self.captureTask = nil
+            }
         }
     }
 
     func stopCapture() {
+        captureDesired = false
+        startupToken = nil
         captureTask?.cancel()
         captureTask = nil
+        sourceFrame = .zero
+        lastTargetValidationAt = 0
+        pendingScrollX = 0
+        pendingScrollY = 0
+
         let activeStream = stream
         stream = nil
-        Task {
-            try? await activeStream?.stopCapture()
-        }
         displayLayer.flushAndRemoveImage()
+        guard let activeStream else { return }
+
+        streamDelegate.expectStop(activeStream)
+        let previousTeardown = teardownTask
+        teardownTask = Task {
+            await previousTeardown?.value
+            do {
+                try await activeStream.stopCapture()
+            } catch {
+                Self.logger.error("ScreenCaptureKit stopCapture failed")
+            }
+        }
     }
 
-    private func beginCapture() async {
+    private func beginCapture(token: UUID) async {
         onStateChanged(.starting)
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
             onStateChanged(.permissionRequired)
             return
         }
-        guard !Task.isCancelled else { return }
+        guard captureDesired, startupToken == token, !Task.isCancelled else { return }
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
                 false,
                 onScreenWindowsOnly: false
             )
-            guard !Task.isCancelled else { return }
+            guard captureDesired, startupToken == token, !Task.isCancelled else { return }
             guard let sourceWindow = content.windows.first(where: {
                 $0.windowID == sourceWindowID
-            }) else {
-                onStateChanged(.windowUnavailable)
+            }),
+            sourceWindow.owningApplication?.processID == processID else {
+                handleWindowUnavailable()
                 return
             }
+
             sourceFrame = sourceWindow.frame
+            lastTargetValidationAt = CFAbsoluteTimeGetCurrent()
             let filter = SCContentFilter(desktopIndependentWindow: sourceWindow)
             let configuration = SCStreamConfiguration()
             let sourceSize = sourceWindow.frame.size
@@ -154,18 +243,23 @@ final class ApplicationCaptureView: NSView {
             )
             stream = newStream
             try await newStream.startCapture()
-            guard !Task.isCancelled else {
+            guard captureDesired, startupToken == token, !Task.isCancelled else {
                 if stream === newStream {
                     stream = nil
+                    streamDelegate.expectStop(newStream)
+                    do {
+                        try await newStream.stopCapture()
+                    } catch {
+                        Self.logger.error("ScreenCaptureKit cancelled-start teardown failed")
+                    }
                 }
-                try? await newStream.stopCapture()
                 return
             }
             onStateChanged(.streaming)
         } catch {
             stream = nil
-            if !Task.isCancelled {
-                onStateChanged(.failed(error.localizedDescription))
+            if captureDesired, startupToken == token, !Task.isCancelled {
+                onStateChanged(.failed)
             }
         }
     }
@@ -200,6 +294,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard validatedSourceFrame() != nil, AXIsProcessTrusted() else { return }
         pendingScrollX += event.scrollingDeltaX
         pendingScrollY += event.scrollingDeltaY
         let scrollX = pendingScrollX.rounded(.towardZero)
@@ -208,13 +303,13 @@ final class ApplicationCaptureView: NSView {
         pendingScrollY -= scrollY
         guard scrollX != 0 || scrollY != 0 else { return }
         guard let cgEvent = CGEvent(
-                scrollWheelEvent2Source: nil,
-                units: .pixel,
-                wheelCount: 2,
-                wheel1: Int32(scrollY),
-                wheel2: Int32(scrollX),
-                wheel3: 0
-              ) else { return }
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: Int32(scrollY),
+            wheel2: Int32(scrollX),
+            wheel3: 0
+        ) else { return }
         cgEvent.postToPid(processID)
     }
 
@@ -247,48 +342,38 @@ final class ApplicationCaptureView: NSView {
         postKey(event, keyDown: event.modifierFlags.contains(modifier))
     }
 
-    func sendNamedKey(_ name: String) -> Bool {
-        let normalized = name.lowercased()
-        let keys: [String: CGKeyCode] = [
-            "a": CGKeyCode(kVK_ANSI_A), "b": CGKeyCode(kVK_ANSI_B),
-            "c": CGKeyCode(kVK_ANSI_C), "d": CGKeyCode(kVK_ANSI_D),
-            "e": CGKeyCode(kVK_ANSI_E), "f": CGKeyCode(kVK_ANSI_F),
-            "g": CGKeyCode(kVK_ANSI_G), "h": CGKeyCode(kVK_ANSI_H),
-            "i": CGKeyCode(kVK_ANSI_I), "j": CGKeyCode(kVK_ANSI_J),
-            "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
-            "m": CGKeyCode(kVK_ANSI_M), "n": CGKeyCode(kVK_ANSI_N),
-            "o": CGKeyCode(kVK_ANSI_O), "p": CGKeyCode(kVK_ANSI_P),
-            "q": CGKeyCode(kVK_ANSI_Q), "r": CGKeyCode(kVK_ANSI_R),
-            "s": CGKeyCode(kVK_ANSI_S), "t": CGKeyCode(kVK_ANSI_T),
-            "u": CGKeyCode(kVK_ANSI_U), "v": CGKeyCode(kVK_ANSI_V),
-            "w": CGKeyCode(kVK_ANSI_W), "x": CGKeyCode(kVK_ANSI_X),
-            "y": CGKeyCode(kVK_ANSI_Y), "z": CGKeyCode(kVK_ANSI_Z),
-            "0": CGKeyCode(kVK_ANSI_0), "1": CGKeyCode(kVK_ANSI_1),
-            "2": CGKeyCode(kVK_ANSI_2), "3": CGKeyCode(kVK_ANSI_3),
-            "4": CGKeyCode(kVK_ANSI_4), "5": CGKeyCode(kVK_ANSI_5),
-            "6": CGKeyCode(kVK_ANSI_6), "7": CGKeyCode(kVK_ANSI_7),
-            "8": CGKeyCode(kVK_ANSI_8), "9": CGKeyCode(kVK_ANSI_9),
-            "enter": CGKeyCode(kVK_Return), "return": CGKeyCode(kVK_Return),
-            "tab": CGKeyCode(kVK_Tab), "space": CGKeyCode(kVK_Space),
-            "escape": CGKeyCode(kVK_Escape), "esc": CGKeyCode(kVK_Escape),
-            "backspace": CGKeyCode(kVK_Delete),
-            "delete": CGKeyCode(kVK_ForwardDelete),
-            "del": CGKeyCode(kVK_ForwardDelete),
-            "home": CGKeyCode(kVK_Home), "end": CGKeyCode(kVK_End),
-            "pageup": CGKeyCode(kVK_PageUp), "page_up": CGKeyCode(kVK_PageUp),
-            "pagedown": CGKeyCode(kVK_PageDown), "page_down": CGKeyCode(kVK_PageDown),
-            "f1": CGKeyCode(kVK_F1), "f2": CGKeyCode(kVK_F2),
-            "f3": CGKeyCode(kVK_F3), "f4": CGKeyCode(kVK_F4),
-            "f5": CGKeyCode(kVK_F5), "f6": CGKeyCode(kVK_F6),
-            "f7": CGKeyCode(kVK_F7), "f8": CGKeyCode(kVK_F8),
-            "f9": CGKeyCode(kVK_F9), "f10": CGKeyCode(kVK_F10),
-            "f11": CGKeyCode(kVK_F11), "f12": CGKeyCode(kVK_F12),
-            "left": CGKeyCode(kVK_LeftArrow), "right": CGKeyCode(kVK_RightArrow),
-            "down": CGKeyCode(kVK_DownArrow), "up": CGKeyCode(kVK_UpArrow),
-        ]
+    func sendNamedKey(_ name: String) -> ApplicationNamedKeySendResult {
+        guard let parsed = Self.parseNamedKey(name) else {
+            return .unknownKey
+        }
+        guard validatedSourceFrame() != nil, AXIsProcessTrusted(),
+              let down = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: parsed.keyCode,
+                keyDown: true
+              ),
+              let up = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: parsed.keyCode,
+                keyDown: false
+              ) else {
+            return .surfaceUnavailable
+        }
+        down.flags = parsed.flags
+        up.flags = parsed.flags
+        down.postToPid(processID)
+        up.postToPid(processID)
+        return .sent
+    }
+
+    static func parseNamedKey(_ name: String) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {
+        let normalized = name
+            .lowercased()
+            .replacingOccurrences(of: "+", with: "-")
         var components = normalized.split(separator: "-").map(String.init)
-        guard let keyName = components.popLast(), let keyCode = keys[keyName] else {
-            return false
+        guard let keyName = components.popLast(),
+              let keyCode = Self.namedKeyCodes[keyName] else {
+            return nil
         }
         var flags: CGEventFlags = []
         for modifier in components {
@@ -297,44 +382,20 @@ final class ApplicationCaptureView: NSView {
             case "shift": flags.insert(.maskShift)
             case "alt", "option": flags.insert(.maskAlternate)
             case "cmd", "command", "super": flags.insert(.maskCommand)
-            default: return false
+            default: return nil
             }
         }
-        guard let down = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: keyCode,
-                keyDown: true
-              ),
-              let up = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: keyCode,
-                keyDown: false
-              ) else { return false }
-        down.flags = flags
-        up.flags = flags
-        down.postToPid(processID)
-        up.postToPid(processID)
-        return true
+        return (keyCode, flags)
     }
 
     private func postMouse(_ event: NSEvent, type: CGEventType, button: CGMouseButton) {
-        if let currentFrame = currentSourceFrame() {
-            sourceFrame = currentFrame
-        }
-        guard sourceFrame.width > 0, sourceFrame.height > 0 else { return }
+        guard let sourceFrame = validatedSourceFrame(), AXIsProcessTrusted() else { return }
         let point = convert(event.locationInWindow, from: nil)
-        let scale = min(bounds.width / sourceFrame.width, bounds.height / sourceFrame.height)
-        guard scale > 0 else { return }
-        let renderedSize = CGSize(
-            width: sourceFrame.width * scale,
-            height: sourceFrame.height * scale
-        )
-        let insetX = (bounds.width - renderedSize.width) / 2
-        let insetY = (bounds.height - renderedSize.height) / 2
-        let sourcePoint = CGPoint(
-            x: sourceFrame.minX + min(max((point.x - insetX) / scale, 0), sourceFrame.width),
-            y: sourceFrame.minY + min(max((point.y - insetY) / scale, 0), sourceFrame.height)
-        )
+        guard let sourcePoint = Self.sourcePoint(
+            for: point,
+            in: bounds,
+            sourceFrame: sourceFrame
+        ) else { return }
         guard let cgEvent = CGEvent(
             mouseEventSource: nil,
             mouseType: type,
@@ -344,61 +405,81 @@ final class ApplicationCaptureView: NSView {
         cgEvent.postToPid(processID)
     }
 
-    private func currentSourceFrame() -> CGRect? {
+    static func sourcePoint(
+        for point: CGPoint,
+        in bounds: CGRect,
+        sourceFrame: CGRect
+    ) -> CGPoint? {
+        guard bounds.width > 0,
+              bounds.height > 0,
+              sourceFrame.width > 0,
+              sourceFrame.height > 0 else { return nil }
+        let scale = min(bounds.width / sourceFrame.width, bounds.height / sourceFrame.height)
+        guard scale > 0 else { return nil }
+        let renderedSize = CGSize(
+            width: sourceFrame.width * scale,
+            height: sourceFrame.height * scale
+        )
+        let renderedRect = CGRect(
+            x: (bounds.width - renderedSize.width) / 2,
+            y: (bounds.height - renderedSize.height) / 2,
+            width: renderedSize.width,
+            height: renderedSize.height
+        )
+        guard renderedRect.contains(point) else { return nil }
+        return CGPoint(
+            x: sourceFrame.minX + (point.x - renderedRect.minX) / scale,
+            y: sourceFrame.minY + (point.y - renderedRect.minY) / scale
+        )
+    }
+
+    private func validatedSourceFrame() -> CGRect? {
+        guard captureDesired, stream != nil, sourceFrame.width > 0, sourceFrame.height > 0 else {
+            return nil
+        }
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastTargetValidationAt < Self.targetValidationInterval {
+            return sourceFrame
+        }
+        lastTargetValidationAt = now
+
         let windows = CGWindowListCopyWindowInfo(
             [.optionIncludingWindow],
             sourceWindowID
         ) as? [[String: Any]]
-        guard let bounds = windows?.first?[kCGWindowBounds as String] as? NSDictionary else {
+        guard let window = windows?.first,
+              let ownerPID = window[kCGWindowOwnerPID as String] as? Int,
+              pid_t(ownerPID) == processID,
+              let bounds = window[kCGWindowBounds as String] as? NSDictionary else {
+            handleWindowUnavailable()
             return nil
         }
         var frame = CGRect.zero
-        guard CGRectMakeWithDictionaryRepresentation(bounds, &frame) else {
+        guard CGRectMakeWithDictionaryRepresentation(bounds, &frame),
+              frame.width > 0,
+              frame.height > 0 else {
+            handleWindowUnavailable()
             return nil
         }
+        sourceFrame = frame
         return frame
     }
 
     private func postKey(_ event: NSEvent, keyDown: Bool) {
+        guard validatedSourceFrame() != nil, AXIsProcessTrusted() else { return }
         guard let cgEvent = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: CGKeyCode(event.keyCode),
-                keyDown: keyDown
-              ) else { return }
+            keyboardEventSource: nil,
+            virtualKey: CGKeyCode(event.keyCode),
+            keyDown: keyDown
+        ) else { return }
         cgEvent.flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
         cgEvent.postToPid(processID)
     }
-}
 
-private final class ApplicationCaptureStreamDelegate: NSObject, SCStreamDelegate, @unchecked Sendable {
-    private let onStopped: @Sendable (String) -> Void
-
-    init(onStopped: @escaping @Sendable (String) -> Void) {
-        self.onStopped = onStopped
-    }
-
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        onStopped(error.localizedDescription)
-    }
-}
-
-private final class ApplicationCaptureStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
-    let sampleQueue = DispatchQueue(
-        label: "com.cmux.application-capture.frames",
-        qos: .userInteractive
-    )
-    private let displayLayer: AVSampleBufferDisplayLayer
-
-    init(displayLayer: AVSampleBufferDisplayLayer) {
-        self.displayLayer = displayLayer
-    }
-
-    func stream(
-        _ stream: SCStream,
-        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
-        of outputType: SCStreamOutputType
-    ) {
-        guard outputType == .screen, sampleBuffer.isValid else { return }
-        displayLayer.enqueue(sampleBuffer)
+    private func handleWindowUnavailable() {
+        targetUnavailable = true
+        sourceFrame = .zero
+        onStateChanged(.windowUnavailable)
+        stopCapture()
     }
 }

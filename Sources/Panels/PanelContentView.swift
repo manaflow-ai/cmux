@@ -83,6 +83,7 @@ struct PanelContentView: View {
             if let applicationPanel = panel as? ApplicationPanel {
                 ApplicationPanelView(
                     panel: applicationPanel,
+                    isVisibleInUI: isVisibleInUI,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

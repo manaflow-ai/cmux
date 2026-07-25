@@ -386,8 +386,20 @@ extension TerminalController {
         }
         if let target = ws.controlSurfaceTarget(for: requestedSurfaceID),
            let applicationPanel = target.panel as? ApplicationPanel {
-            guard applicationPanel.sendNamedKey(key) else {
+            let unavailableMessage = String(
+                localized: "socket.application.inputUnavailable",
+                defaultValue: "Application input is unavailable. Check CMUX Accessibility permission and reopen the application surface."
+            )
+            guard socketServer.accessMode != .allowAll else {
+                return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
+            }
+            switch applicationPanel.sendNamedKey(key) {
+            case .sent:
+                break
+            case .unknownKey:
                 return .unknownKey
+            case .surfaceUnavailable:
+                return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
             }
             return .sent(
                 windowID: v2ResolveWindowId(tabManager: tabManager),

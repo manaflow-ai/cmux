@@ -5,6 +5,8 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var healthSnapshot: ControlSurfaceHealthSnapshot?
+    var sendKeyResolution: ControlSurfaceSendResolution = .tabManagerUnavailable
     var lastCreateInputs: ControlSurfaceCreateInputs?
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -39,6 +41,27 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     ) -> ControlSurfaceCreateResolution {
         lastCreateInputs = inputs
         return createResolution
+    }
+
+    func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot? {
+        healthSnapshot
+    }
+
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(
+            inputQueueFull: "queue full",
+            surfaceUnavailable: "surface unavailable",
+            processExited: "process exited"
+        )
+    }
+
+    func controlSurfaceSendKey(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        key: String
+    ) -> ControlSurfaceSendResolution {
+        sendKeyResolution
     }
 
     func controlSurfaceReportPWD(

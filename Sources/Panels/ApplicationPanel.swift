@@ -1,16 +1,17 @@
 import AppKit
-import Combine
 import Foundation
+import Observation
 
 /// A CMUX surface backed by a captured native application window.
 @MainActor
-final class ApplicationPanel: Panel, ObservableObject {
+@Observable
+final class ApplicationPanel: Panel {
     enum CaptureState: Equatable {
         case starting
         case streaming
         case permissionRequired
         case windowUnavailable
-        case failed(String)
+        case failed
     }
 
     let id: UUID
@@ -20,11 +21,15 @@ final class ApplicationPanel: Panel, ObservableObject {
     let windowID: CGWindowID
     let processID: pid_t
     let targetFrameRate: Int
-    @Published private(set) var captureState: CaptureState = .starting
+    private(set) var captureState: CaptureState = .starting
 
     private let title: String
+    @ObservationIgnored
     private weak var hostedView: ApplicationCaptureView?
+    @ObservationIgnored
     private var activeCaptureToken: UUID?
+    @ObservationIgnored
+    private var pendingFocus = false
 
     var displayTitle: String { title }
     var displayIcon: String? { "macwindow" }
@@ -39,10 +44,7 @@ final class ApplicationPanel: Panel, ObservableObject {
         }
     }
     var captureFailureDetail: String? {
-        if case let .failed(detail) = captureState {
-            return String(detail.prefix(512))
-        }
-        return nil
+        captureState == .failed ? "capture_failed" : nil
     }
 
     init?(
@@ -53,13 +55,7 @@ final class ApplicationPanel: Panel, ObservableObject {
         title: String,
         targetFrameRate: Int
     ) {
-        let windows = CGWindowListCopyWindowInfo(
-            [.optionIncludingWindow],
-            windowID
-        ) as? [[String: Any]]
-        guard let ownerPID = windows?.first?[kCGWindowOwnerPID as String] as? Int,
-              pid_t(ownerPID) == processID
-        else {
+        guard windowID > 0, processID > 0, (1...120).contains(targetFrameRate) else {
             return nil
         }
         self.id = id
@@ -83,6 +79,12 @@ final class ApplicationPanel: Panel, ObservableObject {
             return
         }
         hostedView = view
+        fulfillPendingFocusIfPossible()
+    }
+
+    func captureViewDidMoveToWindow(_ view: ApplicationCaptureView, token: UUID) {
+        guard activeCaptureToken == token, hostedView === view else { return }
+        fulfillPendingFocusIfPossible()
     }
 
     func updateCaptureState(_ state: CaptureState, token: UUID) {
@@ -92,20 +94,34 @@ final class ApplicationPanel: Panel, ObservableObject {
 
     func close() {
         activeCaptureToken = nil
+        pendingFocus = false
         hostedView?.stopCapture()
     }
 
     func focus() {
-        hostedView?.window?.makeFirstResponder(hostedView)
+        pendingFocus = true
+        fulfillPendingFocusIfPossible()
     }
 
-    func unfocus() {}
+    func unfocus() {
+        pendingFocus = false
+        guard let hostedView,
+              let window = hostedView.window,
+              window.firstResponder === hostedView else { return }
+        window.makeFirstResponder(nil)
+    }
 
-    func sendNamedKey(_ name: String) -> Bool {
-        hostedView?.sendNamedKey(name) ?? false
+    func sendNamedKey(_ name: String) -> ApplicationNamedKeySendResult {
+        hostedView?.sendNamedKey(name) ?? .surfaceUnavailable
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
+    }
+
+    private func fulfillPendingFocusIfPossible() {
+        guard pendingFocus, let hostedView, let window = hostedView.window else { return }
+        window.makeFirstResponder(hostedView)
+        pendingFocus = false
     }
 }

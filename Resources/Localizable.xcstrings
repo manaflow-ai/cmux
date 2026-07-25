@@ -129874,19 +129874,36 @@
         }
       }
     },
+    "panel.application.captureFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX could not capture this application window. Close the surface and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUXでこのアプリケーションウィンドウをキャプチャできませんでした。サーフェスを閉じて、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "panel.application.permissionRequired.detail": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow Screen Recording for CMUX in System Settings, then restart this build."
+            "value": "Allow Screen Recording for CMUX in System Settings, then restart CMUX."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム設定でCMUXの画面収録を許可してから、このビルドを再起動してください。"
+            "value": "システム設定でCMUXの画面収録を許可してから、CMUXを再起動してください。"
           }
         }
       }
@@ -129914,13 +129931,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The application window closed or its native identifier changed."
+            "value": "The application window is no longer available."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アプリケーションウィンドウが閉じたか、ネイティブ識別子が変更されました。"
+            "value": "アプリケーションウィンドウは利用できなくなりました。"
           }
         }
       }
@@ -211932,6 +211949,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
+    "socket.application.allowAllUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application control is unavailable in allowAll socket mode. Use cmuxOnly, automation, or password mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allowAllソケットモードではアプリケーションを操作できません。cmuxOnly、automation、またはpasswordモードを使用してください。"
+          }
+        }
+      }
+    },
+    "socket.application.inputUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application input is unavailable. Check CMUX Accessibility permission and reopen the application surface."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーション入力を利用できません。CMUXのアクセシビリティ権限を確認し、アプリケーションサーフェスを開き直してください。"
           }
         }
       }

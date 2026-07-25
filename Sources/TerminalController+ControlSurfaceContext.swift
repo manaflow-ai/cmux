@@ -153,32 +153,35 @@ extension TerminalController: ControlSurfaceContext {
 
     // MARK: - health
 
+    private func controlSurfaceHealthEntry(for panel: any Panel) -> ControlSurfaceHealthEntry {
+        let inWindow: Bool?
+        if let terminalPanel = panel as? TerminalPanel {
+            inWindow = terminalPanel.surface.isViewInWindow
+        } else if let browserPanel = panel as? BrowserPanel {
+            inWindow = browserPanel.webView.window != nil
+        } else if let applicationPanel = panel as? ApplicationPanel {
+            inWindow = applicationPanel.isCaptureViewInWindow
+        } else {
+            inWindow = nil
+        }
+        let applicationPanel = panel as? ApplicationPanel
+        return ControlSurfaceHealthEntry(
+            surfaceID: panel.id,
+            typeRawValue: panel.panelType.rawValue,
+            inWindow: inWindow,
+            applicationCaptureState: applicationPanel?.captureStateDescription,
+            applicationCaptureError: applicationPanel?.captureFailureDetail,
+            applicationWindowID: applicationPanel?.windowID,
+            applicationProcessID: applicationPanel?.processID
+        )
+    }
+
     func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot? {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            let items: [ControlSurfaceHealthEntry] = orderedPanels(in: dock).map { panel in
-                var inWindow: Bool?
-                if let tp = panel as? TerminalPanel {
-                    inWindow = tp.surface.isViewInWindow
-                } else if let bp = panel as? BrowserPanel {
-                    inWindow = bp.webView.window != nil
-                } else if let ap = panel as? ApplicationPanel {
-                    inWindow = ap.isCaptureViewInWindow
-                }
-                return ControlSurfaceHealthEntry(
-                    surfaceID: panel.id,
-                    typeRawValue: panel.panelType.rawValue,
-                    inWindow: inWindow,
-                    applicationCaptureState: (panel as? ApplicationPanel)?
-                        .captureStateDescription,
-                    applicationCaptureError: (panel as? ApplicationPanel)?
-                        .captureFailureDetail,
-                    applicationWindowID: (panel as? ApplicationPanel)?.windowID,
-                    applicationProcessID: (panel as? ApplicationPanel)?.processID
-                )
-            }
+            let items = orderedPanels(in: dock).map(controlSurfaceHealthEntry)
             return ControlSurfaceHealthSnapshot(
                 workspaceID: dock.workspaceId,
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),
@@ -186,27 +189,7 @@ extension TerminalController: ControlSurfaceContext {
             )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
-        let items: [ControlSurfaceHealthEntry] = controlSurfacePanels(workspace: ws).map { panel in
-            var inWindow: Bool?
-            if let tp = panel as? TerminalPanel {
-                inWindow = tp.surface.isViewInWindow
-            } else if let bp = panel as? BrowserPanel {
-                inWindow = bp.webView.window != nil
-            } else if let ap = panel as? ApplicationPanel {
-                inWindow = ap.isCaptureViewInWindow
-            }
-            return ControlSurfaceHealthEntry(
-                surfaceID: panel.id,
-                typeRawValue: panel.panelType.rawValue,
-                inWindow: inWindow,
-                applicationCaptureState: (panel as? ApplicationPanel)?
-                    .captureStateDescription,
-                applicationCaptureError: (panel as? ApplicationPanel)?
-                    .captureFailureDetail,
-                applicationWindowID: (panel as? ApplicationPanel)?.windowID,
-                applicationProcessID: (panel as? ApplicationPanel)?.processID
-            )
-        }
+        let items = controlSurfacePanels(workspace: ws).map(controlSurfaceHealthEntry)
         return ControlSurfaceHealthSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),

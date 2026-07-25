@@ -3169,6 +3169,52 @@ struct CMUXCLI {
         return true
     }
 
+    private func runListApplicationWindows(jsonOutput: Bool) {
+        let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+        let rawWindows = CGWindowListCopyWindowInfo(
+            options,
+            kCGNullWindowID
+        ) as? [[String: Any]] ?? []
+        let windows = rawWindows.compactMap { window -> [String: Any]? in
+            guard let windowID = window[kCGWindowNumber as String] as? Int,
+                  let processID = window[kCGWindowOwnerPID as String] as? Int,
+                  let owner = window[kCGWindowOwnerName as String] as? String,
+                  (window[kCGWindowLayer as String] as? Int ?? 0) == 0 else {
+                return nil
+            }
+            let title = (window[kCGWindowName as String] as? String) ?? owner
+            return [
+                "window_id": windowID,
+                "process_id": processID,
+                "owner": owner,
+                "title": title,
+            ]
+        }
+        if jsonOutput {
+            print(jsonString(["windows": windows]))
+        } else if windows.isEmpty {
+            print(String(
+                localized: "cli.applicationSurface.list.empty",
+                defaultValue: "No application windows found"
+            ))
+        } else {
+            for window in windows {
+                let owner = sanitizedApplicationWindowListField(window["owner"] as? String ?? "")
+                let title = sanitizedApplicationWindowListField(window["title"] as? String ?? "")
+                print("\(window["window_id"] ?? "")\t\(window["process_id"] ?? "")\t\(owner)\t\(title)")
+            }
+        }
+    }
+
+    private func sanitizedApplicationWindowListField(_ value: String) -> String {
+        String(value.unicodeScalars.filter { scalar in
+            let codePoint = scalar.value
+            return codePoint >= 0x20 &&
+                codePoint != 0x7F &&
+                !(0x80...0x9F).contains(codePoint)
+        })
+    }
+
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -3308,6 +3354,11 @@ struct CMUXCLI {
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
             )
+            return
+        }
+
+        if command == "list-application-windows" {
+            runListApplicationWindows(jsonOutput: jsonOutput)
             return
         }
 
@@ -4690,22 +4741,26 @@ struct CMUXCLI {
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
             if let nativeWindowID {
-                guard let value = Int(nativeWindowID), value > 0 else {
+                guard let parsed = Int(nativeWindowID),
+                      let value = UInt32(exactly: parsed),
+                      value > 0 else {
                     throw CLIError(message: String(
                         localized: "cli.applicationSurface.error.invalidWindowId",
                         defaultValue: "--native-window-id must be a positive integer"
                     ))
                 }
-                params["window_id_native"] = value
+                params["window_id_native"] = Int(value)
             }
             if let processID {
-                guard let value = Int(processID), value > 0 else {
+                guard let parsed = Int(processID),
+                      let value = Int32(exactly: parsed),
+                      value > 0 else {
                     throw CLIError(message: String(
                         localized: "cli.applicationSurface.error.invalidProcessId",
                         defaultValue: "--process-id must be a positive integer"
                     ))
                 }
-                params["process_id"] = value
+                params["process_id"] = Int(value)
             }
             if let title { params["title"] = title }
             if let frameRate {
@@ -4731,37 +4786,6 @@ struct CMUXCLI {
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
-
-        case "list-application-windows":
-            let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
-            let rawWindows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
-            let windows = rawWindows.compactMap { window -> [String: Any]? in
-                guard let windowID = window[kCGWindowNumber as String] as? Int,
-                      let processID = window[kCGWindowOwnerPID as String] as? Int,
-                      let owner = window[kCGWindowOwnerName as String] as? String,
-                      (window[kCGWindowLayer as String] as? Int ?? 0) == 0 else {
-                    return nil
-                }
-                let title = (window[kCGWindowName as String] as? String) ?? owner
-                return [
-                    "window_id": windowID,
-                    "process_id": processID,
-                    "owner": owner,
-                    "title": title,
-                ]
-            }
-            if jsonOutput {
-                print(jsonString(["windows": windows]))
-            } else if windows.isEmpty {
-                print(String(
-                    localized: "cli.applicationSurface.list.empty",
-                    defaultValue: "No application windows found"
-                ))
-            } else {
-                for window in windows {
-                    print("\(window["window_id"] ?? "")\t\(window["process_id"] ?? "")\t\(window["owner"] ?? "")\t\(window["title"] ?? "")")
-                }
-            }
 
         case "surface":
             try runSurfaceCommand(
@@ -16119,6 +16143,18 @@ struct CMUXCLI {
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type application --native-window-id 123 --process-id 456 --title Preview --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
+            """
+        case "list-application-windows":
+            return """
+            Usage: cmux list-application-windows [--json]
+
+            List capturable native application windows without connecting to CMUX.
+
+            Text output columns:
+              window_id    process_id    owner    title
+
+            JSON output:
+              {"windows":[{"window_id":123,"process_id":456,"owner":"Preview","title":"Document"}]}
             """
         case "close-surface":
             return """

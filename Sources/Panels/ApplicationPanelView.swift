@@ -1,13 +1,15 @@
 import SwiftUI
 
 struct ApplicationPanelView: View {
-    @ObservedObject var panel: ApplicationPanel
+    let panel: ApplicationPanel
+    let isVisibleInUI: Bool
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
         ApplicationCaptureRepresentable(
             panel: panel,
-            windowID: panel.windowID
+            windowID: panel.windowID,
+            isVisibleInUI: isVisibleInUI
         )
             .id(panel.windowID)
             .contentShape(Rectangle())
@@ -30,18 +32,36 @@ struct ApplicationPanelView: View {
                 .controlSize(.small)
         case .permissionRequired:
             statusMessage(
-                title: String(localized: "panel.application.permissionRequired.title"),
-                detail: String(localized: "panel.application.permissionRequired.detail")
+                title: String(
+                    localized: "panel.application.permissionRequired.title",
+                    defaultValue: "Screen Recording permission required"
+                ),
+                detail: String(
+                    localized: "panel.application.permissionRequired.detail",
+                    defaultValue: "Allow Screen Recording for CMUX in System Settings, then restart CMUX."
+                )
             )
         case .windowUnavailable:
             statusMessage(
-                title: String(localized: "panel.application.windowUnavailable.title"),
-                detail: String(localized: "panel.application.windowUnavailable.detail")
+                title: String(
+                    localized: "panel.application.windowUnavailable.title",
+                    defaultValue: "Application window unavailable"
+                ),
+                detail: String(
+                    localized: "panel.application.windowUnavailable.detail",
+                    defaultValue: "The application window is no longer available."
+                )
             )
-        case let .failed(detail):
+        case .failed:
             statusMessage(
-                title: String(localized: "panel.application.captureFailed.title"),
-                detail: detail
+                title: String(
+                    localized: "panel.application.captureFailed.title",
+                    defaultValue: "Application capture failed"
+                ),
+                detail: String(
+                    localized: "panel.application.captureFailed.detail",
+                    defaultValue: "CMUX could not capture this application window. Close the surface and try again."
+                )
             )
         }
     }

@@ -151,6 +151,164 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(context.lastCreateInputs?.applicationFrameRate == 120)
     }
 
+    @Test func applicationSurfaceCreateRejectsOutOfRangeWindowID() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(Int64(UInt32.max) + 1),
+                "process_id": .int(42),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "window_id_native must be a positive UInt32",
+            data: .object(["field": .string("window_id_native")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsOutOfRangeProcessID() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(42),
+                "process_id": .int(Int64(Int32.max) + 1),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "process_id must be a positive Int32",
+            data: .object(["field": .string("process_id")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsNonpositiveIdentifiers() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(-1),
+                "process_id": .int(0),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "window_id_native must be a positive UInt32",
+            data: .object(["field": .string("window_id_native")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsInvalidFrameRate() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(42),
+                "process_id": .int(43),
+                "frame_rate": .int(121),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "frame_rate must be between 1 and 120",
+            data: .object(["field": .string("frame_rate")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func surfaceSplitRejectsApplicationType() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.split",
+            params: [
+                "direction": .string("right"),
+                "type": .string("application"),
+            ]
+        ))
+        _ = context
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "application is only supported by surface.create",
+            data: .object(["type": .string("application")])
+        ))
+    }
+
+    @Test func applicationInputUnavailablePreservesReason() {
+        let surfaceID = UUID()
+        let (coordinator, context) = makeCoordinator()
+        context.sendKeyResolution = .applicationInputUnavailable(
+            surfaceID,
+            message: "Application input unavailable"
+        )
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.send_key",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "key": .string("ctrl+c"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "surface_unavailable",
+            message: "Application input unavailable",
+            data: .object(["surface_id": .string(surfaceID.uuidString)])
+        ))
+    }
+
+    @Test func applicationHealthUsesStableFailureCode() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let (coordinator, context) = makeCoordinator()
+        context.healthSnapshot = ControlSurfaceHealthSnapshot(
+            workspaceID: workspaceID,
+            windowID: nil,
+            surfaces: [
+                ControlSurfaceHealthEntry(
+                    surfaceID: surfaceID,
+                    typeRawValue: "application",
+                    inWindow: true,
+                    applicationCaptureState: "failed",
+                    applicationCaptureError: "capture_failed",
+                    applicationWindowID: 42,
+                    applicationProcessID: 43
+                ),
+            ]
+        )
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.health",
+            params: [:]
+        ))
+
+        guard case .ok(.object(let payload)) = result,
+              case .array(let surfaces)? = payload["surfaces"],
+              case .object(let surface)? = surfaces.first else {
+            Issue.record("expected application health payload")
+            return
+        }
+        #expect(surface["capture_error"] == JSONValue.string("capture_failed"))
+        #expect(surface["capture_state"] == JSONValue.string("failed"))
+    }
+
     @Test func surfaceCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let (coordinator, context) = coordinator(createResolution: .dockUnsupportedType(
             typeRawValue: "agentSession",
