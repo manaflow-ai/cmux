@@ -120,6 +120,96 @@ extension FeedCoordinatorTests {
         #expect(deliveryFinished.wait(timeout: .now()) == .timedOut)
     }
 
+    @Test func positiveTimeoutAcceptanceCallbackCompletesBeforeAcknowledgedCallerReturns() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+        let callbackStarted = DispatchSemaphore(value: 0)
+        let releaseCallback = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
+        defer { releaseCallback.signal() }
+        let event = WorkstreamEvent(
+            sessionId: "pi-positive-timeout-publication-order",
+            hookEventName: .postToolUse,
+            source: "pi"
+        )
+
+        let resultTask = Task.detached {
+            let result = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 2,
+                onAccepted: { _ in
+                    callbackStarted.signal()
+                    releaseCallback.wait()
+                }
+            )
+            callerReturned.signal()
+            return result
+        }
+
+        #expect(callbackStarted.wait(timeout: .now() + 1) == .success)
+        #expect(
+            callerReturned.wait(timeout: .now() + 0.2) == .timedOut,
+            "the synchronous caller must not return before accepted-event publication finishes"
+        )
+        releaseCallback.signal()
+        #expect(callerReturned.wait(timeout: .now() + 1) == .success)
+        guard case .acknowledged = await resultTask.value else {
+            Issue.record("positive-timeout Feed ingress did not acknowledge the accepted event")
+            return
+        }
+    }
+
+    @Test func blockingAcceptanceCallbackCompletesBeforeResolvedCallerReturns() async {
+        let requestId = "pi-blocking-publication-order-request"
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                guard ingestedRequestId == requestId else { return }
+                FeedCoordinator.shared.deliverReply(
+                    requestId: ingestedRequestId,
+                    decision: .permission(.once)
+                )
+            }
+        }
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let callbackStarted = DispatchSemaphore(value: 0)
+        let releaseCallback = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
+        defer { releaseCallback.signal() }
+        let event = WorkstreamEvent(
+            sessionId: "pi-blocking-publication-order",
+            hookEventName: .permissionRequest,
+            source: "pi",
+            requestId: requestId
+        )
+
+        let resultTask = Task.detached {
+            let result = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 2,
+                onAccepted: { _ in
+                    callbackStarted.signal()
+                    releaseCallback.wait()
+                }
+            )
+            callerReturned.signal()
+            return result
+        }
+
+        #expect(callbackStarted.wait(timeout: .now() + 1) == .success)
+        #expect(
+            callerReturned.wait(timeout: .now() + 0.2) == .timedOut,
+            "completed publication must not overtake accepted-event publication"
+        )
+        releaseCallback.signal()
+        #expect(callerReturned.wait(timeout: .now() + 1) == .success)
+        guard case .resolved = await resultTask.value else {
+            Issue.record("blocking Feed ingress did not return the delivered decision")
+            return
+        }
+    }
+
     @Test func zeroWaitBacklogIsBoundedFIFOAndYieldsToAcknowledgedIngress() async {
         await MainActor.run {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 100))

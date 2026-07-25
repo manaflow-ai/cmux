@@ -11,12 +11,16 @@ import Testing
 
 @MainActor
 private final class PiFeedDockPanel: Panel, ObservableObject {
-    let id = UUID()
+    let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
     let displayTitle = "Pi Feed Dock Test"
     let displayIcon: String? = "terminal.fill"
     var isDirty = false
+
+    init(id: UUID = UUID()) {
+        self.id = id
+    }
 
     func close() {}
     func focus() {}
@@ -29,8 +33,8 @@ private final class PiFeedDockPanel: Panel, ObservableObject {
 @MainActor
 private extension DockSplitStore {
     @discardableResult
-    func seedPiFeedPanel() throws -> PiFeedDockPanel {
-        let panel = PiFeedDockPanel()
+    func seedPiFeedPanel(id: UUID = UUID()) throws -> PiFeedDockPanel {
+        let panel = PiFeedDockPanel(id: id)
         let pane = try #require(bonsplitController.allPaneIds.first)
         panels[panel.id] = panel
         let tabID = try #require(
@@ -47,8 +51,62 @@ private extension DockSplitStore {
     }
 }
 
+@MainActor
+private extension Workspace {
+    @discardableResult
+    func seedPiFeedPanel(id: UUID = UUID()) throws -> PiFeedDockPanel {
+        let panel = PiFeedDockPanel(id: id)
+        let pane = try #require(bonsplitController.allPaneIds.first)
+        panels[panel.id] = panel
+        let tabID = try #require(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: panel.panelType.rawValue,
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        bindSurface(tabID, toPanelId: panel.id)
+        return panel
+    }
+}
+
 @Suite("Pi Feed Dock ownership", .serialized)
 struct PiFeedDockOwnershipTests {
+    @MainActor
+    @Test("Acknowledged Feed prefers its live claimed workspace over a stale Dock copy")
+    func acknowledgedFeedPrefersLiveClaimedWorkspaceOverStaleDockCopy() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let panel = try workspace.seedPiFeedPanel()
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            _ = try dock.seedPiFeedPanel(id: panel.id)
+            var insertedEvent: WorkstreamEvent?
+            let store = WorkstreamStore(ringCapacity: 10) {
+                insertedEvent = $0
+                return nil
+            }
+            FeedCoordinator.shared.install(store: store)
+            let event = WorkstreamEvent(
+                sessionId: "pi-live-workspace-feed",
+                hookEventName: .postToolUse,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: panel.id.uuidString,
+                requestId: "pi-live-workspace-feed-request"
+            )
+
+            let result = await Self.ingestAcknowledgedOffMainActor([event])
+            let payload = try Self.acknowledgmentPayload(result)
+
+            #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
+            #expect(payload["surface_id"] as? String == panel.id.uuidString)
+            #expect(insertedEvent?.workspaceId == workspace.id.uuidString)
+            #expect(insertedEvent?.surfaceId == panel.id.uuidString)
+            #expect(store.items.count == 1)
+        }
+    }
+
     @MainActor
     @Test("Acknowledged Feed follows a surface into its window Dock")
     func acknowledgedFeedRehomesStaleWorkspaceClaimToWindowDockOwner() async throws {

@@ -857,7 +857,7 @@ struct FeedCoordinatorTests {
         #expect(deliveries.events.map(\.sessionId) == [firstEvent.sessionId, secondEvent.sessionId])
     }
 
-    private static func resetFeedCoordinatorTestHooks() {
+    static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 FeedCoordinatorTestHooks.afterBlockingEventIngested = nil

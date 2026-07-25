@@ -70,10 +70,16 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
             await coordinator.resolve(for: record)
         }
         await probe.waitUntilStarted()
+        let coalescedResolutionTask = Task {
+            await coordinator.resolve(for: record)
+        }
+        await Task.yield()
         coordinator.cancel(sessionID: fixture.sessionID)
 
         #expect(await resolutionTask.value == nil)
+        #expect(await coalescedResolutionTask.value == nil)
         #expect(await probe.wasCancelled())
+        #expect(await probe.callCount() == 1)
     }
 
     @MainActor
