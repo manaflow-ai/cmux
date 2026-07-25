@@ -4730,15 +4730,15 @@
   },
   "emails": {
     "proWelcome": {
-      "subject": "You’re in! Welcome to cmux Pro",
+      "subject": "Welcome to Pro, you’re early 🎉",
       "fallbackName": "there",
-      "greeting": "Hi {name},",
-      "thanks": "Thanks for joining cmux Pro! We’re still building out the full Pro experience, and cloud access is coming soon.",
-      "cloudStatus": "When cloud launches, we’ll add usage credits to your account based on how many months you’ve been subscribed, so your early support counts.",
-      "currentBenefit": "For now, Pro gives you access to the cmux iOS beta through TestFlight. To join, use the signup link below. After you sign up, Apple will send a TestFlight invitation to that email.",
-      "testflightLink": "Ready to hop in? Sign up for TestFlight here: {url}",
+      "greeting": "Hey {name},",
+      "thanks": "Welcome to cmux Pro! We’re still putting the shiny bits together. Cloud access is on the way.",
+      "cloudStatus": "Every month you stay subscribed will count toward usage credits when it lands, so joining early counts.",
+      "currentBenefit": "Your Pro perk today is early access to cmux on iOS. Claim your spot through the TestFlight signup link below. Once you finish signing up, Apple will send your invitation.",
+      "testflightLink": "Claim your spot: {url}",
       "testflightLinkLabel": "Sign up for TestFlight",
-      "signoff": "Thanks for being early,\nThe cmux team"
+      "signoff": "Thanks for joining us early!\nThe cmux team"
     }
   },
   "appProWelcome": {

@@ -35,16 +35,16 @@ describe("cmux Pro checkout fulfillment", () => {
       from: "cmux Pro <pro@cmux.com>",
       to: ["ada@example.com"],
       replyTo: "founders@manaflow.com",
-      subject: "You’re in! Welcome to cmux Pro",
+      subject: "Welcome to Pro, you’re early 🎉",
       headers: { "X-Entity-Ref-ID": "pro-welcome/cs_pro_1" },
     });
     expect(payload).not.toHaveProperty("cc");
-    expect(payload.text).toContain("still building out the full Pro experience");
-    expect(payload.text).toContain("based on how many months you’ve been subscribed");
-    expect(payload.text).toContain("use the signup link below");
-    expect(payload.text).toContain("After you sign up, Apple will send");
+    expect(payload.text).toContain("still putting the shiny bits together");
+    expect(payload.text).toContain("Every month you stay subscribed");
+    expect(payload.text).toContain("Claim your spot through");
+    expect(payload.text).toContain("Once you finish signing up, Apple will send");
     expect(payload.text).toContain(
-      `Sign up for TestFlight here: ${PRO_TESTFLIGHT_SIGNUP_URL}`,
+      `Claim your spot: ${PRO_TESTFLIGHT_SIGNUP_URL}`,
     );
     expect(payload.html).toContain(
       `<a href="${PRO_TESTFLIGHT_SIGNUP_URL}">Sign up for TestFlight</a>`,
@@ -62,10 +62,10 @@ describe("cmux Pro checkout fulfillment", () => {
     });
 
     expect(email.subject).toBe("cmux Pro へようこそ！");
-    expect(email.text).toContain("Pro の体験をさらに充実させるため開発を進めており");
-    expect(email.text).toContain("購読いただいた月数に応じて利用クレジット");
-    expect(email.text).toContain("下の登録リンク");
-    expect(email.text).toContain("登録後、Apple から");
+    expect(email.text).toContain("楽しい機能をさらに磨いています");
+    expect(email.text).toContain("購読いただいた月数が利用クレジット");
+    expect(email.text).toContain("TestFlight 登録リンク");
+    expect(email.text).toContain("登録が完了すると、Apple から");
     expect(email.text).toContain(PRO_TESTFLIGHT_SIGNUP_URL);
     expect(email.html).toContain(
       `<a href="${PRO_TESTFLIGHT_SIGNUP_URL}">TestFlight に登録する</a>`,

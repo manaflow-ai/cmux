@@ -4643,10 +4643,10 @@
       "subject": "cmux Pro へようこそ！",
       "fallbackName": "お客様",
       "greeting": "{name} さん、こんにちは！",
-      "thanks": "cmux Pro にご参加いただきありがとうございます！現在、Pro の体験をさらに充実させるため開発を進めており、Cloud アクセスも近日提供予定です。",
-      "cloudStatus": "Cloud の提供開始時には、それまで Pro を購読いただいた月数に応じて利用クレジットをアカウントに付与します。早くから応援してくださった期間がきちんと反映されます。",
-      "currentBenefit": "まずは、Pro で TestFlight を通じた cmux iOS ベータに参加できます。参加するには、下の登録リンクを開いてください。登録後、Apple からそのメールアドレス宛に TestFlight の招待が届きます。",
-      "testflightLink": "さっそく参加するには、こちらから TestFlight に登録してください：{url}",
+      "thanks": "cmux Pro へようこそ！現在、楽しい機能をさらに磨いています。Cloud アクセスも近日提供予定です。",
+      "cloudStatus": "提供開始時には、それまで購読いただいた月数が利用クレジットに反映されます。早くからご参加いただいた分もしっかりカウントされます。",
+      "currentBenefit": "現在の Pro 特典は cmux iOS の先行アクセスです。下の TestFlight 登録リンクから参加してください。登録が完了すると、Apple から招待が届きます。",
+      "testflightLink": "TestFlight に登録する：{url}",
       "testflightLinkLabel": "TestFlight に登録する",
       "signoff": "早くからご参加いただき、ありがとうございます！\ncmux チーム"
     }
