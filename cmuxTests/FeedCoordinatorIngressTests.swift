@@ -169,6 +169,7 @@ extension FeedCoordinatorTests {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
         let callbackStarted = DispatchSemaphore(value: 0)
+        let callbackRanOffMain = DispatchSemaphore(value: 0)
         let releaseCallback = DispatchSemaphore(value: 0)
         let callerReturned = DispatchSemaphore(value: 0)
         defer { releaseCallback.signal() }
@@ -216,7 +217,6 @@ extension FeedCoordinatorTests {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
         let callbackStarted = DispatchSemaphore(value: 0)
-        let callbackRanOffMain = DispatchSemaphore(value: 0)
         let releaseCallback = DispatchSemaphore(value: 0)
         let callbackFinished = DispatchSemaphore(value: 0)
         let callerReturned = DispatchSemaphore(value: 0)
