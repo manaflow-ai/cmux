@@ -805,7 +805,7 @@ struct FeedCoordinatorTests {
         #expect(!callbackWasOnMain)
     }
 
-    @Test func acknowledgedBatchCannotOvertakeEarlierZeroWaitDelivery() async {
+    @Test func acknowledgedBatchCannotOvertakeEarlierSameSessionZeroWaitDelivery() async {
         await MainActor.run {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
@@ -836,7 +836,7 @@ struct FeedCoordinatorTests {
         #expect(firstDeliveryStarted.wait(timeout: .now() + 1) == .success)
 
         let secondEvent = WorkstreamEvent(
-            sessionId: "pi-ingress-order-second",
+            sessionId: firstEvent.sessionId,
             hookEventName: .postToolUse,
             source: "pi",
             requestId: "pi-ingress-order-second-request"
@@ -854,7 +854,7 @@ struct FeedCoordinatorTests {
         )
         releaseFirstDelivery.signal()
         #expect(secondDeliveryFinished.wait(timeout: .now() + 2) == .success)
-        #expect(deliveries.events.map(\.sessionId) == [firstEvent.sessionId, secondEvent.sessionId])
+        #expect(deliveries.events.map(\.requestId) == [firstEvent.requestId, secondEvent.requestId])
     }
 
     static func resetFeedCoordinatorTestHooks() {

@@ -35,7 +35,7 @@ extension FeedCoordinatorTests {
         #expect(activeAccepted)
         #expect(activeDeliveryStarted.wait(timeout: .now() + 1) == .success)
 
-        for index in 0..<33 {
+        for _ in 0..<33 {
             Thread.detachNewThread {
                 submissionReady.signal()
                 releaseSubmissions.wait()
@@ -44,7 +44,7 @@ extension FeedCoordinatorTests {
                         keys: [
                             FeedIngressDeliveryKey(
                                 source: "pi",
-                                sessionId: "synchronous-\(index)"
+                                sessionId: "active"
                             )
                         ],
                         importance: .acknowledged
@@ -319,10 +319,11 @@ extension FeedCoordinatorTests {
         let batchFinished = DispatchSemaphore(value: 0)
         let ordinaryPendingCapacity = 24
         let attemptedBacklogCount = 32
+        let sharedSessionId = "pi-bounded-ingress-shared"
         defer { releaseFirstDelivery.signal() }
 
         let firstEvent = WorkstreamEvent(
-            sessionId: "pi-bounded-ingress-first",
+            sessionId: sharedSessionId,
             hookEventName: .postToolUse,
             source: "pi",
             requestId: "pi-bounded-ingress-first-request"
@@ -342,15 +343,15 @@ extension FeedCoordinatorTests {
         }
         #expect(firstDeliveryStarted.wait(timeout: .now() + 1) == .success)
 
-        var acceptedBacklogSessionIds: [String] = []
-        var rejectedBacklogSessionIds: [String] = []
+        var acceptedBacklogRequestIds: [String] = []
+        var rejectedBacklogRequestIds: [String] = []
         for index in 0..<attemptedBacklogCount {
-            let sessionId = "pi-bounded-ingress-backlog-\(index)"
+            let requestId = "pi-bounded-ingress-backlog-request-\(index)"
             let event = WorkstreamEvent(
-                sessionId: sessionId,
+                sessionId: sharedSessionId,
                 hookEventName: .postToolUse,
                 source: "pi",
-                requestId: "pi-bounded-ingress-backlog-request-\(index)"
+                requestId: requestId
             )
             let result = FeedCoordinator.shared.ingestBlocking(
                 event: event,
@@ -363,15 +364,15 @@ extension FeedCoordinatorTests {
             )
             switch result {
             case .acknowledged(itemId: nil):
-                acceptedBacklogSessionIds.append(sessionId)
+                acceptedBacklogRequestIds.append(requestId)
             case .unavailable:
-                rejectedBacklogSessionIds.append(sessionId)
+                rejectedBacklogRequestIds.append(requestId)
             default:
                 Issue.record("zero-wait admission returned an unexpected result")
             }
         }
-        #expect(acceptedBacklogSessionIds.count == ordinaryPendingCapacity)
-        #expect(rejectedBacklogSessionIds.count == attemptedBacklogCount - ordinaryPendingCapacity)
+        #expect(acceptedBacklogRequestIds.count == ordinaryPendingCapacity)
+        #expect(rejectedBacklogRequestIds.count == attemptedBacklogCount - ordinaryPendingCapacity)
 
         let batchEvent = WorkstreamEvent(
             sessionId: "pi-bounded-ingress-batch",
@@ -387,34 +388,32 @@ extension FeedCoordinatorTests {
         }
 
         #expect(batchSubmissionStarted.wait(timeout: .now() + 1) == .success)
+        let batchCompletedWhileSharedSessionStalled = batchFinished.wait(timeout: .now() + 2)
         releaseFirstDelivery.signal()
-        #expect(batchFinished.wait(timeout: .now() + 2) == .success)
+        if batchCompletedWhileSharedSessionStalled != .success {
+            #expect(batchFinished.wait(timeout: .now() + 2) == .success)
+        }
+        #expect(
+            batchCompletedWhileSharedSessionStalled == .success,
+            "acknowledged Feed ingress on another session must bypass a stalled session"
+        )
 
-        for _ in acceptedBacklogSessionIds {
+        for _ in acceptedBacklogRequestIds {
             guard backlogDeliveryFinished.wait(timeout: .now() + 2) == .success else {
                 Issue.record("an admitted zero-wait Feed event was not delivered")
                 break
             }
         }
-        let deliveredBacklogSessionIds = backlogDeliveries.events.map(\.sessionId)
+        let deliveredBacklogRequestIds = backlogDeliveries.events.compactMap(\.requestId)
         #expect(
-            deliveredBacklogSessionIds == acceptedBacklogSessionIds,
+            deliveredBacklogRequestIds == acceptedBacklogRequestIds,
             "admitted zero-wait Feed events must be delivered exactly once in FIFO order"
         )
         #expect(
-            rejectedBacklogSessionIds.allSatisfy { !deliveredBacklogSessionIds.contains($0) },
+            rejectedBacklogRequestIds.allSatisfy { !deliveredBacklogRequestIds.contains($0) },
             "zero-wait Feed events rejected at capacity must never be delivered"
         )
-
-        let deliverySessionIds = deliveries.events.map(\.sessionId)
-        guard let batchIndex = deliverySessionIds.firstIndex(of: batchEvent.sessionId) else {
-            Issue.record("acknowledged Feed ingress did not finish")
-            return
-        }
-        #expect(
-            batchIndex <= 2,
-            "acknowledged Feed ingress must interleave before the pending telemetry backlog drains"
-        )
+        #expect(deliveries.events.contains { $0.requestId == batchEvent.requestId })
     }
 
     @Test func sessionCriticalZeroWaitUsesReservedCapacityAfterOrdinarySaturation() async {
@@ -426,10 +425,11 @@ extension FeedCoordinatorTests {
         let ordinaryDeliveryFinished = DispatchSemaphore(value: 0)
         let sessionCriticalDeliveryFinished = DispatchSemaphore(value: 0)
         let ordinaryPendingCapacity = 24
+        let sharedSessionId = "pi-session-critical-reserve"
         defer { releaseFirstDelivery.signal() }
 
         let firstEvent = WorkstreamEvent(
-            sessionId: "pi-session-critical-reserve-active",
+            sessionId: sharedSessionId,
             hookEventName: .postToolUse,
             source: "pi",
             requestId: "pi-session-critical-reserve-active-request"
@@ -451,7 +451,7 @@ extension FeedCoordinatorTests {
         var rejectedOrdinaryCount = 0
         for index in 0..<32 {
             let event = WorkstreamEvent(
-                sessionId: "pi-session-critical-reserve-ordinary-\(index)",
+                sessionId: sharedSessionId,
                 hookEventName: .postToolUse,
                 source: "pi",
                 requestId: "pi-session-critical-reserve-ordinary-request-\(index)"
@@ -480,7 +480,7 @@ extension FeedCoordinatorTests {
         ]
         for eventName in ordinaryLifecycleTelemetryEventNames {
             let event = WorkstreamEvent(
-                sessionId: "pi-session-critical-reserve-ordinary-\(eventName.rawValue)",
+                sessionId: sharedSessionId,
                 hookEventName: eventName,
                 source: "pi",
                 requestId: "pi-session-critical-reserve-ordinary-request-\(eventName.rawValue)"
@@ -508,7 +508,7 @@ extension FeedCoordinatorTests {
         var admittedSessionCriticalCount = 0
         for eventName in sessionCriticalEventNames {
             let event = WorkstreamEvent(
-                sessionId: "pi-session-critical-reserve-\(eventName.rawValue)",
+                sessionId: sharedSessionId,
                 hookEventName: eventName,
                 source: "pi",
                 requestId: "pi-session-critical-reserve-request-\(eventName.rawValue)"
@@ -535,7 +535,7 @@ extension FeedCoordinatorTests {
         let overflowSessionCriticalReturned = DispatchSemaphore(value: 0)
         let overflowSessionCriticalDelivered = DispatchSemaphore(value: 0)
         let overflowSessionCriticalEvent = WorkstreamEvent(
-            sessionId: "pi-session-critical-overflow",
+            sessionId: sharedSessionId,
             hookEventName: .notification,
             source: "pi",
             requestId: "pi-session-critical-overflow-request"
