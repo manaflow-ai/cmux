@@ -257,7 +257,8 @@ private func cmuxCodexHookScriptFilename(from normalizedCommand: String) -> Stri
     guard normalizedCommand.hasPrefix("/"),
           normalizedCommand.unicodeScalars.allSatisfy({
               !CharacterSet.controlCharacters.contains($0)
-          })
+          }),
+          normalizedCommand.rangeOfCharacter(from: codexHookShellMetacharacters) == nil
     else {
         return nil
     }
@@ -281,6 +282,10 @@ private func cmuxCodexHookScriptFilename(from normalizedCommand: String) -> Stri
     }
     return url.lastPathComponent
 }
+
+private let codexHookShellMetacharacters = CharacterSet(
+    charactersIn: "'\"`$&;|<>()[\\]{}*?!~#"
+)
 
 private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [
     "prompt-submit": ["user-prompt-submit"],
