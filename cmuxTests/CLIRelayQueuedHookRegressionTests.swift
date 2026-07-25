@@ -46,6 +46,59 @@ struct CLIRelayQueuedHookRegressionTests {
         ])
     }
 
+    @Test("Relay compaction preserves Claude background-work evidence")
+    func relayCompactionPreservesClaudeBackgroundWorkEvidence() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let relay = try RelayQueuedHookMockServer(
+            ttyName: "8540",
+            workspaceID: remoteWorkspaceID,
+            surfaceID: remoteSurfaceID
+        )
+        relay.start()
+        defer { relay.close() }
+        let input: [String: Any] = [
+            "session_id": "claude-relay-background-work",
+            "hook_event_name": "Stop",
+            "background_tasks": [
+                ["id": "task-1", "status": "running", "description": "build"],
+            ],
+            "session_crons": [
+                ["id": "cron-1"],
+            ],
+            "additional_details": String(repeating: "z", count: 6 * 1_024),
+        ]
+        let inputData = try JSONSerialization.data(withJSONObject: input)
+        let rawPayload = try #require(String(data: inputData, encoding: .utf8))
+        #expect(rawPayload.utf8.count > 4 * 1_024)
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", relay.endpoint,
+                "hooks", "enqueue", "claude", "stop",
+            ],
+            environment: relayEnvironment(
+                home: FileManager.default.temporaryDirectory,
+                extra: ["SSH_TTY": "/dev/pts/8540"]
+            ),
+            standardInput: rawPayload,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let params = try admittedParams(from: relay)
+        let compactPayload = try #require(params["payload"] as? String)
+        #expect(compactPayload.utf8.count <= 4 * 1_024)
+        let compact = try #require(
+            JSONSerialization.jsonObject(with: Data(compactPayload.utf8)) as? [String: Any]
+        )
+        let backgroundTasks = try #require(compact["background_tasks"] as? [[String: Any]])
+        #expect(backgroundTasks.contains { $0["status"] as? String == "running" })
+        let sessionCrons = try #require(compact["session_crons"] as? [Any])
+        #expect(!sessionCrons.isEmpty)
+    }
+
     @Test("Relay admission carries transcript-only Codex failures into local replay")
     func relayAdmissionPreservesCodexFailureEvidence() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
@@ -393,13 +446,50 @@ struct CLIRelayQueuedHookRegressionTests {
         #expect(parentRecord["surfaceId"] as? String == parentSurfaceID)
     }
 
+    @Test("Relay replay creates its isolated hook state directory before locking")
+    func relayReplayCreatesFreshHookStateDirectory() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-relay-fresh-hook-state-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let stateDirectory = root
+            .appendingPathComponent("relay-hook-state", isDirectory: true)
+            .appendingPathComponent("app-scope", isDirectory: true)
+            .appendingPathComponent("route-scope", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(!FileManager.default.fileExists(atPath: stateDirectory.path))
+
+        _ = try replay(
+            cliPath: cliPath,
+            root: root,
+            agent: "claude",
+            subcommand: "session-start",
+            payload: """
+            {"session_id":"fresh-relay-session","source":"clear","hook_event_name":"SessionStart"}
+            """,
+            stateDirectory: stateDirectory
+        )
+
+        let stateURL = stateDirectory.appendingPathComponent(
+            "claude-hook-sessions.json",
+            isDirectory: false
+        )
+        #expect(
+            FileManager.default.fileExists(atPath: stateURL.path),
+            "Fresh relay routes must persist hook state before later lifecycle events replay"
+        )
+    }
+
     private func replay(
         cliPath: String,
         root: URL,
         agent: String,
         subcommand: String,
         payload: String,
-        waitingForMethod: String? = nil
+        waitingForMethod: String? = nil,
+        stateDirectory: URL? = nil
     ) throws -> [String] {
         let socketPath = makeCodexHookSocketPath("relay-replay")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
@@ -424,7 +514,7 @@ struct CLIRelayQueuedHookRegressionTests {
                 "CMUX_WORKSPACE_ID": replayWorkspaceID,
                 "CMUX_SURFACE_ID": replaySurfaceID,
                 "CMUX_AGENT_HOOK_RELAY_ORIGIN": "1",
-                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_AGENT_HOOK_STATE_DIR": (stateDirectory ?? root).path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             standardInput: payload,

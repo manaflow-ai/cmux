@@ -532,6 +532,71 @@ struct CLIClaudeHookTimeoutRegressionTests {
         )
     }
 
+    @Test("Queue compaction preserves Claude background-work evidence")
+    func queueCompactionPreservesClaudeBackgroundWorkEvidence() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let socketPath = makeCodexHookSocketPath("claude-background-work")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "surface-claude-background-work",
+            connectionLimit: 1
+        )
+        let input: [String: Any] = [
+            "session_id": "claude-background-work",
+            "hook_event_name": "Stop",
+            "background_tasks": [
+                ["id": "task-1", "status": "running", "description": "build"],
+            ],
+            "session_crons": [
+                ["id": "cron-1"],
+            ],
+            "additional_details": String(repeating: "z", count: 70 * 1_024),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: input)
+        let rawPayload = try #require(String(data: data, encoding: .utf8))
+        #expect(rawPayload.utf8.count > 64 * 1_024)
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath, "hooks", "enqueue", "claude", "stop",
+            ],
+            environment: [
+                "HOME": FileManager.default.temporaryDirectory.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_SURFACE_ID": "surface-claude-background-work",
+                "CMUX_CLAUDE_PID": "8535",
+            ],
+            standardInput: rawPayload,
+            fileBackedStandardInput: true,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let request = try #require(capturedCommands.snapshot().compactMap(codexHookJSONObject).last {
+            $0["method"] as? String == "agent.hook.enqueue"
+        })
+        let params = try #require(request["params"] as? [String: Any])
+        let compactPayload = try #require(params["payload"] as? String)
+        #expect(compactPayload.utf8.count <= 64 * 1_024)
+        let compact = try #require(
+            JSONSerialization.jsonObject(with: Data(compactPayload.utf8)) as? [String: Any]
+        )
+        let backgroundTasks = try #require(compact["background_tasks"] as? [[String: Any]])
+        #expect(backgroundTasks.contains { $0["status"] as? String == "running" })
+        let sessionCrons = try #require(compact["session_crons"] as? [Any])
+        #expect(!sessionCrons.isEmpty)
+    }
+
     @Test(
         "Pinned agent queue admission uses its explicit socket without ambient cmux target IDs",
         arguments: ["grok", "antigravity"]
