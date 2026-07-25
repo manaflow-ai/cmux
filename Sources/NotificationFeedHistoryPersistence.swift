@@ -20,7 +20,6 @@ nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
 /// are rejected.
 actor NotificationFeedHistoryPersistence {
     private static let oversizedSnapshotHeaderChunkByteCount = 64 * 1024
-    private static let oversizedSnapshotHeaderMaximumScanByteCount = UInt64(16 * 1024 * 1024)
 
     private struct SnapshotHeader {
         var version: Int?
@@ -187,22 +186,22 @@ actor NotificationFeedHistoryPersistence {
             }
         }
 
-        private static let backslash = UInt8(ascii: "\\")
-        private static let colon = UInt8(ascii: ":")
-        private static let comma = UInt8(ascii: ",")
-        private static let leftBrace = UInt8(ascii: "{")
-        private static let leftBracket = UInt8(ascii: "[")
-        private static let minus = UInt8(ascii: "-")
-        private static let quote = UInt8(ascii: "\"")
-        private static let rightBrace = UInt8(ascii: "}")
-        private static let rightBracket = UInt8(ascii: "]")
+        static let backslash = UInt8(ascii: "\\")
+        static let colon = UInt8(ascii: ":")
+        static let comma = UInt8(ascii: ",")
+        static let leftBrace = UInt8(ascii: "{")
+        static let leftBracket = UInt8(ascii: "[")
+        static let minus = UInt8(ascii: "-")
+        static let quote = UInt8(ascii: "\"")
+        static let rightBrace = UInt8(ascii: "}")
+        static let rightBracket = UInt8(ascii: "]")
         private static let maxIntegerLiteralByteCount = 20
 
         private static func isDigit(_ byte: UInt8) -> Bool {
             byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9")
         }
 
-        private static func isWhitespace(_ byte: UInt8) -> Bool {
+        static func isWhitespace(_ byte: UInt8) -> Bool {
             byte == UInt8(ascii: " ")
                 || byte == UInt8(ascii: "\n")
                 || byte == UInt8(ascii: "\r")
@@ -345,42 +344,87 @@ actor NotificationFeedHistoryPersistence {
         }
         let fileSize = try handle.seekToEnd()
         try handle.seek(toOffset: 0)
-        var remainingByteCount = Self.oversizedSnapshotHeaderScanByteCount(
-            fileSize: fileSize,
-            loadBudget: maxSnapshotBytes
-        )
+        let prefixData = try handle.read(
+            upToCount: Self.oversizedSnapshotHeaderChunkByteCount
+        ) ?? Data()
         var scanner = TopLevelSnapshotHeaderScanner()
-        while remainingByteCount > 0 {
-            let requestedByteCount = min(
-                Self.oversizedSnapshotHeaderChunkByteCount,
-                Int(remainingByteCount)
-            )
-            guard requestedByteCount > 0,
-                  let data = try handle.read(upToCount: requestedByteCount),
-                  !data.isEmpty else {
-                break
-            }
-            scanner.consume(data)
-            if scanner.header.isComplete {
-                break
-            }
-            remainingByteCount -= UInt64(data.count)
+        scanner.consume(prefixData)
+        var header = scanner.header
+        guard !header.isComplete,
+              fileSize > UInt64(Self.oversizedSnapshotHeaderChunkByteCount) else {
+            return header
         }
+
+        let tailOffset = fileSize - UInt64(Self.oversizedSnapshotHeaderChunkByteCount)
+        try handle.seek(toOffset: tailOffset)
+        let tailData = try handle.read(
+            upToCount: Self.oversizedSnapshotHeaderChunkByteCount
+        ) ?? Data()
+        let tailHeader = Self.topLevelTailSnapshotHeader(in: tailData)
+        header.version = header.version ?? tailHeader.version
+        header.revision = header.revision ?? tailHeader.revision
+        return header
+    }
+
+    private static func topLevelTailSnapshotHeader(in data: Data) -> SnapshotHeader {
+        guard let suffixStart = topLevelTailSuffixStart(in: data) else {
+            return SnapshotHeader()
+        }
+        var scanner = TopLevelSnapshotHeaderScanner()
+        scanner.consume(Data("{".utf8))
+        scanner.consume(Data(data[suffixStart..<data.endIndex]))
         return scanner.header
     }
 
-    private static func oversizedSnapshotHeaderScanByteCount(
-        fileSize: UInt64,
-        loadBudget: UInt64
-    ) -> UInt64 {
-        let doubledBudget = loadBudget > oversizedSnapshotHeaderMaximumScanByteCount / 2
-            ? oversizedSnapshotHeaderMaximumScanByteCount
-            : loadBudget * 2
-        return min(
-            fileSize,
-            max(UInt64(oversizedSnapshotHeaderChunkByteCount), doubledBudget),
-            oversizedSnapshotHeaderMaximumScanByteCount
-        )
+    private static func topLevelTailSuffixStart(in data: Data) -> Data.Index? {
+        var isInString = false
+        var depth = 0
+        var index = data.endIndex
+        while index > data.startIndex {
+            index = data.index(before: index)
+            let byte = data[index]
+            if byte == TopLevelSnapshotHeaderScanner.quote,
+               !isEscapedQuote(at: index, in: data) {
+                isInString.toggle()
+                continue
+            }
+            guard !isInString else { continue }
+            if byte == TopLevelSnapshotHeaderScanner.rightBracket, depth == 1 {
+                var suffixStart = data.index(after: index)
+                while suffixStart < data.endIndex,
+                      TopLevelSnapshotHeaderScanner.isWhitespace(data[suffixStart]) {
+                    suffixStart = data.index(after: suffixStart)
+                }
+                if suffixStart < data.endIndex,
+                   data[suffixStart] == TopLevelSnapshotHeaderScanner.comma {
+                    suffixStart = data.index(after: suffixStart)
+                }
+                return suffixStart
+            }
+            switch byte {
+            case TopLevelSnapshotHeaderScanner.rightBrace, TopLevelSnapshotHeaderScanner.rightBracket:
+                depth += 1
+            case TopLevelSnapshotHeaderScanner.leftBrace, TopLevelSnapshotHeaderScanner.leftBracket:
+                depth = max(0, depth - 1)
+            default:
+                break
+            }
+        }
+        return nil
+    }
+
+    private static func isEscapedQuote(at index: Data.Index, in data: Data) -> Bool {
+        var backslashCount = 0
+        var cursor = index
+        while cursor > data.startIndex {
+            let previous = data.index(before: cursor)
+            guard data[previous] == TopLevelSnapshotHeaderScanner.backslash else {
+                break
+            }
+            backslashCount += 1
+            cursor = previous
+        }
+        return !backslashCount.isMultiple(of: 2)
     }
 
     private func replaceOversizedSnapshotFile(

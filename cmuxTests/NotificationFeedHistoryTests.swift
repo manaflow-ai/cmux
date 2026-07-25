@@ -422,6 +422,43 @@ struct NotificationFeedHistoryTests {
         #expect(quarantinedURLs.isEmpty)
     }
 
+    @Test func oversizedCurrentSnapshotReadsMetadataFromTailAndWritesRecover() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-current-tail-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("history.json")
+        let id = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let body = String(repeating: "x", count: 70_000)
+        let rawJSON = """
+        {"notifications":[{"body":"\(body)","createdAt":0,"id":"\(id)","isRead":false,"retargetsToLiveSurfaceOwner":false,"subtitle":"Agent","tabId":"\(workspaceID)","title":"Current tail"}],"revision":21,"version":\(NotificationFeedHistorySnapshot.currentVersion)}
+        """
+        let data = Data(rawJSON.utf8)
+        try data.write(to: fileURL, options: .atomic)
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: UInt64(data.count - 1)
+        )
+
+        let outcome = await persistence.load()
+        guard case .loaded(let loaded) = outcome else {
+            Issue.record("Expected oversized current-version history to recover from tail metadata")
+            return
+        }
+        #expect(loaded.revision == 21)
+        #expect(loaded.notifications.isEmpty)
+        await persistence.persist(NotificationFeedHistorySnapshot(revision: 22, notifications: []))
+        let recovered = try JSONDecoder().decode(
+            NotificationFeedHistorySnapshot.self,
+            from: Data(contentsOf: fileURL)
+        )
+        #expect(recovered.revision == 22)
+    }
+
     @Test func oversizedHistoryMetadataIntegerOverflowFailsClosed() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-overflow-\(UUID().uuidString)", isDirectory: true)
