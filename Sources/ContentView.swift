@@ -814,11 +814,11 @@ struct ContentView: View {
     init(
         updateViewModel: UpdateStateModel,
         windowId: UUID,
-        featureFlags: CmuxFeatureFlags = .shared
+        featureFlags: CmuxFeatureFlags? = nil
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId
-        self.featureFlags = featureFlags
+        self.featureFlags = featureFlags ?? .shared
     }
 
     @EnvironmentObject var tabManager: TabManager
