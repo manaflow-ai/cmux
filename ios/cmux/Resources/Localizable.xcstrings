@@ -16208,13 +16208,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "See every workspace and its latest activity, wherever you are."
+            "value": "Track every workspace from your phone."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どこにいても、すべてのワークスペースと最新の作業状況を確認できます。"
+            "value": "iPhoneからすべてのワークスペースを確認できます。"
           }
         }
       }
@@ -16276,13 +16276,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            "value": "Sign in on both devices. cmux connects your Mac automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでcmuxを開いたまま、同じアカウントでサインインしてください。cmuxがMacを見つけて安全に接続します。"
+            "value": "両方の端末でサインインすると、Macに自動で接続されます。"
           }
         }
       }
@@ -16497,13 +16497,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+            "value": "Review every agent alert in one feed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知では、ペアリングしたすべてのMacからのエージェント通知を時系列で確認できます。プッシュ通知がオフでも履歴は残り、通知をタップするとそのワークスペースが開きます。"
+            "value": "すべてのエージェント通知を1つのフィードで確認できます。"
           }
         }
       }
@@ -16718,13 +16718,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace to see the latest activity and respond when an agent needs you."
+            "value": "Open any workspace and respond when an agent needs you."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを開いて最新の作業状況を確認し、エージェントに呼ばれたらすぐに応答できます。"
+            "value": "ワークスペースを開き、必要なときにすぐ応答できます。"
           }
         }
       }

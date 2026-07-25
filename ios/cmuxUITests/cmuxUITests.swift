@@ -136,7 +136,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
         let notificationsBody = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+            "Review every agent alert in one feed."
         )).firstMatch
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
@@ -167,9 +167,11 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
-            "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            "Sign in on both devices. cmux connects your Mac automatically."
         ].exists)
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
+        XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)

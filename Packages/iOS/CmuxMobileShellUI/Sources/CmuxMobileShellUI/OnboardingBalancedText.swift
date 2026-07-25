@@ -34,17 +34,20 @@ struct OnboardingBalancedText: UIViewRepresentable {
     let text: String
     let role: Role
     let alignment: TextAlignment
+    let maximumNumberOfLines: Int?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
         _ text: String,
         role: Role,
-        alignment: TextAlignment
+        alignment: TextAlignment,
+        maximumNumberOfLines: Int? = nil
     ) {
         self.text = text
         self.role = role
         self.alignment = alignment
+        self.maximumNumberOfLines = maximumNumberOfLines
     }
 
     func makeUIView(context: Context) -> OnboardingBalancedLabel {
@@ -64,6 +67,22 @@ struct OnboardingBalancedText: UIViewRepresentable {
 
     func updateUIView(_ label: OnboardingBalancedLabel, context: Context) {
         _ = dynamicTypeSize
+        Self.configure(
+            label,
+            text: text,
+            role: role,
+            alignment: alignment,
+            maximumNumberOfLines: maximumNumberOfLines
+        )
+    }
+
+    static func configure(
+        _ label: OnboardingBalancedLabel,
+        text: String,
+        role: Role,
+        alignment: TextAlignment,
+        maximumNumberOfLines: Int?
+    ) {
         let descriptor = UIFontDescriptor.preferredFontDescriptor(
             withTextStyle: role.textStyle
         )
@@ -73,6 +92,7 @@ struct OnboardingBalancedText: UIViewRepresentable {
         )
 
         label.text = text
+        label.numberOfLines = maximumNumberOfLines ?? 0
         label.font = UIFontMetrics(forTextStyle: role.textStyle)
             .scaledFont(for: baseFont)
         label.textColor = role.color
@@ -92,7 +112,9 @@ struct OnboardingBalancedText: UIViewRepresentable {
             for: label,
             maximumWidth: width
         )
-        label.balancedDrawingWidth = balancedSize.width
+        label.balancedDrawingWidth = balancedSize.width < width
+            ? balancedSize.width
+            : nil
         return CGSize(width: width, height: balancedSize.height)
     }
 
@@ -101,10 +123,26 @@ struct OnboardingBalancedText: UIViewRepresentable {
         maximumWidth: CGFloat
     ) -> CGSize {
         let unconstrainedHeight = CGFloat.greatestFiniteMagnitude
-        let maximumSize = label.sizeThatFits(
-            CGSize(width: maximumWidth, height: unconstrainedHeight)
+        let lineLimit = label.numberOfLines
+        let ignoresLineLimit = lineLimit > 0
+        let maximumSize = measuredSize(
+            for: label,
+            width: maximumWidth,
+            height: unconstrainedHeight,
+            ignoresLineLimit: ignoresLineLimit
         )
         let maximumHeight = ceil(maximumSize.height)
+
+        if lineLimit > 0 {
+            let cappedHeight = ceil(label.sizeThatFits(
+                CGSize(width: maximumWidth, height: unconstrainedHeight)
+            ).height)
+            let lineLimitHeight = ceil(label.font.lineHeight * CGFloat(lineLimit)) + 1
+
+            guard maximumHeight <= lineLimitHeight else {
+                return CGSize(width: maximumWidth, height: cappedHeight)
+            }
+        }
 
         guard maximumHeight > ceil(label.font.lineHeight) else {
             return CGSize(width: maximumWidth, height: maximumHeight)
@@ -117,8 +155,11 @@ struct OnboardingBalancedText: UIViewRepresentable {
         var upperBound = maximumWidth
         for _ in 0..<14 {
             let candidate = (lowerBound + upperBound) / 2
-            let candidateHeight = label.sizeThatFits(
-                CGSize(width: candidate, height: unconstrainedHeight)
+            let candidateHeight = measuredSize(
+                for: label,
+                width: candidate,
+                height: unconstrainedHeight,
+                ignoresLineLimit: ignoresLineLimit
             ).height
             if candidateHeight <= maximumHeight {
                 upperBound = candidate
@@ -128,10 +169,31 @@ struct OnboardingBalancedText: UIViewRepresentable {
         }
 
         let balancedWidth = min(maximumWidth, ceil(upperBound + 1))
-        let balancedHeight = label.sizeThatFits(
-            CGSize(width: balancedWidth, height: unconstrainedHeight)
+        let balancedHeight = measuredSize(
+            for: label,
+            width: balancedWidth,
+            height: unconstrainedHeight,
+            ignoresLineLimit: ignoresLineLimit
         ).height
         return CGSize(width: balancedWidth, height: ceil(balancedHeight))
+    }
+
+    private static func measuredSize(
+        for label: UILabel,
+        width: CGFloat,
+        height: CGFloat,
+        ignoresLineLimit: Bool
+    ) -> CGSize {
+        let originalNumberOfLines = label.numberOfLines
+        if ignoresLineLimit {
+            label.numberOfLines = 0
+        }
+        defer {
+            if ignoresLineLimit {
+                label.numberOfLines = originalNumberOfLines
+            }
+        }
+        return label.sizeThatFits(CGSize(width: width, height: height))
     }
 }
 

@@ -38,12 +38,12 @@ struct OnboardingConnectionView: View {
         if phase == .ready {
             return L10n.string(
                 "mobile.onboarding.ready.body",
-                defaultValue: "Open a workspace to see the latest activity and respond when an agent needs you."
+                defaultValue: "Open any workspace and respond when an agent needs you."
             )
         }
         return L10n.string(
             "mobile.onboarding.connect.body",
-            defaultValue: "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            defaultValue: "Sign in on both devices. cmux connects your Mac automatically."
         )
     }
 }

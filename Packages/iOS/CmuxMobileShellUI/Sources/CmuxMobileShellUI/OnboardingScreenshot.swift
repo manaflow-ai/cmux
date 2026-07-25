@@ -3,8 +3,8 @@ import Foundation
 import SwiftUI
 import UIKit
 
-/// Cropped presentation of full-screen Simulator captures from the production
-/// workspace list and notification feed preview entrypoints.
+/// Full-height Simulator captures from the production workspace list and
+/// notification feed preview entrypoints, presented inside an iPhone frame.
 struct OnboardingScreenshot: View {
     enum Content: String, CaseIterable {
         case workspaces
@@ -19,41 +19,44 @@ struct OnboardingScreenshot: View {
     let accessibilityLabel: String
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.locale) private var locale
     @State private var screenshot: UIImage?
 
     var body: some View {
-        Group {
-            if let screenshot {
-                Image(uiImage: screenshot)
-                    .resizable()
-            } else {
-                Color.clear
+        OnboardingIPhoneScreenshotFrame {
+            ZStack {
+                Color(.systemBackground)
+                if let screenshot {
+                    Image(uiImage: screenshot)
+                        .resizable()
+                        .scaledToFit()
+                }
             }
         }
-            .aspectRatio(contentMode: .fill)
-            .frame(maxWidth: .infinity)
-            .offset(y: content.cropYOffset)
-            .frame(height: 330, alignment: .top)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-            }
-            .accessibilityElement()
-            .accessibilityLabel(accessibilityLabel)
-            .accessibilityIdentifier(content.accessibilityIdentifier)
-            .task(id: resourceName) {
-                screenshot = nil
-                let loadedScreenshot = await Self.image(
-                    content: content,
-                    language: language,
-                    appearance: appearance
-                )
-                guard !Task.isCancelled else { return }
-                screenshot = loadedScreenshot
-            }
+        .frame(height: frameHeight)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement()
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier(content.accessibilityIdentifier)
+        .task(id: resourceName) {
+            screenshot = nil
+            let loadedScreenshot = await Self.image(
+                content: content,
+                language: language,
+                appearance: appearance
+            )
+            guard !Task.isCancelled else { return }
+            screenshot = loadedScreenshot
+        }
+    }
+
+    private var frameHeight: CGFloat {
+        if dynamicTypeSize.isAccessibilitySize {
+            return 360
+        }
+        return horizontalSizeClass == .regular ? 520 : 440
     }
 
     private var language: OnboardingScreenshotLanguage {
@@ -138,15 +141,79 @@ struct OnboardingScreenshot: View {
     }
 }
 
-private extension OnboardingScreenshot.Content {
-    var cropYOffset: CGFloat {
-        switch self {
-        case .workspaces:
-            0
-        case .notifications:
-            -140
-        }
+private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
+    let screen: Screen
+
+    init(@ViewBuilder screen: () -> Screen) {
+        self.screen = screen()
     }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(
+                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
+                style: .continuous
+            )
+            .fill(Color.black)
+
+            ZStack {
+                Color(.systemBackground)
+                screen
+                    .aspectRatio(
+                        OnboardingIPhoneScreenshotFrameMetrics.screenAspectRatio,
+                        contentMode: .fit
+                    )
+            }
+            .clipShape(screenShape)
+            .padding(8)
+
+            screenShape
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                .padding(8)
+
+            RoundedRectangle(
+                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        }
+        .overlay(alignment: .leading) {
+            sideButton(height: 46)
+                .offset(x: -3, y: -82)
+        }
+        .overlay(alignment: .leading) {
+            sideButton(height: 62)
+                .offset(x: -3, y: -12)
+        }
+        .overlay(alignment: .trailing) {
+            sideButton(height: 86)
+                .offset(x: 3, y: 34)
+        }
+        .aspectRatio(
+            OnboardingIPhoneScreenshotFrameMetrics.outerAspectRatio,
+            contentMode: .fit
+        )
+    }
+
+    private var screenShape: RoundedRectangle {
+        RoundedRectangle(
+            cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.screenCornerRadius,
+            style: .continuous
+        )
+    }
+
+    private func sideButton(height: CGFloat) -> some View {
+        Capsule()
+            .fill(Color.black)
+            .frame(width: 4, height: height)
+    }
+}
+
+private enum OnboardingIPhoneScreenshotFrameMetrics {
+    static let outerAspectRatio: CGFloat = 0.49
+    static let screenAspectRatio: CGFloat = 1206 / 2622
+    static let outerCornerRadius: CGFloat = 48
+    static let screenCornerRadius: CGFloat = 40
 }
 
 enum OnboardingScreenshotLanguage: String, CaseIterable, Equatable, Sendable {

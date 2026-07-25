@@ -3,8 +3,8 @@ import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
-/// A short product tour that hands directly into authentication and same-account
-/// computer discovery, with QR available only as fallback.
+/// A short product tour that routes into authentication after the tour, then
+/// same-account computer discovery, with QR available only as fallback.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
@@ -83,21 +83,13 @@ struct OnboardingFlowView: View {
 
     @ViewBuilder
     private func page(for pageStage: OnboardingStage) -> some View {
-        if pageStage == .connect && !isAuthenticated {
-            if stage == .connect {
-                OnboardingSignInBridgeView()
-            } else {
-                Color.clear
-            }
-        } else {
-            switch pageStage {
-            case .agents:
-                OnboardingAgentsView()
-            case .notifications:
-                OnboardingNotificationsView()
-            case .connect:
-                OnboardingConnectionView(phase: connectionPhase)
-            }
+        switch pageStage {
+        case .agents:
+            OnboardingAgentsView()
+        case .notifications:
+            OnboardingNotificationsView()
+        case .connect:
+            OnboardingConnectionView(phase: connectionPhase)
         }
     }
 
@@ -119,7 +111,11 @@ struct OnboardingFlowView: View {
         case .notifications:
             showConnection()
         case .connect:
-            finishOrRetry()
+            if isAuthenticated {
+                finishOrRetry()
+            } else {
+                finishBeforeAuthentication()
+            }
         }
     }
 
@@ -166,6 +162,11 @@ struct OnboardingFlowView: View {
         }
     }
 
+    private func finishBeforeAuthentication() {
+        analytics.capture("ios_onboarding_completed", eventProperties)
+        onComplete()
+    }
+
     private func startFallbackPairing() {
         var properties = eventProperties
         properties["source"] = .string("qr_fallback")
@@ -175,9 +176,7 @@ struct OnboardingFlowView: View {
 
     private func captureSceneViewed() {
         var properties = eventProperties
-        properties["surface"] = .string(
-            stage == .connect && !isAuthenticated ? "sign_in" : stage.analyticsValue
-        )
+        properties["surface"] = .string(stage.analyticsValue)
         analytics.capture("ios_onboarding_scene_viewed", properties)
     }
 

@@ -58,7 +58,7 @@ import UIKit
 
         #expect(signIn.showsBack)
         #expect(!signIn.showsSkip)
-        #expect(signIn.primaryTitle == nil)
+        #expect(signIn.primaryTitle != nil)
         #expect(signIn.secondaryTitle == nil)
 
         #expect(searching.primaryTitle == nil)
@@ -113,7 +113,7 @@ import UIKit
     @Test @MainActor func onboardingCopyUsesNativeLineBalancing() {
         let label = OnboardingBalancedText.makeLabel()
         label.font = .preferredFont(forTextStyle: .body)
-        label.text = "See every workspace and its latest activity, wherever you are."
+        label.text = "Review every agent alert in one feed, even when push alerts are off."
         let maximumWidth: CGFloat = 360
         let maximumHeight = label.sizeThatFits(
             CGSize(width: maximumWidth, height: .greatestFiniteMagnitude)
@@ -128,6 +128,24 @@ import UIKit
         #expect(label.lineBreakStrategy == .pushOut)
         #expect(balancedSize.width < maximumWidth)
         #expect(balancedSize.height == ceil(maximumHeight))
+    }
+
+    @Test @MainActor func onboardingSubtitlesCanBeCappedAtTwoLines() {
+        let label = OnboardingBalancedText.makeLabel()
+        OnboardingBalancedText.configure(
+            label,
+            text: "Sign in on both devices. cmux connects your Mac automatically.",
+            role: .body,
+            alignment: .center,
+            maximumNumberOfLines: 2
+        )
+        let balancedSize = OnboardingBalancedText.balancedSize(
+            for: label,
+            maximumWidth: 360
+        )
+
+        #expect(label.numberOfLines == 2)
+        #expect(balancedSize.width > 120)
     }
 }
 #endif
