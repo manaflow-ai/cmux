@@ -157,6 +157,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         var documentRectCaptureCount = 0
+        var savedArtifactCountsBeforeCapture: [Int] = []
         var copiedPrompt: String?
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
@@ -174,6 +175,9 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
                     throw BrowserScreenshotError.captureAreaTooLarge
                 },
                 documentRectCapture: { _, rect in
+                    savedArtifactCountsBeforeCapture.append(
+                        self.savedScreenshotCount(in: directory)
+                    )
                     documentRectCaptureCount += 1
                     return self.solidColorImage(
                         rect.minY < 1_000 ? .systemRed : .systemBlue,
@@ -254,6 +258,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         #expect(payload["page_screenshot_path"] == nil)
         #expect(!prompt.contains("Full-page screenshot:"))
         #expect(documentRectCaptureCount == 2)
+        #expect(savedArtifactCountsBeforeCapture == [0, 1])
         _ = navigationDelegate
     }
 
@@ -361,6 +366,18 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         let red = color.redComponent
         let blue = color.blueComponent
         return red > blue ? .systemRed : .systemBlue
+    }
+
+    private func savedScreenshotCount(in directory: URL) -> Int {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else { return 0 }
+        return enumerator.compactMap { $0 as? URL }.reduce(into: 0) { count, url in
+            if url.lastPathComponent.hasSuffix("-screenshot.png") {
+                count += 1
+            }
+        }
     }
 
     private func artifactURL(in prompt: String, marker: String) throws -> URL {
