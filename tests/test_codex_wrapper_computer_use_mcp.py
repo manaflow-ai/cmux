@@ -18,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-codex-wrapper"
+SOURCE_CLAUDE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -336,11 +337,13 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     if mcp_args_raw is not None:
         mcp_args = json.loads(mcp_args_raw)
         expect(
-            len(mcp_args) == 3 and mcp_args[:2] == ["mcp", "--socket"],
-            f"expected shared daemon proxy args, got {mcp_args_raw}",
+            len(mcp_args) == 4
+            and mcp_args[:2] == ["mcp", "--socket"]
+            and mcp_args[3] == "--codex-computer-use-compat",
+            f"expected Codex-compatible shared daemon proxy args, got {mcp_args_raw}",
             failures,
         )
-        if len(mcp_args) == 3:
+        if len(mcp_args) >= 3:
             expect(
                 mcp_args[2].startswith("/tmp/cmux-cua-") and mcp_args[2].endswith("/default/cua.sock"),
                 f"expected short per-user daemon socket, got {mcp_args[2]!r}",
@@ -359,6 +362,7 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
 
 def test_codex_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
     source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+    claude_source = SOURCE_CLAUDE_WRAPPER.read_text(encoding="utf-8")
     expect(
         "cmux_computer_use_standalone_helper" not in source,
         "codex wrapper must not install or replace the standalone helper",
@@ -372,6 +376,11 @@ def test_codex_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None
     expect(
         "CUA_DRIVER_RS_MCP_FORCE_PROXY" in source,
         "codex wrapper must force the shared daemon proxy path",
+        failures,
+    )
+    expect(
+        "--codex-computer-use-compat" not in claude_source,
+        "Claude wrapper must retain the native cmux Computer Use surface",
         failures,
     )
 
