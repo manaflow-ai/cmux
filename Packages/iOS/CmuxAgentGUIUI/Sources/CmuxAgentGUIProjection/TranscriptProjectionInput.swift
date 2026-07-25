@@ -44,6 +44,18 @@ public struct TranscriptProjectionInput: Sendable {
             || streamingTail?.textTail.isEmpty == false
     }
 
+    /// Whether the transcript has actual row content beyond a remote history boundary.
+    public var hasRenderableTranscriptContent: Bool {
+        entries.contains { !$0.content.payload.isTranscriptInternal }
+            || !holes.isEmpty
+            || sendTickets.contains { ticket in
+                if case .echoed = ticket.state { return false }
+                return true
+            }
+            || asks.contains { $0.state == .active }
+            || streamingTail?.textTail.isEmpty == false
+    }
+
     /// Creates projection input.
     /// - Parameters:
     ///   - hasCompletedInitialSync: Whether the first authoritative journal page arrived.

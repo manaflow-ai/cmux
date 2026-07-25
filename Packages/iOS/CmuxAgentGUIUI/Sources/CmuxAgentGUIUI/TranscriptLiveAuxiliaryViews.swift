@@ -34,6 +34,13 @@ struct AgentTranscriptArtifactRoute {
     let loader: ChatArtifactLoader
 }
 
+enum AgentHistoryLoadFailure {
+    case older
+    case newer
+    case head
+    case tail
+}
+
 #if os(iOS)
 struct AgentCapabilityRequestKey: Hashable {
     let sessionID: AgentSessionID
@@ -57,13 +64,6 @@ enum AgentTranscriptSheet: Identifiable {
         case .artifact(let route): "artifact:\(route.path)"
         }
     }
-}
-
-enum AgentHistoryLoadFailure {
-    case older
-    case newer
-    case head
-    case tail
 }
 
 struct AgentSendFailureSheet: View {

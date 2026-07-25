@@ -72,6 +72,10 @@ public struct TranscriptLiveView: View {
             hasCompletedInitialSync: input.hasCompletedInitialSync,
             hasMoreAfter: input.hasMoreAfter
         )
+        let shouldShowHistoryLoadFailure = AgentHistoryLoadFailurePolicy.shouldShowBanner(
+            failure: historyLoadFailure,
+            input: input
+        )
         let rows = renderedRows.isEmpty && syncPresentation.showsPlaceholderRow
             ? [AgentTranscriptRenderRow(id: "empty-state", content: .empty(syncPresentation))]
             : renderedRows
@@ -81,7 +85,7 @@ public struct TranscriptLiveView: View {
                 AgentSyncInsetBanner(
                     presentation: syncPresentation,
                     phase: engine.connectivity.phase,
-                    historyLoadFailed: historyLoadFailure != nil,
+                    historyLoadFailed: shouldShowHistoryLoadFailure,
                     theme: theme,
                     retrySync: engine.retryNow,
                     retryHistory: retryHistoryLoad
@@ -269,6 +273,9 @@ public struct TranscriptLiveView: View {
         let nextDriver = TranscriptProjectionDriver(engine: engine, sessionID: sessionID) { nextInput in
             input = nextInput
             renderedRows = Self.renderRows(from: nextInput)
+            if nextInput.hasRenderableTranscriptContent {
+                historyLoadFailure = nil
+            }
         }
         driver = nextDriver
         nextDriver.start()
@@ -318,7 +325,7 @@ public struct TranscriptLiveView: View {
                 try await engine.loadOlder(sessionID: sessionID)
             } catch {
                 guard lifecycleGeneration == historyLifecycleGeneration else { return }
-                historyLoadFailure = .older
+                recordHistoryLoadFailure(.older)
                 prefetchResetGeneration += 1
             }
         }
@@ -332,7 +339,7 @@ public struct TranscriptLiveView: View {
                 try await engine.loadNewer(sessionID: sessionID)
             } catch {
                 guard lifecycleGeneration == historyLifecycleGeneration else { return }
-                historyLoadFailure = .newer
+                recordHistoryLoadFailure(.newer)
                 prefetchResetGeneration += 1
             }
         }
@@ -346,7 +353,7 @@ public struct TranscriptLiveView: View {
                 try await engine.jumpToHead(sessionID: sessionID)
             } catch {
                 guard lifecycleGeneration == historyLifecycleGeneration else { return }
-                historyLoadFailure = .head
+                recordHistoryLoadFailure(.head)
                 followState = lastStableFollowState
                 return
             }
@@ -362,7 +369,7 @@ public struct TranscriptLiveView: View {
                 try await engine.jumpToTail(sessionID: sessionID)
             } catch {
                 guard lifecycleGeneration == historyLifecycleGeneration else { return }
-                historyLoadFailure = .tail
+                recordHistoryLoadFailure(.tail)
                 followState = lastStableFollowState
                 return
             }
@@ -384,6 +391,10 @@ public struct TranscriptLiveView: View {
             followState = .jumpingToTail
             jumpToTail()
         }
+    }
+
+    private func recordHistoryLoadFailure(_ failure: AgentHistoryLoadFailure) {
+        historyLoadFailure = input.hasRenderableTranscriptContent ? nil : failure
     }
 
     private func requestTail() {
