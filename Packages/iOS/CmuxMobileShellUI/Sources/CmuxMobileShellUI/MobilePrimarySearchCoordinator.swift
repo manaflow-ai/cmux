@@ -11,6 +11,7 @@ final class MobilePrimarySearchCoordinator {
     var isPresented = false
     var workspaces = ""
     var notifications = ""
+    private(set) var activationGeneration: UInt64 = 0
 
     private var phase: MobilePrimarySearchPhase = .inactive
     private var workspaceNativeSearchText = ""
@@ -22,6 +23,7 @@ final class MobilePrimarySearchCoordinator {
 
     func synchronizeSelection(_ selection: MobilePrimaryTab) {
         guard let selectedScope = selection.searchScope else { return }
+        guard scope != selectedScope else { return }
         scope = selectedScope
         syncNativeSearchText(fromCommittedQueryFor: selectedScope)
     }
@@ -32,8 +34,7 @@ final class MobilePrimarySearchCoordinator {
         }
         isPresented = presented
         if presented {
-            phase = .active(scope)
-            syncNativeSearchText(fromCommittedQueryFor: scope)
+            activate(scope: scope)
         }
     }
 
@@ -51,9 +52,7 @@ final class MobilePrimarySearchCoordinator {
 
     func updateLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
         if isSearching {
-            phase = .active(scope)
-            self.scope = scope
-            syncNativeSearchText(fromCommittedQueryFor: scope)
+            activate(scope: scope)
         } else if phase == .active(scope) {
             beginDeactivation(for: scope)
         }
@@ -63,12 +62,21 @@ final class MobilePrimarySearchCoordinator {
         nativeSearchText(for: scope)
     }
 
-    func commitActiveNativeSearchText(_ value: String) {
-        commitNativeSearchText(value, for: scope)
+    func nativeSearchText(for scope: MobilePrimarySearchScope) -> String {
+        switch scope {
+        case .workspaces:
+            workspaceNativeSearchText
+        case .notifications:
+            notificationNativeSearchText
+        }
     }
 
-    func commitNativeSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
-        guard acceptsNativeEdit(for: scope) else {
+    func commitNativeSearchText(
+        _ value: String,
+        for scope: MobilePrimarySearchScope,
+        activationGeneration: UInt64
+    ) {
+        guard acceptsNativeEdit(for: scope, activationGeneration: activationGeneration) else {
             syncNativeSearchText(fromCommittedQueryFor: scope)
             return
         }
@@ -76,17 +84,13 @@ final class MobilePrimarySearchCoordinator {
         setCommittedSearchText(value, for: scope)
     }
 
-    func acceptsNativeEdit(for scope: MobilePrimarySearchScope) -> Bool {
-        phase == .active(scope) && isPresented
-    }
-
-    private func nativeSearchText(for scope: MobilePrimarySearchScope) -> String {
-        switch scope {
-        case .workspaces:
-            workspaceNativeSearchText
-        case .notifications:
-            notificationNativeSearchText
-        }
+    func acceptsNativeEdit(
+        for scope: MobilePrimarySearchScope,
+        activationGeneration: UInt64
+    ) -> Bool {
+        phase == .active(scope)
+            && isPresented
+            && self.activationGeneration == activationGeneration
     }
 
     private func committedSearchText(for scope: MobilePrimarySearchScope) -> String {
@@ -101,8 +105,10 @@ final class MobilePrimarySearchCoordinator {
     private func setNativeSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
         switch scope {
         case .workspaces:
+            guard workspaceNativeSearchText != value else { return }
             workspaceNativeSearchText = value
         case .notifications:
+            guard notificationNativeSearchText != value else { return }
             notificationNativeSearchText = value
         }
     }
@@ -110,8 +116,10 @@ final class MobilePrimarySearchCoordinator {
     private func setCommittedSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
         switch scope {
         case .workspaces:
+            guard workspaces != value else { return }
             workspaces = value
         case .notifications:
+            guard notifications != value else { return }
             notifications = value
         }
     }
@@ -122,6 +130,16 @@ final class MobilePrimarySearchCoordinator {
 
     private func beginDeactivation(for scope: MobilePrimarySearchScope) {
         phase = .deactivating(scope)
+        syncNativeSearchText(fromCommittedQueryFor: scope)
+    }
+
+    private func activate(scope: MobilePrimarySearchScope) {
+        if phase != .active(scope) || !isPresented {
+            activationGeneration &+= 1
+        }
+        self.scope = scope
+        isPresented = true
+        phase = .active(scope)
         syncNativeSearchText(fromCommittedQueryFor: scope)
     }
 }

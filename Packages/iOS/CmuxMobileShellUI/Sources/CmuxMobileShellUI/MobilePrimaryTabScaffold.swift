@@ -52,7 +52,6 @@ struct MobilePrimaryTabScaffold<
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
-        searchCoordinator.synchronizeSelection(selection.wrappedValue)
         self.notificationUnreadCount = notificationUnreadCount
         self.workspaces = workspaces()
         self.notifications = notifications()
@@ -133,10 +132,16 @@ struct MobilePrimaryTabScaffold<
     }
 
     private var activeSearchText: Binding<String> {
+        let scope = searchCoordinator.scope
+        let activationGeneration = searchCoordinator.activationGeneration
         return Binding(
-            get: { searchCoordinator.activeNativeSearchText() },
+            get: { searchCoordinator.nativeSearchText(for: scope) },
             set: { value in
-                searchCoordinator.commitActiveNativeSearchText(value)
+                searchCoordinator.commitNativeSearchText(
+                    value,
+                    for: scope,
+                    activationGeneration: activationGeneration
+                )
             }
         )
     }

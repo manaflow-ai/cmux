@@ -329,16 +329,20 @@ struct WorkspaceShellView: View {
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack {
-            workspaceList(
-                navigationStyle: .push,
-                searchText: primarySearchCoordinator.workspaces,
-                canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
-                showsNavigationToolbar: true,
-                selectWorkspaceAction: selectWorkspaceFromSearch,
-                createWorkspaceAction: createWorkspaceFromSearch,
-                createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
-                createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
-            )
+            MobilePrimaryWorkspaceSearchContentHost(
+                searchCoordinator: primarySearchCoordinator
+            ) { searchText in
+                workspaceList(
+                    navigationStyle: .push,
+                    searchText: searchText,
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                    showsNavigationToolbar: true,
+                    selectWorkspaceAction: selectWorkspaceFromSearch,
+                    createWorkspaceAction: createWorkspaceFromSearch,
+                    createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
+                    createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
+                )
+            }
             .toolbar {
                 rootToolbarContent
             }

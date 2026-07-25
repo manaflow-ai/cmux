@@ -380,7 +380,11 @@ public struct WorkspaceListLayoutPreviewView: View {
                             .foregroundStyle(.secondary)
                     } workspaceSearch: {
                         NavigationStack {
-                            workspaceListFixture(searchText: primarySearchCoordinator.workspaces)
+                            MobilePrimaryWorkspaceSearchContentHost(
+                                searchCoordinator: primarySearchCoordinator
+                            ) { searchText in
+                                workspaceListFixture(searchText: searchText)
+                            }
                         }
                     } notificationSearch: {
                         Text("Notification feed fixture")

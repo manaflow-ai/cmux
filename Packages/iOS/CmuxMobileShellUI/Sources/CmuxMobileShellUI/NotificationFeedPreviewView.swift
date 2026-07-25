@@ -7,7 +7,9 @@ import SwiftUI
 /// verification. It mounts the production tab scaffold and production feed.
 public struct NotificationFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
-    @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
+    @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator(
+        initialScope: .notifications
+    )
     @State private var referenceDate: Date
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()

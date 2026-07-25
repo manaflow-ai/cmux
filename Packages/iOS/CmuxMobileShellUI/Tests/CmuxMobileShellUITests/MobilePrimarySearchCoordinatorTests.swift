@@ -7,9 +7,17 @@ import Testing
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)
         coordinator.setPresentation(true)
-        coordinator.commitActiveNativeSearchText("query")
+        coordinator.commitNativeSearchText(
+            "query",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
 
-        coordinator.commitActiveNativeSearchText("")
+        coordinator.commitNativeSearchText(
+            "",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
 
         #expect(coordinator.workspaces == "")
         #expect(coordinator.activeNativeSearchText() == "")
@@ -20,7 +28,11 @@ import Testing
         coordinator.synchronizeSelection(.workspaces)
         coordinator.setPresentation(true)
 
-        coordinator.commitActiveNativeSearchText("release")
+        coordinator.commitNativeSearchText(
+            "release",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
 
         #expect(coordinator.workspaces == "release")
         #expect(coordinator.activeNativeSearchText() == "release")
@@ -30,10 +42,18 @@ import Testing
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)
         coordinator.setPresentation(true)
-        coordinator.commitActiveNativeSearchText("persisted")
+        coordinator.commitNativeSearchText(
+            "persisted",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
 
         let owningTab = coordinator.commitSubmit()
-        coordinator.commitActiveNativeSearchText("")
+        coordinator.commitNativeSearchText(
+            "",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
 
         #expect(owningTab == .workspaces)
         #expect(coordinator.workspaces == "persisted")
@@ -43,7 +63,11 @@ import Testing
     @Test func inactiveSearchRejectsLateNativeWrite() {
         let coordinator = MobilePrimarySearchCoordinator()
 
-        coordinator.commitActiveNativeSearchText("late")
+        coordinator.commitNativeSearchText(
+            "late",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
 
         #expect(coordinator.workspaces == "")
         #expect(coordinator.activeNativeSearchText() == "")
@@ -54,10 +78,49 @@ import Testing
         coordinator.synchronizeSelection(.notifications)
         coordinator.setPresentation(true)
 
-        coordinator.commitNativeSearchText("workspace leak", for: .workspaces)
+        coordinator.commitNativeSearchText(
+            "workspace leak",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
 
         #expect(coordinator.workspaces == "")
         #expect(coordinator.notifications == "")
         #expect(coordinator.activeNativeSearchText() == "")
+    }
+
+    @Test func staleCleanupFromPriorActivationDoesNotEraseReopenedSearch() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.setPresentation(true)
+        let firstActivation = coordinator.activationGeneration
+        coordinator.commitNativeSearchText(
+            "docs",
+            for: .workspaces,
+            activationGeneration: firstActivation
+        )
+        _ = coordinator.commitSubmit()
+
+        coordinator.synchronizeSelection(.notifications)
+        coordinator.setPresentation(true)
+        coordinator.commitNativeSearchText(
+            "alerts",
+            for: .notifications,
+            activationGeneration: coordinator.activationGeneration
+        )
+        coordinator.commitNativeSearchText(
+            "",
+            for: .workspaces,
+            activationGeneration: firstActivation
+        )
+        coordinator.commitNativeSearchText(
+            "",
+            for: .notifications,
+            activationGeneration: firstActivation
+        )
+
+        #expect(coordinator.workspaces == "docs")
+        #expect(coordinator.notifications == "alerts")
+        #expect(coordinator.activeNativeSearchText() == "alerts")
     }
 }
