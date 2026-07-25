@@ -12,6 +12,13 @@ Each pane has a border box. Click inside a pane to focus it. The top border is t
 
 The status bar lists screens for the active workspace. Click a screen segment to select it. Click the trailing `+` to create a screen.
 
+A workspace-row or tab-chip press arms the stable identity from the hit target
+that was actually rendered. Its matching release completes that same action
+even if another frontend changes selection and triggers a routing refresh
+between the two events. A release without a corresponding armed press is a
+no-op; it cannot select whichever workspace or tab happens to occupy that
+coordinate later.
+
 ## Drag Reorder
 
 Drag a tab chip to reorder it within the same pane. Drag it to another pane's tab bar to move the tab across panes. The dragged tab is dimmed, and the target insertion point is shown with a `▌` marker.

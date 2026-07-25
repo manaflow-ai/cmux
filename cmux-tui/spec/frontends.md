@@ -33,7 +33,32 @@ Require `protocol == 9` for the complete flow in this guide, including stack lay
 
 Open [`subscribe`](commands.md#subscribe) with `tree_events:"deltas"`, buffer events as soon as the request is sent, then fetch [`list-workspaces`](commands.md#list-workspaces). Apply the snapshot before draining the buffer. The subscribe receiver is registered before its success response, so responses and events may race. Omitting `tree_events` selects the protocol-v6-compatible coarse stream instead.
 
-Protocol v7 and newer lifecycle events (`workspace-*`, `screen-*`, `pane-*`, and `tab-*`) carry subject ids, parent ids, and exact `list-workspaces` entity payloads. Apply those deltas in stream order. `layout-changed`, surface events, and title events retain their documented focused invalidation paths.
+Treat cmux-tui as the only authority for workspace UUID, existence, name,
+order, and canonical terminal-to-workspace placement. Workspace keys are
+lowercase canonical UUIDs; reject any snapshot, event, or caller-supplied key
+that does not satisfy that contract instead of deriving identity from a name.
+A browser window model is a disposable projection. Use a stable
+profile/window-group identity as the cmux session and as the
+`put-frontend-projection` subject; do not generate a new session on every app
+launch. Every canonical workspace, including an empty one, must appear in the
+frontend immediately.
+
+Browser-only columns, splits, web tabs, local focus, and the presentation of a
+terminal inside a browser pane or tab belong in the opaque frontend
+projection. The server stores and compare-and-swaps that schema-versioned
+document but does not interpret it as workspace or terminal lifecycle
+authority. Projection references use canonical workspace and terminal UUIDs.
+
+Generate `origin` and `mutation_id` before sending a workspace mutation and
+reuse both for retries. Apply a successful local response immediately, then
+deduplicate its matching event by mutation identity. On boot-generation
+change, event gap, or subscription overflow, discard daemon-local ids and
+reconcile from a fresh `list-workspaces` snapshot plus the latest projection.
+
+Protocol v7 and newer lifecycle events (`workspace-*`, `screen-*`, `pane-*`,
+and `tab-*`) carry subject ids, parent ids, and exact `list-workspaces` entity
+payloads. Apply those deltas in stream order. `layout-changed`, surface events,
+and title events retain their documented focused invalidation paths.
 
 Always implement `tree-changed`: it is the delta stream's coarse resync fallback for churn and changes not represented by lifecycle deltas. Do not rely on it for ordinary delta-representable mutations. On receipt, fetch a new `list-workspaces` snapshot and treat it as authoritative over older buffered deltas. See the [event-scoping table](events.md#event-scoping) before routing events from a connection with streams.
 

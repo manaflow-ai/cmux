@@ -18,6 +18,7 @@ struct OnboardingScreenshot: View {
     let content: Content
     let accessibilityLabel: String
 
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.locale) private var locale
     @State private var screenshot: UIImage?
 
@@ -32,6 +33,7 @@ struct OnboardingScreenshot: View {
         }
             .aspectRatio(contentMode: .fill)
             .frame(maxWidth: .infinity)
+            .offset(y: content.cropYOffset)
             .frame(height: 330, alignment: .top)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -46,7 +48,8 @@ struct OnboardingScreenshot: View {
                 screenshot = nil
                 let loadedScreenshot = await Self.image(
                     content: content,
-                    language: language
+                    language: language,
+                    appearance: appearance
                 )
                 guard !Task.isCancelled else { return }
                 screenshot = loadedScreenshot
@@ -57,16 +60,29 @@ struct OnboardingScreenshot: View {
         OnboardingScreenshotLanguage.resolve(locale: locale)
     }
 
+    private var appearance: OnboardingScreenshotAppearance {
+        OnboardingScreenshotAppearance.resolve(colorScheme: colorScheme)
+    }
+
     private var resourceName: String {
-        Self.resourceName(content: content, language: language)
+        Self.resourceName(
+            content: content,
+            language: language,
+            appearance: appearance
+        )
     }
 
     @MainActor
     static func image(
         content: Content,
-        language: OnboardingScreenshotLanguage
+        language: OnboardingScreenshotLanguage,
+        appearance: OnboardingScreenshotAppearance
     ) async -> UIImage {
-        let resourceName = resourceName(content: content, language: language)
+        let resourceName = resourceName(
+            content: content,
+            language: language,
+            appearance: appearance
+        )
         let cacheKey = resourceName as NSString
         if let cachedImage = screenshotCache.object(forKey: cacheKey) {
             return cachedImage
@@ -102,14 +118,34 @@ struct OnboardingScreenshot: View {
     @MainActor private static let screenshotCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = Content.allCases.count
+            * OnboardingScreenshotLanguage.allCases.count
+            * OnboardingScreenshotAppearance.allCases.count
         return cache
     }()
 
     private static func resourceName(
         content: Content,
-        language: OnboardingScreenshotLanguage
+        language: OnboardingScreenshotLanguage,
+        appearance: OnboardingScreenshotAppearance
     ) -> String {
-        "Onboarding-\(content.rawValue)-\(language.rawValue)"
+        let baseName = "Onboarding-\(content.rawValue)-\(language.rawValue)"
+        switch appearance {
+        case .light:
+            return baseName
+        case .dark:
+            return "\(baseName)-dark"
+        }
+    }
+}
+
+private extension OnboardingScreenshot.Content {
+    var cropYOffset: CGFloat {
+        switch self {
+        case .workspaces:
+            0
+        case .notifications:
+            -140
+        }
     }
 }
 
@@ -121,6 +157,15 @@ enum OnboardingScreenshotLanguage: String, CaseIterable, Equatable, Sendable {
         locale.language.languageCode?.identifier == japanese.rawValue
             ? .japanese
             : .english
+    }
+}
+
+enum OnboardingScreenshotAppearance: String, CaseIterable, Equatable, Sendable {
+    case light
+    case dark
+
+    static func resolve(colorScheme: ColorScheme) -> Self {
+        colorScheme == .dark ? .dark : .light
     }
 }
 #endif

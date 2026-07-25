@@ -14,7 +14,7 @@ use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
 use super::{thumb_geometry, truncate};
-use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
+use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
 
@@ -87,13 +87,14 @@ pub struct DrawCursors {
 /// Draw every pane of the current frame and return its visible input cursors.
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
+    let panes_accept_focus = app.focus == FocusTarget::Pane;
     let areas = app.pane_areas.clone();
     let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
     for area in &areas {
-        let focused = Some(area.pane) == active_pane;
+        let focused = panes_accept_focus && Some(area.pane) == active_pane;
         draw_box(app, frame, area, focused);
         if area.bar.is_some() {
             draw_tab_bar(app, frame, area, focused);
@@ -366,6 +367,15 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     };
     let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
     app.rendered_terminal_bounds.insert(area.surface, live);
+    app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
+    if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
+        let (shape, blinking) = render.frame.cursor_visual;
+        app.use_terminal_cursor_spec(
+            super::terminal_grid::resolved_cursor_color(&render),
+            shape,
+            blinking,
+        );
+    }
 
     let cursor = super::terminal_grid::draw_render_frame(
         frame,

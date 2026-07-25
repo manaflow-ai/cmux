@@ -577,6 +577,61 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
+    }
+
+    @MainActor
+    func testSettingsCanDisableHapticsAndPersistThePreference() throws {
+        var app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+
+        func openHapticsToggle(in app: XCUIApplication) -> XCUIElement {
+            let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 8))
+            tap(settings, in: app)
+
+            let toggle = app.switches["MobileSettingsHapticFeedbackToggle"]
+            for _ in 0..<4 where !toggle.exists || !toggle.isHittable {
+                app.swipeUp(velocity: .slow)
+            }
+            XCTAssertTrue(toggle.waitForExistence(timeout: 4))
+            XCTAssertTrue(toggle.isHittable)
+            return toggle
+        }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 2), .completed)
+        }
+
+        func tapSwitch(_ toggle: XCUIElement) {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+
+        let toggle = openHapticsToggle(in: app)
+        if toggle.value as? String == "0" {
+            tapSwitch(toggle)
+            waitForValue("1", on: toggle)
+        }
+        XCTAssertEqual(toggle.value as? String, "1")
+        tapSwitch(toggle)
+        waitForValue("0", on: toggle)
+
+        app.terminate()
+        app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        let persistedToggle = openHapticsToggle(in: app)
+        XCTAssertEqual(persistedToggle.value as? String, "0")
+
+        tapSwitch(persistedToggle)
+        waitForValue("1", on: persistedToggle)
+        app.terminate()
     }
 
     @MainActor
@@ -641,7 +696,7 @@ final class cmuxUITests: XCTestCase {
         unreadFilter.tap()
 
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
-        approvalRow.swipeLeft()
+        approvalRow.swipeRight()
         let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-studio-codex-approval"]
         XCTAssertTrue(markRead.waitForExistence(timeout: 3))
         markRead.tap()
@@ -689,6 +744,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(feed.waitForExistence(timeout: 3))
         XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
         XCTAssertTrue(notificationsTab.isSelected)
+
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        completedRow.swipeRight()
+        let markUnreadSwipe = app.descendants(matching: .any)[
+            "MobileNotificationFeedMarkUnreadSwipe-macbook-tests-passed"
+        ]
+        XCTAssertTrue(markUnreadSwipe.waitForExistence(timeout: 3))
+        markUnreadSwipe.tap()
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(try XCTUnwrap(completedRow.value as? String).contains("Unread"))
 
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))

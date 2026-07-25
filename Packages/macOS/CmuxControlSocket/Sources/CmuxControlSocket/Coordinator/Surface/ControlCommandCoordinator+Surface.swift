@@ -170,6 +170,9 @@ extension ControlCommandCoordinator {
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
                     item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
                 }
+                if let dockScope = surface.dockScopeRawValue {
+                    item["dock_scope"] = .string(dockScope)
+                }
                 return .object(item)
             }
 

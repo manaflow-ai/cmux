@@ -56,15 +56,16 @@ afterAll(() => {
 });
 
 describe("feedback route", () => {
-  test("fails closed when the Vercel firewall rule is missing", async () => {
+  test("fails open when the Vercel firewall rule is missing", async () => {
+    // A deleted rule is an operator action (no limit wanted), not an outage.
     process.env.VERCEL = "1";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: "not-found" });
 
     const res = await POST(feedbackRequest());
 
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "service_unavailable" });
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(sendEmail).toHaveBeenCalled();
   });
 
   test("fails closed when the Vercel firewall check errors", async () => {

@@ -31,7 +31,7 @@ extension MobileShellComposite {
             )
             guard !mac.routes.isEmpty,
                   mac.routes.allSatisfy({ $0.kind == .iroh }),
-                  await !isForgottenMacDeviceID(
+                  await !isHiddenMacDeviceID(
                       mac.deviceID,
                       instanceTag: mac.instanceTag,
                       scope: scope

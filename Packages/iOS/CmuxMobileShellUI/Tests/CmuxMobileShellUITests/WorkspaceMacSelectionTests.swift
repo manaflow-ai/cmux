@@ -36,7 +36,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 return true
             }
@@ -60,7 +60,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 return false
             }
@@ -93,7 +93,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 return true
             }
@@ -157,7 +157,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
@@ -237,7 +237,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
@@ -253,8 +253,8 @@ import Testing
         let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
         await waitForSwitchStart()
 
-        #expect(view.macTitlePickerSelection.wrappedValue == .machine("mac-b"))
-        view.macTitlePickerSelection.wrappedValue = .all
+        #expect(view.currentMacTitlePickerSelection == .machine("mac-b"))
+        view.handleMacTitlePickerSelection(.all)
         await waitForCancelStart()
 
         #expect(requestedSwitches == ["mac-b"])
@@ -320,7 +320,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 if macDeviceID == "mac-b" {
                     markSwitchStarted()
@@ -413,7 +413,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 if macDeviceID == "mac-b" {
                     markFirstSwitchStarted()
@@ -490,7 +490,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
@@ -576,7 +576,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { _ in
+            switchMac: { _, _ in
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
                     switchContinuation = continuation
@@ -952,7 +952,7 @@ import Testing
         store: CMUXMobileShellStore,
         selectWorkspace: @escaping (MobileWorkspacePreview.ID) -> Void = { _ in },
         macSelection: Binding<WorkspaceMacSelection>? = nil,
-        switchMac: (@MainActor (String) async -> Bool)? = nil,
+        switchMac: (@MainActor (String, String?) async -> Bool)? = nil,
         cancelMacSwitch: (@MainActor (Bool) async -> Void)? = nil
     ) -> WorkspaceListView {
         WorkspaceListView(

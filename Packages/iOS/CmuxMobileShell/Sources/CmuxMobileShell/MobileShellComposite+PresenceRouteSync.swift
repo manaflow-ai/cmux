@@ -96,7 +96,7 @@ extension MobileShellComposite {
                 await self.loadPairedMacs()
                 guard await self.isScopeCurrent(scope) else { return }
                 let pairedMacsByDeviceID = Dictionary(
-                    self.pairedMacsForIdentityMatching.map { ($0.macDeviceID, $0) },
+                    self.storedPairedMacsIncludingHidden.map { ($0.macDeviceID, $0) },
                     uniquingKeysWith: { current, candidate in
                         current.lastSeenAt >= candidate.lastSeenAt ? current : candidate
                     }
@@ -163,11 +163,6 @@ extension MobileShellComposite {
     ) async -> Bool {
         guard let routes = instance.routes, await isScopeCurrent(scope) else { return false }
         let deviceId = instance.deviceId
-        guard await !isForgottenMacDeviceID(
-            deviceId,
-            instanceTag: instance.tag,
-            scope: scope
-        ) else { return false }
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
                .firstIndex(where: { $0.tag == instance.tag }) {
@@ -198,12 +193,6 @@ extension MobileShellComposite {
                 now: Date()
             )
             guard wrote else { return false }
-            guard await isScopeCurrent(scope) else { return true }
-            _ = await removeStoredPairedMacIfForgotten(
-                mac.macDeviceID,
-                instanceTag: mac.instanceTag,
-                scope: scope
-            )
             return true
         } catch {
             presenceRouteSyncLog.debug(

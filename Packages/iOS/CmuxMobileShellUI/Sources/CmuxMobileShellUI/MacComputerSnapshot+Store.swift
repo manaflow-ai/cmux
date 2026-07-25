@@ -8,7 +8,7 @@ import Foundation
 extension MacComputerSnapshot {
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`displayPairedMacs`) — the coalesced set the Computers screen
-    /// shows and the one ``CMUXMobileShellStore/forgetMac`` actually removes.
+    /// shows and the one ``CMUXMobileShellStore/hideMac`` filters locally.
     /// Shared by the Computers screen and the disconnected reconnect list so
     /// both surfaces show the same deduplicated computers with the same
     /// presence, color, and customization data.
@@ -26,7 +26,10 @@ extension MacComputerSnapshot {
         let connectionStatuses = store.macConnectionStatuses
         var snapshots = store.displayPairedMacs.map { mac in
             let presenceInstanceTag = instanceTag ?? mac.instanceTag
-            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
+            let aliases = store.pairedMacAliasIDs(
+                for: mac.macDeviceID,
+                instanceTag: mac.instanceTag
+            )
             let summary = store.presenceSummary(
                 for: mac.macDeviceID,
                 instanceTag: presenceInstanceTag

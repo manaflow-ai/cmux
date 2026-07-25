@@ -239,6 +239,13 @@ import Testing
         #expect(CmxAttachTransportKind.iroh.diagnosticTransportKind.rawValue == 1)
         #expect(DiagnosticFailureKind.cancelled.rawValue == 20)
         #expect(DiagnosticFailureKind.transportIdleTimedOut.rawValue == 21)
+        #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
+        #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
+        #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
+        #expect(
+            Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
+                == DiagnosticFailureKind.allCases.count
+        )
         #expect(DiagnosticFailureKind.unknown.rawValue == 255)
         #expect(DiagnosticSessionLifecycleKind.established.rawValue == 1)
         #expect(DiagnosticSessionLifecycleKind.controlOwnerReleased.rawValue == 2)
