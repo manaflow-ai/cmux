@@ -86,8 +86,9 @@ struct GitStatusProvider: Sendable {
             let absolutePath = Self.absolutePath(repoRoot: normalizedRepoRoot, relativePath: path)
             guard Self.path(absolutePath, isContainedIn: normalizedExplorerRoot) else { continue }
             // Re-spell the key under the caller's root. When the two roots already match
-            // (the common case) the path is used as-is; the root == "/" branch keeps the
-            // leading slash that dropFirst would otherwise eat.
+            // (the common case) the path is used as-is. The root == "/" branch is reached
+            // when the caller's root is a symlink to "/" (the canonical root is "/" while
+            // keyRoot is not) and keeps the leading slash that dropFirst would otherwise eat.
             let key: String
             if normalizedKeyRoot == normalizedExplorerRoot {
                 key = absolutePath
