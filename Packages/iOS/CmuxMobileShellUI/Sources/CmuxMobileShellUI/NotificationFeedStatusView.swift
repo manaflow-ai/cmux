@@ -64,6 +64,18 @@ enum NotificationFeedEmptyState: Equatable {
         isSourceRebuilding: Bool = false,
         status: MobileNotificationFeedStatus
     ) -> NotificationFeedEmptyState {
+        if isSourceRebuilding {
+            return .loading
+        }
+        if sourceItemCount > 0 {
+            if hasSearchQuery {
+                return .noSearchResults
+            }
+            if filter == .unread {
+                return .allRead
+            }
+        }
+
         switch status {
         case .idle, .loading:
             return .loading
@@ -72,14 +84,8 @@ enum NotificationFeedEmptyState: Equatable {
         case .requiresMacUpdate:
             return .requiresMacUpdate
         case .ready:
-            if isSourceRebuilding {
-                return .loading
-            }
             if hasSearchQuery {
                 return .noSearchResults
-            }
-            if sourceItemCount > 0, filter == .unread {
-                return .allRead
             }
             return .empty
         }

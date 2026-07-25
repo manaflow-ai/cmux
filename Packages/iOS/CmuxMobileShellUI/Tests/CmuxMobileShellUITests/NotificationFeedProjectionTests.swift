@@ -339,11 +339,33 @@ import Testing
             status: .unavailable
         ) == .unavailable)
         #expect(NotificationFeedEmptyState.resolve(
+            sourceItemCount: 2,
+            filter: .all,
+            hasSearchQuery: true,
+            status: .unavailable
+        ) == .noSearchResults)
+        #expect(NotificationFeedEmptyState.resolve(
             sourceItemCount: 0,
             filter: .all,
             hasSearchQuery: true,
             status: .requiresMacUpdate
         ) == .requiresMacUpdate)
+        #expect(NotificationFeedEmptyState.resolve(
+            sourceItemCount: 2,
+            filter: .all,
+            hasSearchQuery: true,
+            status: .requiresMacUpdate
+        ) == .noSearchResults)
+        #expect(NotificationFeedEmptyState.resolve(
+            sourceItemCount: 2,
+            filter: .unread,
+            status: .unavailable
+        ) == .allRead)
+        #expect(NotificationFeedEmptyState.resolve(
+            sourceItemCount: 2,
+            filter: .unread,
+            status: .requiresMacUpdate
+        ) == .allRead)
         #expect(NotificationFeedEmptyState.resolve(
             sourceItemCount: 0,
             filter: .all,
