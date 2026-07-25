@@ -33,6 +33,37 @@ struct CodexSessionResumeVerifierTests {
         #expect(evidence == nil)
     }
 
+    @Test func indexedSubagentResolvesToUserOwnedParent() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let parentSessionId = "019f652f-e1c3-7521-859c-5f57e33b4c80"
+        let childSessionId = "019f8c3d-72d0-7d91-8714-4bf5e541cb4d"
+        let parentRollout = try fixture.writeRollout(sessionId: parentSessionId)
+        let childRollout = try fixture.writeRollout(
+            sessionId: childSessionId,
+            parentSessionId: parentSessionId
+        )
+        try fixture.insertThread(
+            sessionId: parentSessionId,
+            rolloutPath: parentRollout.path,
+            threadSource: "user"
+        )
+        try fixture.insertThread(
+            sessionId: childSessionId,
+            rolloutPath: childRollout.path,
+            threadSource: "subagent"
+        )
+
+        let evidence = CodexSessionResumeVerifier().evidence(
+            sessionId: childSessionId,
+            transcriptPath: childRollout.path,
+            codexHome: fixture.codexHome.path
+        )
+
+        #expect(evidence?.rolloutPath == parentRollout.path)
+    }
+
     @Test func legacyRolloutRequiresMatchingSessionMetadata() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -70,7 +101,13 @@ struct CodexSessionResumeVerifierTests {
             database = opened
             guard sqlite3_exec(
                 database,
-                "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL)",
+                """
+                CREATE TABLE threads (
+                    id TEXT PRIMARY KEY,
+                    rollout_path TEXT NOT NULL,
+                    thread_source TEXT
+                )
+                """,
                 nil,
                 nil,
                 nil
@@ -87,18 +124,40 @@ struct CodexSessionResumeVerifierTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        func writeRollout(sessionId: String) throws -> URL {
+        func writeRollout(sessionId: String, parentSessionId: String? = nil) throws -> URL {
             let rollout = root.appendingPathComponent("rollout-2026-07-16T19-29-41-\(sessionId).jsonl")
-            try #"{"type":"session_meta","payload":{"id":"\#(sessionId)"}}"#
-                .write(to: rollout, atomically: true, encoding: .utf8)
+            var payload: [String: Any] = ["id": sessionId]
+            if let parentSessionId {
+                payload["session_id"] = parentSessionId
+                payload["parent_thread_id"] = parentSessionId
+                payload["forked_from_id"] = parentSessionId
+                payload["source"] = [
+                    "subagent": [
+                        "thread_spawn": [
+                            "parent_thread_id": parentSessionId,
+                            "depth": 1,
+                        ],
+                    ],
+                ]
+            }
+            let metadata: [String: Any] = [
+                "type": "session_meta",
+                "payload": payload,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+            try data.write(to: rollout, options: .atomic)
             return rollout
         }
 
-        func insertThread(sessionId: String, rolloutPath: String) throws {
+        func insertThread(
+            sessionId: String,
+            rolloutPath: String,
+            threadSource: String? = nil
+        ) throws {
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 database,
-                "INSERT INTO threads (id, rollout_path) VALUES (?, ?)",
+                "INSERT INTO threads (id, rollout_path, thread_source) VALUES (?, ?, ?)",
                 -1,
                 &statement,
                 nil
@@ -109,6 +168,11 @@ struct CodexSessionResumeVerifierTests {
             let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
             sqlite3_bind_text(statement, 1, sessionId, -1, transient)
             sqlite3_bind_text(statement, 2, rolloutPath, -1, transient)
+            if let threadSource {
+                sqlite3_bind_text(statement, 3, threadSource, -1, transient)
+            } else {
+                sqlite3_bind_null(statement, 3)
+            }
             guard sqlite3_step(statement) == SQLITE_DONE else { throw FixtureError.database }
         }
     }
