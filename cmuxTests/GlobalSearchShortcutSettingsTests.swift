@@ -63,7 +63,7 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
 
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(reservedShortcut),
-            .rejected(.reservedBySystem)
+            .rejected(.conflictsWithAction(.showHideAllWindows))
         )
     }
 
