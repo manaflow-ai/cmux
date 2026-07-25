@@ -40,4 +40,25 @@ struct ScrollToBottomPill: View {
         .accessibilityValue(unreadCount > 0 ? AgentGUIL10n.unreadValue(unreadCount) : "")
     }
 }
+
+struct AgentTranscriptScrollToBottomPillOverlay: View {
+    @Environment(\.chatTranscriptOverlayGeometry) private var overlayGeometry
+
+    let theme: AgentGUITheme
+    let unreadCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        ScrollToBottomPill(theme: theme, unreadCount: unreadCount, action: action)
+            .padding(.trailing, 12)
+            .padding(.bottom, bottomPadding)
+            .excludedFromKeyboardDismiss()
+    }
+
+    private var bottomPadding: CGFloat {
+        AgentTranscriptScrollPillLayoutPolicy.bottomPadding(
+            composerBottomInset: overlayGeometry?.composerBottomInset ?? 0
+        )
+    }
+}
 #endif
