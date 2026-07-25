@@ -285,6 +285,22 @@ actor NotificationFeedHistoryPersistence {
                         )
                         lastPersistedRevision = snapshot.revision
                         outcome = .loaded(snapshot)
+                    } catch OversizedSnapshotMigrationError.scanBudgetExceeded {
+                        let snapshot = NotificationFeedHistorySnapshot(
+                            revision: max(0, revision),
+                            notifications: []
+                        )
+                        do {
+                            try replaceOversizedSnapshotFile(
+                                fileURL,
+                                replacementSnapshot: snapshot
+                            )
+                            lastPersistedRevision = snapshot.revision
+                            outcome = .loaded(snapshot)
+                        } catch {
+                            allowsWrites = false
+                            outcome = .corrupt
+                        }
                     } catch {
                         allowsWrites = false
                         outcome = .corrupt

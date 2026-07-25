@@ -521,7 +521,7 @@ struct NotificationFeedHistoryTests {
         #expect(recovered.notifications.map(\.title) == ["Current tail"])
     }
 
-    @Test func oversizedCurrentSnapshotMigrationScanBudgetFailsClosed() async throws {
+    @Test func oversizedCurrentSnapshotMigrationScanBudgetRecoversWritableSnapshot() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-scan-budget-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -544,8 +544,47 @@ struct NotificationFeedHistoryTests {
             oversizedSnapshotMigrationScanByteLimit: 128
         )
 
-        #expect(await persistence.load() == .corrupt)
-        #expect(try Data(contentsOf: fileURL) == data)
+        #expect(await persistence.load() == .loaded(NotificationFeedHistorySnapshot(
+            revision: 22,
+            notifications: []
+        )))
+        let recovered = try JSONDecoder().decode(
+            NotificationFeedHistorySnapshot.self,
+            from: Data(contentsOf: fileURL)
+        )
+        #expect(recovered.revision == 22)
+        #expect(recovered.notifications.isEmpty)
+        let migrationQuarantines = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("history.json.oversized")
+        }
+        #expect(migrationQuarantines.isEmpty)
+
+        let persisted = NotificationFeedHistoryRecord(notification: notification(
+            workspaceID: UUID(),
+            title: "Recovered",
+            date: Date(timeIntervalSince1970: 1),
+            isRead: false
+        ))
+        await persistence.persist(NotificationFeedHistorySnapshot(
+            revision: 23,
+            notifications: [persisted]
+        ))
+        let verifier = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3
+        )
+        let verified = await verifier.load()
+        guard case .loaded(let verifiedSnapshot) = verified else {
+            Issue.record("Expected recovered persisted snapshot, got \(verified)")
+            return
+        }
+        #expect(verifiedSnapshot.revision == 23)
+        #expect(verifiedSnapshot.notifications.map(\.title) == ["Recovered"])
     }
 
     @Test func oversizedCurrentSnapshotScannerCapsEscapedTopLevelKeyBytes() throws {
