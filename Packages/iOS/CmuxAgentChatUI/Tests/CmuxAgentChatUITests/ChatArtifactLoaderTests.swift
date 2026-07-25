@@ -40,6 +40,21 @@ struct ChatArtifactLoaderTests {
         #expect(await source.thumbnailRequestCount() == 2)
     }
 
+    @Test func thumbnailRetryPolicyIsBoundedForTransientMissingFiles() {
+        let delays = (0..<5).map {
+            ChatAttachmentThumbnailRetryPolicy.delayNanoseconds(forAttempt: $0)
+        }
+
+        #expect(delays == [
+            250_000_000,
+            600_000_000,
+            1_200_000_000,
+            2_400_000_000,
+            nil,
+        ])
+        #expect(delays.compactMap(\.self).reduce(0, +) < 5_000_000_000)
+    }
+
     @Test func terminalScopeUsesDistinctCacheAndRoutesToTerminalClosures() async throws {
         let cache = ChatArtifactThumbnailCache()
         let chatSource = CountingArtifactSource()

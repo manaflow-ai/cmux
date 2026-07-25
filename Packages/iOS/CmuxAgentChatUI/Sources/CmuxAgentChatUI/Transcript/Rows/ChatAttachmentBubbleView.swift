@@ -24,6 +24,7 @@ public struct ChatAttachmentBubbleView: View {
     @State private var thumbnailData: Data?
     @State private var thumbnailFailed = false
     @State private var thumbnailRequest: ChatAttachmentThumbnailRequest?
+    @State private var thumbnailRetryAttempt = 0
     @State private var fallbackSelection: ChatArtifactPathSelection?
 
     /// Creates an attachment bubble.
@@ -99,9 +100,9 @@ public struct ChatAttachmentBubbleView: View {
             .accessibilityLabel(displayName)
             .accessibilityHint(openPreviewHint)
             .accessibilityIdentifier("ChatAttachmentImagePreview")
-            .task(id: currentThumbnailRequest) {
-                guard let request = currentThumbnailRequest else { return }
-                await loadThumbnail(request: request)
+            .task(id: currentThumbnailTaskID) {
+                guard let taskID = currentThumbnailTaskID else { return }
+                await loadThumbnail(taskID: taskID)
             }
         } else {
             imagePreview
@@ -256,6 +257,14 @@ public struct ChatAttachmentBubbleView: View {
         )
     }
 
+    private var currentThumbnailTaskID: ChatAttachmentThumbnailTaskID? {
+        guard let request = currentThumbnailRequest else { return nil }
+        return ChatAttachmentThumbnailTaskID(
+            request: request,
+            retryAttempt: thumbnailRetryAttempt
+        )
+    }
+
     /// Trailing-side grouped-corner shape matching the prose bubble rules.
     private var bubbleShape: UnevenRoundedRectangle {
         let full = theme.bubbleCornerRadius
@@ -306,12 +315,15 @@ public struct ChatAttachmentBubbleView: View {
         }
     }
 
-    private func loadThumbnail(request: ChatAttachmentThumbnailRequest) async {
+    private func loadThumbnail(taskID: ChatAttachmentThumbnailTaskID) async {
+        let request = taskID.request
         if thumbnailRequest != request {
             thumbnailRequest = request
             thumbnailData = nil
             thumbnailFailed = false
+            thumbnailRetryAttempt = 0
         }
+        guard thumbnailRetryAttempt == taskID.retryAttempt else { return }
         guard request.supportsArtifacts else {
             thumbnailFailed = true
             return
@@ -329,7 +341,19 @@ public struct ChatAttachmentBubbleView: View {
             return
         } catch {
             guard thumbnailRequest == request else { return }
-            thumbnailFailed = true
+            guard let delay = ChatAttachmentThumbnailRetryPolicy.delayNanoseconds(
+                forAttempt: taskID.retryAttempt
+            ) else {
+                thumbnailFailed = true
+                return
+            }
+            thumbnailFailed = false
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled,
+                  thumbnailRequest == request,
+                  thumbnailData == nil,
+                  thumbnailRetryAttempt == taskID.retryAttempt else { return }
+            thumbnailRetryAttempt = taskID.retryAttempt + 1
         }
     }
 }
@@ -339,4 +363,18 @@ private struct ChatAttachmentThumbnailRequest: Hashable {
     let scope: ChatArtifactLoaderScope
     let supportsArtifacts: Bool
     let byteCount: Int64?
+}
+
+private struct ChatAttachmentThumbnailTaskID: Hashable {
+    let request: ChatAttachmentThumbnailRequest
+    let retryAttempt: Int
+}
+
+enum ChatAttachmentThumbnailRetryPolicy {
+    private static let delaysInMilliseconds: [UInt64] = [250, 600, 1_200, 2_400]
+
+    static func delayNanoseconds(forAttempt attempt: Int) -> UInt64? {
+        guard delaysInMilliseconds.indices.contains(attempt) else { return nil }
+        return delaysInMilliseconds[attempt] * 1_000_000
+    }
 }
