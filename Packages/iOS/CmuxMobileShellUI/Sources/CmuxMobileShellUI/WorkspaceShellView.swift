@@ -327,11 +327,44 @@ struct WorkspaceShellView: View {
     }
 
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        workspaceActionToastOverlay {
+            layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+        }
+    }
+
+    private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        workspaceActionToastOverlay {
+            NavigationStack {
+                MobilePrimaryWorkspaceSearchContentHost(
+                    searchCoordinator: primarySearchCoordinator
+                ) { searchText in
+                    workspaceList(
+                        navigationStyle: .push,
+                        searchText: searchText,
+                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                        showsNavigationToolbar: true,
+                        selectWorkspaceAction: selectWorkspaceFromSearch,
+                        createWorkspaceAction: createWorkspaceFromSearch,
+                        createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
+                        createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
+                    )
+                }
+                .toolbar {
+                    rootToolbarContent
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func workspaceActionToastOverlay<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         // With the Toasts beta flag on, failures surface through the app-wide
         // toast layer; the legacy bottom banner below only ever receives
         // content while the flag is off.
         ZStack(alignment: .bottom) {
-            layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+            content()
             if let workspaceActionToast {
                 WorkspaceActionToast(
                     content: workspaceActionToast,
@@ -342,28 +375,6 @@ struct WorkspaceShellView: View {
                 .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .accessibilityIdentifier("MobileWorkspaceActionToast")
-            }
-        }
-    }
-
-    private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
-        NavigationStack {
-            MobilePrimaryWorkspaceSearchContentHost(
-                searchCoordinator: primarySearchCoordinator
-            ) { searchText in
-                workspaceList(
-                    navigationStyle: .push,
-                    searchText: searchText,
-                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
-                    showsNavigationToolbar: true,
-                    selectWorkspaceAction: selectWorkspaceFromSearch,
-                    createWorkspaceAction: createWorkspaceFromSearch,
-                    createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
-                    createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
-                )
-            }
-            .toolbar {
-                rootToolbarContent
             }
         }
     }
