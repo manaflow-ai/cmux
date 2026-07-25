@@ -57,6 +57,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 permissionMode: permissionMode,
                 text: text
             )
+            emitControlInputAccepted(session: session, text: text)
             return AgentSessionControlSubmitResult(session: session, startedProvider: false)
         }
 
@@ -86,6 +87,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             permissionMode: permissionMode,
             text: text
         )
+        emitControlInputAccepted(session: session, text: text)
         return AgentSessionControlSubmitResult(session: session, startedProvider: true)
     }
 
@@ -879,6 +881,16 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             _ = error
 #endif
         }
+    }
+
+    private func emitControlInputAccepted(session: AgentSessionControlSessionInfo, text: String) {
+        sendEvent([
+            "type": "provider.inputAccepted",
+            "sessionId": session.sessionId,
+            "providerId": session.providerID.rawValue,
+            "text": text,
+            "sentAtMs": Int(Date().timeIntervalSince1970 * 1000)
+        ])
     }
 
     private func handleExternalLink(_ url: URL) {

@@ -381,19 +381,34 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       if (state.runningSessionId && event.sessionId !== state.runningSessionId) {
         return state;
       }
-      if (!state.runningSessionId && state.status !== "starting") {
+      if (
+        !state.runningSessionId &&
+        state.status !== "starting" &&
+        state.status !== "idle" &&
+        state.status !== "failed"
+      ) {
         return state;
       }
-      if (!state.runningSessionId && event.providerId !== state.selectedProviderId) {
+      if (!state.runningSessionId && state.status === "starting" && event.providerId !== state.selectedProviderId) {
         return state;
       }
       return {
         ...state,
         runningSessionId: event.sessionId,
         requestedStopSessionId: undefined,
+        selectedProviderId: event.providerId,
         seenSessionIds: rememberSessionId(state, event.sessionId),
         status: "running",
         log: appendLog(state, "info", copyText(state, "providerStarted", "Provider started")),
+      };
+    case "provider.inputAccepted":
+      if (event.sessionId !== state.runningSessionId) {
+        return state;
+      }
+      return {
+        ...state,
+        log: appendLog(state, "info", formatCopy(state, "sentCharsFormat", "Sent %d chars", event.text.length)),
+        transcript: appendUserTranscript(state, event.text, undefined, event.sentAtMs ?? Date.now()),
       };
     case "provider.output":
       if (event.sessionId !== state.runningSessionId) {

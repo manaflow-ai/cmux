@@ -149,6 +149,50 @@ test("provider started event records running session", () => {
   expect(state.log.at(-1)?.text).toBe("Provider started");
 });
 
+test("provider started event from native submit attaches while idle", () => {
+  const idle = reduceSession(initialState("react"), { type: "context", context });
+  const state = reduceSession(idle, {
+    type: "event",
+    event: {
+      type: "provider.started",
+      providerId: "claude",
+      sessionId: "session-2",
+      executablePath: "/usr/local/bin/claude",
+      arguments: ["-p"],
+    },
+  });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-2");
+  expect(state.selectedProviderId).toBe("claude");
+  expect(state.log.at(-1)?.text).toBe("Provider started");
+});
+
+test("provider input accepted event appends native submitted user row", () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const state = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.inputAccepted",
+      providerId: "codex",
+      sessionId: "session-1",
+      text: "hello from socket",
+      sentAtMs: 1_850_000_000_000,
+    },
+  });
+
+  expect(state.log.at(-1)?.text).toBe("Sent 17 chars");
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "user",
+    sentAtMs: 1_850_000_000_000,
+    text: "hello from socket",
+  });
+});
+
 test("rate limit row event updates context", () => {
   const initial = reduceSession(initialState("react"), { type: "context", context });
   const state = reduceSession(initial, {

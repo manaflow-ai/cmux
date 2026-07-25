@@ -153,6 +153,13 @@ export type AgentEvent =
       text: string;
     }
   | {
+      type: "provider.inputAccepted";
+      sessionId: string;
+      providerId: ProviderId;
+      text: string;
+      sentAtMs?: number;
+    }
+  | {
       type: "provider.activity";
       sessionId: string;
       providerId: ProviderId;
