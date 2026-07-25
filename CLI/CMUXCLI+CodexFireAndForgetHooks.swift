@@ -2,21 +2,6 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    /// The per-invocation Codex hook events the wrapper injects, paired with the
-    /// cmux subcommand they call and the codex hook timeout (ms). Lifecycle
-    /// events are short; feed events (`PreToolUse`/`PermissionRequest`) are long
-    /// because the user may take time to approve. This is the single source of
-    /// truth for `cmux-codex-wrapper`'s injection, mirrored from the historic
-    /// hand-rolled `cmux_codex_add_hook` calls in the wrapper.
-    static let codexWrapperInjectionEvents: [(agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)] = [
-        ("SessionStart", "session-start", 10000),
-        ("UserPromptSubmit", "prompt-submit", 10000),
-        ("Stop", "stop", 10000),
-        ("PreToolUse", "pre-tool-use", 120000),
-        ("PostToolUse", "post-tool-use", 10000),
-        ("PermissionRequest", "notification", 120000),
-    ]
-
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
     /// hooks for one codex invocation. Returns the arg list:
@@ -42,7 +27,7 @@ extension CMUXCLI {
         // inline snippet so the working path can never regress.
         let hooksDir = Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
-        for event in Self.codexWrapperInjectionEvents {
+        for event in CodexHookInjectionSchema.current.events {
             let ff = Self.codexFireAndForgetAgentHookShellCommand(
                 "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
             )

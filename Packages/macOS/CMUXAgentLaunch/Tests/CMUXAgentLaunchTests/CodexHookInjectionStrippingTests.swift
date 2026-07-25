@@ -180,11 +180,21 @@ struct CodexHookInjectionStrippingTests {
             let userHookArguments = [
                 "--enable",
                 "hooks",
+                "--dangerously-bypass-hook-trust",
                 "-c",
                 "hooks.Stop=[{hooks=[{type=\"command\",command='''\(command)''',timeout=10000}]}]",
                 "--model",
                 "gpt-5.5",
             ]
+            let standaloneUserHookArguments = ["codex"] + userHookArguments
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    standaloneUserHookArguments,
+                    launcher: "",
+                    fallbackKind: "codex"
+                ) == standaloneUserHookArguments
+            )
+
             let compoundCommandArguments = ["codex"] + codexWrapperHookArguments { subcommand in
                 "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-\(subcommand).sh"
             } + userHookArguments
@@ -568,14 +578,9 @@ struct CodexHookInjectionStrippingTests {
     private var codexWrapperHookEvents: [
         (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
     ] {
-        [
-            ("SessionStart", "session-start", 10000),
-            ("UserPromptSubmit", "prompt-submit", 10000),
-            ("Stop", "stop", 10000),
-            ("PreToolUse", "pre-tool-use", 120000),
-            ("PostToolUse", "post-tool-use", 10000),
-            ("PermissionRequest", "notification", 120000),
-        ]
+        CodexHookInjectionSchema.current.events.map {
+            ($0.agentEvent, $0.cmuxSubcommand, $0.timeoutMs)
+        }
     }
 
     private var legacySavedLayoutHookEvents: [

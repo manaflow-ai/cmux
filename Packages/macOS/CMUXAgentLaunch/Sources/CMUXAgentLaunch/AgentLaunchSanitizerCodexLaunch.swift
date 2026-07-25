@@ -181,18 +181,27 @@ private func cmuxInjectedCodexHookArgumentPrefixEnd(_ args: [String]) -> Int? {
     }
     index += 1
 
-    // The wrapper always prepends this complete ordered block in one operation.
-    // Requiring the entire structure distinguishes cmux injection from later
-    // user hook config, whose command text is normal user-controllable input.
-    for event in codexWrapperInjectedHookEvents {
-        guard let config = codexHookConfigValue(in: args, at: index),
-              isCmuxInjectedCodexHookConfigValue(config.value, event: event)
-        else {
-            return nil
+    // New wrappers prepend the current complete ordered block in one operation.
+    // Exact compatibility schemas keep saved commands replayable across
+    // upgrades. Requiring one registered structure distinguishes cmux
+    // injection from later user hook config.
+    for schema in CodexHookInjectionSchema.recognized {
+        var candidateIndex = index
+        var matches = true
+        for event in schema.events {
+            guard let config = codexHookConfigValue(in: args, at: candidateIndex),
+                  isCmuxInjectedCodexHookConfigValue(config.value, event: event)
+            else {
+                matches = false
+                break
+            }
+            candidateIndex = config.nextIndex
         }
-        index = config.nextIndex
+        if matches {
+            return candidateIndex
+        }
     }
-    return index
+    return nil
 }
 
 private func codexHookConfigValue(
@@ -212,7 +221,7 @@ private func codexHookConfigValue(
 
 private func isCmuxInjectedCodexHookConfigValue(
     _ value: String,
-    event: CodexWrapperInjectedHookEvent
+    event: CodexHookInjectionEvent
 ) -> Bool {
     guard let equals = value.firstIndex(of: "=") else { return false }
     let key = String(value[..<equals])
@@ -225,21 +234,6 @@ private func isCmuxInjectedCodexHookConfigValue(
     let command = String(body.dropFirst(prefix.count).dropLast(suffix.count))
     return isCmuxCodexHookCommand(command, subcommand: event.cmuxSubcommand)
 }
-
-private struct CodexWrapperInjectedHookEvent {
-    let agentEvent: String
-    let cmuxSubcommand: String
-    let timeoutMs: Int
-}
-
-private let codexWrapperInjectedHookEvents: [CodexWrapperInjectedHookEvent] = [
-    .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
-    .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: 10000),
-    .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: 10000),
-    .init(agentEvent: "PreToolUse", cmuxSubcommand: "pre-tool-use", timeoutMs: 120000),
-    .init(agentEvent: "PostToolUse", cmuxSubcommand: "post-tool-use", timeoutMs: 10000),
-    .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification", timeoutMs: 120000),
-]
 
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {
     guard !command.contains("\\") else { return false }
