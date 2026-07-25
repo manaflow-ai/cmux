@@ -21,7 +21,7 @@ use cmux_tui_core::{
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
+    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
     TerminalColorOverrides, parse_color,
 };
 use serde_json::{Value, json};
@@ -1131,12 +1131,33 @@ impl RemoteSession {
         surface: SurfaceId,
         fallback_key: &KeyInput,
     ) -> anyhow::Result<()> {
-        require_capability(
-            &self.capabilities.lock().unwrap(),
-            CLEAR_HISTORY_KEY_CAPABILITY,
-            "clear-history",
-        )?;
-        self.clear_history_request(surface, Some(ProtocolKeyInput::try_from(fallback_key)?))
+        let supports_atomic_clear = {
+            let capabilities = self.capabilities.lock().unwrap();
+            capabilities.contains(CLEAR_HISTORY_CAPABILITY)
+                && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
+        };
+        if supports_atomic_clear {
+            return self
+                .clear_history_request(surface, Some(ProtocolKeyInput::try_from(fallback_key)?));
+        }
+
+        let surface =
+            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+        if surface.kind != SurfaceKind::Pty {
+            anyhow::bail!("browser surface does not accept PTY bytes");
+        }
+        let encoded = {
+            let term = surface.term.lock().unwrap();
+            let mut encoder = KeyEncoder::new()?;
+            let mut encoded = Vec::new();
+            encoder.sync_from_terminal(&term);
+            encoder.encode(fallback_key, &mut encoded)?;
+            encoded
+        };
+        if encoded.is_empty() {
+            return Ok(());
+        }
+        self.send_bytes(surface.id, &encoded)
     }
 
     fn clear_history_request(

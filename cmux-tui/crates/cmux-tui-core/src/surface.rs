@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderFrame,
-    RenderState, Rgb, Screen, Terminal, TerminalColorOverrides,
+    Callbacks, ClearHistoryOutcome, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput,
+    RenderFrame, RenderState, Rgb, Screen, Terminal, TerminalColorOverrides,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -622,20 +622,28 @@ pub(crate) fn apply_clear_history_transition(
     fallback_key: Option<&KeyInput>,
 ) -> anyhow::Result<ClearHistoryTransition> {
     if term.active_screen() != Screen::Alternate {
-        return Ok(ClearHistoryTransition::Cleared(term.clear_history_preserving_prompt()));
+        return Ok(match term.clear_history_preserving_prompt() {
+            ClearHistoryOutcome::Cleared(clear) => ClearHistoryTransition::Cleared(clear),
+            ClearHistoryOutcome::Unchanged => ClearHistoryTransition::Noop,
+        });
     }
     let Some(input) = fallback_key else {
         return Ok(ClearHistoryTransition::Noop);
     };
-    let mut encoder = KeyEncoder::new()?;
-    let mut encoded = Vec::new();
-    encoder.sync_from_terminal(term);
-    encoder.encode(input, &mut encoded)?;
+    let encoded = encode_key_from_terminal(term, input)?;
     Ok(if encoded.is_empty() {
         ClearHistoryTransition::Noop
     } else {
         ClearHistoryTransition::EncodedFallback(encoded)
     })
+}
+
+fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result<Vec<u8>> {
+    let mut encoder = KeyEncoder::new()?;
+    let mut encoded = Vec::new();
+    encoder.sync_from_terminal(term);
+    encoder.encode(input, &mut encoded)?;
+    Ok(encoded)
 }
 
 #[cfg(unix)]
@@ -1794,18 +1802,44 @@ impl Surface {
         };
         #[cfg(unix)]
         {
-            let runtime = pty.runtime.lock().unwrap();
-            match &*runtime {
-                PtyRuntime::Hosted(host) => {
-                    if host.send_clear_history(fallback_key)? {
-                        return Ok(());
+            let legacy_host = {
+                let runtime = pty.runtime.lock().unwrap();
+                match &*runtime {
+                    PtyRuntime::Hosted(host) => {
+                        if host.send_clear_history(fallback_key)? {
+                            return Ok(());
+                        }
+                        true
                     }
-                    anyhow::bail!("terminal host does not support clear-history");
+                    PtyRuntime::ExitedHosted => {
+                        anyhow::bail!("terminal host has exited");
+                    }
+                    PtyRuntime::Local { .. } => false,
                 }
-                PtyRuntime::ExitedHosted => {
-                    anyhow::bail!("terminal host has exited");
+            };
+            if legacy_host {
+                let input = fallback_key.ok_or_else(|| {
+                    anyhow::anyhow!("terminal host does not support clear-history")
+                })?;
+                let encoded = {
+                    let term = pty.term.lock().unwrap();
+                    encode_key_from_terminal(&term, input)?
+                };
+                if encoded.is_empty() {
+                    return Ok(());
                 }
-                PtyRuntime::Local { .. } => {}
+                let runtime = pty.runtime.lock().unwrap();
+                match &*runtime {
+                    PtyRuntime::Hosted(host) if host.supports_clear_history() => {
+                        host.send_clear_history(Some(input))?;
+                    }
+                    PtyRuntime::Hosted(host) => host.send(MessageKind::Input, &encoded)?,
+                    PtyRuntime::ExitedHosted => anyhow::bail!("terminal host has exited"),
+                    PtyRuntime::Local { .. } => {
+                        unreachable!("a hosted PTY runtime cannot become local")
+                    }
+                }
+                return Ok(());
             }
         }
 

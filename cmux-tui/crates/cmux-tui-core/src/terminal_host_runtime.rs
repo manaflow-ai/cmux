@@ -642,6 +642,10 @@ mod unix {
             Ok(true)
         }
 
+        pub fn supports_clear_history(&self) -> bool {
+            self.record.supports_clear_history
+        }
+
         pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<()> {
             let (cols, rows) = normalize_terminal_geometry(cols, rows).map_err(|error| {
                 std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())

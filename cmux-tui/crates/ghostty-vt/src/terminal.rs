@@ -87,6 +87,13 @@ pub enum Screen {
     Alternate,
 }
 
+/// Result of a prompt-preserving scrollback clear.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClearHistoryOutcome {
+    Cleared(Vec<u8>),
+    Unchanged,
+}
+
 /// Scrollbar geometry for the viewport, in rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Scrollbar {
@@ -1762,36 +1769,45 @@ impl Terminal {
     /// OSC 133 identifies the full prompt when available. Without shell
     /// metadata, the current soft-wrapped logical line is preserved. Cursor
     /// movement is skipped when pending-wrap or origin-mode state cannot be
-    /// restored exactly.
-    pub fn clear_history_preserving_prompt(&mut self) -> Vec<u8> {
+    /// restored exactly. If the active prompt or logical line begins in
+    /// scrollback, no mutation is applied because clearing it would truncate
+    /// active input.
+    pub fn clear_history_preserving_prompt(&mut self) -> ClearHistoryOutcome {
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
 
         if self.active_screen() == Screen::Alternate {
-            return Vec::new();
+            return ClearHistoryOutcome::Unchanged;
         }
 
         let mut clear = CLEAR_SCROLLBACK.to_vec();
         let Some((cursor_x, cursor_y)) = self.cursor_position() else {
-            self.vt_write(&clear);
-            return clear;
+            return ClearHistoryOutcome::Unchanged;
         };
-        if self.cursor_pending_wrap() || self.mode(6, false) {
-            self.vt_write(&clear);
-            return clear;
-        }
-        let preserve_from_y = if self.cursor_is_at_prompt() {
-            self.active_prompt_start_row(cursor_y)
-                .or_else(|| self.active_logical_line_start_row(cursor_y))
+        let cursor_is_at_prompt = self.cursor_is_at_prompt();
+        let prompt_start_y =
+            cursor_is_at_prompt.then(|| self.active_prompt_start_row(cursor_y)).flatten();
+        let preserve_from_y = if cursor_is_at_prompt {
+            prompt_start_y.or_else(|| self.active_logical_line_start_row(cursor_y))
         } else {
             self.active_logical_line_start_row(cursor_y)
         };
         let Some(preserve_from_y) = preserve_from_y else {
-            self.vt_write(&clear);
-            return clear;
+            return ClearHistoryOutcome::Unchanged;
         };
+        if self.history_rows() > 0
+            && preserve_from_y == 0
+            && ((cursor_is_at_prompt && prompt_start_y.is_none())
+                || (!cursor_is_at_prompt && self.active_row_wrap_continuation(0).unwrap_or(true)))
+        {
+            return ClearHistoryOutcome::Unchanged;
+        }
+        if self.cursor_pending_wrap() || self.mode(6, false) {
+            self.vt_write(&clear);
+            return ClearHistoryOutcome::Cleared(clear);
+        }
         if preserve_from_y == 0 {
             self.vt_write(&clear);
-            return clear;
+            return ClearHistoryOutcome::Cleared(clear);
         }
 
         for row in 0..preserve_from_y {
@@ -1801,7 +1817,7 @@ impl Terminal {
             format!("\x1b[{};{}H", u32::from(cursor_y) + 1, u32::from(cursor_x) + 1).as_bytes(),
         );
         self.vt_write(&clear);
-        clear
+        ClearHistoryOutcome::Cleared(clear)
     }
 
     fn cursor_pending_wrap(&self) -> bool {
@@ -2476,8 +2492,8 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use super::{
-        Callbacks, MouseModeScan, PaletteOsc, PromptSemantic, PromptSemanticTracker,
-        PromptTrackState, Screen, Terminal, vt_replay_row_window,
+        Callbacks, ClearHistoryOutcome, MouseModeScan, PaletteOsc, PromptSemantic,
+        PromptSemanticTracker, PromptTrackState, Screen, Terminal, vt_replay_row_window,
     };
 
     #[test]
@@ -2579,7 +2595,9 @@ mod tests {
         terminal.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
         let cursor_before = terminal.cursor_position();
 
-        let clear = terminal.clear_history_preserving_prompt();
+        let ClearHistoryOutcome::Cleared(clear) = terminal.clear_history_preserving_prompt() else {
+            panic!("active prompt was wholly inside the viewport");
+        };
 
         assert_eq!(terminal.history_rows(), 0);
         assert_eq!(terminal.cursor_position(), cursor_before);
@@ -2599,7 +2617,9 @@ mod tests {
         assert!(terminal.cursor_pending_wrap());
         let viewport_before = terminal.viewport_text().unwrap();
 
-        let clear = terminal.clear_history_preserving_prompt();
+        let ClearHistoryOutcome::Cleared(clear) = terminal.clear_history_preserving_prompt() else {
+            panic!("pending-wrap prompt was wholly inside the viewport");
+        };
 
         assert_eq!(clear, b"\x1b[3J");
         assert_eq!(terminal.history_rows(), 0);
@@ -2617,8 +2637,9 @@ mod tests {
         let history_before = terminal.history_rows();
         let contents_before = terminal.plain_text().unwrap();
 
-        let _ = terminal.clear_history_preserving_prompt();
+        let outcome = terminal.clear_history_preserving_prompt();
 
+        assert_eq!(outcome, ClearHistoryOutcome::Unchanged);
         assert!(history_before > 0);
         assert_eq!(terminal.history_rows(), history_before);
         assert_eq!(terminal.plain_text().unwrap(), contents_before);
