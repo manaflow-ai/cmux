@@ -1515,20 +1515,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// move a thumb from mid-screen to the chip and tap it.
     static let artifactChipRevealLinger: Duration = .seconds(2.2)
 
-    /// Reveals the chip for scroll activity and re-arms the idle linger.
-    ///
-    /// - Parameter armLinger: Pass `false` while a drag is beginning; the
-    ///   linger is then armed by the drag-end/deceleration-end callbacks (or
-    ///   by movement deltas), so a held-still finger keeps the chip up.
-    private func noteArtifactChipScrollActivity(armLinger: Bool = true) {
+    /// Reveals the chip for a movement delta. Runs on every scroll frame, so
+    /// it must do no task management: past the cheap guards it is a single
+    /// bool flip per gesture. The fade-out linger is armed only by the
+    /// drag-end/deceleration-end callbacks, and the user-driven guard keeps
+    /// programmatic offset changes (recentering, scroll-to-bottom) from
+    /// revealing a chip nobody is interacting with.
+    private func noteArtifactChipScrollActivity() {
+        guard artifactChipHost.isRequestedVisible,
+              scrollMechanicsView.isTracking
+                || scrollMechanicsView.isDragging
+                || scrollMechanicsView.isDecelerating,
+              !artifactChipScrollRevealed else { return }
+        revealArtifactChipForScroll()
+    }
+
+    private func revealArtifactChipForScroll() {
         artifactChipRevealHideTask?.cancel()
         artifactChipRevealHideTask = nil
         if !artifactChipScrollRevealed {
             artifactChipScrollRevealed = true
             updateArtifactChipVisibility(animated: true)
         }
-        guard armLinger else { return }
-        armArtifactChipRevealLinger()
     }
 
     private func armArtifactChipRevealLinger() {
@@ -1791,8 +1799,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
-        // Every real scroll movement (tracking and momentum) keeps the
-        // scroll-revealed chip up and pushes its idle linger out.
+        // User-driven movement reveals the chip; this is guard-only work per
+        // frame (the linger is armed by the gesture-end callbacks).
         noteArtifactChipScrollActivity()
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
@@ -3994,22 +4002,25 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     }
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        guard scrollView === scrollMechanicsView else { return }
+        guard scrollView === scrollMechanicsView,
+              artifactChipHost.isRequestedVisible else { return }
         // Reveal on touch-down and hold the chip (no linger) while the finger
         // is down; the end/deceleration callbacks arm the fade-out.
-        noteArtifactChipScrollActivity(armLinger: false)
+        revealArtifactChipForScroll()
     }
 
     public func scrollViewDidEndDragging(
         _ scrollView: UIScrollView,
         willDecelerate decelerate: Bool
     ) {
-        guard scrollView === scrollMechanicsView, !decelerate else { return }
+        guard scrollView === scrollMechanicsView, !decelerate,
+              artifactChipScrollRevealed else { return }
         armArtifactChipRevealLinger()
     }
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        guard scrollView === scrollMechanicsView else { return }
+        guard scrollView === scrollMechanicsView,
+              artifactChipScrollRevealed else { return }
         armArtifactChipRevealLinger()
     }
 }
