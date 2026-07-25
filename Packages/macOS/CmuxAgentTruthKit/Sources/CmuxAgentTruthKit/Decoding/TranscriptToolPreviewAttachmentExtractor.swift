@@ -18,22 +18,24 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         input: JSONValue?,
         authorRole: String?
     ) -> [AttachmentPayload]? {
-        let paths = deduplicatedPaths(candidatePaths(in: normalized(input)))
-        let attachments = paths.compactMap { path -> AttachmentPayload? in
+        let candidates = deduplicatedCandidates(candidateReferences(in: normalized(input)))
+        let attachments = candidates.compactMap { candidate -> AttachmentPayload? in
+            let path = candidate.hostPath
             guard shouldPreview(path: path, toolName: toolName) else {
                 return nil
             }
             let metadata = TranscriptImageMetadataProbe.metadata(hostPath: path, base64EncodedData: nil)
-            let displayName = imageDisplayName(for: path)
+            let displayName = candidate.displayName ?? imageDisplayName(for: path)
             return AttachmentPayload(
                 kind: "image",
                 summary: displayName ?? "Image attachment",
                 displayName: displayName,
                 hostPath: path,
-                mimeType: imageMIMEType(for: path),
-                byteCount: metadata.byteCount,
-                width: metadata.width,
-                height: metadata.height,
+                mimeType: candidate.mimeType ?? imageMIMEType(for: path),
+                byteCount: candidate.byteCount ?? metadata.byteCount,
+                width: candidate.width ?? metadata.width,
+                height: candidate.height ?? metadata.height,
+                aspectRatio: candidate.aspectRatio,
                 authorRole: authorRole
             )
         }
@@ -48,27 +50,44 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         return value
     }
 
-    private func candidatePaths(in value: JSONValue?) -> [String] {
+    private func candidateReferences(in value: JSONValue?) -> [PreviewAttachmentCandidate] {
         guard let value else { return [] }
         switch value {
         case .string(let string):
-            return string.hasPrefix("/") || string.hasPrefix("file://") ? [filePath(from: string)] : []
+            return string.hasPrefix("/") || string.hasPrefix("file://")
+                ? [PreviewAttachmentCandidate(hostPath: filePath(from: string))]
+                : []
         case .array(let values):
-            return values.flatMap { candidatePaths(in: normalized($0)) }
+            return values.flatMap { candidateReferences(in: normalized($0)) }
         case .object(let object):
-            var paths: [String] = []
+            var candidates: [PreviewAttachmentCandidate] = []
             for key in Self.pathKeys {
                 if let path = object[key]?.string {
-                    paths.append(filePath(from: path))
+                    candidates.append(previewCandidate(path: path, object: object))
                 }
             }
             for key in Self.nestedPathContainerKeys {
-                paths.append(contentsOf: candidatePaths(in: normalized(object[key])))
+                candidates.append(contentsOf: candidateReferences(in: normalized(object[key])))
             }
-            return paths
+            return candidates
         case .null, .bool, .number:
             return []
         }
+    }
+
+    private func previewCandidate(
+        path: String,
+        object: [String: JSONValue]
+    ) -> PreviewAttachmentCandidate {
+        PreviewAttachmentCandidate(
+            hostPath: filePath(from: path),
+            displayName: string(in: object, keys: Self.displayNameKeys),
+            mimeType: string(in: object, keys: Self.mimeTypeKeys),
+            byteCount: int(in: object, keys: Self.byteCountKeys),
+            width: int(in: object, keys: Self.widthKeys),
+            height: int(in: object, keys: Self.heightKeys),
+            aspectRatio: aspectRatio(in: object)
+        )
     }
 
     private func shouldPreview(path: String, toolName: String) -> Bool {
@@ -110,15 +129,83 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         return url.path
     }
 
-    private func deduplicatedPaths(_ paths: [String]) -> [String] {
-        var seen = Set<String>()
-        return paths.compactMap { path in
-            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else {
-                return nil
+    private func deduplicatedCandidates(
+        _ candidates: [PreviewAttachmentCandidate]
+    ) -> [PreviewAttachmentCandidate] {
+        var indexesByPath: [String: Int] = [:]
+        var deduplicated: [PreviewAttachmentCandidate] = []
+        for candidate in candidates {
+            let trimmedPath = candidate.hostPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPath.isEmpty else {
+                continue
             }
-            return trimmed
+            let trimmed = candidate.withHostPath(trimmedPath)
+            if let existingIndex = indexesByPath[trimmedPath] {
+                deduplicated[existingIndex] = deduplicated[existingIndex].merged(with: trimmed)
+            } else {
+                indexesByPath[trimmedPath] = deduplicated.count
+                deduplicated.append(trimmed)
+            }
         }
+        return deduplicated
+    }
+
+    private func string(in object: [String: JSONValue], keys: [String]) -> String? {
+        for key in keys {
+            if let value = object[key]?.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func int(in object: [String: JSONValue], keys: [String]) -> Int? {
+        for key in keys {
+            if let value = object[key]?.int, value > 0 {
+                return value
+            }
+            if let string = object[key]?.string,
+               let value = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)),
+               value > 0 {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func aspectRatio(in object: [String: JSONValue]) -> Double? {
+        for key in Self.aspectRatioKeys {
+            guard let value = object[key] else {
+                continue
+            }
+            if let ratio = normalizedAspectRatio(value.number) {
+                return ratio
+            }
+            if let ratio = value.string.flatMap(aspectRatioValue) {
+                return ratio
+            }
+        }
+        return nil
+    }
+
+    private func aspectRatioValue(_ rawValue: String) -> Double? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let direct = Double(value).flatMap(normalizedAspectRatio) {
+            return direct
+        }
+        let parts = value.split { $0 == ":" || $0 == "/" }.compactMap { Double($0) }
+        guard parts.count == 2, parts[1] > 0 else {
+            return nil
+        }
+        return normalizedAspectRatio(parts[0] / parts[1])
+    }
+
+    private func normalizedAspectRatio(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0, value <= 1_000 else {
+            return nil
+        }
+        return value
     }
 
     private func imageDisplayName(for path: String) -> String? {
@@ -140,6 +227,104 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         default: nil
         }
     }
+
+    private struct PreviewAttachmentCandidate: Equatable, Sendable {
+        let hostPath: String
+        let displayName: String?
+        let mimeType: String?
+        let byteCount: Int?
+        let width: Int?
+        let height: Int?
+        let aspectRatio: Double?
+
+        init(
+            hostPath: String,
+            displayName: String? = nil,
+            mimeType: String? = nil,
+            byteCount: Int? = nil,
+            width: Int? = nil,
+            height: Int? = nil,
+            aspectRatio: Double? = nil
+        ) {
+            self.hostPath = hostPath
+            self.displayName = displayName
+            self.mimeType = mimeType
+            self.byteCount = byteCount
+            self.width = width
+            self.height = height
+            self.aspectRatio = aspectRatio
+        }
+
+        func withHostPath(_ hostPath: String) -> Self {
+            PreviewAttachmentCandidate(
+                hostPath: hostPath,
+                displayName: displayName,
+                mimeType: mimeType,
+                byteCount: byteCount,
+                width: width,
+                height: height,
+                aspectRatio: aspectRatio
+            )
+        }
+
+        func merged(with other: Self) -> Self {
+            PreviewAttachmentCandidate(
+                hostPath: hostPath,
+                displayName: displayName ?? other.displayName,
+                mimeType: mimeType ?? other.mimeType,
+                byteCount: byteCount ?? other.byteCount,
+                width: width ?? other.width,
+                height: height ?? other.height,
+                aspectRatio: aspectRatio ?? other.aspectRatio
+            )
+        }
+    }
+
+    private static let displayNameKeys = [
+        "display_name",
+        "fileName",
+        "file_name",
+        "name",
+    ]
+
+    private static let mimeTypeKeys = [
+        "mediaType",
+        "media_type",
+        "mimeType",
+        "mime_type",
+    ]
+
+    private static let byteCountKeys = [
+        "byteCount",
+        "byte_count",
+        "size",
+    ]
+
+    private static let widthKeys = [
+        "previewWidth",
+        "preview_width",
+        "pixelWidth",
+        "pixel_width",
+        "width",
+        "w",
+    ]
+
+    private static let heightKeys = [
+        "previewHeight",
+        "preview_height",
+        "pixelHeight",
+        "pixel_height",
+        "height",
+        "h",
+    ]
+
+    private static let aspectRatioKeys = [
+        "aspectRatio",
+        "aspect_ratio",
+        "previewAspectRatio",
+        "preview_aspect_ratio",
+        "ratio",
+    ]
 
     private static let pathKeys = [
         "absolute_path",

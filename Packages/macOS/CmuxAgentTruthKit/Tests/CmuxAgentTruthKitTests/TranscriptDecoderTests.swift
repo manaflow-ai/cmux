@@ -435,6 +435,33 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexViewImageToolCarriesInputGeometryBeforeFileLoads() throws {
+        let imagePath = "/tmp/cmux-codex-pending-preview.png"
+        let arguments = #"{"path":"\#(imagePath)","display_name":"pending-preview.png","mime_type":"image/png","width":640,"height":360,"aspect_ratio":1.7777777778}"#
+        let callLine = #"{"type":"response_item","payload":{"type":"function_call","name":"view_image","call_id":"call_image","arguments":"\#(arguments.replacingOccurrences(of: "\"", with: "\\\""))"}}"#
+        let resultLine = #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_image","output":"queued preview"}}"#
+        var decoder = CodexTranscriptDecoder()
+
+        let call = decoder.feed([callLine], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+        let result = decoder.feed([resultLine], startingAt: 1, journalID: JournalID(rawValue: "journal"))
+
+        let running = try #require(toolRunPayload(in: call, seq: 0))
+        let completed = try #require(toolRunPayload(in: result, seq: 1))
+        #expect(running.previewAttachments?.count == 1)
+        #expect(completed.previewAttachments?.count == 1)
+        let attachment = try #require(completed.previewAttachments?.first)
+        #expect(attachment.kind == "image")
+        #expect(attachment.hostPath == imagePath)
+        #expect(attachment.displayName == "pending-preview.png")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 640)
+        #expect(attachment.height == 360)
+        #expect(attachment.aspectRatio == 1.7777777778)
+        #expect(attachment.byteCount == nil)
+        #expect(attachment.authorRole == "agent")
+    }
+
+    @Test
     func claudeAttachmentRecordDerivesImageDimensionsFromFileHeader() throws {
         let imageURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-attachment-\(UUID().uuidString).png")
@@ -520,6 +547,32 @@ struct TranscriptDecoderTests {
         #expect(attachment.width == 1)
         #expect(attachment.height == 1)
         #expect(attachment.byteCount == Self.png1x1Data.count)
+        #expect(attachment.authorRole == "agent")
+    }
+
+    @Test
+    func claudeViewImageToolCarriesInputAspectRatioBeforeFileLoads() throws {
+        let imagePath = "/tmp/cmux-claude-pending-preview.png"
+        let callLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool_image","name":"view_image","input":{"path":"\#(imagePath)","name":"pending-preview.png","media_type":"image/png","preview_aspect_ratio":"9:16"}}]}}"#
+        let resultLine = #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_image","content":"queued preview","is_error":false}]}}"#
+        var decoder = ClaudeTranscriptDecoder()
+
+        let call = decoder.feed([callLine], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+        let result = decoder.feed([resultLine], startingAt: 10, journalID: JournalID(rawValue: "journal"))
+
+        let running = try #require(toolRunPayload(in: call, seq: 0))
+        let completed = try #require(toolRunPayload(in: result, seq: 10))
+        #expect(running.previewAttachments?.count == 1)
+        #expect(completed.previewAttachments?.count == 1)
+        let attachment = try #require(completed.previewAttachments?.first)
+        #expect(attachment.kind == "image")
+        #expect(attachment.hostPath == imagePath)
+        #expect(attachment.displayName == "pending-preview.png")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == nil)
+        #expect(attachment.height == nil)
+        #expect(attachment.aspectRatio == 9.0 / 16.0)
+        #expect(attachment.byteCount == nil)
         #expect(attachment.authorRole == "agent")
     }
 
