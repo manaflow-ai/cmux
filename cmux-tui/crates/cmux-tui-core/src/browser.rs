@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
@@ -109,6 +109,10 @@ struct BrowserState {
     /// Frame that may currently receive guarded pointer input. Navigation and
     /// geometry changes invalidate it before the next screencast frame lands.
     pointer_frame_seq: Option<u64>,
+    /// Changes whenever pointer admission changes, so a failed command can
+    /// restore its previous frame only if no asynchronous browser event won
+    /// the race in the meantime.
+    pointer_frame_revision: u64,
     // Latest-wins attach frame taps. Broadcast overwrites each slot and
     // sends one wakeup; a slow client skips old frames but stays attached.
     taps: Vec<BrowserFrameTap>,
@@ -153,6 +157,12 @@ struct BrowserReconfigureFailure {
     retry_at: Option<Instant>,
 }
 
+#[derive(Clone, Copy)]
+struct PointerFrameInvalidation {
+    previous: Option<u64>,
+    revision: u64,
+}
+
 enum BrowserCommand {
     WakeLatest,
     Mouse {
@@ -195,6 +205,15 @@ enum BrowserCommand {
     },
 }
 
+struct BrowserMouseDispatch<'a> {
+    event_type: &'a str,
+    x: f64,
+    y: f64,
+    button: Option<&'a str>,
+    click_count: Option<u32>,
+    frame_seq: Option<u64>,
+}
+
 impl BrowserCommand {
     fn is_input(&self) -> bool {
         matches!(
@@ -229,6 +248,7 @@ fn reject_reconfigure(mut command: BrowserCommand) -> Option<QueuedBrowserGeomet
 #[derive(Default)]
 struct BrowserWorkerErrorState {
     consecutive_timeouts: u8,
+    active_pointer_presses: HashSet<String>,
 }
 
 pub struct BrowserRuntime {
@@ -566,6 +586,7 @@ pub(crate) fn new_surface(
         state: Mutex::new(BrowserState {
             latest_frame: None,
             pointer_frame_seq: None,
+            pointer_frame_revision: 0,
             taps: Vec::new(),
             title: normalized_url.clone(),
             url: normalized_url,
@@ -975,7 +996,17 @@ fn run_browser_worker_command(
         match command {
             BrowserCommand::WakeLatest => Ok(()),
             BrowserCommand::Mouse { event_type, x, y, button, click_count, frame_seq } => browser
-                .mouse_event_blocking(&event_type, x, y, button.as_deref(), click_count, frame_seq),
+                .mouse_event_blocking(
+                    BrowserMouseDispatch {
+                        event_type: &event_type,
+                        x,
+                        y,
+                        button: button.as_deref(),
+                        click_count,
+                        frame_seq,
+                    },
+                    &mut failures.active_pointer_presses,
+                ),
             BrowserCommand::Wheel { x, y, delta_y, frame_seq } => {
                 browser.wheel_blocking(x, y, delta_y, frame_seq)
             }
@@ -1336,7 +1367,7 @@ impl BrowserSurface {
         state.capture_scale = geometry.capture_scale;
         if changed {
             state.latest_frame = None;
-            state.pointer_frame_seq = None;
+            Self::set_pointer_frame_locked(&mut state, None);
             state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
@@ -1466,7 +1497,8 @@ impl BrowserSurface {
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
-        state.pointer_frame_seq = matches!(state.status, BrowserStatus::Live).then_some(frame.seq);
+        let pointer_frame_seq = matches!(state.status, BrowserStatus::Live).then_some(frame.seq);
+        Self::set_pointer_frame_locked(&mut state, pointer_frame_seq);
         state.latest_frame = Some(frame.clone());
         state.taps.retain(|tap| {
             tap.slot.lock().unwrap().frame = Some(frame.clone());
@@ -1503,7 +1535,7 @@ impl BrowserSurface {
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Failed(message.clone());
-        state.pointer_frame_seq = None;
+        Self::set_pointer_frame_locked(&mut state, None);
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
         Self::mark_state_dirty_locked(&mut state);
@@ -1608,8 +1640,38 @@ impl BrowserSurface {
         Some(Self::scale_input_point_locked(&state, x, y))
     }
 
-    fn invalidate_pointer_frame(&self) {
-        self.state.lock().unwrap().pointer_frame_seq = None;
+    fn set_pointer_frame_locked(state: &mut BrowserState, frame_seq: Option<u64>) {
+        state.pointer_frame_seq = frame_seq;
+        state.pointer_frame_revision = state.pointer_frame_revision.wrapping_add(1);
+    }
+
+    fn invalidate_pointer_frame(&self) -> PointerFrameInvalidation {
+        let mut state = self.state.lock().unwrap();
+        let previous = state.pointer_frame_seq;
+        Self::set_pointer_frame_locked(&mut state, None);
+        PointerFrameInvalidation { previous, revision: state.pointer_frame_revision }
+    }
+
+    fn restore_pointer_frame_after_failed_command(&self, invalidation: PointerFrameInvalidation) {
+        let mut state = self.state.lock().unwrap();
+        if state.pointer_frame_revision != invalidation.revision
+            || !matches!(state.status, BrowserStatus::Live)
+            || state.latest_frame.as_ref().map(|frame| frame.seq) != invalidation.previous
+        {
+            return;
+        }
+        Self::set_pointer_frame_locked(&mut state, invalidation.previous);
+    }
+
+    fn restore_pointer_frame_on_command_error<T>(
+        &self,
+        invalidation: PointerFrameInvalidation,
+        result: anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        if result.is_err() {
+            self.restore_pointer_frame_after_failed_command(invalidation);
+        }
+        result
     }
 
     fn scale_delta_locked(state: &BrowserState, delta: f64) -> f64 {
@@ -1823,31 +1885,41 @@ impl BrowserSurface {
 
     fn mouse_event_blocking(
         &self,
-        event_type: &str,
-        x: f64,
-        y: f64,
-        button: Option<&str>,
-        click_count: Option<u32>,
-        frame_seq: Option<u64>,
+        dispatch: BrowserMouseDispatch<'_>,
+        active_pointer_presses: &mut HashSet<String>,
     ) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
-        if event_type == "mousePressed" {
+        if dispatch.event_type == "mousePressed" {
             self.maybe_nudge_stalled_external(&session);
         }
-        let point = if event_type == "mouseReleased" {
-            Some(self.scale_input_point(x, y))
+        let guarded_button =
+            dispatch.frame_seq.map(|_| dispatch.button.unwrap_or("none").to_string());
+        if dispatch.event_type == "mouseReleased"
+            && let Some(button) = guarded_button.as_ref()
+            && !active_pointer_presses.remove(button)
+        {
+            return Ok(());
+        }
+        let point = if dispatch.event_type == "mouseReleased" {
+            Some(self.scale_input_point(dispatch.x, dispatch.y))
         } else {
-            self.scale_guarded_input_point(frame_seq, x, y)
+            self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y)
         };
         let Some((x, y)) = point else { return Ok(()) };
         session.runtime.client.dispatch_mouse_event(
             &session.session_id,
-            event_type,
+            dispatch.event_type,
             x,
             y,
-            button,
-            click_count,
-        )
+            dispatch.button,
+            dispatch.click_count,
+        )?;
+        if dispatch.event_type == "mousePressed"
+            && let Some(button) = guarded_button
+        {
+            active_pointer_presses.insert(button);
+        }
+        Ok(())
     }
 
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
@@ -1932,8 +2004,12 @@ impl BrowserSurface {
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
-        self.invalidate_pointer_frame();
-        if let Some(error) = session.runtime.client.navigate(&session.session_id, &normalized)? {
+        let invalidation = self.invalidate_pointer_frame();
+        let navigation_error = self.restore_pointer_frame_on_command_error(
+            invalidation,
+            session.runtime.client.navigate(&session.session_id, &normalized),
+        )?;
+        if let Some(error) = navigation_error {
             self.mark_failed(error.clone());
             anyhow::bail!("browser failed: {error}");
         }
@@ -1969,8 +2045,11 @@ impl BrowserSurface {
             );
         }
         let entry = &history.entries[next as usize];
-        self.invalidate_pointer_frame();
-        session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id)?;
+        let invalidation = self.invalidate_pointer_frame();
+        self.restore_pointer_frame_on_command_error(
+            invalidation,
+            session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id),
+        )?;
         self.clear_error();
         Ok(())
     }
@@ -1981,8 +2060,11 @@ impl BrowserSurface {
 
     fn reload_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
-        self.invalidate_pointer_frame();
-        session.runtime.client.reload(&session.session_id)?;
+        let invalidation = self.invalidate_pointer_frame();
+        self.restore_pointer_frame_on_command_error(
+            invalidation,
+            session.runtime.client.reload(&session.session_id),
+        )?;
         self.clear_error();
         Ok(())
     }

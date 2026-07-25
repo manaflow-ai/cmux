@@ -2911,6 +2911,15 @@ pub struct TabDragView {
     pub target: Option<(PaneId, usize)>,
 }
 
+#[derive(Clone, Copy)]
+struct ScrollbarDragState {
+    track: Rect,
+    anchor_y: u16,
+    anchor_offset: u64,
+    position_y: u16,
+    scrollbar: Scrollbar,
+}
+
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a machine entry; switching occurs on release.
@@ -2945,6 +2954,7 @@ enum Drag {
         track: Rect,
         anchor_y: u16,
         anchor_offset: u64,
+        position_y: u16,
         scrollbar: Scrollbar,
     },
     /// Independent rail width override drag.
@@ -3429,8 +3439,8 @@ impl PointerRoutePhase {
         }
     }
 
-    fn is_stale(self) -> bool {
-        self != Self::Fresh
+    fn invalidates_all_pointer_routes(self) -> bool {
+        matches!(self, Self::PaintPending | Self::DrawPending)
     }
 }
 
@@ -5779,7 +5789,7 @@ impl App {
             disposition,
             DeferredReplayDisposition::RenderBoundary | DeferredReplayDisposition::Yield
         ) && (!self.deferred_input.is_empty() || self.pending_pointer_motion.is_some())
-            && !self.pointer_route_is_stale()
+            && !self.next_replay_pointer_route_is_stale()
     }
 
     fn pointer_replay_barrier(action: RenderAction) -> DeferredReplayDisposition {
@@ -5821,7 +5831,10 @@ impl App {
                     replayed += 1;
                     continue;
                 }
-                if self.pointer_route_is_stale() {
+                if self
+                    .pending_pointer_motion
+                    .is_some_and(|pointer| self.pointer_route_is_stale_for_mouse(&pointer.event))
+                {
                     return Ok(DeferredReplayOutcome {
                         action,
                         disposition: Self::pointer_replay_barrier(action),
@@ -5874,7 +5887,9 @@ impl App {
                 replayed += 1;
                 continue;
             }
-            if matches!(input.event, Event::Mouse(_)) && self.pointer_route_is_stale() {
+            if let Event::Mouse(mouse) = &input.event
+                && self.pointer_route_is_stale_for_mouse(mouse)
+            {
                 return Ok(DeferredReplayOutcome {
                     action,
                     disposition: Self::pointer_replay_barrier(action),
@@ -5910,7 +5925,7 @@ impl App {
             DeferredReplayDisposition::Drained
         } else if replayed >= MAX_REPLAYED_INPUTS {
             DeferredReplayDisposition::Yield
-        } else if self.pointer_route_is_stale() {
+        } else if self.next_replay_pointer_route_is_stale() {
             Self::pointer_replay_barrier(action)
         } else {
             DeferredReplayDisposition::Blocked
@@ -5923,11 +5938,50 @@ impl App {
         Ok(self.replay_deferred_input_batch()?.action)
     }
 
-    fn pointer_route_is_stale(&self) -> bool {
+    fn pointer_route_is_globally_stale(&self) -> bool {
         self.session.has_pending_pointer_mutations()
             || self.session.remote_tree_is_stale()
             || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-            || self.pointer_route_phase.is_stale()
+            || self.pointer_route_phase.invalidates_all_pointer_routes()
+    }
+
+    fn pointer_route_is_stale_for_mouse(&self, mouse: &MouseEvent) -> bool {
+        if self.pointer_route_is_globally_stale() {
+            return true;
+        }
+        if !matches!(
+            self.pointer_route_phase,
+            PointerRoutePhase::GraphicsRenderPending
+                | PointerRoutePhase::GraphicsPresentationPending
+        ) {
+            return false;
+        }
+        let route = self.rendered_pointer_frame.route_for_mouse(mouse);
+        let Some((surface, rendered_generation)) = route.browser_content_generation() else {
+            return false;
+        };
+        let live_generation =
+            self.session.surface(surface).and_then(|surface| surface.browser_frame_seq());
+        rendered_generation.is_none() || rendered_generation != live_generation
+    }
+
+    fn next_replay_pointer_route_is_stale(&self) -> bool {
+        if self.pointer_route_is_globally_stale() {
+            return true;
+        }
+        let pending_motion_is_next = self.pending_pointer_motion.as_ref().is_some_and(|pointer| {
+            self.deferred_input.front().is_none_or(|input| pointer.sequence < input.sequence)
+        });
+        if pending_motion_is_next {
+            return self
+                .pending_pointer_motion
+                .as_ref()
+                .is_some_and(|pointer| self.pointer_route_is_stale_for_mouse(&pointer.event));
+        }
+        self.deferred_input.front().is_some_and(|input| match &input.event {
+            Event::Mouse(mouse) => self.pointer_route_is_stale_for_mouse(mouse),
+            _ => false,
+        })
     }
 
     fn apply_session_completion(&mut self, completion: SessionCompletion) {
@@ -6850,7 +6904,7 @@ impl App {
         )) = &event
         {
             let mouse = *mouse;
-            if self.pointer_route_is_stale() {
+            if self.pointer_route_is_stale_for_mouse(&mouse) {
                 self.retain_pointer_motion_with_sequence(
                     mouse,
                     input_sequence,
@@ -6863,8 +6917,8 @@ impl App {
             }
         }
         let event = match event {
-            AppEvent::Input(input @ Event::Mouse(_))
-                if self.pointer_route_is_stale()
+            AppEvent::Input(input @ Event::Mouse(mouse))
+                if self.pointer_route_is_stale_for_mouse(&mouse)
                     && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
@@ -7041,8 +7095,7 @@ impl App {
                 ) && (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
                     || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                    || matches!(&input, Event::Mouse(_))
-                        && self.pointer_route_phase.is_stale())
+                    || matches!(&input, Event::Mouse(mouse) if self.pointer_route_is_stale_for_mouse(mouse)))
                     && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
@@ -8008,17 +8061,18 @@ impl App {
     }
 
     fn retry_pending_surface_attach(&mut self) {
-        let pointer_route_is_fresh = !self.pointer_route_is_stale();
         let surface = self
             .deferred_input
             .iter()
-            .filter(|input| pointer_route_is_fresh || !matches!(input.event, Event::Mouse(_)))
+            .filter(|input| match &input.event {
+                Event::Mouse(mouse) => !self.pointer_route_is_stale_for_mouse(mouse),
+                _ => true,
+            })
             .filter_map(|input| self.missing_input_surface(&input.event))
             .find(|surface| self.session.can_attach_surface(*surface))
             .or_else(|| {
-                pointer_route_is_fresh
-                    .then_some(self.pending_pointer_motion)
-                    .flatten()
+                self.pending_pointer_motion
+                    .filter(|pointer| !self.pointer_route_is_stale_for_mouse(&pointer.event))
                     .and_then(|pointer| self.missing_input_surface(&Event::Mouse(pointer.event)))
                     .filter(|surface| self.session.can_attach_surface(*surface))
             });
@@ -11792,17 +11846,38 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             Some(Drag::PtyMouse { .. }) => Ok(RenderAction::None),
-            Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset, scrollbar }) => {
-                let (surface, track, anchor_y, anchor_offset, scrollbar) =
-                    (*surface, *track, *anchor_y, *anchor_offset, *scrollbar);
-                if let Some(updated) =
-                    self.drag_scrollbar(surface, track, anchor_y, anchor_offset, scrollbar, y)
-                {
-                    if let Some(Drag::Scrollbar { scrollbar, .. }) = &mut self.drag {
-                        *scrollbar = updated;
-                    }
-                } else {
+            Some(Drag::Scrollbar {
+                surface,
+                track,
+                anchor_y,
+                anchor_offset,
+                position_y,
+                scrollbar,
+            }) => {
+                let surface = *surface;
+                let state = ScrollbarDragState {
+                    track: *track,
+                    anchor_y: *anchor_y,
+                    anchor_offset: *anchor_offset,
+                    position_y: *position_y,
+                    scrollbar: *scrollbar,
+                };
+                let Some((rendered_track, rendered_scrollbar)) = self.rendered_scrollbar(surface)
+                else {
                     self.drag = None;
+                    return Ok(RenderAction::Draw);
+                };
+                if let Some(updated) =
+                    self.drag_scrollbar(surface, state, (rendered_track, rendered_scrollbar), y)
+                {
+                    self.drag = Some(Drag::Scrollbar {
+                        surface,
+                        track: updated.track,
+                        anchor_y: updated.anchor_y,
+                        anchor_offset: updated.anchor_offset,
+                        position_y: updated.position_y,
+                        scrollbar: updated.scrollbar,
+                    });
                 }
                 Ok(RenderAction::Draw)
             }
@@ -12011,30 +12086,60 @@ impl App {
             track,
             anchor_y: y,
             anchor_offset: scrollbar.offset,
+            position_y: y,
             scrollbar,
         });
+    }
+
+    fn rendered_scrollbar(&self, surface: SurfaceId) -> Option<(Rect, Scrollbar)> {
+        self.rendered_pointer_frame.hits.iter().find_map(|route| match route.hit {
+            Hit::Scrollbar { surface: candidate, track, scrollbar } if candidate == surface => {
+                Some((track, scrollbar))
+            }
+            _ => None,
+        })
     }
 
     /// Map an anchored scrollbar drag delta to a viewport offset.
     fn drag_scrollbar(
         &mut self,
         surface: SurfaceId,
-        track: Rect,
-        anchor_y: u16,
-        anchor_offset: u64,
-        scrollbar: Scrollbar,
+        state: ScrollbarDragState,
+        rendered: (Rect, Scrollbar),
         y: u16,
-    ) -> Option<Scrollbar> {
+    ) -> Option<ScrollbarDragState> {
         let handle = self.session.surface(surface)?;
-        let (_, thumb_len) = thumb_geometry(&scrollbar, track.height);
-        let range = scrollbar.total.saturating_sub(scrollbar.len);
-        let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
-        let dy = y as i128 - anchor_y as i128;
-        let delta = dy * range as i128 / travel;
-        let target = (anchor_offset as i128 + delta).clamp(0, range as i128);
-        let scroll_delta = (target - scrollbar.offset as i128)
-            .clamp(isize::MIN as i128, isize::MAX as i128) as isize;
-        handle.scroll_delta_if_scrollbar(scrollbar, scroll_delta)
+        let (rendered_track, rendered_scrollbar) = rendered;
+        let drag_delta = |track: Rect, anchor_y: u16, anchor_offset: u64, state: Scrollbar| {
+            let (_, thumb_len) = thumb_geometry(&state, track.height);
+            let range = state.total.saturating_sub(state.len);
+            let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
+            let dy = y as i128 - anchor_y as i128;
+            let delta = dy * range as i128 / travel;
+            let target = (anchor_offset as i128 + delta).clamp(0, range as i128);
+            (target - state.offset as i128).clamp(isize::MIN as i128, isize::MAX as i128) as isize
+        };
+
+        if state.track == rendered_track {
+            let delta =
+                drag_delta(state.track, state.anchor_y, state.anchor_offset, state.scrollbar);
+            if let Some(updated) = handle.scroll_delta_if_scrollbar(state.scrollbar, delta) {
+                return Some(ScrollbarDragState { position_y: y, scrollbar: updated, ..state });
+            }
+        }
+
+        let anchor_y = state.position_y;
+        let anchor_offset = rendered_scrollbar.offset;
+        let delta = drag_delta(rendered_track, anchor_y, anchor_offset, rendered_scrollbar);
+        handle.scroll_delta_if_scrollbar(rendered_scrollbar, delta).map(|updated| {
+            ScrollbarDragState {
+                track: rendered_track,
+                anchor_y,
+                anchor_offset,
+                position_y: y,
+                scrollbar: updated,
+            }
+        })
     }
 
     fn resize_focused_split(&mut self, delta: f32) {
@@ -14653,9 +14758,10 @@ mod tests {
 
     #[test]
     fn graphics_only_repaint_is_a_pointer_replay_barrier() {
-        assert!(
-            PointerRoutePhase::Fresh.with_action(RenderAction::Graphics).is_stale(),
-            "browser input must wait until the replacement bitmap is presented"
+        assert_eq!(
+            PointerRoutePhase::Fresh.with_action(RenderAction::Graphics),
+            PointerRoutePhase::GraphicsRenderPending,
+            "browser input must wait for a replacement bitmap on that surface"
         );
     }
 
