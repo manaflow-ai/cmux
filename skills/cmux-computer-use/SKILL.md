@@ -19,10 +19,12 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
 ## How it attaches
 
-- The `cmux-claude-wrapper` / `cmux-codex-wrapper` inject the driver as an MCP
-  proxy using `mcp --socket <cmux-owned socket>` plus the cursor-branding and
-  state-dir env. No user setup per session — start `claude` or `codex` inside
-  cmux and the tools are there.
+- The `cmux-claude-wrapper` and `cmux-codex-wrapper` inject the driver as an
+  MCP proxy using `mcp --socket <cmux-owned socket>` plus cursor-branding and
+  state-dir env. The Codex wrapper additionally passes
+  `--codex-computer-use-compat`; the Claude wrapper deliberately does not.
+  No user setup per session — start `claude` or `codex` inside cmux and the
+  corresponding tool profile is there.
 - `ComputerUseRuntimeService` is the only helper lifecycle owner. It installs
   the nested helper under the tag-scoped
   `~/Library/Application Support/cmux/computer-use/helper/<scope>/` directory
@@ -75,6 +77,31 @@ The proxy binds every call to the originating cmux surface so the menu-bar
 item, cursor, recording cleanup, and background/focus controls stay attached
 to the right agent.
 
+### Codex profile
+
+Codex gets the exact ten-tool Computer Use roster, in order:
+
+`list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `set_value`,
+`select_text`, `scroll`, `drag`, `press_key`, `type_text`.
+
+Use it like the built-in Computer Use connector:
+
+1. Call `get_app_state` with the app name, full path, or unambiguous bundle id
+   once per turn before acting. It launches the app if needed and returns the
+   logical-size JPEG screenshot plus the compact accessibility tree.
+2. Prefer the current snapshot's string `element_index`; use screenshot-local
+   x/y coordinates only as fallback.
+3. Use xdotool-style key strings such as `super+l` with `press_key`.
+4. Re-read the returned app state after each action and verify the requested
+   outcome. A successful dispatch is not proof that navigation or UI state
+   changed.
+
+Do not expect native cmux extensions such as `get_window_state`, tokens,
+`perform_actions`, cursor controls, diagnostics, recordings, or browser/CDP in
+this profile. Their absence is required for Codex schema parity.
+
+### Claude/native cmux profile
+
 Perceive, act in logical groups, then verify:
 
 1. `get_window_state` (pid + window_id) returns the accessibility tree **and** a
@@ -95,7 +122,8 @@ Perceive, act in logical groups, then verify:
    to see literal pointer clicks.
 
 Notes:
-- `list_apps` / `launch_app` / `list_windows` to find targets;
+- In the native profile, use `list_apps` / `launch_app` / `list_windows` to
+  find targets;
   `get_window_state` needs a `window_id` from `list_windows`.
 - Catalyst apps (e.g. Calculator) can expose an empty AX tree briefly after
   launch and return spurious AX error codes (-25204) even when the action

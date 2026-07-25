@@ -7,11 +7,16 @@ with existing cmux-launched agents.
 Claude Code and Codex CLI sessions launched by cmux receive the server
 automatically at session start (injection is implemented in
 `cmux-claude-wrapper` and `cmux-codex-wrapper`); no user MCP configuration is
-required for them. Other agents are not currently supported: the socket proxy
-requires the per-launch credential that cmux injects into its own terminal
-process tree. Do not configure the bundled driver with `--embedded`; that would
-grant Accessibility and Screen Recording to the main terminal host and bypass
-the separately permissioned **cmux Computer Use** helper.
+required for them. The Claude wrapper retains cmux's broad native tool surface.
+The Codex wrapper adds `--codex-computer-use-compat`, which presents the exact
+Codex Computer Use server identity, ten-tool order, schemas, annotations,
+app-oriented arguments, screenshot/tree result shape, and approval flow while
+still running on cmux's own engine. Other agents are not currently supported:
+the socket proxy requires the per-launch credential that cmux injects into its
+own terminal process tree. Do not configure the bundled driver with
+`--embedded`; that would grant Accessibility and Screen Recording to the main
+terminal host and bypass the separately permissioned **cmux Computer Use**
+helper.
 
 The user grants Accessibility and Screen Recording to the helper once. A
 cmux-launched agent then connects through the authenticated, variant-scoped
@@ -22,11 +27,32 @@ cmux's injection disables the upstream driver's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 
 Risk gating is handled by the MCP client harness. Claude Code and Codex show
-their normal tool approval UI for actions, and `cua-driver` advertises tool
-annotations such as read-only and destructive. The retired cmux Node MCP
-elicitation layer is intentionally gone: keeping the approval decision in the
-client avoids a second, cmux-specific approval queue and matches the
-Codex/ChatGPT desktop app model more closely.
+their normal tool approval UI for actions, and `cua-driver` advertises the
+profile-specific annotations. Codex app approval is brokered through its
+negotiated MCP elicitation capability and authenticated to the signed Codex
+parent; a raw socket client cannot reuse that approval session. The retired
+cmux Node MCP elicitation layer is intentionally gone.
+
+## Agent-specific tool contracts
+
+Codex receives exactly these tools, in this order:
+
+`list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `set_value`,
+`select_text`, `scroll`, `drag`, `press_key`, and `type_text`.
+
+This profile intentionally has no cmux-only lifecycle, cursor, recording,
+diagnostic, browser/CDP, or `perform_actions` tools. `get_app_state` accepts an
+app name, path, or unambiguous bundle identifier and returns the Codex-shaped
+logical-window screenshot plus accessibility tree. Its string
+`element_index` values are valid only for the current app snapshot. Every
+action requires that fresh snapshot and automatically refreshes the app state
+after dispatch.
+
+Claude Code continues to receive the broader native cmux contract. It uses
+pid/window addressing, `get_window_state`, stable snapshot tokens, explicit
+cursor and diagnostic controls, and proxy-only `perform_actions`. Keeping the
+profiles separate prevents a cmux extension from silently changing Codex's
+built-in Computer Use schema.
 
 Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
 automatic computer-use MCP injection. Development builds may set
