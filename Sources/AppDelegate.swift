@@ -815,11 +815,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
-    private struct PendingConfiguredShortcutChord {
+    struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
     }
-    private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
+    var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -13293,23 +13293,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
         )
         let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
-        let globalSearchUnarmedChordPrefixMatches = globalSearchShortcut.hasChord
-            && activeConfiguredShortcutChordPrefixForCurrentEvent == nil
-            && globalSearchShortcut.firstStroke.modifierFlags == normalizedFlags
-            && matchShortcutStroke(event: event, stroke: globalSearchShortcut.firstStroke)
-        let globalSearchIsVisible = (matchesGlobalSearchShortcut || globalSearchUnarmedChordPrefixMatches)
-            && GlobalSearchCoordinator.shared.isPaletteVisible()
-        if globalSearchIsVisible, activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           GlobalSearchKeyEvent(event).queryOwnsEditingShortcut { return false }
+        let globalSearchUnarmedChordPrefixMatches = matchesUnarmedGlobalSearchChordPrefix(event, normalizedFlags: normalizedFlags)
+        switch routeVisibleGlobalSearchShortcut(event, normalizedFlags: normalizedFlags) {
+        case .handled:
+            return true
+        case .queryOwnsEvent:
+            return false
+        case .notApplicable:
+            break
+        }
         if matchesGlobalSearchShortcut,
-           activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteCanRouteUnarmedGlobalSearch
-            || globalSearchIsVisible {
-            // Armed chords own their suffix, while visible Search owns its popover.
+           activeConfiguredShortcutChordPrefixForCurrentEvent != nil
+            || commandPaletteCanRouteUnarmedGlobalSearch {
             toggleGlobalSearchPalette()
             return true
         }
         if globalSearchUnarmedChordPrefixMatches,
-           commandPaletteCanRouteUnarmedGlobalSearch || globalSearchIsVisible {
+           commandPaletteCanRouteUnarmedGlobalSearch {
             if globalSearchShortcutWhenClauseAllows(event: event),
                armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) { return true }
         }
@@ -15328,7 +15328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
+    func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
         if let window = mainWindowForShortcutEvent(event) {
             return window.windowNumber
         }

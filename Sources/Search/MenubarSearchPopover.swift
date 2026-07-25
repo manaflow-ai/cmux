@@ -219,10 +219,22 @@ private struct GlobalSearchPaletteView: View {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let keyEvent = GlobalSearchKeyEvent(event)
-            let consumed = MainActor.assumeIsolated {
-                handleKeyEvent(keyEvent)
+            let route = MainActor.assumeIsolated {
+                AppDelegate.shared?
+                    .routeVisibleGlobalSearchShortcutFromLocalMonitor(event)
+                    ?? .notApplicable
             }
-            return consumed ? nil : event
+            switch route {
+            case .handled:
+                return nil
+            case .queryOwnsEvent:
+                return event
+            case .notApplicable:
+                let consumed = MainActor.assumeIsolated {
+                    handleKeyEvent(keyEvent)
+                }
+                return consumed ? nil : event
+            }
         }
     }
 
