@@ -57,8 +57,9 @@ Fork `main`'s (`50ad1963d`) universal ReleaseFast GhosttyKit archive is
 published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-50ad1963d9c73ee957932ccb4d26bf6d15575ee7-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The merged
-pin `f11159ff4` builds GhosttyKit from source; publish its archive and
-checksum before any release that ships this pin.
+pin `f11159ff4`'s archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f11159ff48e6e47bd1879655fef8b7157a963855-crashsubdir-cmux-crash-v1
+and pinned in the same checksums file.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
