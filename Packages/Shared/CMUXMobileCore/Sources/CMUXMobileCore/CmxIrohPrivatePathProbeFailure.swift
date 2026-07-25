@@ -15,6 +15,9 @@ public enum CmxIrohPrivatePathProbeFailure: Equatable, Sendable {
     /// A QUIC peer answered without authenticating as the expected Mac EndpointID.
     case wrongPeer
 
+    /// The expected Mac connected through a relay or another socket address.
+    case pathMismatch
+
     /// The signed route, active endpoint, or authenticated binding is unavailable.
     case unavailable
 

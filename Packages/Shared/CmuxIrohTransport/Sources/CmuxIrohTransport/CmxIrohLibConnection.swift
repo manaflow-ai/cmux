@@ -23,6 +23,10 @@ struct CmxIrohLibConnection:
         driver.stableId()
     }
 
+    func connectionPathSnapshots() async -> [CmxIrohConnectionPathSnapshot] {
+        driver.paths().map(CmxIrohConnectionPathSnapshot.init)
+    }
+
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
         CmxIrohObservedConnectionPath(
             snapshots: driver.paths().map(CmxIrohConnectionPathSnapshot.init)

@@ -77,6 +77,11 @@ struct MobileIrohPrivatePathTestButton: View {
                 "mobile.iroh.private.test.failure.wrongPeer",
                 defaultValue: "Wrong Mac answered"
             )
+        case .pathMismatch:
+            L10n.string(
+                "mobile.iroh.private.test.failure.pathMismatch",
+                defaultValue: "Connected another way; this address is unverified"
+            )
         case .unavailable:
             L10n.string(
                 "mobile.iroh.private.test.failure.unavailable",

@@ -26,6 +26,7 @@ actor TestIrohConnection: CmxIrohConnection,
     private let bidirectionalStreamFailureNumber: Int?
     private let reportsClosureToWaiters: Bool
     private var selectedPath: CmxIrohObservedConnectionPath
+    private var pathSnapshots: [CmxIrohConnectionPathSnapshot]
     private let selectedPathStream: AsyncStream<CmxIrohObservedConnectionPath>
     private let selectedPathContinuation: AsyncStream<CmxIrohObservedConnectionPath>.Continuation
     private var incomingStreamLimits: [(
@@ -50,6 +51,7 @@ actor TestIrohConnection: CmxIrohConnection,
         natTraversalAuthorizationError: TestIrohTransportError? = nil,
         eventRecorder: TestIrohEventRecorder? = nil,
         selectedPath: CmxIrohObservedConnectionPath = .unavailable,
+        pathSnapshots: [CmxIrohConnectionPathSnapshot] = [],
         bidirectionalStreamFailureNumber: Int? = nil,
         reportsClosureToWaiters: Bool = true
     ) {
@@ -62,6 +64,7 @@ actor TestIrohConnection: CmxIrohConnection,
         self.bidirectionalStreamFailureNumber = bidirectionalStreamFailureNumber
         self.reportsClosureToWaiters = reportsClosureToWaiters
         self.selectedPath = selectedPath
+        self.pathSnapshots = pathSnapshots
         let pathChanges = AsyncStream<CmxIrohObservedConnectionPath>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
@@ -85,6 +88,10 @@ actor TestIrohConnection: CmxIrohConnection,
         selectedPath
     }
 
+    func connectionPathSnapshots() -> [CmxIrohConnectionPathSnapshot] {
+        pathSnapshots
+    }
+
     func observedSelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
         selectedPathStream
     }
@@ -92,6 +99,10 @@ actor TestIrohConnection: CmxIrohConnection,
     func setObservedSelectedPath(_ path: CmxIrohObservedConnectionPath) {
         selectedPath = path
         selectedPathContinuation.yield(path)
+    }
+
+    func setConnectionPathSnapshots(_ snapshots: [CmxIrohConnectionPathSnapshot]) {
+        pathSnapshots = snapshots
     }
 
     func setIncomingStreamLimits(

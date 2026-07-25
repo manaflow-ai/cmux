@@ -78,6 +78,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路なし" } }
       }
     },
+    "mobile.iroh.private.test.failure.pathMismatch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected another way; this address is unverified" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "別の経路で接続されました。このアドレスは未確認です" } }
+      }
+    },
     "mobile.iroh.private.test.failure.stalePort" : {
       "extractionState" : "manual",
       "localizations" : {

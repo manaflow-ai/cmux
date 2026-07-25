@@ -5,8 +5,10 @@ public extension CmxIrohClientRuntime {
     ///
     /// The registry resolves the exact broker-authenticated Mac EndpointID and
     /// current direct UDP port, then the active endpoint opens a separate QUIC
-    /// connection with no relay or alternate direct hints. The connection is
-    /// closed before this method returns.
+    /// connection with no relay or alternate direct hints. Because Iroh may
+    /// retain other paths for the peer, the selected path must also match the
+    /// supplied address before the connection is accepted as proof. The
+    /// connection is closed before this method returns.
     ///
     /// - Parameters:
     ///   - request: An Iroh probe request naming the expected Mac device and EndpointID.
@@ -69,6 +71,13 @@ public extension CmxIrohClientRuntime {
             guard await opened.remoteIdentity() == targetIdentity else {
                 throw CmxIrohPrivatePathProbeDialError.wrongPeer
             }
+            guard let inspecting = opened as? any CmxIrohConnectionPathInspecting else {
+                throw CmxIrohPrivatePathProbeDialError.pathMismatch
+            }
+            try await CmxIrohPrivatePathSelectedPathVerifier().verify(
+                connection: inspecting,
+                expectedRemoteAddress: context.dialPlan.privateFallbackPaths[0].value
+            )
             await opened.close(
                 errorCode: 0,
                 reason: "private_path_probe_complete"

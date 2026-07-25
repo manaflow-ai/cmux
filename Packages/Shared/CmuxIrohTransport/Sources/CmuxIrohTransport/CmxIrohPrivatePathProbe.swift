@@ -78,6 +78,8 @@ struct CmxIrohPrivatePathProbe: Sendable {
                 return .stalePort
             case .wrongPeer:
                 return .wrongPeer
+            case .pathMismatch:
+                return .pathMismatch
             }
         }
         switch DiagnosticFailureKind.classify(error) {

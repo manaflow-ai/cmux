@@ -7,4 +7,7 @@ enum CmxIrohPrivatePathProbeDialError: Error, Equatable, Sendable {
 
     /// The responding QUIC peer did not authenticate as the expected EndpointID.
     case wrongPeer
+
+    /// The connection selected a relay or a different direct socket address.
+    case pathMismatch
 }
