@@ -160,7 +160,7 @@ printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
   if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then printf 'CMUX_TEST_PI_TOKEN=present\n'; fi
 } >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
-  *"hooks pi notification"*)
+  *"hooks enqueue pi notification"*)
     if printf '%s' "$payload" | grep -q 'pi-session-notification-fails'; then
       printf 'forced notification failure\n' >&2
       exit 42
@@ -267,7 +267,10 @@ async function completionHookCount() {
   const path = process.env.CMUX_TEST_PI_ARGS_LOG;
   if (!path || !Bun.file(path).size) return 0;
   const lines = (await Bun.file(path).text()).split("\\n");
-  return lines.filter((line) => line.includes("hooks pi notification") || line.includes("hooks pi stop")).length;
+  return lines.filter((line) =>
+    line.includes("hooks enqueue pi notification") ||
+    line.includes("hooks enqueue pi stop")
+  ).length;
 }
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
@@ -455,11 +458,11 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
         stdin_log = wait_for_text(fake_stdin_log, 64, timeout=20.0)
         env_log = wait_for_text(fake_env_log, 39 * 3, timeout=20.0)
         for expected in [
-            "hooks pi session-start",
-            "hooks pi prompt-submit",
-            "hooks pi stop",
+            "hooks enqueue pi session-start",
+            "hooks enqueue pi prompt-submit",
+            "hooks enqueue pi stop",
             "hooks enqueue pi session-finalize",
-            "hooks pi notification",
+            "hooks enqueue pi notification",
             "hooks feed --source pi --event PreToolUse",
             "hooks feed --source pi --event PostToolUse",
             "surface resume get",
