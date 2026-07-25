@@ -37,10 +37,31 @@ actor AgentGUITranscriptImageStore {
         let height: Int
     }
 
-    struct ReferencedImage: Sendable {
+    struct ReferenceKey: Hashable, Sendable {
         let entrySeq: EntrySeq
+        let attachmentIndex: Int?
+
+        init(entrySeq: EntrySeq, attachmentIndex: Int? = nil) {
+            self.entrySeq = entrySeq
+            self.attachmentIndex = attachmentIndex
+        }
+    }
+
+    struct ReferencedImage: Sendable {
+        let key: ReferenceKey
         let path: String
         let mimeType: String?
+
+        init(
+            entrySeq: EntrySeq,
+            attachmentIndex: Int? = nil,
+            path: String,
+            mimeType: String?
+        ) {
+            self.key = ReferenceKey(entrySeq: entrySeq, attachmentIndex: attachmentIndex)
+            self.path = path
+            self.mimeType = mimeType
+        }
     }
 
     private struct CachedFile {
@@ -77,18 +98,18 @@ actor AgentGUITranscriptImageStore {
     /// path-backed Codex images reserve their real aspect ratio immediately.
     func inspect(
         _ images: [ReferencedImage]
-    ) -> [EntrySeq: MaterializedImage] {
-        var inspectedBySequence: [EntrySeq: MaterializedImage] = [:]
-        for image in images where inspectedBySequence[image.entrySeq] == nil {
+    ) -> [ReferenceKey: MaterializedImage] {
+        var inspectedByKey: [ReferenceKey: MaterializedImage] = [:]
+        for image in images where inspectedByKey[image.key] == nil {
             guard image.path.hasPrefix("/"),
                   image.path.utf8.count <= 4_096 else { continue }
             let url = URL(fileURLWithPath: image.path)
                 .resolvingSymlinksInPath()
                 .standardizedFileURL
             guard let inspected = inspectImage(url: url, declaredMIMEType: image.mimeType) else { continue }
-            inspectedBySequence[image.entrySeq] = inspected
+            inspectedByKey[image.key] = inspected
         }
-        return inspectedBySequence
+        return inspectedByKey
     }
 
     private func inspectImage(

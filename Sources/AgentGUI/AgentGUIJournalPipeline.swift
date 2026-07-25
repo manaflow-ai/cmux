@@ -382,49 +382,70 @@ final class AgentGUIJournalPipeline {
                 sequence: $0.entrySeq
             ))
         }
-        let referencedImages = entries.compactMap { entry -> AgentGUITranscriptImageStore.ReferencedImage? in
-            guard case .attachment(let attachment) = entry.content.payload,
-                  isImageAttachmentCandidate(attachment),
-                  let hostPath = attachment.hostPath,
-                  !hostPath.isEmpty else { return nil }
-            return AgentGUITranscriptImageStore.ReferencedImage(
-                entrySeq: entry.seq,
-                path: hostPath,
-                mimeType: attachment.mimeType
-            )
+        let referencedImages = entries.flatMap { entry -> [AgentGUITranscriptImageStore.ReferencedImage] in
+            switch entry.content.payload {
+            case .attachment(let attachment):
+                return referencedImage(for: attachment, entrySeq: entry.seq).map { [$0] } ?? []
+            case .toolRun(let tool):
+                return (tool.previewAttachments ?? []).enumerated().compactMap { index, attachment in
+                    referencedImage(for: attachment, entrySeq: entry.seq, attachmentIndex: index)
+                }
+            default:
+                return []
+            }
         }
         var resolvedImages = await imageStore.inspect(referencedImages)
         let materializedImages = await imageStore.materialize(relevantEmbeddedImages)
-        resolvedImages.merge(materializedImages) { _, materialized in materialized }
-        let resolved = entries.map { entry -> EntrySnapshot in
-            guard case .attachment(let attachment) = entry.content.payload,
-                  let image = resolvedImages[entry.seq] else { return entry }
-            let payload = EntryPayload.attachment(AttachmentPayload(
-                kind: attachment.kind,
-                summary: attachment.summary,
-                attachmentID: attachment.attachmentID,
-                displayName: attachment.displayName,
-                hostPath: image.path,
-                mimeType: image.mimeType,
-                byteCount: image.byteCount,
-                width: image.width,
-                height: image.height,
-                aspectRatio: attachment.aspectRatio,
-                authorRole: attachment.authorRole
-            ))
-            return EntrySnapshot(
-                journalID: entry.journalID,
-                seq: entry.seq,
-                kind: entry.kind,
-                content: EntryContent(contentHash: payload.stableHash, payload: payload),
-                version: entry.version,
-                timestampMilliseconds: entry.timestampMilliseconds
-            )
+        for (sequence, image) in materializedImages {
+            resolvedImages[AgentGUITranscriptImageStore.ReferenceKey(entrySeq: sequence)] = image
         }
-        let attachments = resolvedImages.map { sequence, image in
+        let resolved = entries.map { entry -> EntrySnapshot in
+            switch entry.content.payload {
+            case .attachment(let attachment):
+                guard let image = resolvedImages[AgentGUITranscriptImageStore.ReferenceKey(entrySeq: entry.seq)] else {
+                    return entry
+                }
+                return entry.replacingPayload(.attachment(resolvedAttachment(attachment, image: image)))
+            case .toolRun(let tool):
+                guard let previewAttachments = tool.previewAttachments,
+                      !previewAttachments.isEmpty else {
+                    return entry
+                }
+                var didResolvePreview = false
+                let resolvedPreviews = previewAttachments.enumerated().map { index, attachment in
+                    guard let image = resolvedImages[AgentGUITranscriptImageStore.ReferenceKey(
+                        entrySeq: entry.seq,
+                        attachmentIndex: index
+                    )] else {
+                        return attachment
+                    }
+                    didResolvePreview = true
+                    return resolvedAttachment(attachment, image: image)
+                }
+                guard didResolvePreview else { return entry }
+                return entry.replacingPayload(.toolRun(ToolRunPayload(
+                    toolName: tool.toolName,
+                    argumentSummary: tool.argumentSummary,
+                    resultSummary: tool.resultSummary,
+                    isTerminal: tool.isTerminal,
+                    exitCode: tool.exitCode,
+                    isRunning: tool.isRunning,
+                    toolCallID: tool.toolCallID,
+                    inputDetail: tool.inputDetail,
+                    command: tool.command,
+                    output: tool.output,
+                    durationSeconds: tool.durationSeconds,
+                    status: tool.status,
+                    previewAttachments: resolvedPreviews
+                )))
+            default:
+                return entry
+            }
+        }
+        let attachments = resolvedImages.map { key, image in
             return AgentChatArtifactIndex.SupplementalAttachment(
                 path: image.path,
-                sourceSeq: sequence.rawValue
+                sourceSeq: key.entrySeq.rawValue
             )
         }
         if !attachments.isEmpty {
@@ -435,6 +456,41 @@ final class AgentGUIJournalPipeline {
             )
         }
         return resolved
+    }
+
+    private func referencedImage(
+        for attachment: AttachmentPayload,
+        entrySeq: EntrySeq,
+        attachmentIndex: Int? = nil
+    ) -> AgentGUITranscriptImageStore.ReferencedImage? {
+        guard isImageAttachmentCandidate(attachment),
+              let hostPath = attachment.hostPath,
+              !hostPath.isEmpty else { return nil }
+        return AgentGUITranscriptImageStore.ReferencedImage(
+            entrySeq: entrySeq,
+            attachmentIndex: attachmentIndex,
+            path: hostPath,
+            mimeType: attachment.mimeType
+        )
+    }
+
+    private func resolvedAttachment(
+        _ attachment: AttachmentPayload,
+        image: AgentGUITranscriptImageStore.MaterializedImage
+    ) -> AttachmentPayload {
+        AttachmentPayload(
+            kind: attachment.kind,
+            summary: attachment.summary,
+            attachmentID: attachment.attachmentID,
+            displayName: attachment.displayName,
+            hostPath: image.path,
+            mimeType: image.mimeType,
+            byteCount: image.byteCount,
+            width: image.width,
+            height: image.height,
+            aspectRatio: attachment.aspectRatio,
+            authorRole: attachment.authorRole
+        )
     }
 
     private func isImageAttachmentCandidate(_ attachment: AttachmentPayload) -> Bool {
@@ -595,6 +651,19 @@ final class AgentGUIJournalPipeline {
 private struct AgentGUITranscriptImageEntryKey: Hashable {
     let journalID: JournalID
     let sequence: EntrySeq
+}
+
+private extension EntrySnapshot {
+    func replacingPayload(_ payload: EntryPayload) -> EntrySnapshot {
+        EntrySnapshot(
+            journalID: journalID,
+            seq: seq,
+            kind: payload.kind,
+            content: EntryContent(contentHash: payload.stableHash, payload: payload),
+            version: version,
+            timestampMilliseconds: timestampMilliseconds
+        )
+    }
 }
 
 private struct AgentGUIJournalLineFrame: Sendable {

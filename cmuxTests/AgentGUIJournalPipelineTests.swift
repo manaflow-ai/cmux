@@ -171,6 +171,54 @@ struct AgentGUIJournalPipelineTests {
         await AgentChatArtifactIndex.shared.removeSupplementalAttachments(sessionID: sessionID.rawValue)
     }
 
+    @Test func codexToolPreviewImagesAreEnrichedBeforePublish() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-tool-preview-image-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("codex.jsonl")
+        let firstImage = directory.appendingPathComponent("preview-one")
+        let secondImage = directory.appendingPathComponent("preview-two")
+        let pngData = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        try pngData.write(to: firstImage)
+        try pngData.write(to: secondImage)
+        let sessionID = AgentSessionID(rawValue: "session-tool-preview-image-\(UUID().uuidString)")
+        let arguments = #"{"path":"\#(firstImage.path)","screenshot_path":"\#(secondImage.path)"}"#
+        let encodedArguments = arguments.replacingOccurrences(of: "\"", with: "\\\"")
+        let line = #"{"type":"response_item","payload":{"type":"function_call","name":"view_image","call_id":"call-preview","arguments":"\#(encodedArguments)"}}"#
+        try write(lines: [line], to: transcript)
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: sessionID,
+            kind: .codex,
+            path: transcript.path
+        )
+
+        _ = await pipeline.ingestInitial()
+
+        let entry = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10)?.entries.first)
+        guard case .toolRun(let tool) = entry.content.payload else {
+            Issue.record("expected the view_image invocation to remain a tool row")
+            return
+        }
+        let previews = try #require(tool.previewAttachments)
+        #expect(Set(previews.compactMap(\.hostPath)) == Set([firstImage.path, secondImage.path]))
+        #expect(previews.allSatisfy { $0.mimeType == "image/png" })
+        #expect(previews.allSatisfy { $0.byteCount == pngData.count })
+        #expect(previews.allSatisfy { $0.width == 1 })
+        #expect(previews.allSatisfy { $0.height == 1 })
+
+        let indexed = try await AgentChatArtifactIndex.shared.snapshot(
+            sessionID: sessionID.rawValue,
+            agentKind: .codex,
+            transcriptPath: transcript.path,
+            workingDirectory: directory.path
+        )
+        #expect(indexed.referencedPaths.contains(firstImage.path))
+        #expect(indexed.referencedPaths.contains(secondImage.path))
+        await AgentChatArtifactIndex.shared.removeSupplementalAttachments(sessionID: sessionID.rawValue)
+    }
+
     @Test func missingJournalIsAnEmptyPageThenResetsWhenCreated() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-gui-missing-\(UUID().uuidString)", isDirectory: true)
