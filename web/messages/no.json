@@ -867,8 +867,6 @@
       "concepts": "Konsepter",
       "anchorTitle": "Ankerarbeidsområde",
       "anchorDesc": "Hver gruppe eies av nøyaktig ett arbeidsområde kalt ankeret. Gruppeoverskriften i sidefeltet er ankerets representasjon — det finnes ingen egen rad for det. Å klikke på navneområdet i overskriften gir fokus til ankerets paneler; å klikke på vinkelpilen veksler sammenlegging.",
-      "anchorNew": "Ankere er alltid helt nye når en gruppe opprettes. De forfremmes aldri fra et eksisterende arbeidsområde. Ankerets arbeidskatalog arves fra det første valgte arbeidsområdet når du grupperer et utvalg, eller fra det aktive arbeidsområdet når du oppretter via CLI-en uten --cwd.",
-      "anchorClose": "Å lukke ankerarbeidsområdet oppløser gruppen: alle andre medlemmer blir til ugrupperte arbeidsområder og forblir i fanelisten. Ingenting lukkes bortsett fra selve ankeret. Appen viser en bekreftelsesdialog med en «Ikke spør igjen»-bryter før dette skjer.",
       "identityTitle": "Gruppeidentitet",
       "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri tilpasset farge. Disse er uavhengige av ankerarbeidsområdets egne tilpasninger. Ankerets farge og ikon hentes fra gruppen ved opprettelse, men de kan avvike etterpå.",
       "pinningTitle": "Festing",
