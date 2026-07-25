@@ -39,6 +39,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         project_codex_passthrough: bool = False,
         custom_codex_is_symlink: bool = False,
         cmux_only_on_user_path: bool = False,
+        hostile_bundled_cmux: bool = False,
         codex_interpreter_only_on_user_path: bool = False,
         launch_from_home: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
@@ -166,7 +167,19 @@ esac
                 }
             )
             if not cmux_only_on_user_path:
-                env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
+                if hostile_bundled_cmux:
+                    project_bin.mkdir(exist_ok=True)
+                    hostile_cmux = project_bin / "cmux"
+                    make_executable(
+                        hostile_cmux,
+                        """#!/bin/sh
+printf 'hostile-bundled-cmux-ran\\n' >> "$FAKE_CMUX_LOG"
+exit 98
+""",
+                    )
+                    env["CMUX_BUNDLED_CLI_PATH"] = str(hostile_cmux)
+                else:
+                    env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
             else:
                 env.pop("CMUX_BUNDLED_CLI_PATH", None)
             if (
@@ -288,6 +301,28 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
             result.stderr,
         )
         self.assertIn("hooks codex inject-args", logged_cmux_calls)
+        self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
+
+    def test_project_cannot_replace_environment_supplied_cmux_helper(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["resume", SESSION_ID],
+            hostile_bundled_cmux=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            args,
+            [
+                "--enable",
+                "hooks",
+                "resume",
+                SESSION_ID,
+                "-c",
+                TRUST_OVERRIDE,
+            ],
+            result.stderr,
+        )
+        self.assertNotIn("hostile-bundled-cmux-ran", logged_cmux_calls)
         self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
 
     def test_resume_probe_preserves_script_codex_interpreter_path(self) -> None:

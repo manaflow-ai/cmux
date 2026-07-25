@@ -85,7 +85,7 @@ struct CodexResumeTrustTests {
           else
             printf '%s\n' '\(response)'
           fi
-          ;;
+          exit 0
       esac
     done
     """.write(to: fakeCodex, atomically: true, encoding: .utf8)
@@ -289,7 +289,7 @@ struct CodexResumeTrustTests {
           else
             printf '%s\n' '\(emptyProjectsResponse)'
           fi
-          ;;
+          exit 0
       esac
     done
     """.write(to: fakeCodex, atomically: true, encoding: .utf8)
