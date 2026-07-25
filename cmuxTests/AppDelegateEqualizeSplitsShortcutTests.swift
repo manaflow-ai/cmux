@@ -949,6 +949,48 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testWorkspaceTerminalFontSizeEnqueueDoesNotProbeDockPanels() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        for _ in 0..<32 {
+            let panel = TerminalPanel(
+                workspaceId: windowDock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            windowDock.panels[panel.id] = panel
+        }
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:)
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+
+#if DEBUG
+        XCTAssertEqual(
+            windowDock.debugWorkspaceFontSizeLineageProbeCount,
+            0,
+            "Enqueue must only record intent; panel discovery belongs to the bounded drain"
+        )
+#else
+        XCTFail("Workspace font-size probe hooks are only available in DEBUG")
+#endif
+    }
+
     func testWorkspaceTerminalFontSizeDrainFollowsWorkspaceMovedToAnotherManager() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()

@@ -448,6 +448,111 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("queued workspaces inherit the Dock lineage at their own event")
+    func queuedWorkspacesInheritOrderedDockPrefixes() throws {
+        let manager = TabManager()
+        let firstWorkspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(firstWorkspace.focusedPanelId)
+        let firstPaneID = try #require(
+            firstWorkspace.bonsplitController.focusedPaneId
+        )
+        _ = try #require(
+            firstWorkspace.newBrowserSurface(
+                inPane: firstPaneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(firstWorkspace.closePanel(firstPanelID, force: true))
+
+        let secondWorkspace = manager.addTab(select: false)
+        let secondPanelID = try #require(secondWorkspace.focusedPanelId)
+        let secondPaneID = try #require(
+            secondWorkspace.bonsplitController.focusedPaneId
+        )
+        _ = try #require(
+            secondWorkspace.newBrowserSurface(
+                inPane: secondPaneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(secondWorkspace.closePanel(secondPanelID, force: true))
+
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        var configTemplate = CmuxSurfaceConfigTemplate()
+        configTemplate.fontSizeLineage = TerminalFontSizeLineage(
+            basePoints: 5,
+            isExplicitOverride: true
+        )
+        let dockPanel = TerminalPanel(
+            workspaceId: windowDock.workspaceId,
+            configTemplate: configTemplate,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        windowDock.panels[dockPanel.id] = dockPanel
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: firstWorkspace.id,
+            deferFlush: true
+        )
+        coordinator.enqueue(
+            .relative([1]),
+            workspaceId: secondWorkspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+
+        #expect(
+            dockPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 5,
+                    isExplicitOverride: true
+                )
+        )
+        let firstInheritedPanel = try #require(
+            firstWorkspace.newTerminalSurface(
+                inPane: firstPaneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        let secondInheritedPanel = try #require(
+            secondWorkspace.newTerminalSurface(
+                inPane: secondPaneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        #expect(
+            firstInheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 4,
+                    isExplicitOverride: true
+                )
+        )
+        #expect(
+            secondInheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 5,
+                    isExplicitOverride: true
+                )
+        )
+    }
+
     @Test("Dock terminal at the clamp bound still seeds first main terminal")
     func boundedWindowDockFontSizeAdjustmentSeedsFirstMainTerminal() throws {
         let workspace = Workspace()
@@ -538,20 +643,12 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
 
         #expect(workspace.resetTerminalFontSizes() == 0)
-        let configuredRuntimePoints = Float32(
-            GhosttyConfig.load(
-                globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
-            ).fontSize
+        #expect(
+            workspace
+                .lastRememberedTerminalFontSizeLineageForConfigInheritance()
+                == nil,
+            "A terminal-free reset must follow future Ghostty config changes"
         )
-        let configuredBasePoints = CmuxSurfaceConfigTemplate.baseFontSize(
-            fromRuntimePoints: configuredRuntimePoints,
-            percent: GlobalFontMagnification.storedPercent
-        )
-        let resetLineage = try #require(
-            workspace.lastRememberedTerminalFontSizeLineageForConfigInheritance()
-        )
-        #expect(abs(resetLineage.basePoints - configuredBasePoints) < 0.001)
-        #expect(!resetLineage.isExplicitOverride)
 
         let inheritedPanel = try #require(
             workspace.newTerminalSurface(
@@ -560,7 +657,7 @@ struct TerminalFontZoomSessionPersistenceTests {
                 runtimeSpawnPolicy: .pacedSessionRestore
             )
         )
-        #expect(inheritedPanel.surface.fontSizeLineageSnapshot() == resetLineage)
+        #expect(inheritedPanel.surface.fontSizeLineageSnapshot() == nil)
     }
 
     @Test("completed Dock reset keeps future terminals on current configuration")

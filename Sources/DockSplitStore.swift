@@ -450,6 +450,8 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
 #if DEBUG
+    private(set) var debugWorkspaceFontSizeLineageProbeCount = 0
+
     var debugActiveTerminalFontSizeChangeInitialLineageProbeCount: Int? {
         activeTerminalFontSizeChangeInheritanceContext?
             .initialLineageProbeCount
@@ -483,6 +485,9 @@ final class DockSplitStore: BonsplitDelegate {
         for terminalPanel in panels.values.compactMap({
             $0 as? TerminalPanel
         }) {
+#if DEBUG
+            debugWorkspaceFontSizeLineageProbeCount += 1
+#endif
             guard let lineage =
                     terminalPanel.surface.fontSizeLineageSnapshot(),
                   selected.map({
