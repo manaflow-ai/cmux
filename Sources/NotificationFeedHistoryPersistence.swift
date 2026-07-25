@@ -20,6 +20,7 @@ nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
 /// are rejected.
 actor NotificationFeedHistoryPersistence {
     private static let oversizedSnapshotHeaderChunkByteCount = 64 * 1024
+    private static let oversizedSnapshotHeaderMaximumScanByteCount = UInt64(16 * 1024 * 1024)
 
     private struct SnapshotHeader {
         var version: Int?
@@ -344,67 +345,42 @@ actor NotificationFeedHistoryPersistence {
         }
         let fileSize = try handle.seekToEnd()
         try handle.seek(toOffset: 0)
-        let prefixData = try handle.read(
-            upToCount: Self.oversizedSnapshotHeaderChunkByteCount
-        ) ?? Data()
-        var scanner = TopLevelSnapshotHeaderScanner()
-        scanner.consume(prefixData)
-        var header = scanner.header
-        guard !header.isComplete,
-              fileSize > UInt64(Self.oversizedSnapshotHeaderChunkByteCount) else {
-            return header
-        }
-
-        let tailOffset = fileSize - UInt64(Self.oversizedSnapshotHeaderChunkByteCount)
-        try handle.seek(toOffset: tailOffset)
-        let tailData = try handle.read(
-            upToCount: Self.oversizedSnapshotHeaderChunkByteCount
-        ) ?? Data()
-        let tailHeader = Self.topLevelTailSnapshotHeader(in: tailData)
-        header.version = header.version ?? tailHeader.version
-        header.revision = header.revision ?? tailHeader.revision
-        return header
-    }
-
-    private static func topLevelTailSnapshotHeader(in data: Data) -> SnapshotHeader {
-        let text = String(decoding: data, as: UTF8.self)
-        guard let notificationsEndIndex = text.lastIndex(of: "]") else {
-            return SnapshotHeader()
-        }
-        let suffixStart = text.index(after: notificationsEndIndex)
-        let suffix = text[suffixStart..<text.endIndex]
-        return SnapshotHeader(
-            version: jsonIntegerValue(named: "version", in: suffix),
-            revision: jsonIntegerValue(named: "revision", in: suffix)
+        var remainingByteCount = Self.oversizedSnapshotHeaderScanByteCount(
+            fileSize: fileSize,
+            loadBudget: maxSnapshotBytes
         )
+        var scanner = TopLevelSnapshotHeaderScanner()
+        while remainingByteCount > 0 {
+            let requestedByteCount = min(
+                Self.oversizedSnapshotHeaderChunkByteCount,
+                Int(remainingByteCount)
+            )
+            guard requestedByteCount > 0,
+                  let data = try handle.read(upToCount: requestedByteCount),
+                  !data.isEmpty else {
+                break
+            }
+            scanner.consume(data)
+            if scanner.header.isComplete {
+                break
+            }
+            remainingByteCount -= UInt64(data.count)
+        }
+        return scanner.header
     }
 
-    private static func jsonIntegerValue(
-        named key: String,
-        in text: Substring
-    ) -> Int? {
-        let needle = "\"\(key)\""
-        guard let range = text.range(of: needle) else { return nil }
-        var index = range.upperBound
-        while index < text.endIndex, text[index].isWhitespace {
-            index = text.index(after: index)
-        }
-        guard index < text.endIndex, text[index] == ":" else { return nil }
-        index = text.index(after: index)
-        while index < text.endIndex, text[index].isWhitespace {
-            index = text.index(after: index)
-        }
-        let valueStart = index
-        if index < text.endIndex, text[index] == "-" {
-            index = text.index(after: index)
-        }
-        let digitStart = index
-        while index < text.endIndex, text[index] >= "0", text[index] <= "9" {
-            index = text.index(after: index)
-        }
-        guard digitStart < index else { return nil }
-        let literal = String(text[valueStart..<index])
-        return Int(literal)
+    private static func oversizedSnapshotHeaderScanByteCount(
+        fileSize: UInt64,
+        loadBudget: UInt64
+    ) -> UInt64 {
+        let doubledBudget = loadBudget > oversizedSnapshotHeaderMaximumScanByteCount / 2
+            ? oversizedSnapshotHeaderMaximumScanByteCount
+            : loadBudget * 2
+        return min(
+            fileSize,
+            max(UInt64(oversizedSnapshotHeaderChunkByteCount), doubledBudget),
+            oversizedSnapshotHeaderMaximumScanByteCount
+        )
     }
 
     private func replaceOversizedSnapshotFile(

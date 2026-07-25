@@ -389,6 +389,39 @@ struct NotificationFeedHistoryTests {
         #expect(quarantinedURLs.isEmpty)
     }
 
+    @Test func oversizedFutureSnapshotIgnoresNestedMetadataInTail() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-tail-metadata-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("history.json")
+        let id = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let body = String(repeating: "x", count: 70_000)
+        let rawJSON = """
+        {"notifications":[{"body":"\(body)","createdAt":0,"id":"\(id)","isRead":false,"retargetsToLiveSurfaceOwner":false,"subtitle":"Agent","tabId":"\(workspaceID)","title":"Tail metadata"}],"revision":18,"summary":{"version":1},"version":\(NotificationFeedHistorySnapshot.currentVersion + 1)}
+        """
+        let data = Data(rawJSON.utf8)
+        try data.write(to: fileURL, options: .atomic)
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: UInt64(data.count - 1)
+        )
+
+        #expect(await persistence.load() == .unsupportedVersion(NotificationFeedHistorySnapshot.currentVersion + 1))
+        #expect(try Data(contentsOf: fileURL) == data)
+        let quarantinedURLs = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("history.json.oversized")
+        }
+        #expect(quarantinedURLs.isEmpty)
+    }
+
     @Test func oversizedHistoryMetadataIntegerOverflowFailsClosed() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-overflow-\(UUID().uuidString)", isDirectory: true)
