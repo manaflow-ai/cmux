@@ -25,16 +25,16 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-global-search-persistence-policy"
         )
-        clearShortcutDefaults()
+        Self.clearShortcutDefaults()
     }
 
     deinit {
-        clearShortcutDefaults()
-        restore(
+        Self.clearShortcutDefaults()
+        Self.restore(
             savedGlobalSearchDefault,
             forKey: KeyboardShortcutSettings.Action.globalSearch.defaultsKey
         )
-        restore(
+        Self.restore(
             savedShowHideDefault,
             forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
         )
@@ -200,7 +200,7 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         )
     }
 
-    private func clearShortcutDefaults() {
+    private static func clearShortcutDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(
             forKey: KeyboardShortcutSettings.Action.globalSearch.defaultsKey
@@ -210,7 +210,7 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         )
     }
 
-    private func restore(_ value: Any?, forKey key: String) {
+    private static func restore(_ value: Any?, forKey key: String) {
         if let value {
             UserDefaults.standard.set(value, forKey: key)
         } else {
