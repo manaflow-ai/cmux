@@ -1481,18 +1481,24 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn browser_mouse_event(
+    pub fn browser_mouse_event_for_frame(
         &self,
         event_type: &str,
         x: f64,
         y: f64,
         button: Option<&str>,
         click_count: Option<u32>,
+        frame_seq: Option<u64>,
     ) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface, _) => {
-                surface.browser_mouse_event(event_type, x, y, button, click_count)
-            }
+            SurfaceHandle::Local(surface, _) => surface.browser_mouse_event_for_frame(
+                event_type,
+                x,
+                y,
+                button,
+                click_count,
+                frame_seq,
+            ),
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
                 let kind = match event_type {
                     "mousePressed" => "down",
@@ -1509,6 +1515,7 @@ impl SurfaceHandle {
                         "y_px": y,
                         "button": button,
                         "click_count": click_count,
+                        "frame_seq": frame_seq,
                     }))
                     .map(|_| ())
             }
@@ -1519,9 +1526,17 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
+    pub fn browser_wheel_for_frame(
+        &self,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.browser_wheel(x, y, delta_y),
+            SurfaceHandle::Local(surface, _) => {
+                surface.browser_wheel_for_frame(x, y, delta_y, frame_seq)
+            }
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
                 session
                     .request(json!({
@@ -1530,6 +1545,7 @@ impl SurfaceHandle {
                         "x_px": x,
                         "y_px": y,
                         "delta_y_px": delta_y,
+                        "frame_seq": frame_seq,
                     }))
                     .map(|_| ())
             }

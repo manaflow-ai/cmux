@@ -106,6 +106,9 @@ struct BrowserSession {
 
 struct BrowserState {
     latest_frame: Option<BrowserFrame>,
+    /// Frame that may currently receive guarded pointer input. Navigation and
+    /// geometry changes invalidate it before the next screencast frame lands.
+    pointer_frame_seq: Option<u64>,
     // Latest-wins attach frame taps. Broadcast overwrites each slot and
     // sends one wakeup; a slow client skips old frames but stays attached.
     taps: Vec<BrowserFrameTap>,
@@ -158,11 +161,13 @@ enum BrowserCommand {
         y: f64,
         button: Option<String>,
         click_count: Option<u32>,
+        frame_seq: Option<u64>,
     },
     Wheel {
         x: f64,
         y: f64,
         delta_y: f64,
+        frame_seq: Option<u64>,
     },
     Key {
         event_type: String,
@@ -560,6 +565,7 @@ pub(crate) fn new_surface(
         session: Mutex::new(None),
         state: Mutex::new(BrowserState {
             latest_frame: None,
+            pointer_frame_seq: None,
             taps: Vec::new(),
             title: normalized_url.clone(),
             url: normalized_url,
@@ -968,10 +974,11 @@ fn run_browser_worker_command(
         };
         match command {
             BrowserCommand::WakeLatest => Ok(()),
-            BrowserCommand::Mouse { event_type, x, y, button, click_count } => {
-                browser.mouse_event_blocking(&event_type, x, y, button.as_deref(), click_count)
+            BrowserCommand::Mouse { event_type, x, y, button, click_count, frame_seq } => browser
+                .mouse_event_blocking(&event_type, x, y, button.as_deref(), click_count, frame_seq),
+            BrowserCommand::Wheel { x, y, delta_y, frame_seq } => {
+                browser.wheel_blocking(x, y, delta_y, frame_seq)
             }
-            BrowserCommand::Wheel { x, y, delta_y } => browser.wheel_blocking(x, y, delta_y),
             BrowserCommand::Key {
                 event_type,
                 key,
@@ -1329,6 +1336,7 @@ impl BrowserSurface {
         state.capture_scale = geometry.capture_scale;
         if changed {
             state.latest_frame = None;
+            state.pointer_frame_seq = None;
             state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
@@ -1458,6 +1466,7 @@ impl BrowserSurface {
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
+        state.pointer_frame_seq = matches!(state.status, BrowserStatus::Live).then_some(frame.seq);
         state.latest_frame = Some(frame.clone());
         state.taps.retain(|tap| {
             tap.slot.lock().unwrap().frame = Some(frame.clone());
@@ -1494,6 +1503,7 @@ impl BrowserSurface {
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Failed(message.clone());
+        state.pointer_frame_seq = None;
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
         Self::mark_state_dirty_locked(&mut state);
@@ -1571,8 +1581,7 @@ impl BrowserSurface {
         frames_stalled_locked(&state, now, self.is_dead())
     }
 
-    fn scale_input_point(&self, x: f64, y: f64) -> (f64, f64) {
-        let state = self.state.lock().unwrap();
+    fn scale_input_point_locked(state: &BrowserState, x: f64, y: f64) -> (f64, f64) {
         let (pane_width, pane_height) = state.pane_pixels;
         let (page_width, page_height) = state.page_viewport.unwrap_or(state.capture_pixels);
         let page_width = page_width.max(1);
@@ -1582,13 +1591,53 @@ impl BrowserSurface {
         (x.clamp(0.0, f64::from(page_width)), y.clamp(0.0, f64::from(page_height)))
     }
 
-    fn scale_delta(&self, delta: f64) -> f64 {
+    fn scale_input_point(&self, x: f64, y: f64) -> (f64, f64) {
+        Self::scale_input_point_locked(&self.state.lock().unwrap(), x, y)
+    }
+
+    fn scale_guarded_input_point(
+        &self,
+        frame_seq: Option<u64>,
+        x: f64,
+        y: f64,
+    ) -> Option<(f64, f64)> {
         let state = self.state.lock().unwrap();
+        if frame_seq.is_some_and(|frame_seq| state.pointer_frame_seq != Some(frame_seq)) {
+            return None;
+        }
+        Some(Self::scale_input_point_locked(&state, x, y))
+    }
+
+    fn invalidate_pointer_frame(&self) {
+        self.state.lock().unwrap().pointer_frame_seq = None;
+    }
+
+    fn scale_delta_locked(state: &BrowserState, delta: f64) -> f64 {
         if let Some((_, page_height)) = state.page_viewport {
             delta * f64::from(page_height.max(1)) / f64::from(state.pane_pixels.1.max(1))
         } else {
             delta * state.capture_scale
         }
+    }
+
+    #[cfg(test)]
+    fn scale_delta(&self, delta: f64) -> f64 {
+        Self::scale_delta_locked(&self.state.lock().unwrap(), delta)
+    }
+
+    fn scale_guarded_wheel(
+        &self,
+        frame_seq: Option<u64>,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+    ) -> Option<(f64, f64, f64)> {
+        let state = self.state.lock().unwrap();
+        if frame_seq.is_some_and(|frame_seq| state.pointer_frame_seq != Some(frame_seq)) {
+            return None;
+        }
+        let (x, y) = Self::scale_input_point_locked(&state, x, y);
+        Some((x, y, Self::scale_delta_locked(&state, delta_y)))
     }
 
     fn maybe_nudge_stalled_external(&self, session: &BrowserSession) {
@@ -1624,6 +1673,18 @@ impl BrowserSurface {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => anyhow::bail!("browser command worker is closed"),
         }
+    }
+
+    // A release closes state established by an earlier accepted press. The TUI
+    // and control-socket callers invoke this only from off-loop workers, so they
+    // may wait for final-queue capacity without freezing either UI event loop.
+    fn enqueue_pointer_release(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        self.command_sender()?
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("browser command worker is closed"))
     }
 
     // Bounded, in-order delivery for discrete control actions
@@ -1733,13 +1794,31 @@ impl BrowserSurface {
         button: Option<&str>,
         click_count: Option<u32>,
     ) -> anyhow::Result<()> {
-        self.enqueue_bounded(BrowserCommand::Mouse {
+        self.mouse_event_for_frame(event_type, x, y, button, click_count, None)
+    }
+
+    pub fn mouse_event_for_frame(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let command = BrowserCommand::Mouse {
             event_type: event_type.to_string(),
             x,
             y,
             button: button.map(ToOwned::to_owned),
             click_count,
-        })
+            frame_seq,
+        };
+        if event_type == "mouseReleased" {
+            self.enqueue_pointer_release(command)
+        } else {
+            self.enqueue_bounded(command)
+        }
     }
 
     fn mouse_event_blocking(
@@ -1749,12 +1828,18 @@ impl BrowserSurface {
         y: f64,
         button: Option<&str>,
         click_count: Option<u32>,
+        frame_seq: Option<u64>,
     ) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         if event_type == "mousePressed" {
             self.maybe_nudge_stalled_external(&session);
         }
-        let (x, y) = self.scale_input_point(x, y);
+        let point = if event_type == "mouseReleased" {
+            Some(self.scale_input_point(x, y))
+        } else {
+            self.scale_guarded_input_point(frame_seq, x, y)
+        };
+        let Some((x, y)) = point else { return Ok(()) };
         session.runtime.client.dispatch_mouse_event(
             &session.session_id,
             event_type,
@@ -1766,14 +1851,31 @@ impl BrowserSurface {
     }
 
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
-        self.enqueue_bounded(BrowserCommand::Wheel { x, y, delta_y })
+        self.wheel_for_frame(x, y, delta_y, None)
     }
 
-    fn wheel_blocking(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
+    pub fn wheel_for_frame(
+        &self,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        self.enqueue_bounded(BrowserCommand::Wheel { x, y, delta_y, frame_seq })
+    }
+
+    fn wheel_blocking(
+        &self,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         self.maybe_nudge_stalled_external(&session);
-        let (x, y) = self.scale_input_point(x, y);
-        let delta_y = self.scale_delta(delta_y);
+        let Some((x, y, delta_y)) = self.scale_guarded_wheel(frame_seq, x, y, delta_y) else {
+            return Ok(());
+        };
         session.runtime.client.dispatch_wheel(&session.session_id, x, y, delta_y)
     }
 
@@ -1830,6 +1932,7 @@ impl BrowserSurface {
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
+        self.invalidate_pointer_frame();
         if let Some(error) = session.runtime.client.navigate(&session.session_id, &normalized)? {
             self.mark_failed(error.clone());
             anyhow::bail!("browser failed: {error}");
@@ -1866,6 +1969,7 @@ impl BrowserSurface {
             );
         }
         let entry = &history.entries[next as usize];
+        self.invalidate_pointer_frame();
         session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id)?;
         self.clear_error();
         Ok(())
@@ -1877,6 +1981,7 @@ impl BrowserSurface {
 
     fn reload_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
+        self.invalidate_pointer_frame();
         session.runtime.client.reload(&session.session_id)?;
         self.clear_error();
         Ok(())
@@ -1934,6 +2039,7 @@ fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value) {
     if frame.get("parentId").is_some() {
         return;
     }
+    browser.invalidate_pointer_frame();
     if let Some(url) = frame.get("url").and_then(|v| v.as_str()).filter(|url| !url.is_empty()) {
         browser.set_url(url.to_string());
         let title = frame
@@ -2065,8 +2171,8 @@ mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
         BrowserSession, BrowserSource, BrowserStatus, MAX_RECONFIGURE_WAITERS_PER_RESERVATION,
-        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
-        start_surface_thread, take_latest_worker_commands,
+        capture_scale_for, handle_frame_navigated, new_surface, normalize_url, runtime_endpoint,
+        scaled_pixels, start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -3164,6 +3270,38 @@ mod tests {
         browser.store_frame(test_frame(1));
 
         assert_eq!(browser.scale_input_point(-5.0, 999.0), (0.0, 48.0));
+    }
+
+    #[test]
+    fn guarded_input_mapping_requires_the_current_live_frame() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
+
+        browser.store_frame(test_frame(2));
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
+        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
+
+        browser.mark_failed("failed".to_string());
+        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_none());
+    }
+
+    #[test]
+    fn navigation_invalidates_pointer_admission_until_a_new_frame() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
+
+        handle_frame_navigated(
+            browser,
+            json!({"frame": {"url": "https://next.test", "name": "next"}}),
+        );
+
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
+        browser.store_frame(test_frame(2));
+        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
     }
 
     #[test]

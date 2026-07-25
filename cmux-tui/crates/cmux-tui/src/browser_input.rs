@@ -64,11 +64,13 @@ pub enum BrowserInputKind {
         y: f64,
         button: Option<&'static str>,
         click_count: Option<u32>,
+        frame_seq: u64,
     },
     Wheel {
         x: f64,
         y: f64,
         delta_y: f64,
+        frame_seq: u64,
     },
     Key {
         event_type: &'static str,
@@ -553,11 +555,18 @@ fn coalesce_sequenced_browser_events(batch: &mut Vec<SequencedBrowserInputEvent>
 fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
     let surface = &event.surface;
     match &event.kind {
-        BrowserInputKind::Mouse { event_type, x, y, button, click_count } => {
-            surface.browser_mouse_event(event_type, *x, *y, *button, *click_count).map(|()| true)
-        }
-        BrowserInputKind::Wheel { x, y, delta_y } => {
-            surface.browser_wheel(*x, *y, *delta_y).map(|()| true)
+        BrowserInputKind::Mouse { event_type, x, y, button, click_count, frame_seq } => surface
+            .browser_mouse_event_for_frame(
+                event_type,
+                *x,
+                *y,
+                *button,
+                *click_count,
+                Some(*frame_seq),
+            )
+            .map(|()| true),
+        BrowserInputKind::Wheel { x, y, delta_y, frame_seq } => {
+            surface.browser_wheel_for_frame(*x, *y, *delta_y, Some(*frame_seq)).map(|()| true)
         }
         BrowserInputKind::Key {
             event_type,
@@ -608,6 +617,7 @@ mod tests {
                 y: 0.0,
                 button: Some("none"),
                 click_count: None,
+                frame_seq: 1,
             },
         }
     }
@@ -622,6 +632,7 @@ mod tests {
                 y: 0.0,
                 button: Some("left"),
                 click_count: Some(1),
+                frame_seq: 1,
             },
         }
     }
@@ -640,6 +651,7 @@ mod tests {
                 y: 0.0,
                 button: Some(button),
                 click_count: Some(1),
+                frame_seq: 1,
             },
         }
     }

@@ -325,6 +325,8 @@ enum Command {
         button: Option<String>,
         #[serde(default, alias = "click_count")]
         click_count: Option<u32>,
+        #[serde(default)]
+        frame_seq: Option<u64>,
     },
     BrowserWheel {
         surface: SurfaceId,
@@ -334,6 +336,8 @@ enum Command {
         y_px: f64,
         #[serde(alias = "delta_y_px")]
         delta_y_px: f64,
+        #[serde(default)]
+        frame_seq: Option<u64>,
     },
     BrowserKey {
         surface: SurfaceId,
@@ -3457,7 +3461,7 @@ fn handle_command(
                 .collect::<Vec<_>>();
             Ok(json!({"resizes": resizes, "failures": failures}))
         }
-        Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count } => {
+        Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
             let surface = get_surface(mux, surface)?;
             require_browser(&surface)?;
             let event_type = match kind.as_str() {
@@ -3466,13 +3470,20 @@ fn handle_command(
                 "move" => "mouseMoved",
                 other => anyhow::bail!("bad browser mouse kind {other:?}"),
             };
-            surface.browser_mouse_event(event_type, x_px, y_px, button.as_deref(), click_count)?;
+            surface.browser_mouse_event_for_frame(
+                event_type,
+                x_px,
+                y_px,
+                button.as_deref(),
+                click_count,
+                frame_seq,
+            )?;
             Ok(json!({}))
         }
-        Command::BrowserWheel { surface, x_px, y_px, delta_y_px } => {
+        Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
             let surface = get_surface(mux, surface)?;
             require_browser(&surface)?;
-            surface.browser_wheel(x_px, y_px, delta_y_px)?;
+            surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, frame_seq)?;
             Ok(json!({}))
         }
         Command::BrowserKey {

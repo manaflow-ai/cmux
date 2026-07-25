@@ -2926,7 +2926,7 @@ enum Drag {
     /// Text selection inside a pane's content rect.
     Select { content: Rect, auto_scroll: Option<i8>, col: u16 },
     /// Browser mouse drag inside a pane's content rect.
-    Browser { surface: SurfaceId, content: Rect, position: (u16, u16) },
+    Browser { surface: SurfaceId, content: Rect, position: (u16, u16), frame_seq: u64 },
     /// Mouse reporting owned by the PTY application in this pane.
     PtyMouse {
         surface: SurfaceId,
@@ -6926,10 +6926,15 @@ impl App {
                 if let Some((surface, expected_generation)) =
                     rendered_route.browser_content_generation()
                     && missing_surface != Some(surface)
-                    && self.session.surface(surface).and_then(|surface| surface.browser_frame_seq())
-                        != expected_generation
                 {
-                    return Ok(RenderAction::None);
+                    let Some(expected_generation) = expected_generation else {
+                        return Ok(RenderAction::None);
+                    };
+                    if self.session.surface(surface).and_then(|surface| surface.browser_frame_seq())
+                        != Some(expected_generation)
+                    {
+                        return Ok(RenderAction::None);
+                    }
                 }
                 match self.terminal_pointer_admission_for_route(
                     &rendered_route,
@@ -10708,16 +10713,18 @@ impl App {
     fn cancel_pointer_interaction(&mut self) {
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
-        } else if let Some(Drag::Browser { surface, content, position }) = &self.drag {
-            let (surface, content, position) = (*surface, *content, *position);
+        } else if let Some(Drag::Browser { surface, content, position, frame_seq }) = &self.drag {
+            let (surface, content, position, frame_seq) =
+                (*surface, *content, *position, *frame_seq);
             self.drag = None;
             let x = position.0.clamp(content.x, content.x + content.width.saturating_sub(1));
             let y = position.1.clamp(content.y, content.y + content.height.saturating_sub(1));
-            self.send_browser_mouse(
+            let _ = self.send_browser_mouse(
                 surface,
                 content,
                 x,
                 y,
+                frame_seq,
                 BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
             );
         } else {
@@ -11332,12 +11339,15 @@ impl App {
                 if browser_hover_forward_allowed(status.flatten(), editing_same_pane) {
                     let cell = (x.saturating_sub(area.content.x), y.saturating_sub(area.content.y));
                     let next = (area.surface, cell.0, cell.1);
-                    if self.last_browser_hover != Some(next) {
-                        self.send_browser_mouse(
+                    if self.last_browser_hover != Some(next)
+                        && let Some(frame_seq) = self.presented_browser_frame_seq(area.surface)
+                    {
+                        let _ = self.send_browser_mouse(
                             area.surface,
                             area.content,
                             x,
                             y,
+                            frame_seq,
                             BrowserMouseDispatch::new("mouseMoved", Some("none"), None),
                         );
                         self.last_browser_hover = Some(next);
@@ -11661,18 +11671,23 @@ impl App {
                     if self.active_pane() != Some(area.pane) {
                         self.focus_pane_after_input(area.pane);
                     }
-                    self.send_browser_mouse(
-                        area.surface,
-                        area.content,
-                        x,
-                        y,
-                        BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
-                    );
-                    self.drag = Some(Drag::Browser {
-                        surface: area.surface,
-                        content: area.content,
-                        position: (x, y),
-                    });
+                    if let Some(frame_seq) = self.presented_browser_frame_seq(area.surface)
+                        && self.send_browser_mouse(
+                            area.surface,
+                            area.content,
+                            x,
+                            y,
+                            frame_seq,
+                            BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
+                        )
+                    {
+                        self.drag = Some(Drag::Browser {
+                            surface: area.surface,
+                            content: area.content,
+                            position: (x, y),
+                            frame_seq,
+                        });
+                    }
                 } else if self.begin_pty_mouse_drag_with_admission(
                     x,
                     y,
@@ -11759,18 +11774,19 @@ impl App {
                 self.drag = Some(Drag::Select { content, auto_scroll, col: cx - content.x });
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::Browser { surface, content, .. }) => {
-                let (surface, content) = (*surface, *content);
+            Some(Drag::Browser { surface, content, frame_seq, .. }) => {
+                let (surface, content, frame_seq) = (*surface, *content, *frame_seq);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 if let Some(Drag::Browser { position, .. }) = &mut self.drag {
                     *position = (cx, cy);
                 }
-                self.send_browser_mouse(
+                let _ = self.send_browser_mouse(
                     surface,
                     content,
                     cx,
                     cy,
+                    frame_seq,
                     BrowserMouseDispatch::new("mouseMoved", Some("left"), Some(1)),
                 );
                 Ok(RenderAction::Draw)
@@ -11874,15 +11890,16 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        if let Some(Drag::Browser { surface, content, .. }) = self.drag {
+        if let Some(Drag::Browser { surface, content, frame_seq, .. }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
             let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
-            self.send_browser_mouse(
+            let _ = self.send_browser_mouse(
                 surface,
                 content,
                 cx,
                 cy,
+                frame_seq,
                 BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
             );
             return Ok(RenderAction::Draw);
@@ -12351,12 +12368,15 @@ impl App {
         let Some(surface) = self.session.surface(surface_id) else { return Ok(RenderAction::None) };
         if surface.kind() == SurfaceKind::Browser {
             if area.content.contains(x, y) {
+                let Some(frame_seq) = self.presented_browser_frame_seq(surface_id) else {
+                    return Ok(RenderAction::None);
+                };
                 let (px, py) = self.browser_point(area.content, x, y);
                 let delta = if down { 3.0 } else { -3.0 } * f64::from(self.cell_pixels.1);
                 let _ = self.browser_input.enqueue(BrowserInputEvent {
                     surface_id,
                     surface,
-                    kind: BrowserInputKind::Wheel { x: px, y: py, delta_y: delta },
+                    kind: BrowserInputKind::Wheel { x: px, y: py, delta_y: delta, frame_seq },
                 });
                 return Ok(RenderAction::Draw);
             }
@@ -12508,6 +12528,13 @@ impl App {
         (col * f64::from(self.cell_pixels.0), row * f64::from(self.cell_pixels.1))
     }
 
+    fn presented_browser_frame_seq(&self, surface: SurfaceId) -> Option<u64> {
+        match self.rendered_pointer_frame.pane_content_generations.get(&surface) {
+            Some(PaneContentGeneration::Browser(frame_seq)) => Some(*frame_seq),
+            Some(PaneContentGeneration::Terminal(_)) | None => None,
+        }
+    }
+
     /// Queue a mouse event for the off-loop browser input worker; the
     /// event loop never waits on the CDP/socket round trip.
     fn send_browser_mouse(
@@ -12516,14 +12543,15 @@ impl App {
         content: Rect,
         x: u16,
         y: u16,
+        frame_seq: u64,
         dispatch: BrowserMouseDispatch,
-    ) {
+    ) -> bool {
         if !self.session_available() {
-            return;
+            return false;
         }
-        let Some(surface) = self.session.surface(surface_id) else { return };
+        let Some(surface) = self.session.surface(surface_id) else { return false };
         let (px, py) = self.browser_point(content, x, y);
-        let _ = self.browser_input.enqueue(BrowserInputEvent {
+        self.browser_input.enqueue(BrowserInputEvent {
             surface_id,
             surface,
             kind: BrowserInputKind::Mouse {
@@ -12532,8 +12560,9 @@ impl App {
                 y: py,
                 button: dispatch.button,
                 click_count: dispatch.click_count,
+                frame_seq,
             },
-        });
+        })
     }
 }
 
@@ -16292,6 +16321,7 @@ mod tests {
                 y: 1.0,
                 button: Some("none"),
                 click_count: None,
+                frame_seq: 1,
             },
         });
 
@@ -18520,6 +18550,7 @@ mod tests {
                 y: 2.0,
                 button: Some("left"),
                 click_count: Some(1),
+                frame_seq: 1,
             },
         }));
         assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
@@ -18527,6 +18558,7 @@ mod tests {
             surface: surface.id,
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
             position: (5, 5),
+            frame_seq: 1,
         });
 
         app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
@@ -19239,6 +19271,7 @@ mod tests {
             surface: 42,
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
             position: (5, 5),
+            frame_seq: 1,
         });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -21862,6 +21895,7 @@ mod tests {
                 y: 2.0,
                 button: Some("left"),
                 click_count: Some(1),
+                frame_seq: 1,
             },
         }));
         assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
@@ -21874,12 +21908,14 @@ mod tests {
                 y: 1.0,
                 button: Some("none"),
                 click_count: None,
+                frame_seq: 1,
             },
         }));
         app.drag = Some(Drag::Browser {
             surface: browser.id,
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
             position: (5, 5),
+            frame_seq: 1,
         });
         let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
             Session::Local(second),
