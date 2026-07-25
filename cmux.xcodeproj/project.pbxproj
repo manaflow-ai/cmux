@@ -48,78 +48,42 @@
 		C0DEF0D30000000000000001 /* AgentForkExecutableIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0D30000000000000002 /* AgentForkExecutableIdentityResolver.swift */; };
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
 		C0DEF0D40000000000000001 /* AgentForkTimeoutResumeGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0D40000000000000002 /* AgentForkTimeoutResumeGate.swift */; };
-			fileRef = A6E17000000000000000001F /* AgentGUIAskRegistry.swift */;
-		A6E170000000000000000079 /* AgentGUIAskRegistry.swift in Sources */ = {
-			fileRef = A6E1700000000000000000CB /* AgentGUIAskRegistryTests.swift */;
-		A6E17000000000000000012F /* AgentGUIAskRegistryTests.swift in Sources */ = {
-			fileRef = A6E17000000000000000000A /* AgentGUICapabilityMapper.swift */;
-		A6E170000000000000000064 /* AgentGUICapabilityMapper.swift in Sources */ = {
-			fileRef = A6E17000000000000000000B /* AgentGUICodableBridge.swift */;
-		A6E170000000000000000065 /* AgentGUICodableBridge.swift in Sources */ = {
-			fileRef = A6E17000000000000000000C /* AgentGUIConstants.swift */;
-		A6E170000000000000000066 /* AgentGUIConstants.swift in Sources */ = {
-			fileRef = A6E17000000000000000000D /* AgentGUIFileIdentity.swift */;
-		A6E170000000000000000067 /* AgentGUIFileIdentity.swift in Sources */ = {
-			fileRef = A6E17000000000000000000E /* AgentGUIHookFactMapper.swift */;
-		A6E170000000000000000068 /* AgentGUIHookFactMapper.swift in Sources */ = {
-			fileRef = A6E1700000000000000000C8 /* AgentGUIHookFactMapperTests.swift */;
-		A6E17000000000000000012C /* AgentGUIHookFactMapperTests.swift in Sources */ = {
-			fileRef = A6E170000000000000000024 /* AgentGUIIncrementalState.swift */;
-		A6E17000000000000000007E /* AgentGUIIncrementalState.swift in Sources */ = {
-			fileRef = A6E17000000000000000000F /* AgentGUIJournalBookkeeper.swift */;
-		A6E170000000000000000069 /* AgentGUIJournalBookkeeper.swift in Sources */ = {
-			fileRef = DA7A00000000000000000011 /* AgentGUIJournalPageReader.swift */;
-		DA7A00000000000000000001 /* AgentGUIJournalPageReader.swift in Sources */ = {
-			fileRef = A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */;
-		A6E17000000000000000006A /* AgentGUIJournalPipeline.swift in Sources */ = {
-			fileRef = A6E170000000000000000011 /* AgentGUIJournalPipelineEvent.swift */;
-		A6E17000000000000000006B /* AgentGUIJournalPipelineEvent.swift in Sources */ = {
-			fileRef = A6E1700000000000000000C9 /* AgentGUIJournalPipelineTests.swift */;
-		A6E17000000000000000012D /* AgentGUIJournalPipelineTests.swift in Sources */ = {
-			fileRef = DA7A00000000000000000012 /* AgentGUIJournalToolCallLocator.swift */;
-		DA7A00000000000000000002 /* AgentGUIJournalToolCallLocator.swift in Sources */ = {
-			fileRef = A6E170000000000000000012 /* AgentGUIJournalWindow.swift */;
-		A6E17000000000000000006C /* AgentGUIJournalWindow.swift in Sources */ = {
-			fileRef = A6E170000000000000000013 /* AgentGUIOpenTranscriptPathScanner.swift */;
-		A6E17000000000000000006D /* AgentGUIOpenTranscriptPathScanner.swift in Sources */ = {
-			fileRef = D0C0A3210000000000000001 /* AgentGUIProseScreenExtractor.swift */;
-		D0C0A3110000000000000001 /* AgentGUIProseScreenExtractor.swift in Sources */ = {
-			fileRef = A6E170000000000000000014 /* AgentGUIRPCError.swift */;
-		A6E17000000000000000006E /* AgentGUIRPCError.swift in Sources */ = {
-			fileRef = A6E170000000000000000015 /* AgentGUIRPCHandler.swift */;
-		A6E17000000000000000006F /* AgentGUIRPCHandler.swift in Sources */ = {
-			fileRef = A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */;
-		A6E17000000000000000012E /* AgentGUIRPCHandlerTests.swift in Sources */ = {
-			fileRef = A6E170000000000000000020 /* AgentGUISendLedger.swift */;
-		A6E17000000000000000007A /* AgentGUISendLedger.swift in Sources */ = {
-			fileRef = A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */;
-		A6E170000000000000000130 /* AgentGUISendLedgerTests.swift in Sources */ = {
-			fileRef = A6E170000000000000000016 /* AgentGUIService.swift */;
-		A6E170000000000000000070 /* AgentGUIService.swift in Sources */ = {
-			fileRef = A6E170000000000000000017 /* AgentGUIStampedEntry.swift */;
-		A6E170000000000000000071 /* AgentGUIStampedEntry.swift in Sources */ = {
-			fileRef = D0C0A3210000000000000002 /* AgentGUIStreamProducer.swift */;
-		D0C0A3110000000000000002 /* AgentGUIStreamProducer.swift in Sources */ = {
-			fileRef = D0C0A3210000000000000003 /* AgentGUIStreamProducerTests.swift */;
-		D0C0A3110000000000000003 /* AgentGUIStreamProducerTests.swift in Sources */ = {
-			fileRef = A6E170000000000000000018 /* AgentGUISubscriptionPolicy.swift */;
-		A6E170000000000000000072 /* AgentGUISubscriptionPolicy.swift in Sources */ = {
-			fileRef = A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */;
-		A6E17000000000000000007B /* AgentGUITerminalInjecting.swift in Sources */ = {
-			fileRef = A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */;
-		A6E17000000000000000007C /* AgentGUITerminalInjectionResult.swift in Sources */ = {
-			fileRef = A6E170000000000000000023 /* AgentGUITerminalInjector.swift */;
-		A6E17000000000000000007D /* AgentGUITerminalInjector.swift in Sources */ = {
-			fileRef = A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */;
-		A6E170000000000000000073 /* AgentGUIToolPairingIndex.swift in Sources */ = {
-			fileRef = A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */;
-		A6E170000000000000000074 /* AgentGUITranscriptDecoderBox.swift in Sources */ = {
-			fileRef = E1A700000000000000000002 /* AgentGUITranscriptImageStore.swift */;
-		E1A700000000000000000001 /* AgentGUITranscriptImageStore.swift in Sources */ = {
-			fileRef = A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */;
-		A6E170000000000000000075 /* AgentGUITranscriptResolver.swift in Sources */ = {
-			fileRef = A6E17000000000000000001C /* AgentGUIWirePublisher.swift */;
-		A6E170000000000000000076 /* AgentGUIWirePublisher.swift in Sources */ = {
+		A6E170000000000000000079 /* AgentGUIAskRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001F /* AgentGUIAskRegistry.swift */; };
+		A6E17000000000000000012F /* AgentGUIAskRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000CB /* AgentGUIAskRegistryTests.swift */; };
+		A6E170000000000000000064 /* AgentGUICapabilityMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000A /* AgentGUICapabilityMapper.swift */; };
+		A6E170000000000000000065 /* AgentGUICodableBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000B /* AgentGUICodableBridge.swift */; };
+		A6E170000000000000000066 /* AgentGUIConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000C /* AgentGUIConstants.swift */; };
+		A6E170000000000000000067 /* AgentGUIFileIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000D /* AgentGUIFileIdentity.swift */; };
+		A6E170000000000000000068 /* AgentGUIHookFactMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000E /* AgentGUIHookFactMapper.swift */; };
+		A6E17000000000000000012C /* AgentGUIHookFactMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000C8 /* AgentGUIHookFactMapperTests.swift */; };
+		A6E17000000000000000007E /* AgentGUIIncrementalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000024 /* AgentGUIIncrementalState.swift */; };
+		A6E170000000000000000069 /* AgentGUIJournalBookkeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000F /* AgentGUIJournalBookkeeper.swift */; };
+		DA7A00000000000000000001 /* AgentGUIJournalPageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA7A00000000000000000011 /* AgentGUIJournalPageReader.swift */; };
+		A6E17000000000000000006A /* AgentGUIJournalPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */; };
+		A6E17000000000000000006B /* AgentGUIJournalPipelineEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000011 /* AgentGUIJournalPipelineEvent.swift */; };
+		A6E17000000000000000012D /* AgentGUIJournalPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000C9 /* AgentGUIJournalPipelineTests.swift */; };
+		DA7A00000000000000000002 /* AgentGUIJournalToolCallLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA7A00000000000000000012 /* AgentGUIJournalToolCallLocator.swift */; };
+		A6E17000000000000000006C /* AgentGUIJournalWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000012 /* AgentGUIJournalWindow.swift */; };
+		A6E17000000000000000006D /* AgentGUIOpenTranscriptPathScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000013 /* AgentGUIOpenTranscriptPathScanner.swift */; };
+		D0C0A3110000000000000001 /* AgentGUIProseScreenExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A3210000000000000001 /* AgentGUIProseScreenExtractor.swift */; };
+		A6E17000000000000000006E /* AgentGUIRPCError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000014 /* AgentGUIRPCError.swift */; };
+		A6E17000000000000000006F /* AgentGUIRPCHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000015 /* AgentGUIRPCHandler.swift */; };
+		A6E17000000000000000012E /* AgentGUIRPCHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */; };
+		A6E17000000000000000007A /* AgentGUISendLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000020 /* AgentGUISendLedger.swift */; };
+		A6E170000000000000000130 /* AgentGUISendLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */; };
+		A6E170000000000000000070 /* AgentGUIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000016 /* AgentGUIService.swift */; };
+		A6E170000000000000000071 /* AgentGUIStampedEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000017 /* AgentGUIStampedEntry.swift */; };
+		D0C0A3110000000000000002 /* AgentGUIStreamProducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A3210000000000000002 /* AgentGUIStreamProducer.swift */; };
+		D0C0A3110000000000000003 /* AgentGUIStreamProducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0A3210000000000000003 /* AgentGUIStreamProducerTests.swift */; };
+		A6E170000000000000000072 /* AgentGUISubscriptionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000018 /* AgentGUISubscriptionPolicy.swift */; };
+		A6E17000000000000000007B /* AgentGUITerminalInjecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */; };
+		A6E17000000000000000007C /* AgentGUITerminalInjectionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */; };
+		A6E17000000000000000007D /* AgentGUITerminalInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000023 /* AgentGUITerminalInjector.swift */; };
+		A6E170000000000000000073 /* AgentGUIToolPairingIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */; };
+		A6E170000000000000000074 /* AgentGUITranscriptDecoderBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */; };
+		E1A700000000000000000001 /* AgentGUITranscriptImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A700000000000000000002 /* AgentGUITranscriptImageStore.swift */; };
+		A6E170000000000000000075 /* AgentGUITranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */; };
+		A6E170000000000000000076 /* AgentGUIWirePublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001C /* AgentGUIWirePublisher.swift */; };
 		F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */; };
 		F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */; };
 		F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */; };
@@ -168,10 +132,8 @@
 		B79500040000000000000001 /* AgentPortScanRootInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500040000000000000002 /* AgentPortScanRootInput.swift */; };
 		B79500140000000000000001 /* AgentPortSnapshotReplacementState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */; };
 		B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500110000000000000002 /* AgentPortTrackingState.swift */; };
-			fileRef = A6E17000000000000000001D /* AgentProcessExitWatcher.swift */;
-		A6E170000000000000000077 /* AgentProcessExitWatcher.swift in Sources */ = {
-			fileRef = A6E17000000000000000001E /* AgentProcessObservationSource.swift */;
-		A6E170000000000000000078 /* AgentProcessObservationSource.swift in Sources */ = {
+		A6E170000000000000000077 /* AgentProcessExitWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001D /* AgentProcessExitWatcher.swift */; };
+		A6E170000000000000000078 /* AgentProcessObservationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001E /* AgentProcessObservationSource.swift */; };
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000015 /* AgentRestoreMode.swift */; };
 		D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */; };
@@ -832,8 +794,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
-			fileRef = A6E1700000000000000000CD /* ControlledAgentProcessObservationCapturer.swift */;
-		A6E170000000000000000131 /* ControlledAgentProcessObservationCapturer.swift in Sources */ = {
+		A6E170000000000000000131 /* ControlledAgentProcessObservationCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000CD /* ControlledAgentProcessObservationCapturer.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
@@ -1074,45 +1035,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEA7720000000000000001 /* InternalFlagsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7720000000000000002 /* InternalFlagsWindow.swift */; };
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
 		E7B200000000000000000001 /* IrohTransportDebugMenuButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B100000000000000000001 /* IrohTransportDebugMenuButtons.swift */; };
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
-			isa = PBXBuildFile;
 		875900000000000000000001 /* Issue8759FreezeRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */; };
 		A5FB1307 /* JSONCObjectEditor+Remove.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1309 /* JSONCObjectEditor+Remove.swift */; };
 		A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1309 /* JSONCObjectEditor+Remove.swift */; };
@@ -2364,45 +2286,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		39EF42EF23A2F751429718CE /* WorkspaceTodoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */; };
 		6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2519,42 +2402,42 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEF0D30000000000000002 /* AgentForkExecutableIdentityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkExecutableIdentityResolver.swift; sourceTree = "<group>"; };
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
 		C0DEF0D40000000000000002 /* AgentForkTimeoutResumeGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkTimeoutResumeGate.swift; sourceTree = "<group>"; };
-		A6E17000000000000000001F /* AgentGUIAskRegistry.swift */ = {
-		A6E1700000000000000000CB /* AgentGUIAskRegistryTests.swift */ = {
-		A6E17000000000000000000A /* AgentGUICapabilityMapper.swift */ = {
-		A6E17000000000000000000B /* AgentGUICodableBridge.swift */ = {
-		A6E17000000000000000000C /* AgentGUIConstants.swift */ = {
-		A6E17000000000000000000D /* AgentGUIFileIdentity.swift */ = {
-		A6E17000000000000000000E /* AgentGUIHookFactMapper.swift */ = {
-		A6E1700000000000000000C8 /* AgentGUIHookFactMapperTests.swift */ = {
-		A6E170000000000000000024 /* AgentGUIIncrementalState.swift */ = {
-		A6E17000000000000000000F /* AgentGUIJournalBookkeeper.swift */ = {
-		DA7A00000000000000000011 /* AgentGUIJournalPageReader.swift */ = {
-		A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */ = {
-		A6E170000000000000000011 /* AgentGUIJournalPipelineEvent.swift */ = {
-		A6E1700000000000000000C9 /* AgentGUIJournalPipelineTests.swift */ = {
-		DA7A00000000000000000012 /* AgentGUIJournalToolCallLocator.swift */ = {
-		A6E170000000000000000012 /* AgentGUIJournalWindow.swift */ = {
-		A6E170000000000000000013 /* AgentGUIOpenTranscriptPathScanner.swift */ = {
-		D0C0A3210000000000000001 /* AgentGUIProseScreenExtractor.swift */ = {
-		A6E170000000000000000014 /* AgentGUIRPCError.swift */ = {
-		A6E170000000000000000015 /* AgentGUIRPCHandler.swift */ = {
-		A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */ = {
-		A6E170000000000000000020 /* AgentGUISendLedger.swift */ = {
-		A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */ = {
-		A6E170000000000000000016 /* AgentGUIService.swift */ = {
-		A6E170000000000000000017 /* AgentGUIStampedEntry.swift */ = {
-		D0C0A3210000000000000002 /* AgentGUIStreamProducer.swift */ = {
-		D0C0A3210000000000000003 /* AgentGUIStreamProducerTests.swift */ = {
-		A6E170000000000000000018 /* AgentGUISubscriptionPolicy.swift */ = {
-		A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */ = {
-		A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */ = {
-		A6E170000000000000000023 /* AgentGUITerminalInjector.swift */ = {
-		A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */ = {
-		A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */ = {
-		E1A700000000000000000002 /* AgentGUITranscriptImageStore.swift */ = {
-		A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */ = {
-		A6E17000000000000000001C /* AgentGUIWirePublisher.swift */ = {
+		A6E17000000000000000001F /* AgentGUIAskRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIAskRegistry.swift; sourceTree = "<group>"; };
+		A6E1700000000000000000CB /* AgentGUIAskRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIAskRegistryTests.swift; sourceTree = "<group>"; };
+		A6E17000000000000000000A /* AgentGUICapabilityMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUICapabilityMapper.swift; sourceTree = "<group>"; };
+		A6E17000000000000000000B /* AgentGUICodableBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUICodableBridge.swift; sourceTree = "<group>"; };
+		A6E17000000000000000000C /* AgentGUIConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIConstants.swift; sourceTree = "<group>"; };
+		A6E17000000000000000000D /* AgentGUIFileIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIFileIdentity.swift; sourceTree = "<group>"; };
+		A6E17000000000000000000E /* AgentGUIHookFactMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIHookFactMapper.swift; sourceTree = "<group>"; };
+		A6E1700000000000000000C8 /* AgentGUIHookFactMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIHookFactMapperTests.swift; sourceTree = "<group>"; };
+		A6E170000000000000000024 /* AgentGUIIncrementalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIIncrementalState.swift; sourceTree = "<group>"; };
+		A6E17000000000000000000F /* AgentGUIJournalBookkeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIJournalBookkeeper.swift; sourceTree = "<group>"; };
+		DA7A00000000000000000011 /* AgentGUIJournalPageReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIJournalPageReader.swift; sourceTree = "<group>"; };
+		A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIJournalPipeline.swift; sourceTree = "<group>"; };
+		A6E170000000000000000011 /* AgentGUIJournalPipelineEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIJournalPipelineEvent.swift; sourceTree = "<group>"; };
+		A6E1700000000000000000C9 /* AgentGUIJournalPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIJournalPipelineTests.swift; sourceTree = "<group>"; };
+		DA7A00000000000000000012 /* AgentGUIJournalToolCallLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIJournalToolCallLocator.swift; sourceTree = "<group>"; };
+		A6E170000000000000000012 /* AgentGUIJournalWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIJournalWindow.swift; sourceTree = "<group>"; };
+		A6E170000000000000000013 /* AgentGUIOpenTranscriptPathScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIOpenTranscriptPathScanner.swift; sourceTree = "<group>"; };
+		D0C0A3210000000000000001 /* AgentGUIProseScreenExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIProseScreenExtractor.swift; sourceTree = "<group>"; };
+		A6E170000000000000000014 /* AgentGUIRPCError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIRPCError.swift; sourceTree = "<group>"; };
+		A6E170000000000000000015 /* AgentGUIRPCHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIRPCHandler.swift; sourceTree = "<group>"; };
+		A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIRPCHandlerTests.swift; sourceTree = "<group>"; };
+		A6E170000000000000000020 /* AgentGUISendLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUISendLedger.swift; sourceTree = "<group>"; };
+		A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUISendLedgerTests.swift; sourceTree = "<group>"; };
+		A6E170000000000000000016 /* AgentGUIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIService.swift; sourceTree = "<group>"; };
+		A6E170000000000000000017 /* AgentGUIStampedEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIStampedEntry.swift; sourceTree = "<group>"; };
+		D0C0A3210000000000000002 /* AgentGUIStreamProducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIStreamProducer.swift; sourceTree = "<group>"; };
+		D0C0A3210000000000000003 /* AgentGUIStreamProducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIStreamProducerTests.swift; sourceTree = "<group>"; };
+		A6E170000000000000000018 /* AgentGUISubscriptionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUISubscriptionPolicy.swift; sourceTree = "<group>"; };
+		A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITerminalInjecting.swift; sourceTree = "<group>"; };
+		A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITerminalInjectionResult.swift; sourceTree = "<group>"; };
+		A6E170000000000000000023 /* AgentGUITerminalInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITerminalInjector.swift; sourceTree = "<group>"; };
+		A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIToolPairingIndex.swift; sourceTree = "<group>"; };
+		A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITranscriptDecoderBox.swift; sourceTree = "<group>"; };
+		E1A700000000000000000002 /* AgentGUITranscriptImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITranscriptImageStore.swift; sourceTree = "<group>"; };
+		A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITranscriptResolver.swift; sourceTree = "<group>"; };
+		A6E17000000000000000001C /* AgentGUIWirePublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIWirePublisher.swift; sourceTree = "<group>"; };
 		F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Confirmation.swift"; sourceTree = "<group>"; };
 		F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+InFlightTeardown.swift"; sourceTree = "<group>"; };
 		F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostSnapshotValidationIndexTask.swift"; sourceTree = "<group>"; };
@@ -2601,8 +2484,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B79500040000000000000002 /* AgentPortScanRootInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortScanRootInput.swift; sourceTree = "<group>"; };
 		B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortSnapshotReplacementState.swift; sourceTree = "<group>"; };
 		B79500110000000000000002 /* AgentPortTrackingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortTrackingState.swift; sourceTree = "<group>"; };
-		A6E17000000000000000001D /* AgentProcessExitWatcher.swift */ = {
-		A6E17000000000000000001E /* AgentProcessObservationSource.swift */ = {
+		A6E17000000000000000001D /* AgentProcessExitWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessExitWatcher.swift; sourceTree = "<group>"; };
+		A6E17000000000000000001E /* AgentProcessObservationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessObservationSource.swift; sourceTree = "<group>"; };
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
 		0A1107110000000000000015 /* AgentRestoreMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreMode.swift; sourceTree = "<group>"; };
 		5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLaunchGuard.swift; sourceTree = "<group>"; };
@@ -3200,7 +3083,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ViewCommandPalette.swift"; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
-		A6E1700000000000000000CD /* ControlledAgentProcessObservationCapturer.swift */ = {
+		A6E1700000000000000000CD /* ControlledAgentProcessObservationCapturer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlledAgentProcessObservationCapturer.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceResumeTarget.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
@@ -3441,45 +3324,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEA7720000000000000002 /* InternalFlagsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InternalFlagsWindow.swift; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
 		E7B100000000000000000001 /* IrohTransportDebugMenuButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IrohTransportDebugMenuButtons.swift; sourceTree = "<group>"; };
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
-			isa = PBXFileReference;
 		875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Issue8759FreezeRegressionTests.swift; sourceTree = "<group>"; };
 		A5FB1309 /* JSONCObjectEditor+Remove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSONCObjectEditor+Remove.swift"; sourceTree = "<group>"; };
 		A5FB1310 /* JSONCObjectEditor+Set.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSONCObjectEditor+Set.swift"; sourceTree = "<group>"; };
@@ -3512,45 +3356,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		827300000000000000000003 /* KimiHookConfigLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiHookConfigLocationTests.swift; sourceTree = "<group>"; };
 		858200000000000000000001 /* KimiRestorableAgentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiRestorableAgentTests.swift; sourceTree = "<group>"; };
 		8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiResumeReviewRegressionTests.swift; sourceTree = "<group>"; };
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
-			lastKnownFileType = sourcecode.swift;
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -3761,45 +3566,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6313B5A1 /* PaneMemorySample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemorySample.swift; sourceTree = "<group>"; };
 		6313B6A1 /* PaneMemoryWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryWarning.swift; sourceTree = "<group>"; };
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
-			path = AgentGUIAskRegistry.swift;
-			path = AgentGUIAskRegistryTests.swift;
-			path = AgentGUICapabilityMapper.swift;
-			path = AgentGUICodableBridge.swift;
-			path = AgentGUIConstants.swift;
-			path = AgentGUIFileIdentity.swift;
-			path = AgentGUIHookFactMapper.swift;
-			path = AgentGUIHookFactMapperTests.swift;
-			path = AgentGUIIncrementalState.swift;
-			path = AgentGUIJournalBookkeeper.swift;
-			path = AgentGUIJournalPageReader.swift;
-			path = AgentGUIJournalPipeline.swift;
-			path = AgentGUIJournalPipelineEvent.swift;
-			path = AgentGUIJournalPipelineTests.swift;
-			path = AgentGUIJournalToolCallLocator.swift;
-			path = AgentGUIJournalWindow.swift;
-			path = AgentGUIOpenTranscriptPathScanner.swift;
-			path = AgentGUIProseScreenExtractor.swift;
-			path = AgentGUIRPCError.swift;
-			path = AgentGUIRPCHandler.swift;
-			path = AgentGUIRPCHandlerTests.swift;
-			path = AgentGUISendLedger.swift;
-			path = AgentGUISendLedgerTests.swift;
-			path = AgentGUIService.swift;
-			path = AgentGUIStampedEntry.swift;
-			path = AgentGUIStreamProducer.swift;
-			path = AgentGUIStreamProducerTests.swift;
-			path = AgentGUISubscriptionPolicy.swift;
-			path = AgentGUITerminalInjecting.swift;
-			path = AgentGUITerminalInjectionResult.swift;
-			path = AgentGUITerminalInjector.swift;
-			path = AgentGUIToolPairingIndex.swift;
-			path = AgentGUITranscriptDecoderBox.swift;
-			path = AgentGUITranscriptImageStore.swift;
-			path = AgentGUITranscriptResolver.swift;
-			path = AgentGUIWirePublisher.swift;
-			path = AgentProcessExitWatcher.swift;
-			path = AgentProcessObservationSource.swift;
-			path = ControlledAgentProcessObservationCapturer.swift;
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneForwardingMode.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000A2 /* PhonePushClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushClient.swift; sourceTree = "<group>"; };
@@ -4321,46 +4087,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConfigurationLifecycleTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
-			C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
-			sourceTree = "<group>";
+		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		A6AC72050000000000000002 /* SpinnerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerCard.swift; sourceTree = "<group>"; };
 		A6AC72090000000000000002 /* SpinnerEnergy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerEnergy.swift; sourceTree = "<group>"; };
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
@@ -4828,45 +4555,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTodoState.swift; sourceTree = "<group>"; };
 		71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
-		};
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
