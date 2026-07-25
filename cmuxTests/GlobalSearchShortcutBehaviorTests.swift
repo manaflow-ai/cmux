@@ -8,9 +8,11 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
 @Suite(.serialized)
-final class GlobalSearchShortcutBehaviorTests {
+struct GlobalSearchShortcutBehaviorTests {}
+
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite final class GlobalSearchLocalMonitorChainTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
     init() {
@@ -201,5 +203,6 @@ final class GlobalSearchShortcutBehaviorTests {
         window.animationBehavior = .none
         window.orderOut(nil)
         window.close()
+    }
     }
 }
