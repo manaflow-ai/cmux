@@ -810,10 +810,23 @@ struct ContentView: View {
     let windowId: UUID
     let featureFlags: CmuxFeatureFlags
 
+    @MainActor
+    init(
+        updateViewModel: UpdateStateModel,
+        windowId: UUID
+    ) {
+        self.init(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            featureFlags: .shared
+        )
+    }
+
+    @MainActor
     init(
         updateViewModel: UpdateStateModel,
         windowId: UUID,
-        featureFlags: CmuxFeatureFlags = .shared
+        featureFlags: CmuxFeatureFlags
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId

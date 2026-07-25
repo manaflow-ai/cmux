@@ -3,6 +3,7 @@ import Bonsplit
 import Combine
 import CmuxSimulatorUI
 import CmuxSettings
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
