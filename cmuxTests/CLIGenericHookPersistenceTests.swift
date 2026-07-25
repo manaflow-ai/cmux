@@ -1943,6 +1943,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
@@ -1972,6 +1973,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     )
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
+                case "agent.resolve_delivery_target":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "source": "surface",
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                        ]
+                    )
                 default:
                     return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
                 }

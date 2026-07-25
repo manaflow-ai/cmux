@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -773,6 +774,29 @@ struct AgentHookDeliveryQueueTests {
         #expect(try fixture.attemptCount() == 1)
     }
 
+    @Test("Deadline cleanup kills descendants after the process leader exits")
+    func deadlineCleanupFinishesProcessGroupEscalation() async throws {
+        let fixture = try AgentHookDescendantProcessFixture()
+        defer { fixture.remove() }
+        let process = AgentHookDeliveryProcess(
+            executableURLProvider: { fixture.executableURL },
+            processTimeout: .milliseconds(500),
+            deliveryTimeout: .seconds(2),
+            terminationGrace: .milliseconds(100)
+        )
+        let event = try makeEvent(
+            payload: "leader-exits-on-term",
+            surfaceID: "surface-process-group"
+        )
+
+        await process.deliver(event)
+
+        #expect(
+            await fixture.waitForProcessGroupToExit(timeout: .milliseconds(500)),
+            "The delivery timeout must finish SIGKILL escalation even when SIGTERM already exited the leader"
+        )
+    }
+
     @MainActor
     @Test("Relay TTY resolution is scoped to the owning remote workspace")
     func relayTTYResolutionUsesOwningWorkspace() throws {
@@ -910,6 +934,94 @@ private struct AgentHookStalledProcessFixture {
     func remove() {
         try? FileManager.default.removeItem(at: directoryURL)
     }
+}
+
+private struct AgentHookDescendantProcessFixture {
+    let directoryURL: URL
+    let executableURL: URL
+    let processGroupURL: URL
+
+    init() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-agent-hook-descendant-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let executableURL = directoryURL.appendingPathComponent(
+            "leader-exits-on-term",
+            isDirectory: false
+        )
+        let processGroupURL = directoryURL.appendingPathComponent(
+            "leader-exits-on-term.process-group",
+            isDirectory: false
+        )
+        try """
+        #!/bin/sh
+        process_group_file="$0.process-group"
+        (
+          trap '' TERM
+          while true; do
+            /bin/sleep 60
+          done
+        ) &
+        descendant_pid=$!
+        printf '%s %s' "$$" "$descendant_pid" > "$process_group_file"
+        trap 'exit 0' TERM
+        wait "$descendant_pid"
+        """.write(to: executableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executableURL.path
+        )
+        self.directoryURL = directoryURL
+        self.executableURL = executableURL
+        self.processGroupURL = processGroupURL
+    }
+
+    func waitForProcessGroupToExit(timeout: Duration) async -> Bool {
+        guard let processGroupID = try? processGroupIdentifier() else {
+            return false
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if !Self.processGroupExists(processGroupID) {
+                return true
+            }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return !Self.processGroupExists(processGroupID)
+    }
+
+    func remove() {
+        if let processGroupID = try? processGroupIdentifier() {
+            _ = Darwin.kill(-processGroupID, SIGKILL)
+        }
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    private func processGroupIdentifier() throws -> pid_t {
+        let raw = try String(contentsOf: processGroupURL, encoding: .utf8)
+            .split(whereSeparator: \.isWhitespace)
+        guard raw.count == 2,
+              let processGroupID = pid_t(String(raw[0])),
+              pid_t(String(raw[1])) != nil else {
+            throw AgentHookDeliveryProcessFixtureError.invalidProcessIdentifiers
+        }
+        return processGroupID
+    }
+
+    private static func processGroupExists(_ processGroupID: pid_t) -> Bool {
+        Darwin.kill(-processGroupID, 0) == 0 || errno == EPERM
+    }
+}
+
+private enum AgentHookDeliveryProcessFixtureError: Error {
+    case invalidProcessIdentifiers
 }
 
 private actor AgentHookDeliveryBarrierProbe {
