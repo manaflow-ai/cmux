@@ -286,7 +286,7 @@ final class ShortcutListModel {
     /// another binding; a valid stroke is normalized, persisted, and clears the
     /// action's rejection/restore state.
     func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
-        var stroke = stroke
+        var stroke = stroke.canonicalized()
         guard action.allowsBareFirstStroke || stroke.hasAnyModifier else {
             markBareKeyRejected(action)
             return
@@ -336,6 +336,7 @@ final class ShortcutListModel {
     /// action that disallows chords, a non-digit numbered chord, or a chord that
     /// conflicts with another binding.
     func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
+        let chord = chord.canonicalized()
         guard action.allowsChordShortcut else {
             chordModeOverrides.removeValue(forKey: action.rawValue)
             return
