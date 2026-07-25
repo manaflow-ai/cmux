@@ -30317,7 +30317,7 @@ export default CMUXSessionRestore;
             if routeWasSnapshotted, snapshottedRoute == nil {
                 return nil
             }
-            resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
+            return resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
