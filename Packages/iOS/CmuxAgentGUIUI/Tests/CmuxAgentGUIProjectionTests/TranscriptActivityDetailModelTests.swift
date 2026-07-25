@@ -96,6 +96,57 @@ struct TranscriptActivityDetailModelTests {
         #expect(model.sections.first?.isCode == false)
     }
 
+    @Test("large activity details are bounded before sheet presentation")
+    func largeActivityDetailsAreBounded() {
+        let output = String(repeating: "0123456789", count: 7_000)
+        let model = Self.model(payload: .toolRun(ToolRunPayload(
+            toolName: "bash",
+            argumentSummary: "large output",
+            resultSummary: "done",
+            isTerminal: true,
+            exitCode: 0,
+            isRunning: false,
+            output: output
+        )))
+
+        let renderedOutput = model.sections.first { $0.label == .output }?.value
+        #expect(renderedOutput != nil)
+        #expect(renderedOutput?.hasPrefix("0123456789") == true)
+        #expect(renderedOutput?.contains("Detail truncated for performance") == true)
+        #expect((renderedOutput?.count ?? 0) < output.count)
+    }
+
+    @Test("activity timeline presentation caps instantiated detail rows")
+    func activityTimelinePresentationCapsInstantiatedRows() {
+        let journal = JournalID(rawValue: "detail")
+        let items = (0..<5).map { index in
+            TranscriptActivityItem(
+                id: .entry(journalID: journal, seq: EntrySeq(rawValue: index + 1)),
+                kind: .unknown("event"),
+                summary: "Event \(index)",
+                isRunning: false,
+                sourceEntry: nil
+            )
+        }
+        let details = TranscriptActivityDetails(
+            turnID: TranscriptTurnID(journalID: journal, promptSeq: nil, segmentAnchorSeq: EntrySeq(rawValue: 1)),
+            summary: TranscriptActivitySummary(
+                editedFileCount: 0,
+                readFileCount: 0,
+                searchedCode: false,
+                listedFiles: false,
+                commandCount: 0,
+                eventCount: items.count,
+                items: items
+            )
+        )
+
+        let presentation = TranscriptActivityTimelinePresentation(details: details, itemLimit: 3)
+
+        #expect(presentation.models.map(\.title) == ["Event 0", "Event 1", "Event 2"])
+        #expect(presentation.omittedCount == 2)
+    }
+
     private static func model(payload: EntryPayload) -> TranscriptActivityDetailModel {
         model(payload: payload, itemKind: .tool, itemSummary: "summary")
     }

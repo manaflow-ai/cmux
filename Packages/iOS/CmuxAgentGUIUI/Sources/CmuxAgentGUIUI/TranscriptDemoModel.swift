@@ -6,6 +6,7 @@ import Observation
 
 @MainActor @Observable final class TranscriptDemoModel {
     var input = TranscriptProjectionInput(entries: [])
+    var renderedRows: [AgentTranscriptRenderRow] = []
     var speed = 2
     var isPlaying = false
     var tallFixtureEnabled = false
@@ -110,7 +111,7 @@ import Observation
     }
 
     private func updateInput() {
-        input = TranscriptProjectionInput(
+        let nextInput = TranscriptProjectionInput(
             state: conversation.state,
             hasMoreBefore: false,
             streamingTail: streamingTail,
@@ -120,6 +121,10 @@ import Observation
                     ? AgentGUIL10n.string("agent.demo.day.today", defaultValue: "Today")
                     : AgentGUIL10n.string("agent.demo.day.later", defaultValue: "Later")
             }
+        )
+        input = nextInput
+        renderedRows = AgentTranscriptRenderAdapter().rows(
+            from: TranscriptProjector().project(nextInput).rows
         )
     }
 

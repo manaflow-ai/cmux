@@ -26,12 +26,9 @@ public struct TranscriptDemoScreen: View {
     public var body: some View {
         let theme = AgentGUITheme(terminalTheme: .monokai)
         let appearance = AgentTranscriptAppearance(theme: theme, density: density)
-        let rows = AgentTranscriptRenderAdapter().rows(
-            from: TranscriptProjector().project(model.input).rows
-        )
         ConversationKeyboardContainer {
             NativeConversationTranscript(
-                rows: rows,
+                rows: model.renderedRows,
                 hasMoreBefore: model.input.hasMoreBefore,
                 followState: $followState,
                 command: scrollCommand,

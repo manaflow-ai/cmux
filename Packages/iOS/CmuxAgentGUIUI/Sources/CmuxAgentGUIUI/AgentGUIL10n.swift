@@ -77,6 +77,23 @@ enum AgentGUIL10n {
         }
     }
 
+    static func activityDetailTruncated() -> String {
+        string(
+            "agent.activity.detail.truncated",
+            defaultValue: "Detail truncated for performance. Open Terminal for the full output."
+        )
+    }
+
+    static func activityDetailOmittedItems(_ count: Int) -> String {
+        guard count != 1 else {
+            return string("agent.activity.detail.omitted.one", defaultValue: "1 more activity item hidden")
+        }
+        return String(
+            format: string("agent.activity.detail.omitted.other", defaultValue: "%d more activity items hidden"),
+            count
+        )
+    }
+
     static func activitySummary(_ summary: TranscriptActivitySummary) -> String {
         var parts = [String]()
         if summary.editedFileCount > 0 {

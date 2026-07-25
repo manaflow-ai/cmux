@@ -35,6 +35,9 @@ struct TranscriptActivityDetailModel: Equatable, Identifiable {
     let title: String
     let sections: [Section]
 
+    private static let maximumTitleCharacters = 180
+    private static let maximumSectionCharacters = 40_000
+
     init(item: TranscriptActivityItem) {
         id = item.id
         kind = item.kind
@@ -131,7 +134,7 @@ struct TranscriptActivityDetailModel: Equatable, Identifiable {
             Section(
                 id: "\(index):\(section.label.rawValue)",
                 label: section.label,
-                value: section.value,
+                value: boundedSectionValue(section.value),
                 isCode: section.isCode
             )
         }
@@ -151,15 +154,15 @@ struct TranscriptActivityDetailModel: Equatable, Identifiable {
         Section(
             id: Label.summary.rawValue,
             label: .summary,
-            value: nonempty(fallback) ?? fallbackTitle(),
+            value: boundedTitle(nonempty(fallback) ?? fallbackTitle()),
             isCode: false
         )
     }
 
     private static func title(for item: TranscriptActivityItem) -> String {
-        nonempty(item.summary)
+        boundedTitle(nonempty(item.summary)
             ?? nonempty(AgentGUIL10n.activityKind(item.kind))
-            ?? fallbackTitle()
+            ?? fallbackTitle())
     }
 
     private static func fallbackTitle() -> String {
@@ -189,5 +192,25 @@ struct TranscriptActivityDetailModel: Equatable, Identifiable {
 
     private static func byteCount(_ value: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .file)
+    }
+
+    private static func boundedTitle(_ value: String) -> String {
+        bounded(value, limit: maximumTitleCharacters, suffix: "…")
+    }
+
+    private static func boundedSectionValue(_ value: String) -> String {
+        bounded(
+            value,
+            limit: maximumSectionCharacters,
+            suffix: "\n\n\(AgentGUIL10n.activityDetailTruncated())"
+        )
+    }
+
+    private static func bounded(_ value: String, limit: Int, suffix: String) -> String {
+        guard limit > 0,
+              let end = value.index(value.startIndex, offsetBy: limit, limitedBy: value.endIndex),
+              end < value.endIndex
+        else { return value }
+        return String(value[..<end]) + suffix
     }
 }

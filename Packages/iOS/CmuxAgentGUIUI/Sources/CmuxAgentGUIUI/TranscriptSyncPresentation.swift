@@ -22,14 +22,29 @@ enum TranscriptSyncPresentation: Equatable {
         consecutiveFailures: Int,
         input: TranscriptProjectionInput
     ) {
-        let hasContent = input.hasVisibleContent
+        self.init(
+            phase: phase,
+            consecutiveFailures: consecutiveFailures,
+            hasVisibleContent: input.hasVisibleContent,
+            hasCompletedInitialSync: input.hasCompletedInitialSync,
+            hasMoreAfter: input.hasMoreAfter
+        )
+    }
+
+    init(
+        phase: AgentConnectivityPhase,
+        consecutiveFailures: Int,
+        hasVisibleContent: Bool,
+        hasCompletedInitialSync: Bool,
+        hasMoreAfter: Bool
+    ) {
         if consecutiveFailures >= 2 {
-            self = hasContent ? .stale : .error
-        } else if !hasContent, phase != .connected {
+            self = hasVisibleContent ? .stale : .error
+        } else if !hasVisibleContent, phase != .connected {
             self = .loading
-        } else if !hasContent, input.hasMoreAfter {
+        } else if !hasVisibleContent, hasMoreAfter {
             self = .loading
-        } else if !hasContent, input.hasCompletedInitialSync {
+        } else if !hasVisibleContent, hasCompletedInitialSync {
             self = .empty
         } else {
             self = .hidden

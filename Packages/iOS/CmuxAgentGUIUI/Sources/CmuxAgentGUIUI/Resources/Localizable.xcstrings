@@ -112,6 +112,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "出力" } }
       }
     },
+    "agent.activity.detail.omitted.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 more activity item hidden" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ほか 1 件のアクティビティ項目を非表示" } }
+      }
+    },
+    "agent.activity.detail.omitted.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d more activity items hidden" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ほか %d 件のアクティビティ項目を非表示" } }
+      }
+    },
     "agent.activity.detail.path": {
       "extractionState": "manual",
       "localizations": {
@@ -152,6 +166,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Thought" } },
         "ja": { "stringUnit": { "state": "translated", "value": "思考" } }
+      }
+    },
+    "agent.activity.detail.truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Detail truncated for performance. Open Terminal for the full output." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "パフォーマンス維持のため詳細を省略しました。完全な出力はターミナルで確認してください。" } }
       }
     },
     "agent.activity.detail.tool": {

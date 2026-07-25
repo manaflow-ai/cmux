@@ -136,6 +136,20 @@ struct TranscriptSyncPresentationTests {
         #expect(Self.presentation(input: input).showsPlaceholderRow)
     }
 
+    @Test
+    func cachedVisibleRowsDrivePresentationWithoutInspectingEntries() {
+        let presentation = TranscriptSyncPresentation(
+            phase: .connected,
+            consecutiveFailures: 0,
+            hasVisibleContent: true,
+            hasCompletedInitialSync: true,
+            hasMoreAfter: false
+        )
+
+        #expect(presentation == .hidden)
+        #expect(!presentation.showsPlaceholderRow)
+    }
+
     private static let sessionID = AgentSessionID(rawValue: "presentation-session")
     private static let journalID = JournalID(rawValue: "presentation-journal")
     private static let ticket = SendTicket(

@@ -6,7 +6,7 @@ public import SwiftUI
 /// Sheet content showing the ordered activity timeline for one completed turn.
 public struct TranscriptActivityTimelineView: View {
     private let details: TranscriptActivityDetails
-    private let models: [TranscriptActivityDetailModel]
+    private let presentation: TranscriptActivityTimelinePresentation
     private let theme: AgentGUITheme
 
     /// Creates a turn activity timeline.
@@ -15,7 +15,7 @@ public struct TranscriptActivityTimelineView: View {
     ///   - terminalTheme: Current terminal theme used to derive the transcript palette.
     public init(details: TranscriptActivityDetails, terminalTheme: TerminalTheme) {
         self.details = details
-        models = details.summary.items.map(TranscriptActivityDetailModel.init(item:))
+        presentation = TranscriptActivityTimelinePresentation(details: details)
         theme = AgentGUITheme(terminalTheme: terminalTheme)
     }
 
@@ -28,9 +28,15 @@ public struct TranscriptActivityTimelineView: View {
                         .foregroundStyle(Color(theme.dimForeground))
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Divider()
-                    ForEach(models) { model in
+                    ForEach(presentation.models) { model in
                         AgentActivityDetailItemView(
                             model: model,
+                            theme: theme
+                        )
+                    }
+                    if presentation.omittedCount > 0 {
+                        AgentActivityOmittedItemsView(
+                            count: presentation.omittedCount,
                             theme: theme
                         )
                     }
@@ -45,6 +51,21 @@ public struct TranscriptActivityTimelineView: View {
             ))
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+private struct AgentActivityOmittedItemsView: View {
+    let count: Int
+    let theme: AgentGUITheme
+
+    var body: some View {
+        Text(AgentGUIL10n.activityDetailOmittedItems(count))
+            .font(.footnote)
+            .foregroundStyle(Color(theme.faintForeground))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(theme.raisedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

@@ -20,6 +20,7 @@ public struct TranscriptLiveView: View {
     private let onShowTerminal: () -> Void
 
     @State private var input = TranscriptProjectionInput(entries: [])
+    @State private var renderedRows: [AgentTranscriptRenderRow] = []
     @State private var driver: TranscriptProjectionDriver?
     @State private var followState: ConversationFollowState<String> = .followingTail
     @State private var scrollCommand: ConversationScrollCommand?
@@ -64,16 +65,16 @@ public struct TranscriptLiveView: View {
     public var body: some View {
         let theme = AgentGUITheme(terminalTheme: terminalTheme)
         let appearance = AgentTranscriptAppearance(theme: theme, density: density)
-        let projection = TranscriptProjector().project(input)
         let syncPresentation = TranscriptSyncPresentation(
             phase: engine.connectivity.phase,
             consecutiveFailures: engine.connectivity.consecutiveFailureCount,
-            input: input
+            hasVisibleContent: !renderedRows.isEmpty,
+            hasCompletedInitialSync: input.hasCompletedInitialSync,
+            hasMoreAfter: input.hasMoreAfter
         )
-        let adaptedRows = AgentTranscriptRenderAdapter().rows(from: projection.rows)
-        let rows = adaptedRows.isEmpty && syncPresentation.showsPlaceholderRow
+        let rows = renderedRows.isEmpty && syncPresentation.showsPlaceholderRow
             ? [AgentTranscriptRenderRow(id: "empty-state", content: .empty(syncPresentation))]
-            : adaptedRows
+            : renderedRows
 
         ConversationKeyboardContainer {
             VStack(spacing: 0) {
@@ -265,6 +266,7 @@ public struct TranscriptLiveView: View {
         guard driver == nil else { return }
         let nextDriver = TranscriptProjectionDriver(engine: engine, sessionID: sessionID) { nextInput in
             input = nextInput
+            renderedRows = Self.renderRows(from: nextInput)
         }
         driver = nextDriver
         nextDriver.start()
@@ -296,6 +298,7 @@ public struct TranscriptLiveView: View {
     private func restartDriver() {
         stopDriver()
         input = TranscriptProjectionInput(entries: [])
+        renderedRows = []
         followState = .followingTail
         lastStableFollowState = .followingTail
         historyLoadFailure = nil
@@ -422,8 +425,7 @@ public struct TranscriptLiveView: View {
     }
 
     private func showCodeBlock(messageID: String, segmentIndex: Int) {
-        let rows = AgentTranscriptRenderAdapter().rows(from: TranscriptProjector().project(input).rows)
-        guard let message = rows.compactMap({ row -> ChatMessage? in
+        guard let message = renderedRows.compactMap({ row -> ChatMessage? in
             guard case .message(let snapshot) = row.content,
                   snapshot.message.id == messageID
             else { return nil }
@@ -440,6 +442,11 @@ public struct TranscriptLiveView: View {
             code: segment.content,
             language: language
         ))
+    }
+
+    private static func renderRows(from input: TranscriptProjectionInput) -> [AgentTranscriptRenderRow] {
+        let projection = TranscriptProjector().project(input)
+        return AgentTranscriptRenderAdapter().rows(from: projection.rows)
     }
 
     private func answer(_ ask: PendingAsk, choice: Int) {
