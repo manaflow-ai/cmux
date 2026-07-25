@@ -118,7 +118,7 @@ extension SocketTransport {
         guard writeAll(Data((command + "\n").utf8), to: fd) else { return nil }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
-        var response = ""
+        var responseData = Data()
 
         while true {
             let count = read(fd, &buffer, buffer.count)
@@ -135,17 +135,27 @@ extension SocketTransport {
             if count == 0 {
                 break
             }
-            if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                response.append(chunk)
-                if let newlineIndex = response.firstIndex(of: "\n") {
-                    return (
-                        response: String(response[..<newlineIndex]),
-                        peerProcessID: serverProcessID
+            responseData.append(contentsOf: buffer[0..<count])
+            if let newlineIndex = responseData.firstIndex(of: 0x0A) {
+                guard
+                    let response = String(
+                        data: responseData[..<newlineIndex],
+                        encoding: .utf8
                     )
+                else {
+                    return nil
                 }
+                return (
+                    response: response,
+                    peerProcessID: serverProcessID
+                )
             }
         }
 
+        guard let response = String(data: responseData, encoding: .utf8)
+        else {
+            return nil
+        }
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return (response: trimmed, peerProcessID: serverProcessID)
