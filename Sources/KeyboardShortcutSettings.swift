@@ -674,9 +674,6 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
-            if shortcut.hasChord && !allowsChordShortcut {
-                return .rejected(.reservedBySystem)
-            }
 
             let resolved = resolvedRecordedShortcutIgnoringConflicts(shortcut)
             guard case .accepted = resolved else { return resolved }
@@ -693,9 +690,6 @@ enum KeyboardShortcutSettings {
             // Keep this path free of conflict and hotkey checks that consult global shortcut state.
             if shortcut.isUnbound {
                 return .unbound
-            }
-            if shortcut.hasChord && !allowsChordShortcut {
-                return nil
             }
 
             if case let .accepted(normalized) = resolvedRecordedShortcutIgnoringConflicts(
@@ -717,6 +711,9 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
+            if let rejection = shortcutBindingPolicyRejection(for: shortcut) {
+                return .rejected(rejection)
+            }
 
             switch self {
             case .showHideAllWindows:
@@ -726,12 +723,6 @@ enum KeyboardShortcutSettings {
                     checkingConflicts: checkingSystemWideConflicts
                 )
             case .globalSearch:
-                guard !CmuxSettings.ShortcutAction.globalSearch.rejectsSystemDefinedMediaKey(
-                    firstKey: shortcut.firstStroke.key,
-                    secondKey: shortcut.secondStroke?.key
-                ) else {
-                    return .rejected(.reservedBySystem)
-                }
                 return .accepted(shortcut)
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
@@ -934,7 +925,7 @@ enum KeyboardShortcutSettings {
         if shortcut.isUnbound { return shortcut }
         if shortcut.hasChord && !action.allowsChordShortcut { return nil }
 
-        switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
+        switch action.normalizedRecordedShortcutResult(shortcut) {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
         case .rejected:

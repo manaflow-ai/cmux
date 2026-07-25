@@ -13,7 +13,11 @@ extension UserDefaultsSettingsStore {
                   let payload = try? decoder.decode(LegacyStoredShortcutPayload.self, from: data) else {
                 return nil
             }
-            return (action.rawValue, payload.storedShortcut)
+            let shortcut = payload.storedShortcut
+            guard action.shortcutBindingPolicyResult(for: shortcut) == .accepted else {
+                return nil
+            }
+            return (action.rawValue, shortcut)
         })
     }
 

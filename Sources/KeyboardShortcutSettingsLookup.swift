@@ -9,23 +9,12 @@ extension KeyboardShortcutSettings {
         #endif
 
         if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut.isUnbound ? nil : managedShortcut
+            return effectivePersistedShortcut(managedShortcut, for: action)
         }
 
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            let defaultShortcut = action.defaultShortcut
-            return defaultShortcut.isUnbound ? nil : defaultShortcut
-        }
-        if CmuxSettings.ShortcutAction(rawValue: action.rawValue)?
-            .rejectsSystemDefinedMediaKey(
-                firstKey: shortcut.firstStroke.key,
-                secondKey: shortcut.secondStroke?.key
-            ) == true {
-            let defaultShortcut = action.defaultShortcut
-            return defaultShortcut.isUnbound ? nil : defaultShortcut
-        }
-        return shortcut.isUnbound ? nil : shortcut
+        let shortcut = UserDefaults.standard.data(forKey: action.defaultsKey)
+            .flatMap { try? JSONDecoder().decode(StoredShortcut.self, from: $0) }
+        return effectivePersistedShortcut(shortcut, for: action)
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {

@@ -5,7 +5,7 @@ extension Dictionary where Key == String, Value == StoredShortcut {
     func removingBindingsRejectedByActionPolicy() -> Self {
         filter { rawAction, shortcut in
             guard let action = ShortcutAction(rawValue: rawAction) else { return true }
-            return !action.rejectsSystemDefinedMediaKey(shortcut)
+            return action.shortcutBindingPolicyResult(for: shortcut) == .accepted
         }
     }
 }
