@@ -76,7 +76,7 @@ extension CMUXOpenCommandTests {
         return current
     }
 
-    private static func diffViewerRedirectURL(from html: String) -> String? {
+    static func diffViewerRedirectURL(from html: String) -> String? {
         let marker = "data-cmux-diff-redirect=\""
         guard let start = html.range(of: marker)?.upperBound else { return nil }
         let tail = html[start...]

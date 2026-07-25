@@ -60,6 +60,7 @@ final class SharedLiveAgentIndex {
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
+    private var freshSnapshotRefreshTask: (id: UUID, task: Task<Void, Never>)?
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
     private var forkExecutableWatchRecords: [ForkExecutableWatchKey: ForkExecutableWatchRecord] = [:]
     private var forkExecutableWatchKeysByProbeKey: [ForkProbeKey: ForkExecutableWatchKey] = [:]
@@ -257,6 +258,7 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        freshSnapshotRefreshTask?.task.cancel()
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
@@ -285,7 +287,32 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return index?.structuredHookSnapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    /// Reloads the live process-backed index before returning an identity used
+    /// for an action. Unlike `snapshot`, this never accepts the TTL cache.
+    func freshSnapshot(workspaceId: UUID, panelId: UUID) async -> SessionRestorableAgentSnapshot? {
+        let refresh: (id: UUID, task: Task<Void, Never>)
+        if let existing = freshSnapshotRefreshTask {
+            refresh = existing
+        } else {
+            let id = UUID()
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let refreshTask = self.refreshTask {
+                    await refreshTask.value
+                }
+                _ = await self.reload(forcePublish: true)
+            }
+            refresh = (id, task)
+            freshSnapshotRefreshTask = refresh
+        }
+        await refresh.task.value
+        if freshSnapshotRefreshTask?.id == refresh.id {
+            freshSnapshotRefreshTask = nil
+        }
+        return index?.structuredHookSnapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.

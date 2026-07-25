@@ -810,10 +810,22 @@ struct ContentView: View {
     let windowId: UUID
     let featureFlags: CmuxFeatureFlags
 
+    @MainActor
+    init(
+        updateViewModel: UpdateStateModel,
+        windowId: UUID
+    ) {
+        self.init(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            featureFlags: .shared
+        )
+    }
+
     init(
         updateViewModel: UpdateStateModel,
         windowId: UUID,
-        featureFlags: CmuxFeatureFlags = .shared
+        featureFlags: CmuxFeatureFlags
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId
@@ -5313,9 +5325,22 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
+        Self.commandPaletteCommandsFingerprint(
+            snapshotFingerprint: commandsContext.snapshot.fingerprint(),
+            configRevision: cmuxConfigStore.configRevision,
+            keyboardShortcutRevision: KeyboardShortcutSettingsObserver.shared.revision
+        )
+    }
+
+    nonisolated static func commandPaletteCommandsFingerprint(
+        snapshotFingerprint: Int,
+        configRevision: UInt64,
+        keyboardShortcutRevision: UInt64
+    ) -> Int {
         var hasher = Hasher()
-        hasher.combine(commandsContext.snapshot.fingerprint())
-        hasher.combine(cmuxConfigStore.configRevision)
+        hasher.combine(snapshotFingerprint)
+        hasher.combine(configRevision)
+        hasher.combine(keyboardShortcutRevision)
         return hasher.finalize()
     }
 
@@ -9404,7 +9429,10 @@ struct ContentView: View {
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        // Reuse the immutable command corpus and Nucleo index across presentations.
+        // The context/config fingerprint below still rebuilds them when any command
+        // title, enablement, shortcut, or handler context can change.
+        scheduleCommandPaletteResultsRefresh()
         syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -9498,7 +9526,6 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
-        cancelCommandPaletteSearchIndexBuild()
         cancelCommandPaletteForkableAgentAvailabilityProbe()
         cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
         commandPaletteForkableAgentActivePanelKey = nil
@@ -9518,17 +9545,11 @@ struct ContentView: View {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
-        commandPaletteSearchCorpus = []
-        commandPaletteSearchCorpusByID = [:]
-        commandPaletteSearchCommandsByID = [:]
-        commandPaletteNucleoSearchIndex = nil
         cachedCommandPaletteResults = []
         commandPaletteVisibleResults = []
         commandPaletteVisibleResultsScope = nil
         commandPaletteVisibleResultsFingerprint = nil
         commandPaletteVisibleResultsVersion &+= 1
-        cachedCommandPaletteScope = nil
-        cachedCommandPaletteFingerprint = nil
         commandPalettePendingTextSelectionBehavior = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
         commandPaletteResolvedSearchScope = nil

@@ -5,6 +5,7 @@ pub mod benchmark;
 pub mod manifest;
 pub mod protocol;
 pub mod server;
+pub mod trajectory;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 #[cfg(feature = "http-server")]

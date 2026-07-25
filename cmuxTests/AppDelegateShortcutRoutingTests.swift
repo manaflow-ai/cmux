@@ -3,6 +3,7 @@ import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
 import Combine
+import os
 import SwiftUI
 @testable import CmuxSettingsUI
 
@@ -2163,6 +2164,106 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             1,
             "Cmd+Ctrl+Shift+D must route to the shared diff-open path (same path as the command palette)"
         )
+    }
+
+    func testDiffViewerLaunchContextKeepsAgentIdentityWithoutWorkingDirectory() {
+        let context = AppDelegate.openDiffViewerLaunchContext(
+            preferAgentContext: true,
+            fallbackCwd: "/fallback",
+            sessionId: "codex-session",
+            agentProvider: "codex",
+            agentWorkingDirectory: nil
+        )
+
+        XCTAssertEqual(context.cwd, "/fallback")
+        XCTAssertTrue(context.useLastTurnSource)
+        XCTAssertEqual(context.sessionId, "codex-session")
+        XCTAssertEqual(context.agentProvider, "codex")
+    }
+
+    func testDiffViewerLaunchContextKeepsAgentWorkingDirectoryWithoutTrajectoryIdentity() {
+        let context = AppDelegate.openDiffViewerLaunchContext(
+            preferAgentContext: true,
+            fallbackCwd: "/workspace-fallback",
+            sessionId: "custom-session",
+            agentProvider: nil,
+            agentWorkingDirectory: "/focused-agent-repo"
+        )
+
+        XCTAssertEqual(context.cwd, "/focused-agent-repo")
+        XCTAssertFalse(context.useLastTurnSource)
+        XCTAssertNil(context.sessionId)
+        XCTAssertNil(context.agentProvider)
+    }
+
+    func testDiffViewerAgentSnapshotForcesFreshIndexLoad() async {
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                return (
+                    index: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            }
+        )
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        _ = await sharedIndex.freshSnapshot(workspaceId: workspaceID, panelId: panelID)
+        _ = await sharedIndex.freshSnapshot(workspaceId: workspaceID, panelId: panelID)
+
+        XCTAssertEqual(loadCount.withLock { $0 }, 2)
+    }
+
+    func testDiffViewerAgentSnapshotRejectsProcessInferredIdentity() async {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let inferredSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "latest-session-file-guess",
+            workingDirectory: "/tmp/project",
+            launchCommand: nil
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: "/tmp/cmux-missing-agent-home-\(UUID().uuidString)",
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                panelKey: (
+                    snapshot: inferredSnapshot,
+                    updatedAt: 10,
+                    processIDs: [123],
+                    agentProcessIDs: [123],
+                    sessionIDSource: .inferredLatestSessionFile
+                ),
+            ],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            }
+        )
+
+        let snapshot = await sharedIndex.freshSnapshot(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+
+        XCTAssertNil(snapshot)
     }
 
     func testCmdCtrlWPromptsBeforeClosingWindow() {
