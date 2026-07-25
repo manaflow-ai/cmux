@@ -196607,13 +196607,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Surface Left"
+            "value": "Reorder Surface Left"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーフェスを左へ移動"
+            "value": "サーフェスを左へ並べ替え"
           }
         }
       }
@@ -196624,13 +196624,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Surface Right"
+            "value": "Reorder Surface Right"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サーフェスを右へ移動"
+            "value": "サーフェスを右へ並べ替え"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToNextPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Next Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを次のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane Below"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを下のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneLeft.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane on Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを左のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneRight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane on Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを右のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPaneUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Pane Above"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを上のペインへ移動"
+          }
+        }
+      }
+    },
+    "shortcut.moveSurfaceToPreviousPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Surface to Previous Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを前のペインへ移動"
           }
         }
       }

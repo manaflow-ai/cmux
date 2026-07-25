@@ -927,11 +927,41 @@ struct cmuxApp: App {
             splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: menuShortcut(for: .prevSurface)) {
                 activeTabManager.selectPreviousSurface()
             }
-            splitCommandButton(title: String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left"), shortcut: menuShortcut(for: .moveSurfaceLeft)) {
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Reorder Surface Left"), shortcut: menuShortcut(for: .moveSurfaceLeft)) {
                 activeTabManager.selectedWorkspace?.moveSelectedSurface(by: -1)
             }
-            splitCommandButton(title: String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right"), shortcut: menuShortcut(for: .moveSurfaceRight)) {
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Reorder Surface Right"), shortcut: menuShortcut(for: .moveSurfaceRight)) {
                 activeTabManager.selectedWorkspace?.moveSelectedSurface(by: 1)
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceToPreviousPane.label", defaultValue: "Move Surface to Previous Pane"), shortcut: menuShortcut(for: .moveSurfaceToPreviousPane)) {
+                if !activeTabManager.moveSelectedSurfaceToPane(offset: -1) {
+                    NSSound.beep()
+                }
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceToNextPane.label", defaultValue: "Move Surface to Next Pane"), shortcut: menuShortcut(for: .moveSurfaceToNextPane)) {
+                if !activeTabManager.moveSelectedSurfaceToPane(offset: 1) {
+                    NSSound.beep()
+                }
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceToPaneLeft.label", defaultValue: "Move Surface to Pane on Left"), shortcut: menuShortcut(for: .moveSurfaceToPaneLeft)) {
+                if !activeTabManager.moveSelectedSurfaceToAdjacentPane(.left) {
+                    NSSound.beep()
+                }
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceToPaneRight.label", defaultValue: "Move Surface to Pane on Right"), shortcut: menuShortcut(for: .moveSurfaceToPaneRight)) {
+                if !activeTabManager.moveSelectedSurfaceToAdjacentPane(.right) {
+                    NSSound.beep()
+                }
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceToPaneUp.label", defaultValue: "Move Surface to Pane Above"), shortcut: menuShortcut(for: .moveSurfaceToPaneUp)) {
+                if !activeTabManager.moveSelectedSurfaceToAdjacentPane(.up) {
+                    NSSound.beep()
+                }
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceToPaneDown.label", defaultValue: "Move Surface to Pane Below"), shortcut: menuShortcut(for: .moveSurfaceToPaneDown)) {
+                if !activeTabManager.moveSelectedSurfaceToAdjacentPane(.down) {
+                    NSSound.beep()
+                }
             }
 
             splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {

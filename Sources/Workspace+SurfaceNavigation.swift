@@ -1,8 +1,65 @@
+import Bonsplit
 import CmuxWorkspaces
 import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
+    /// Moves the focused surface into the neighboring bonsplit pane, creating
+    /// an equal split in that direction when no neighboring pane exists.
+    ///
+    /// Existing-pane moves delegate to `moveSurface`; missing-pane moves use
+    /// Bonsplit's moving-tab split path so both cases preserve the live panel
+    /// identity, source-pane validity, and focus.
+    @discardableResult
+    func moveSelectedSurfaceToAdjacentPane(_ direction: NavigationDirection) -> Bool {
+        guard let panelId = focusedPanelId else { return false }
+        return moveSurfaceToAdjacentPane(panelId: panelId, direction: direction)
+    }
+
+    /// Moves the focused surface to the previous or next pane in the split
+    /// tree's stable spatial order (top-to-bottom, then left-to-right).
+    @discardableResult
+    func moveSelectedSurfaceToPane(offset: Int) -> Bool {
+        guard offset != 0,
+              layoutMode != .canvas,
+              !isRemoteTmuxMirror,
+              let panelId = focusedPanelId,
+              let sourcePaneId = paneId(forPanelId: panelId) else {
+            return false
+        }
+
+        let orderedPaneIds = spatiallyOrderedPaneIds
+        guard let sourceIndex = orderedPaneIds.firstIndex(of: sourcePaneId.id) else {
+            return false
+        }
+        guard orderedPaneIds.count > 1 else { return false }
+        let paneCount = orderedPaneIds.count
+        let destinationIndex = (sourceIndex + offset % paneCount + paneCount) % paneCount
+        guard let destinationPaneId = bonsplitController.allPaneIds.first(where: {
+            $0.id == orderedPaneIds[destinationIndex]
+        }),
+              destinationPaneId != sourcePaneId else {
+            return false
+        }
+
+        clearSplitZoom()
+        return moveSurface(
+            panelId: panelId,
+            toPane: destinationPaneId,
+            atIndex: insertionIndexAfterSelectedTab(in: destinationPaneId),
+            focus: true
+        )
+    }
+
+    func insertionIndexAfterSelectedTab(in paneId: PaneID) -> Int {
+        let destinationTabs = bonsplitController.tabs(inPane: paneId)
+        guard let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+              let selectedIndex = destinationTabs.firstIndex(where: { $0.id == selectedTabId }) else {
+            return destinationTabs.count
+        }
+        return selectedIndex + 1
+    }
+
     /// Notification unread lookup for sidebar surface indicators.
     func hasUnreadNotification(panelId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false

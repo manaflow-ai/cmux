@@ -111,6 +111,10 @@ extension ShortcutAction {
         case .prevSurface: return ShortcutStroke(key: "[", command: true, shift: true)
         case .moveSurfaceLeft: return ShortcutStroke(key: "[", command: true, shift: true, option: true)
         case .moveSurfaceRight: return ShortcutStroke(key: "]", command: true, shift: true, option: true)
+        case .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
+             .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
+             .moveSurfaceToPaneUp, .moveSurfaceToPaneDown:
+            return nil
         case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .moveWorkspaceUp: return ShortcutStroke(key: "[", command: true, option: true, control: true)
