@@ -839,6 +839,20 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
+check_web_test_global_isolation() {
+  if ! awk '
+    /^  web-typecheck:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /run: bun test --isolate \$\(ls tests\/\*\.test\.ts tests\/\*\.test\.tsx \| sort\)/ { saw_isolated_tests=1 }
+    END { exit !saw_isolated_tests }
+  ' "$CI_FILE"; then
+    echo "FAIL: web-typecheck must run Bun with --isolate so global module mocks cannot leak between test files"
+    exit 1
+  fi
+
+  echo "PASS: web tests isolate each file's global module mocks"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -1027,4 +1041,5 @@ check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
+check_web_test_global_isolation
 check_tmux_terminal_nightly_isolation
