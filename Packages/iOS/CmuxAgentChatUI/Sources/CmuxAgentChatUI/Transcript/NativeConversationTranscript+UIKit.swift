@@ -76,6 +76,7 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         private var lastCommandGeneration: Int?
         private var pendingSemanticCommand: PendingSemanticCommand?
         private var prefetchGate = ConversationPrefetchGate<ConversationPrefetchBoundary<Row.ID>>()
+        private let tailSettlePolicy = ConversationTailSettlePolicy()
         private var beforePageID: String?
         private var afterPageID: String?
         private var prefetchResetGeneration = 0
@@ -87,11 +88,15 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         private var pendingSemanticScrollTarget: ConversationScrollTarget?
         private var tailSettleGeneration = 0
         private var activeTailSettleGeneration: Int?
-        private var tailSettlePassesRemaining = 0
-        private var tailSettleBottomConfirmationCount = 0
+        private var tailSettleState: ConversationTailSettlePolicy.State?
+        private var tailSettleTask: Task<Void, Never>?
 
         init(followState: Binding<ConversationFollowState<Row.ID>>) {
             self.followState = followState
+        }
+
+        deinit {
+            tailSettleTask?.cancel()
         }
 
         func attach(to tableView: ChatTranscriptUITableView) {
@@ -479,10 +484,10 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
 
         private func scrollToTail(in tableView: UITableView, animated: Bool) {
             guard !orderedIDs.isEmpty else { return }
+            tailSettleTask?.cancel()
             tailSettleGeneration += 1
             activeTailSettleGeneration = tailSettleGeneration
-            tailSettlePassesRemaining = 8
-            tailSettleBottomConfirmationCount = 0
+            tailSettleState = tailSettlePolicy.makeState()
             pendingSemanticScrollTarget = animated ? .tail : nil
             settleTail(
                 in: tableView,
@@ -493,10 +498,11 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         }
 
         private func cancelTailSettle() {
+            tailSettleTask?.cancel()
+            tailSettleTask = nil
             tailSettleGeneration += 1
             activeTailSettleGeneration = nil
-            tailSettlePassesRemaining = 0
-            tailSettleBottomConfirmationCount = 0
+            tailSettleState = nil
         }
 
         private func continueTailSettle(in tableView: UITableView) {
@@ -525,34 +531,43 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
             )
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
 
-            if tailIsVisiblyReached(in: tableView) {
-                tailSettleBottomConfirmationCount += 1
-            } else {
-                tailSettleBottomConfirmationCount = 0
+            guard var tailSettleState else { return }
+            switch tailSettleState.observe(isAtBottom: tailIsVisiblyReached(in: tableView)) {
+            case .finishedAtBottom:
+                finishTailSettle(atBottom: true, in: tableView)
+            case .expiredAwayFromBottom:
+                finishTailSettle(atBottom: false, in: tableView)
+            case .continueSettling:
+                self.tailSettleState = tailSettleState
+                scheduleTailSettle(in: tableView, generation: generation)
             }
+        }
 
-            guard tailSettleBottomConfirmationCount < 2 else {
-                activeTailSettleGeneration = nil
-                tailSettlePassesRemaining = 0
-                pendingSemanticScrollTarget = nil
+        private func finishTailSettle(atBottom: Bool, in tableView: UITableView) {
+            tailSettleTask?.cancel()
+            tailSettleTask = nil
+            activeTailSettleGeneration = nil
+            tailSettleState = nil
+            pendingSemanticScrollTarget = nil
+            if atBottom {
                 followState.wrappedValue = .followingTail
-                return
+            } else {
+                detachAtCurrentViewport(in: tableView)
             }
+        }
 
-            guard tailSettlePassesRemaining > 0 else {
-                activeTailSettleGeneration = nil
-                tailSettleBottomConfirmationCount = 0
-                pendingSemanticScrollTarget = nil
-                if tailIsVisiblyReached(in: tableView) {
-                    followState.wrappedValue = .followingTail
-                } else {
-                    detachAtCurrentViewport(in: tableView)
-                }
-                return
-            }
-            tailSettlePassesRemaining -= 1
-            DispatchQueue.main.async { [weak self, weak tableView] in
+        private func scheduleTailSettle(
+            in tableView: UITableView,
+            generation: Int
+        ) {
+            tailSettleTask?.cancel()
+            tailSettleTask = Task { @MainActor [weak self, weak tableView] in
+                await Task.yield()
                 guard let self, let tableView else { return }
+                guard !Task.isCancelled,
+                      generation == self.activeTailSettleGeneration
+                else { return }
+                self.tailSettleTask = nil
                 self.settleTail(
                     in: tableView,
                     generation: generation,

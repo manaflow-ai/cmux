@@ -96,3 +96,27 @@ struct ConversationTailGeometryTests {
         ) == 0)
     }
 }
+
+@Suite("Conversation transcript tail settle policy")
+struct ConversationTailSettlePolicyTests {
+    @Test("tail settling keeps correcting through late non-bottom passes")
+    func keepsCorrectingThroughLateNonBottomPasses() {
+        var state = ConversationTailSettlePolicy(maximumPasses: 12).makeState()
+
+        for _ in 0..<11 {
+            #expect(state.observe(isAtBottom: false) == .continueSettling)
+        }
+
+        #expect(state.observe(isAtBottom: true) == .continueSettling)
+        #expect(state.observe(isAtBottom: true) == .finishedAtBottom)
+    }
+
+    @Test("tail settling expires detached when the bottom never becomes visible")
+    func expiresDetachedWhenBottomNeverBecomesVisible() {
+        var state = ConversationTailSettlePolicy(maximumPasses: 2).makeState()
+
+        #expect(state.observe(isAtBottom: false) == .continueSettling)
+        #expect(state.observe(isAtBottom: false) == .continueSettling)
+        #expect(state.observe(isAtBottom: false) == .expiredAwayFromBottom)
+    }
+}
