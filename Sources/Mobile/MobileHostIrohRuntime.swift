@@ -117,6 +117,10 @@ final class MobileHostIrohRuntime {
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
     var nextDiagnosticSessionID = 0
+    var failureRecoveryTask: Task<Void, Never>?
+    var failureRecoveryFailureCount = 0
+    let failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+    let failureRecoverySchedule = CmxIrohRetrySchedule()
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
@@ -244,6 +248,10 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool,
         revision: UInt64
     ) async {
+        // Each transition re-derives failure recovery from its own outcome:
+        // success resets the backoff ladder, failure re-arms it, and a
+        // deactivating transition ends the need for it.
+        cancelFailureRecovery(resetBackoff: false)
         if eraseAccountState {
             await quarantineForSignOut()
         } else if restartActiveRuntime
@@ -279,6 +287,7 @@ final class MobileHostIrohRuntime {
         ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
+            failureRecoveryFailureCount = 0
         } catch is CancellationError {
             return
         } catch {
@@ -290,6 +299,7 @@ final class MobileHostIrohRuntime {
             mobileHostIrohLog.error(
                 "Iroh host activation failed: \(String(describing: error), privacy: .private)"
             )
+            scheduleFailureRecovery()
         }
     }
 
