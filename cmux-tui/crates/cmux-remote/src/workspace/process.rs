@@ -3565,6 +3565,47 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_pty_spawn_returns_within_deadline() {
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let runtime =
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let result = runtime.block_on(async {
+                let (_directory, root) = root().await;
+                let manager = ProcessManager::default();
+                let response = manager
+                    .spawn(
+                        root,
+                        spawn_options(
+                            vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                            ProcessIo::Pty {
+                                cols: 80,
+                                rows: 24,
+                                term: "xterm-256color".into(),
+                                eof: PtyEofPolicy::Reject,
+                            },
+                            ProcessLifetime::Workspace,
+                        ),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let WorkspaceResponse::ProcessStarted { process, .. } = response else {
+                    return Err("PTY spawn returned an unexpected response".to_owned());
+                };
+                manager.wait(process).await.map_err(|error| error.to_string())?;
+                Ok::<(), String>(())
+            });
+            let _ = result_tx.send(result);
+        });
+
+        result_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("macOS PTY spawn blocked past its five-second deadline")
+            .expect("macOS PTY spawn failed");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn explicit_pty_accepts_input_and_resize() {
