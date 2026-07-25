@@ -8,6 +8,7 @@ use super::graphics::{GraphicPlacement, GraphicsState};
 
 struct GraphicsSubmission {
     id: u64,
+    session_generation: u64,
     placements: Vec<GraphicPlacement>,
 }
 
@@ -56,9 +57,14 @@ impl GraphicsWriter {
         Ok(Self { slot, completion, notify: Some(tx), done: Some(done_rx), handle: Some(handle) })
     }
 
-    pub fn submit(&self, id: u64, placements: Vec<GraphicPlacement>) -> bool {
+    pub fn submit(
+        &self,
+        id: u64,
+        session_generation: u64,
+        placements: Vec<GraphicPlacement>,
+    ) -> bool {
         let Some(tx) = &self.notify else { return false };
-        submit_snapshot(&self.slot, tx, GraphicsSubmission { id, placements })
+        submit_snapshot(&self.slot, tx, GraphicsSubmission { id, session_generation, placements })
     }
 
     pub fn take_completion(&self) -> Option<GraphicsCompletion> {
@@ -122,7 +128,9 @@ fn writer_loop(
                 .iter()
                 .map(|placement| (placement.surface, placement.seq))
                 .collect();
-            for batch in graphics.frame_batches(&submission.placements) {
+            for batch in
+                graphics.frame_batches(submission.session_generation, &submission.placements)
+            {
                 let _guard = stdout_lock.lock().unwrap();
                 if output.write_all(&batch).and_then(|_| output.flush()).is_err() {
                     *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
@@ -174,6 +182,7 @@ mod tests {
             &tx,
             GraphicsSubmission {
                 id: 1,
+                session_generation: 1,
                 placements: vec![GraphicPlacement {
                     surface: 1,
                     rect: Rect { x: 0, y: 0, width: 10, height: 5 },
@@ -187,6 +196,7 @@ mod tests {
             &tx,
             GraphicsSubmission {
                 id: 2,
+                session_generation: 1,
                 placements: vec![GraphicPlacement {
                     surface: 1,
                     rect: Rect { x: 1, y: 1, width: 11, height: 6 },
@@ -222,6 +232,7 @@ mod tests {
 
         assert!(writer.submit(
             7,
+            1,
             vec![GraphicPlacement {
                 surface: 11,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },
@@ -257,6 +268,7 @@ mod tests {
 
         assert!(writer.submit(
             9,
+            1,
             vec![GraphicPlacement {
                 surface: 11,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },

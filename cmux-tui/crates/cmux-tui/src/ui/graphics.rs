@@ -20,12 +20,21 @@ pub struct GraphicPlacement {
 
 #[derive(Default)]
 pub struct GraphicsState {
+    session_generation: Option<u64>,
     transmitted: HashMap<SurfaceId, u64>,
     visible: HashSet<SurfaceId>,
 }
 
 impl GraphicsState {
-    pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
+    pub fn frame_batches(
+        &mut self,
+        session_generation: u64,
+        placements: &[GraphicPlacement],
+    ) -> Vec<Vec<u8>> {
+        if self.session_generation != Some(session_generation) {
+            self.session_generation = Some(session_generation);
+            self.transmitted.clear();
+        }
         let visible_placements = placements
             .iter()
             .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
@@ -281,7 +290,27 @@ mod tests {
             GraphicPlacement { rect: Rect { height: 0, ..visible.rect }, ..visible.clone() };
         let mut state = GraphicsState::default();
 
-        assert!(!state.frame_batches(&[visible]).is_empty());
-        assert_eq!(state.frame_batches(&[collapsed]), vec![delete_image(7)]);
+        assert!(!state.frame_batches(1, &[visible]).is_empty());
+        assert_eq!(state.frame_batches(1, &[collapsed]), vec![delete_image(7)]);
+    }
+
+    #[test]
+    fn replacement_session_retransmits_a_reused_surface_sequence() {
+        let old = GraphicPlacement {
+            surface: 7,
+            rect: Rect { x: 4, y: 6, width: 80, height: 24 },
+            seq: 1,
+            data_b64: "old-frame".to_string(),
+        };
+        let replacement = GraphicPlacement { data_b64: "replacement-frame".to_string(), ..old };
+        let mut state = GraphicsState::default();
+
+        state.frame_batches(1, &[old]);
+        let output = state.frame_batches(2, &[replacement]).concat();
+
+        assert!(
+            output.windows(b"replacement-frame".len()).any(|bytes| bytes == b"replacement-frame"),
+            "a new machine session must retransmit even when surface and frame counters restart"
+        );
     }
 }

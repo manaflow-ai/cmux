@@ -3044,6 +3044,7 @@ pub(crate) enum PaneContentGeneration {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GraphicIdentity {
+    session_generation: u64,
     surface: SurfaceId,
     rect: Rect,
     seq: u64,
@@ -6324,14 +6325,8 @@ impl App {
             return Ok(());
         }
         let placements = self.graphic_placements();
-        let snapshot = placements
-            .iter()
-            .map(|placement| GraphicIdentity {
-                surface: placement.surface,
-                rect: placement.rect,
-                seq: placement.seq,
-            })
-            .collect::<Vec<_>>();
+        let snapshot =
+            placements.iter().map(|placement| self.graphic_identity(placement)).collect::<Vec<_>>();
         if snapshot == self.last_graphics_snapshot {
             if self.pointer_route_phase == PointerRoutePhase::GraphicsRenderPending {
                 self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
@@ -6347,7 +6342,7 @@ impl App {
         };
         self.next_graphics_submission = self.next_graphics_submission.wrapping_add(1).max(1);
         let submission = self.next_graphics_submission;
-        if writer.submit(submission, placements) {
+        if writer.submit(submission, self.session_generation, placements) {
             self.last_graphics_snapshot = snapshot;
             self.pending_graphics_submission = Some(submission);
             self.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
@@ -6355,9 +6350,13 @@ impl App {
         Ok(())
     }
 
-    #[cfg(test)]
     fn graphic_identity(&self, placement: &GraphicPlacement) -> GraphicIdentity {
-        GraphicIdentity { surface: placement.surface, rect: placement.rect, seq: placement.seq }
+        GraphicIdentity {
+            session_generation: self.session_generation,
+            surface: placement.surface,
+            rect: placement.rect,
+            seq: placement.seq,
+        }
     }
 
     fn graphic_placements(&self) -> Vec<GraphicPlacement> {
@@ -14670,6 +14669,7 @@ mod tests {
         app.pending_graphics_submission = Some(9);
         app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
         app.last_graphics_snapshot.push(GraphicIdentity {
+            session_generation: app.session_generation,
             surface: 11,
             rect: Rect { x: 1, y: 2, width: 3, height: 4 },
             seq: 15,
@@ -17999,6 +17999,7 @@ mod tests {
         let mux = Mux::new("reset-rendered-graphics-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let previous = GraphicIdentity {
+            session_generation: app.session_generation,
             surface: 77,
             rect: Rect { x: 2, y: 3, width: 12, height: 5 },
             seq: 9,
