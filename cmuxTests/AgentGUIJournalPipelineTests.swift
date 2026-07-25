@@ -96,6 +96,39 @@ struct AgentGUIJournalPipelineTests {
         )
     }
 
+    @Test func dimensionOnlyImageAttachmentIsEnrichedBeforePublish() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-dimension-image-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("claude.jsonl")
+        let image = directory.appendingPathComponent("opaque-preview.dat")
+        let pngData = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        try pngData.write(to: image)
+        let sessionID = AgentSessionID(rawValue: "session-dimension-image-\(UUID().uuidString)")
+        let line = #"{"type":"attachment","attachment":{"kind":"file","summary":"Generated preview","path":"\#(image.path)","width":1,"height":1}}"#
+        try write(lines: [line], to: transcript)
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: sessionID,
+            kind: .claude,
+            path: transcript.path
+        )
+
+        _ = await pipeline.ingestInitial()
+
+        let attachment = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10)?.entries.compactMap { entry -> AttachmentPayload? in
+            guard case .attachment(let payload) = entry.content.payload else { return nil }
+            return payload
+        }.first)
+        #expect(attachment.hostPath == image.path)
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.byteCount == pngData.count)
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        await AgentChatArtifactIndex.shared.removeSupplementalAttachments(sessionID: sessionID.rawValue)
+    }
+
     @Test func missingJournalIsAnEmptyPageThenResetsWhenCreated() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-gui-missing-\(UUID().uuidString)", isDirectory: true)
@@ -857,6 +890,8 @@ struct AgentGUIJournalPipelineTests {
     private static let codexMessageLineWithMultibyteText = """
     {"type":"response_item","payload":{"type":"message","role":"assistant","content":"caf\u{00E9}"}}
     """
+
+    private static let onePixelPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
     private static var messageStride: Int {
         (codexMessageLine + "\n").utf8.count

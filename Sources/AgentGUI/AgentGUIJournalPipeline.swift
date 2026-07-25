@@ -384,8 +384,7 @@ final class AgentGUIJournalPipeline {
         }
         let referencedImages = entries.compactMap { entry -> AgentGUITranscriptImageStore.ReferencedImage? in
             guard case .attachment(let attachment) = entry.content.payload,
-                  attachment.mimeType?.hasPrefix("image/") == true
-                    || attachment.kind.lowercased().contains("image"),
+                  isImageAttachmentCandidate(attachment),
                   let hostPath = attachment.hostPath,
                   !hostPath.isEmpty else { return nil }
             return AgentGUITranscriptImageStore.ReferencedImage(
@@ -434,6 +433,32 @@ final class AgentGUIJournalPipeline {
             )
         }
         return resolved
+    }
+
+    private func isImageAttachmentCandidate(_ attachment: AttachmentPayload) -> Bool {
+        if attachment.mimeType?.lowercased().hasPrefix("image/") == true {
+            return true
+        }
+        if attachment.kind.lowercased().contains("image") {
+            return true
+        }
+        if (attachment.width ?? 0) > 0, (attachment.height ?? 0) > 0 {
+            return true
+        }
+        if Self.hasImageExtension(attachment.displayName) || Self.hasImageExtension(attachment.hostPath) {
+            return true
+        }
+        return false
+    }
+
+    private static func hasImageExtension(_ value: String?) -> Bool {
+        guard let value, !value.isEmpty else { return false }
+        switch URL(fileURLWithPath: value).pathExtension.lowercased() {
+        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff", "webp":
+            return true
+        default:
+            return false
+        }
     }
 
     private func cacheToolCalls(
