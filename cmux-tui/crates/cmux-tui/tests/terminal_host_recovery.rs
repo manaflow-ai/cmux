@@ -507,6 +507,86 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
 }
 
 #[test]
+fn explicit_terminate_reaps_background_jobs_in_separate_pty_process_groups() {
+    let harness = RecoveryHarness::start("terminate-job-control-group");
+    let marker = format!("job-control-background-ready-{}", std::process::id());
+    let descendant_pid_path = harness.dir.join("job-control-background.pid");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-i",
+                "-c",
+                concat!(
+                    "trap '' HUP; ",
+                    "(trap '' HUP; while :; do sleep 60; done) & ",
+                    "printf '%s' \"$!\" > \"$1\"; printf '%s\\n' \"$2\"; wait",
+                ),
+                "cmux-job-control-background",
+                descendant_pid_path,
+                marker,
+            ],
+            "new_workspace": true,
+            "name": "job-control-background",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let descendant_pid = wait_for_pid_file(&harness.dir.join("job-control-background.pid"));
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let observer = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let direct_pid = observer.snapshot.pid.unwrap() as libc::pid_t;
+    observer.disconnect();
+    assert!(process_exists(direct_pid), "direct PTY child exited before Terminate");
+    assert!(process_exists(descendant_pid), "background job exited before Terminate");
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_group = unsafe { libc::getpgid(direct_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_group = unsafe { libc::getpgid(descendant_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_session = unsafe { libc::getsid(direct_pid) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_session = unsafe { libc::getsid(descendant_pid) };
+
+    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    host.terminate().unwrap();
+    host.disconnect();
+    wait_for_no_host_records(&harness.host_root());
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let descendant_remained = process_exists(descendant_pid);
+    if descendant_remained {
+        // SAFETY: the live process and group belong to this isolated fixture.
+        let _ = unsafe { libc::killpg(descendant_group, libc::SIGKILL) };
+        // SAFETY: the live process belongs to this isolated fixture.
+        let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+    }
+
+    assert!(direct_group > 0);
+    assert!(descendant_group > 0);
+    assert_ne!(
+        descendant_group, direct_group,
+        "fixture background job did not enter a separate process group"
+    );
+    assert_eq!(
+        descendant_session, direct_session,
+        "fixture background job left the owned PTY session"
+    );
+    wait_for_process_and_group_absent(direct_pid);
+    assert!(
+        !descendant_remained,
+        "terminal host exited after killing only the shell and foreground process groups"
+    );
+}
+
+#[test]
 fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
     let harness = RecoveryHarness::start("exit-after-final-bytes");
     request(

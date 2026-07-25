@@ -1040,6 +1040,75 @@ fn server_stop_kills_ephemeral_pty_process_groups() {
 
 #[cfg(unix)]
 #[test]
+fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
+    let mut server =
+        HeadlessServer::start_with("server-stop-ephemeral-job-control-group", true, &[]);
+    let descendant_pid_file = server.dir.join("ephemeral-background-job.pid");
+    let command = format!(
+        concat!(
+            "exec /bin/bash --noprofile --norc -i -c '",
+            "trap \"\" HUP; ",
+            "(trap \"\" HUP; while :; do sleep 60; done) & ",
+            "printf \"%s\" \"$!\" > {}; wait'",
+        ),
+        descendant_pid_file.display()
+    );
+    let run = cli(&server, &["run", "--command", &command]);
+    assert_success(&run);
+    let surface = String::from_utf8(run.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let info = cli(&server, &["--json", "process-info", "--surface", &surface.to_string()]);
+    assert_success(&info);
+    let direct_pid = u32::try_from(
+        serde_json::from_slice::<serde_json::Value>(&info.stdout).unwrap()["pid"].as_u64().unwrap(),
+    )
+    .unwrap();
+    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    let direct_pid_raw = libc::pid_t::try_from(direct_pid).unwrap();
+    let descendant_pid_raw = libc::pid_t::try_from(descendant_pid).unwrap();
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_group = unsafe { libc::getpgid(direct_pid_raw) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_group = unsafe { libc::getpgid(descendant_pid_raw) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let direct_session = unsafe { libc::getsid(direct_pid_raw) };
+    // SAFETY: both fixture processes are live and owned by this test.
+    let descendant_session = unsafe { libc::getsid(descendant_pid_raw) };
+
+    let stop = cli(&server, &["--json", "server", "stop"]);
+
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let descendant_remained = process_exists(descendant_pid);
+    if descendant_remained {
+        // SAFETY: the live process and group belong to this isolated fixture.
+        let _ = unsafe { libc::killpg(descendant_group, libc::SIGKILL) };
+        // SAFETY: the live process belongs to this isolated fixture.
+        let _ = unsafe { libc::kill(descendant_pid_raw, libc::SIGKILL) };
+    }
+
+    assert!(direct_group > 0);
+    assert!(descendant_group > 0);
+    assert_ne!(
+        descendant_group, direct_group,
+        "fixture background job did not enter a separate process group"
+    );
+    assert_eq!(
+        descendant_session, direct_session,
+        "fixture background job left the owned PTY session"
+    );
+    assert!(!process_exists(direct_pid));
+    assert!(
+        !descendant_remained,
+        "server acknowledged shutdown while a background job in its PTY session remained alive"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn server_stop_drains_many_hosted_panes_before_acknowledging() {
     let mut server = HeadlessServer::start("server-stop-many-panes");
     let applied = cli(
