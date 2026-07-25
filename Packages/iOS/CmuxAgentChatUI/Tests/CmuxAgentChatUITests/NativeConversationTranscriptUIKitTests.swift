@@ -237,6 +237,29 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(table.visibleCells.count < 80)
     }
 
+    @Test("reused hosted cells reset row-local SwiftUI state by row identity")
+    func reusedHostedCellsResetRowLocalSwiftUIStateByRowIdentity() async throws {
+        let rows = (0..<220).map { TranscriptTestRow(id: $0, stateProbe: true) }
+        let mounted = mount(
+            TranscriptTestHarness(rows: rows),
+            size: CGSize(width: 390, height: 260)
+        )
+        defer { mounted.window.isHidden = true }
+
+        await settle(mounted.host, passes: 20)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        table.scrollToRow(at: IndexPath(row: 180, section: 0), at: .top, animated: false)
+        await settle(mounted.host, passes: 24)
+
+        let visibleRows = try #require(table.indexPathsForVisibleRows)
+        #expect(!visibleRows.isEmpty)
+        #expect(table.visibleCells.count < 20)
+        for indexPath in visibleRows {
+            #expect(table.rectForRow(at: indexPath).height < 100)
+        }
+    }
+
     @Test("detached animated tail command converges after wrapped rows resolve")
     func detachedAnimatedTailCommandConvergesAfterWrappedRowsResolve() async throws {
         let state = TranscriptFollowStateBox(.detached(anchorID: 120, offset: 0, unseenCount: 0))
@@ -744,6 +767,7 @@ private struct TranscriptTestRow: Identifiable, Equatable, Sendable {
     enum Content: Equatable, Sendable {
         case text(String)
         case attachment(ChatAttachment)
+        case stateProbe
     }
 
     let id: Int
@@ -757,6 +781,11 @@ private struct TranscriptTestRow: Identifiable, Equatable, Sendable {
     init(id: Int, attachment: ChatAttachment) {
         self.id = id
         content = .attachment(attachment)
+    }
+
+    init(id: Int, stateProbe: Bool) {
+        self.id = id
+        content = .stateProbe
     }
 }
 
@@ -864,8 +893,34 @@ private struct TranscriptTestHarness: View {
                 )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
+            case .stateProbe:
+                TranscriptStateProbeRowView(rowID: row.id)
             }
         }
+    }
+}
+
+private struct TranscriptStateProbeRowView: View {
+    let rowID: Int
+    @State private var stateOwnerRowID: Int?
+
+    var body: some View {
+        Text(verbatim: "State probe \(rowID)")
+            .font(.system(size: 16))
+            .foregroundStyle(Color.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: stateLeaked ? 240 : 36)
+            .padding(.horizontal, 16)
+            .onAppear {
+                if stateOwnerRowID == nil {
+                    stateOwnerRowID = rowID
+                }
+            }
+    }
+
+    private var stateLeaked: Bool {
+        guard let stateOwnerRowID else { return false }
+        return stateOwnerRowID != rowID
     }
 }
 #endif

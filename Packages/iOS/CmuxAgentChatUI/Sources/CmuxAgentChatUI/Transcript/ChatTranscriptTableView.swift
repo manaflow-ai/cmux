@@ -170,6 +170,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             let tableWidth = ChatContainerWidth(tableView: tableView).effectiveWidth
             cell.contentConfiguration = UIHostingConfiguration {
                 configuration.view(for: item, tableWidth: tableWidth)
+                    .id(item.id)
             }
             .margins(.all, 0)
             return cell

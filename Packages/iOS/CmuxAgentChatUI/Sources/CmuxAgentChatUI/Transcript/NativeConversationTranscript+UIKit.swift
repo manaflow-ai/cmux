@@ -112,6 +112,7 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
                 cell.selectionStyle = .none
                 cell.contentConfiguration = UIHostingConfiguration {
                     rowContent(row)
+                        .id(row.id)
                 }
                 .margins(.all, 0)
                 return cell
