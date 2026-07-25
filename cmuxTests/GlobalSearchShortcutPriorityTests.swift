@@ -216,6 +216,85 @@ final class GlobalSearchShortcutPriorityTests {
 #endif
     }
 
+    @Test func commandPaletteEditingOwnsOverlappingGlobalSearchShortcut() throws {
+        try assertCommandPaletteEditingOwnsUnarmedGlobalSearchBinding(
+            StoredShortcut(
+                key: "c",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+        )
+    }
+
+    @Test func commandPaletteEditingOwnsOverlappingGlobalSearchChordPrefix() throws {
+        try assertCommandPaletteEditingOwnsUnarmedGlobalSearchBinding(
+            StoredShortcut(
+                key: "c",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                chordKey: "g",
+                chordCommand: true
+            )
+        )
+    }
+
+    private func assertCommandPaletteEditingOwnsUnarmedGlobalSearchBinding(
+        _ shortcut: StoredShortcut
+    ) throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        let window = try #require(findWindow(withId: windowId))
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            appDelegate.setCommandPaletteVisible(false, for: window)
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        #expect(appDelegate.isCommandPaletteEffectivelyVisible(for: window))
+
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+        appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+
+        let prefixEvent = try makeKeyEvent(
+            type: .keyDown,
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: window.windowNumber
+        )
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+            "Command-palette editing must own Cmd-C before an unarmed Global Search binding"
+        )
+
+        if shortcut.hasChord {
+            let suffixEvent = try makeKeyEvent(
+                type: .keyDown,
+                key: "g",
+                modifiers: [.command],
+                keyCode: 5,
+                windowNumber: window.windowNumber
+            )
+            _ = appDelegate.debugHandleCustomShortcut(event: suffixEvent)
+        }
+        #expect(
+            !GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "A command-palette editing command must not toggle or arm Global Search"
+        )
+#else
+        Issue.record("Global Search shortcut-priority routing requires a DEBUG build")
+#endif
+    }
+
     private func assertOmnibarOwnsGlobalSearchChordPrefix(
         key: String,
         keyCode: UInt16,
