@@ -16,7 +16,9 @@ use cmux_remote_protocol::{
 };
 #[cfg(not(unix))]
 use portable_pty::ChildKiller;
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+#[cfg(not(target_os = "macos"))]
+use portable_pty::{CommandBuilder, native_pty_system};
+use portable_pty::{MasterPty, PtySize};
 use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use tokio::io::unix::AsyncFd;
@@ -28,6 +30,8 @@ use tokio::sync::{Mutex, Notify, RwLock, Semaphore, broadcast, watch};
 use tokio::task::JoinSet;
 
 use super::ClientScope;
+#[cfg(target_os = "macos")]
+use super::macos_pty;
 use super::path::WorkspaceRoot;
 
 const MAX_PROCESSES: usize = 64;
@@ -1270,23 +1274,45 @@ impl ProcessManager {
         }
         events.enable_terminal(cols, rows)?;
         let catalog = process_catalog_metadata(&argv, &cwd, ProcessIoKind::Pty);
-        let pair = native_pty_system()
-            .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        let size = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
+        #[cfg(target_os = "macos")]
+        let pair = macos_pty::open(size)
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
+        #[cfg(not(target_os = "macos"))]
+        let pair = native_pty_system()
+            .openpty(size)
+            .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
+        #[cfg(not(target_os = "macos"))]
         let mut command = CommandBuilder::new(&argv[0]);
+        #[cfg(not(target_os = "macos"))]
         if environment == ProcessEnvironment::Clean {
             command.env_clear();
         }
+        #[cfg(not(target_os = "macos"))]
         command.args(&argv[1..]);
+        #[cfg(not(target_os = "macos"))]
         command.cwd(&cwd);
+        #[cfg(not(target_os = "macos"))]
         for (key, value) in env {
             command.env(key, value);
         }
+        #[cfg(not(target_os = "macos"))]
         command.env("TERM", &term);
         #[cfg(unix)]
         let mut child_events =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
                 .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
+        #[cfg(target_os = "macos")]
+        let child = macos_pty::spawn_command(
+            &pair.slave,
+            &argv,
+            &cwd,
+            &env,
+            &term,
+            environment == ProcessEnvironment::Clean,
+        )
+        .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
+        #[cfg(not(target_os = "macos"))]
         let child = pair
             .slave
             .spawn_command(command)
@@ -3604,6 +3630,52 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("macOS PTY spawn blocked past its five-second deadline")
             .expect("macOS PTY spawn failed");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn macos_pty_clean_environment_uses_explicit_path_and_variables() {
+        let (_directory, root) = root().await;
+        let manager = ProcessManager::default();
+        let mut options = spawn_options(
+            vec![
+                "sh".into(),
+                "-c".into(),
+                "printf '%s|%s|%s|%s\\n' \"${CMUX_TEST_VALUE-unset}\" \"${TERM-unset}\" \"${SHELL-unset}\" \"${HOME-unset}\""
+                    .into(),
+            ],
+            ProcessIo::Pty {
+                cols: 80,
+                rows: 24,
+                term: "xterm-256color".into(),
+                eof: PtyEofPolicy::Reject,
+            },
+            ProcessLifetime::Workspace,
+        );
+        options.environment = ProcessEnvironment::Clean;
+        options.env.insert("PATH".into(), "/bin:/usr/bin".into());
+        options.env.insert("CMUX_TEST_VALUE".into(), "explicit".into());
+        let response = manager.spawn(root, options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        manager.wait(process).await.unwrap();
+
+        let mut events = manager.subscribe(process, 0).await.unwrap();
+        let mut output = Vec::new();
+        loop {
+            match events.recv().await.unwrap().event {
+                ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
+                ProcessEvent::Exit { .. } => break,
+                ProcessEvent::Stderr { .. }
+                | ProcessEvent::OutputTruncated { .. }
+                | ProcessEvent::ReplayGap { .. } => {}
+            }
+        }
+        let output = String::from_utf8_lossy(&output);
+        assert!(
+            output.contains("explicit|xterm-256color|/bin/"),
+            "explicit PTY environment was not applied: {output:?}"
+        );
+        assert!(output.contains("|unset"), "clean PTY environment inherited HOME: {output:?}");
     }
 
     #[cfg(unix)]

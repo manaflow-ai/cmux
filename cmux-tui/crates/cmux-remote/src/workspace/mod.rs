@@ -7,6 +7,8 @@
 mod blocking;
 mod files;
 mod git;
+#[cfg(target_os = "macos")]
+mod macos_pty;
 mod patch;
 mod path;
 mod process;
