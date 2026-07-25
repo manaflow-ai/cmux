@@ -1124,6 +1124,15 @@ impl BrowserSurface {
         }
     }
 
+    pub fn latest_frame_seq(&self) -> Option<u64> {
+        let state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            state.latest_frame.as_ref().map(|frame| frame.seq)
+        }
+    }
+
     pub fn title(&self) -> String {
         self.state.lock().unwrap().title.clone()
     }

@@ -1380,6 +1380,16 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn browser_frame_seq(&self) -> Option<u64> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.browser_frame_seq(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_frame_seq()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn browser_url(&self) -> Option<String> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.browser_url(),

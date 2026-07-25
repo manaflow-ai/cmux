@@ -2325,6 +2325,10 @@ impl Surface {
         self.as_browser().and_then(BrowserSurface::latest_frame)
     }
 
+    pub fn browser_frame_seq(&self) -> Option<u64> {
+        self.as_browser().and_then(BrowserSurface::latest_frame_seq)
+    }
+
     pub fn browser_url(&self) -> Option<String> {
         self.as_browser().map(BrowserSurface::url)
     }

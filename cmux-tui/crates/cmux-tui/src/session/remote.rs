@@ -477,6 +477,15 @@ impl RemoteSurface {
         }
     }
 
+    pub fn browser_frame_seq(&self) -> Option<u64> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            browser.frame.as_ref().map(|frame| frame.frame.seq)
+        }
+    }
+
     pub fn browser_url(&self) -> Option<String> {
         self.browser.lock().unwrap().url.clone()
     }

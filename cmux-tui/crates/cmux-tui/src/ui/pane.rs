@@ -343,7 +343,12 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let rect = area.content;
     app.rendered_terminal_bounds.remove(&area.surface);
     app.rendered_terminal_pointer_semantics.remove(&area.surface);
-    app.rendered_pane_content_generations.remove(&area.surface);
+    if matches!(
+        app.rendered_pane_content_generations.get(&area.surface),
+        Some(PaneContentGeneration::Terminal(_))
+    ) {
+        app.rendered_pane_content_generations.remove(&area.surface);
+    }
     if rect.width == 0 || rect.height == 0 {
         return DrawCursors::default();
     }
@@ -356,7 +361,6 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         draw_browser_content(app, frame, area, &surface);
         return DrawCursors { input: cursor.filter(|_| focused), terminal: None };
     }
-
     let selection: Option<Selection> =
         app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
     let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
