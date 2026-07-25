@@ -233,7 +233,8 @@ public struct ChatAttachmentBubbleView: View {
     private var previewLayout: ChatAttachmentPreviewLayout {
         ChatAttachmentPreviewLayout(
             pixelWidth: attachment.pixelWidth,
-            pixelHeight: attachment.pixelHeight
+            pixelHeight: attachment.pixelHeight,
+            aspectRatio: attachment.aspectRatio
         )
     }
 

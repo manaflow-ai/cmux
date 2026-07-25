@@ -20,6 +20,9 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
     public let width: Int?
     /// Pixel height for image attachments.
     public let height: Int?
+    /// Width divided by height, when a producer can provide preview geometry
+    /// without exact pixel dimensions.
+    public let aspectRatio: Double?
     /// Author role for generated attachment rows, when the transcript source
     /// can distinguish user attachments from agent-produced previews.
     public let authorRole: String?
@@ -34,6 +37,7 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         case byteCount = "byte_count"
         case width
         case height
+        case aspectRatio = "aspect_ratio"
         case authorRole = "author_role"
     }
 
@@ -54,6 +58,11 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         case pixel_width
         case pixelHeight
         case pixel_height
+        case aspectRatio
+        case aspect_ratio
+        case previewAspectRatio
+        case preview_aspect_ratio
+        case ratio
         case authorRole
         case role
     }
@@ -72,6 +81,7 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         byteCount: Int? = nil,
         width: Int? = nil,
         height: Int? = nil,
+        aspectRatio: Double? = nil,
         authorRole: String? = nil
     ) {
         self.kind = kind
@@ -83,6 +93,7 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         self.byteCount = byteCount
         self.width = width
         self.height = height
+        self.aspectRatio = Self.normalizedAspectRatio(aspectRatio)
         self.authorRole = authorRole
     }
 
@@ -128,6 +139,23 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         height = try canonical.decodeIfPresent(Int.self, forKey: .height)
             ?? aliases.decodeIfPresent(Int.self, forKey: .pixelHeight)
             ?? aliases.decodeIfPresent(Int.self, forKey: .pixel_height)
+        var decodedAspectRatio = try canonical.decodeIfPresent(Double.self, forKey: .aspectRatio)
+        if decodedAspectRatio == nil {
+            decodedAspectRatio = try aliases.decodeIfPresent(Double.self, forKey: .aspectRatio)
+        }
+        if decodedAspectRatio == nil {
+            decodedAspectRatio = try aliases.decodeIfPresent(Double.self, forKey: .aspect_ratio)
+        }
+        if decodedAspectRatio == nil {
+            decodedAspectRatio = try aliases.decodeIfPresent(Double.self, forKey: .previewAspectRatio)
+        }
+        if decodedAspectRatio == nil {
+            decodedAspectRatio = try aliases.decodeIfPresent(Double.self, forKey: .preview_aspect_ratio)
+        }
+        if decodedAspectRatio == nil {
+            decodedAspectRatio = try aliases.decodeIfPresent(Double.self, forKey: .ratio)
+        }
+        aspectRatio = Self.normalizedAspectRatio(decodedAspectRatio)
         authorRole = try canonical.decodeIfPresent(String.self, forKey: .authorRole)
             ?? aliases.decodeIfPresent(String.self, forKey: .authorRole)
             ?? aliases.decodeIfPresent(String.self, forKey: .role)
@@ -146,6 +174,14 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         try container.encodeIfPresent(byteCount, forKey: .byteCount)
         try container.encodeIfPresent(width, forKey: .width)
         try container.encodeIfPresent(height, forKey: .height)
+        try container.encodeIfPresent(aspectRatio, forKey: .aspectRatio)
         try container.encodeIfPresent(authorRole, forKey: .authorRole)
+    }
+
+    private static func normalizedAspectRatio(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else {
+            return nil
+        }
+        return value
     }
 }

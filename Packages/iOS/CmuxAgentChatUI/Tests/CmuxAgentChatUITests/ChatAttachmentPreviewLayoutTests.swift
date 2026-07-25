@@ -27,6 +27,28 @@ struct ChatAttachmentPreviewLayoutTests {
         #expect(negative.size(maxWidth: 320) == missing.size(maxWidth: 320))
     }
 
+    @Test("ratio-only metadata reserves the final preview aspect")
+    func ratioOnlyMetadataReservesFinalPreviewAspect() {
+        let layout = ChatAttachmentPreviewLayout(
+            pixelWidth: nil,
+            pixelHeight: nil,
+            aspectRatio: 9.0 / 16.0
+        )
+
+        #expect(layout.size(maxWidth: 320) == CGSize(width: 225, height: 400))
+    }
+
+    @Test("pixel dimensions override ratio metadata")
+    func pixelDimensionsOverrideRatioMetadata() {
+        let layout = ChatAttachmentPreviewLayout(
+            pixelWidth: 1_600,
+            pixelHeight: 900,
+            aspectRatio: 1
+        )
+
+        #expect(layout.size(maxWidth: 320) == CGSize(width: 320, height: 180))
+    }
+
     @Test("extreme aspect ratios preserve source shape while staying bounded")
     func extremeAspectRatiosPreserveSourceShapeWhileBounded() {
         let tall = ChatAttachmentPreviewLayout(pixelWidth: 1_000, pixelHeight: 5_000)

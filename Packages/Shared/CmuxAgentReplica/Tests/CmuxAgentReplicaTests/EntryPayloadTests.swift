@@ -81,7 +81,8 @@ import Testing
           "media_type": "image/png",
           "size": 456789,
           "pixel_width": 1600,
-          "pixel_height": 900
+          "pixel_height": 900,
+          "preview_aspect_ratio": 1.7777777778
         }
         """.utf8)
 
@@ -99,6 +100,7 @@ import Testing
         #expect(payload.byteCount == 456_789)
         #expect(payload.width == 1_600)
         #expect(payload.height == 900)
+        #expect(payload.aspectRatio == 1.7777777778)
     }
 
     @Test func toolRunPayloadPreservesPreviewAttachmentMetadataAndDecodesLegacyPayloads() throws {

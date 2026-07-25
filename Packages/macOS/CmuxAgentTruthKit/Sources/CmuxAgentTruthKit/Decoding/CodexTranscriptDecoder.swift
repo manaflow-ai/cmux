@@ -502,7 +502,8 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
                 mimeType: mimeType,
                 byteCount: metadata.byteCount ?? input?.base64EncodedData.map(estimatedDecodedByteCount),
                 width: input?.width ?? metadata.width,
-                height: input?.height ?? metadata.height
+                height: input?.height ?? metadata.height,
+                aspectRatio: input?.aspectRatio
             )
             let embeddedImage: TranscriptEmbeddedImageSource? = if let base64EncodedData = input?.base64EncodedData {
                 TranscriptEmbeddedImageSource(
@@ -551,8 +552,17 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
                 ?? dataURL?.mimeType,
             base64EncodedData: dataURL?.base64EncodedData,
             width: object["width"]?.int,
-            height: object["height"]?.int
+            height: object["height"]?.int,
+            aspectRatio: aspectRatio(in: object)
         )
+    }
+
+    private func aspectRatio(in object: [String: JSONValue]) -> Double? {
+        object["aspect_ratio"]?.number
+            ?? object["aspectRatio"]?.number
+            ?? object["preview_aspect_ratio"]?.number
+            ?? object["previewAspectRatio"]?.number
+            ?? object["ratio"]?.number
     }
 
     private func parseImageDataURL(_ value: String) -> CodexImageDataURL? {
@@ -869,6 +879,7 @@ private struct CodexImageInput {
     let base64EncodedData: String?
     let width: Int?
     let height: Int?
+    let aspectRatio: Double?
 }
 
 private struct CodexImageDataURL {

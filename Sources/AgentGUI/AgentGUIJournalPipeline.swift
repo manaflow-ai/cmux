@@ -408,7 +408,9 @@ final class AgentGUIJournalPipeline {
                 mimeType: image.mimeType,
                 byteCount: image.byteCount,
                 width: image.width,
-                height: image.height
+                height: image.height,
+                aspectRatio: attachment.aspectRatio,
+                authorRole: attachment.authorRole
             ))
             return EntrySnapshot(
                 journalID: entry.journalID,

@@ -80,7 +80,8 @@ struct ChatMessageCodableTests {
                 mimeType: "image/png",
                 byteCount: 456_789,
                 pixelWidth: 1_600,
-                pixelHeight: 900
+                pixelHeight: 900,
+                aspectRatio: 16.0 / 9.0
             )),
         ]
         for kind in kinds {
@@ -108,7 +109,8 @@ struct ChatMessageCodableTests {
          "kind": {"type": "attachment", "kind": "image",
                   "fileName": "frame.png", "path": "/tmp/frame.png",
                   "mediaType": "image/png", "byteCount": 456789,
-                  "pixelWidth": 1600, "pixelHeight": 900}}
+                  "pixelWidth": 1600, "pixelHeight": 900,
+                  "previewAspectRatio": 1.7777777778}}
         """
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -125,6 +127,7 @@ struct ChatMessageCodableTests {
         #expect(attachment.byteCount == 456_789)
         #expect(attachment.pixelWidth == 1_600)
         #expect(attachment.pixelHeight == 900)
+        #expect(attachment.aspectRatio == 1.7777777778)
     }
 
     @Test("attachment media can be inferred from MIME type and dimensions from width aliases")

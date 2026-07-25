@@ -174,7 +174,8 @@ struct AgentTranscriptRenderAdapter {
                 mimeType: attachment.mimeType,
                 byteCount: attachment.byteCount,
                 pixelWidth: attachment.width,
-                pixelHeight: attachment.height
+                pixelHeight: attachment.height,
+                aspectRatio: attachment.aspectRatio
             ))
         )
         return ChatMessageRowSnapshot(

@@ -339,6 +339,21 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexRatioOnlyImageMetadataSurvivesDecoding() throws {
+        let line = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Preview this artifact."},{"type":"input_image","name":"artifact-preview","aspect_ratio":0.5625}]}}"#
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:userMessage", "1:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 1))
+        #expect(attachment.kind == "image")
+        #expect(attachment.displayName == "artifact-preview")
+        #expect(attachment.width == nil)
+        #expect(attachment.height == nil)
+        #expect(attachment.aspectRatio == 0.5625)
+    }
+
+    @Test
     func codexPathOnlyImageDerivesDimensionsFromFileHeader() throws {
         let imageURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-path-only-\(UUID().uuidString).png")
@@ -546,6 +561,24 @@ struct TranscriptDecoderTests {
         #expect(attachment.height == 1)
         #expect(attachment.byteCount == Self.png1x1Data.count)
         #expect(result.embeddedImages.map(\.entrySeq) == [EntrySeq(rawValue: 11)])
+    }
+
+    @Test
+    func claudeToolResultGenericAttachmentCarriesAgentRoleAndAspectRatio() throws {
+        let callLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool_attachment","name":"Hook_Success","input":{"message":"created preview"}}]}}"#
+        let resultLine = #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_attachment","content":[{"type":"attachment","attachment":{"type":"image","fileName":"hook-preview","aspect_ratio":0.75}}],"is_error":false}]}}"#
+        var decoder = ClaudeTranscriptDecoder()
+
+        let call = decoder.feed([callLine], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+        let result = decoder.feed([resultLine], startingAt: 10, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(call.entries) == ["0:toolRun"])
+        #expect(kindTable(result.entries) == ["10:toolRun", "11:attachment"])
+        let attachment = try #require(attachmentPayload(in: result, seq: 11))
+        #expect(attachment.kind == "image")
+        #expect(attachment.displayName == "hook-preview")
+        #expect(attachment.aspectRatio == 0.75)
+        #expect(attachment.authorRole == "agent")
     }
 
     @Test

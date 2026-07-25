@@ -231,6 +231,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             byteCount: metadata.byteCount ?? base64EncodedData.map(estimatedDecodedByteCount),
             width: object["width"]?.int ?? metadata.width,
             height: object["height"]?.int ?? metadata.height,
+            aspectRatio: aspectRatio(in: object),
             authorRole: normalizedAttachmentRole(role)
         )
         return ClaudeDecodedBlock(
@@ -355,7 +356,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
                 let attachmentObject = object["attachment"]?.object ?? object
                 return ClaudeDecodedBlock(
                     summary: "Attachment",
-                    payload: .attachment(attachmentPayload(in: attachmentObject))
+                    payload: .attachment(attachmentPayload(in: attachmentObject, authorRole: "agent"))
                 )
             default:
                 return nil
@@ -564,7 +565,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         return textBudget.body("--- before\n\(old ?? "")\n+++ after\n\(new ?? "")")
     }
 
-    private func attachmentPayload(in object: [String: JSONValue]) -> AttachmentPayload {
+    private func attachmentPayload(in object: [String: JSONValue], authorRole: String? = nil) -> AttachmentPayload {
         let kind = object["type"]?.string ?? object["kind"]?.string ?? "file"
         let displayName = object["fileName"]?.string ?? object["file_name"]?.string ?? object["name"]?.string
         let hostPath = object["path"]?.string ?? object["file_path"]?.string
@@ -584,8 +585,18 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             mimeType: mimeType,
             byteCount: object["size"]?.int ?? object["byte_count"]?.int ?? metadata.byteCount,
             width: object["width"]?.int ?? metadata.width,
-            height: object["height"]?.int ?? metadata.height
+            height: object["height"]?.int ?? metadata.height,
+            aspectRatio: aspectRatio(in: object),
+            authorRole: authorRole
         )
+    }
+
+    private func aspectRatio(in object: [String: JSONValue]) -> Double? {
+        object["aspect_ratio"]?.number
+            ?? object["aspectRatio"]?.number
+            ?? object["preview_aspect_ratio"]?.number
+            ?? object["previewAspectRatio"]?.number
+            ?? object["ratio"]?.number
     }
 
     private func shouldProbeImageMetadata(kind: String, mimeType: String?, hostPath: String?) -> Bool {

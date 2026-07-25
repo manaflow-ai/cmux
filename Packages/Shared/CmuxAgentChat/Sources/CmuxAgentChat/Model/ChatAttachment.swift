@@ -35,6 +35,9 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
     /// Original image height in pixels, when known.
     public let pixelHeight: Int?
 
+    /// Width divided by height, when exact pixel dimensions are unavailable.
+    public let aspectRatio: Double?
+
     /// Creates attachment metadata.
     ///
     /// - Parameters:
@@ -45,6 +48,7 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
     ///   - byteCount: Attachment size in bytes when known.
     ///   - pixelWidth: Original image width in pixels when known.
     ///   - pixelHeight: Original image height in pixels when known.
+    ///   - aspectRatio: Width divided by height when exact pixels are unknown.
     public init(
         media: Media,
         displayName: String? = nil,
@@ -52,7 +56,8 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         mimeType: String? = nil,
         byteCount: Int? = nil,
         pixelWidth: Int? = nil,
-        pixelHeight: Int? = nil
+        pixelHeight: Int? = nil,
+        aspectRatio: Double? = nil
     ) {
         self.media = media
         self.displayName = displayName
@@ -61,6 +66,7 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         self.byteCount = byteCount
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
+        self.aspectRatio = Self.normalizedAspectRatio(aspectRatio)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -71,6 +77,7 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         case byteCount = "byte_count"
         case pixelWidth = "pixel_width"
         case pixelHeight = "pixel_height"
+        case aspectRatio = "aspect_ratio"
     }
 
     fileprivate enum AliasCodingKeys: String, CodingKey {
@@ -92,6 +99,11 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         case width
         case pixelHeight
         case height
+        case aspectRatio
+        case aspect_ratio
+        case previewAspectRatio
+        case preview_aspect_ratio
+        case ratio
     }
 
     /// Decodes both current attachment metadata and older payloads that only
@@ -137,6 +149,14 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         pixelHeight = try container.decodeIfPresent(Int.self, forKey: .pixelHeight)
             ?? aliases.decodeInt(forKey: .pixelHeight)
             ?? aliases.decodeInt(forKey: .height)
+        aspectRatio = Self.normalizedAspectRatio(
+            try container.decodeIfPresent(Double.self, forKey: .aspectRatio)
+                ?? aliases.decodeDouble(forKey: .aspectRatio)
+                ?? aliases.decodeDouble(forKey: .aspect_ratio)
+                ?? aliases.decodeDouble(forKey: .previewAspectRatio)
+                ?? aliases.decodeDouble(forKey: .preview_aspect_ratio)
+                ?? aliases.decodeDouble(forKey: .ratio)
+        )
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -148,6 +168,7 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         try container.encodeIfPresent(byteCount, forKey: .byteCount)
         try container.encodeIfPresent(pixelWidth, forKey: .pixelWidth)
         try container.encodeIfPresent(pixelHeight, forKey: .pixelHeight)
+        try container.encodeIfPresent(aspectRatio, forKey: .aspectRatio)
     }
 
     private static func inferredMedia(
@@ -167,6 +188,13 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         default:
             return nil
         }
+    }
+
+    private static func normalizedAspectRatio(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else {
+            return nil
+        }
+        return value
     }
 }
 
@@ -200,6 +228,16 @@ private extension KeyedDecodingContainer where Key == ChatAttachment.AliasCoding
            int64 >= Int64(Int.min),
            int64 <= Int64(Int.max) {
             return Int(int64)
+        }
+        return nil
+    }
+
+    func decodeDouble(forKey key: Key) -> Double? {
+        if let double = try? decodeIfPresent(Double.self, forKey: key) {
+            return double
+        }
+        if let int = try? decodeIfPresent(Int.self, forKey: key) {
+            return Double(int)
         }
         return nil
     }

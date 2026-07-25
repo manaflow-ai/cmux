@@ -11,12 +11,16 @@ struct ChatAttachmentPreviewLayout: Equatable, Sendable {
 
     let aspectRatio: CGFloat
 
-    init(pixelWidth: Int?, pixelHeight: Int?) {
+    init(pixelWidth: Int?, pixelHeight: Int?, aspectRatio providedAspectRatio: Double? = nil) {
         if let pixelWidth,
            let pixelHeight,
            pixelWidth > 0,
            pixelHeight > 0 {
             aspectRatio = CGFloat(pixelWidth) / CGFloat(pixelHeight)
+        } else if let providedAspectRatio,
+                  providedAspectRatio.isFinite,
+                  providedAspectRatio > 0 {
+            aspectRatio = CGFloat(providedAspectRatio)
         } else {
             aspectRatio = Self.fallbackAspectRatio
         }

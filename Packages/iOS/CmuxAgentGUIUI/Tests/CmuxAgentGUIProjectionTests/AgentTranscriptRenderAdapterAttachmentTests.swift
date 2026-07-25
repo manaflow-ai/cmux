@@ -22,7 +22,8 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
                 mimeType: "image/png",
                 byteCount: 456_789,
                 width: 1_600,
-                height: 900
+                height: 900,
+                aspectRatio: 16.0 / 9.0
             ))
         )
 
@@ -40,6 +41,7 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
         #expect(attachment.byteCount == 456_789)
         #expect(attachment.pixelWidth == 1_600)
         #expect(attachment.pixelHeight == 900)
+        #expect(attachment.aspectRatio == 16.0 / 9.0)
     }
 
     @Test("image extension without MIME type still renders inline")
@@ -72,6 +74,23 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
         #expect(attachment.media == .image)
         #expect(attachment.pixelWidth == 512)
         #expect(attachment.pixelHeight == 768)
+    }
+
+    @Test("ratio-only image metadata survives projection")
+    func ratioOnlyImageMetadataSurvivesProjection() throws {
+        let attachment = try Self.projectedAttachment(AttachmentPayload(
+            kind: "image",
+            summary: "Generated preview",
+            displayName: "preview",
+            hostPath: "/tmp/generated-preview",
+            mimeType: "image/png",
+            aspectRatio: 9.0 / 16.0
+        ))
+
+        #expect(attachment.media == .image)
+        #expect(attachment.pixelWidth == nil)
+        #expect(attachment.pixelHeight == nil)
+        #expect(attachment.aspectRatio == 9.0 / 16.0)
     }
 
     @Test("SVG artifact paths render as inline image previews")
