@@ -4454,6 +4454,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "source": .string("list_tap"),
         ])
         setSelectedWorkspaceID(resolvedRowID)
+        syncSelectedTerminalForWorkspaceEntry()
         // Tapping into a workspace is a read receipt: clear its unread on the Mac
         // (like opening a thread marks it read), so it drops out of the unread
         // list and the back-button count. Only when the Mac advertises read-state
@@ -6135,6 +6136,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
+    }
+
+    func syncSelectedTerminalForWorkspaceEntry() {
+        guard let selectedWorkspace else {
+            selectedTerminalID = nil
+            return
+        }
+        selectedTerminalID = selectedWorkspace.preferredEntryTerminal?.id
     }
 
     // MARK: - Per-terminal composer drafts
@@ -8244,6 +8253,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 }
 
 private extension MobileWorkspacePreview {
+    var preferredEntryTerminal: MobileTerminalPreview? {
+        focusedPaneTerminal ?? preferredTerminal
+    }
+
+    private var focusedPaneTerminal: MobileTerminalPreview? {
+        guard let layout else { return nil }
+        let panes = layout.orderedPanes
+        let focusedPane = layout.focusedPaneID.flatMap { focusedPaneID in
+            panes.first { $0.id == focusedPaneID }
+        } ?? (panes.count == 1 ? panes.first : nil)
+        guard let focusedPane else { return nil }
+        let terminalIDs = focusedPane.surfaces
+            .filter { $0.type.isTerminal }
+            .map(\.id)
+        if let selectedSurfaceID = focusedPane.selectedSurfaceID,
+           terminalIDs.contains(selectedSurfaceID),
+           let terminal = terminals.first(where: { $0.id.rawValue == selectedSurfaceID }) {
+            return terminal
+        }
+        return terminalIDs.compactMap { terminalID in
+            terminals.first { $0.id.rawValue == terminalID }
+        }.first
+    }
+
     var preferredTerminal: MobileTerminalPreview? {
         terminals.first { $0.isReady && $0.isFocused }
             ?? terminals.first { $0.isReady }

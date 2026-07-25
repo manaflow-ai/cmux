@@ -128,6 +128,37 @@ import Testing
         #expect(refreshed.terminals.last?.viewportFit == nil)
     }
 
+    @Test func openingWorkspacePrefersFocusedPaneSelectedTerminalOverStaleSelection() async {
+        let store = MobileShellComposite.preview()
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-panes",
+            name: "Panes",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-stale", name: "stale", isReady: true),
+                MobileTerminalPreview(id: "terminal-focused", name: "focused", isReady: true),
+            ],
+            layout: MobilePaneLayout(
+                version: 1,
+                focusedPaneID: "pane-focused",
+                root: .pane(MobilePaneNode(
+                    id: "pane-focused",
+                    selectedSurfaceID: "terminal-focused",
+                    surfaces: [
+                        MobilePaneSurface(id: "terminal-stale", type: .terminal, title: "stale"),
+                        MobilePaneSurface(id: "terminal-focused", type: .terminal, title: "focused"),
+                    ]
+                ))
+            )
+        )
+        store.replaceForegroundWorkspaceState([workspace])
+        store.selectedWorkspaceID = workspace.id
+        store.selectedTerminalID = "terminal-stale"
+
+        await store.openWorkspace(workspace.id)
+
+        #expect(store.selectedTerminalID?.rawValue == "terminal-focused")
+    }
+
     @Test func startsAtSignInWithoutConnection() {
         let store = MobileShellComposite.preview()
 
