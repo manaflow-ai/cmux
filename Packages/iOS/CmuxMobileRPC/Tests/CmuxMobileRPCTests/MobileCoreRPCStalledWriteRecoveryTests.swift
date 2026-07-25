@@ -133,6 +133,49 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func cancelledInFlightWriteThatCompletesPreservesTransport() async throws {
+        let transport = ControllableResponseTransport(
+            closeEndsReceive: true,
+            blocksFirstSend: true,
+            automaticallyRespondingRequestIDs: ["second-after-cancel"]
+        )
+        let factory = SequencedTransportFactory([
+            transport,
+            ResponseTimeoutSurvivalTransport(),
+        ])
+        let client = try makeClient(factory: factory)
+        let task = Task {
+            try await client.sendRequest(
+                try inputRequest(id: "cancelled-brief-write", text: "a"),
+                timeoutNanoseconds: 60 * 1_000_000_000
+            )
+        }
+
+        await transport.waitUntilSent(count: 1)
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("Expected the request to be cancelled")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+
+        await transport.releaseFirstSend()
+        let data = try await client.sendRequest(
+            try inputRequest(id: "second-after-cancel", text: "b"),
+            timeoutNanoseconds: 500_000_000
+        )
+        let response = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: String]
+        )
+
+        #expect(response["status"] == "ok")
+        #expect(factory.createdTransportCount() == 1)
+        #expect(!(await transport.closed()))
+        await client.disconnect()
+    }
+
     @Test func teardownDoesNotWaitForHangingTransportClose() async throws {
         let stalled = StalledWriteTransport(hangsOnClose: true)
         let recovery = ResponseTimeoutSurvivalTransport()
@@ -262,7 +305,7 @@ import Testing
     }
 
     private func makeClient(
-        factory: StalledWriteRecoveryTransportFactory
+        factory: any CmxByteTransportFactory
     ) throws -> MobileCoreRPCClient {
         let route = try hostPortRoute(
             kind: .debugLoopback,
