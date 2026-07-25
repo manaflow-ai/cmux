@@ -174,6 +174,23 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == .unbound)
     }
 
+    @Test func invalidShowHideChordDoesNotSuppressGlobalSearchPrefix() throws {
+        let globalSearchShortcut = collisionShortcut
+        var invalidShowHideChord = globalSearchShortcut
+        invalidShowHideChord.chordKey = "x"
+
+        let showHideData = try JSONEncoder().encode(invalidShowHideChord)
+        UserDefaults.standard.set(
+            showHideData,
+            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
+        )
+        KeyboardShortcutSettings.setShortcut(globalSearchShortcut, for: .globalSearch)
+
+        #expect(invalidShowHideChord.carbonHotKeyRegistration == nil)
+        #expect(SystemWideHotkeySettings.shortcut() == invalidShowHideChord)
+        #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == globalSearchShortcut)
+    }
+
     private var defaultGlobalSearchShortcut: StoredShortcut {
         KeyboardShortcutSettings.Action.globalSearch.defaultShortcut
     }

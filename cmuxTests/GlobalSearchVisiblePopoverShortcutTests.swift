@@ -242,6 +242,20 @@ final class GlobalSearchVisiblePopoverShortcutTests {
         )
     }
 
+    @Test func queryEditingOwnershipIncludesCombinedModifierDeletion() throws {
+        let event = try makeKeyDownEvent(
+            key: "\u{08}",
+            modifiers: [.control, .option],
+            keyCode: 51,
+            windowNumber: 0
+        )
+
+        #expect(
+            GlobalSearchKeyEvent(event).queryOwnsEditingShortcut,
+            "The Search query must own Control-Option-Delete"
+        )
+    }
+
     @Test func visibleGlobalSearchQueryOwnsBareSpaceShortcut() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
