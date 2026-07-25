@@ -581,7 +581,7 @@ extension FeedCoordinatorTests {
         }
     }
 
-    @Test func acknowledgedBatchWaitsForEarlierSameSessionZeroWait() async {
+    @Test func acknowledgedBatchPreservesSameSessionOrderWhileUnrelatedDeliveryStalls() async {
         await MainActor.run {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
@@ -641,9 +641,23 @@ extension FeedCoordinatorTests {
         }
 
         #expect(batchSubmissionStarted.wait(timeout: .now() + 1) == .success)
+        let zeroWaitCompletedWhileUnrelatedStalled = zeroWaitFinished.wait(timeout: .now() + 0.5)
+        let batchCompletedWhileUnrelatedStalled = batchFinished.wait(timeout: .now() + 0.5)
         releaseFirstDelivery.signal()
-        #expect(zeroWaitFinished.wait(timeout: .now() + 2) == .success)
-        #expect(batchFinished.wait(timeout: .now() + 2) == .success)
+        if zeroWaitCompletedWhileUnrelatedStalled != .success {
+            #expect(zeroWaitFinished.wait(timeout: .now() + 2) == .success)
+        }
+        if batchCompletedWhileUnrelatedStalled != .success {
+            #expect(batchFinished.wait(timeout: .now() + 2) == .success)
+        }
+        #expect(
+            zeroWaitCompletedWhileUnrelatedStalled == .success,
+            "an unrelated stalled delivery must not block zero-wait Feed ingress"
+        )
+        #expect(
+            batchCompletedWhileUnrelatedStalled == .success,
+            "an unrelated stalled delivery must not exhaust acknowledged Feed ingress"
+        )
         #expect(
             deliveries.events.map(\.requestId) == [zeroWaitEvent.requestId, batchEvent.requestId],
             "same-session Feed chronology must survive cross-class scheduling"
