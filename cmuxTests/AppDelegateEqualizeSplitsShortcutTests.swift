@@ -2227,6 +2227,98 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testFailedTransferFontSizeActionBlocksLaterRequestAtNativeBound() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelID) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let maximumBasePoints =
+            CmuxSurfaceConfigTemplate.baseFontSize(
+                fromRuntimePoints:
+                    TerminalFontSizePolicy.maximumRuntimePoints,
+                percent: GlobalFontMagnification.storedPercent
+            )
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: maximumBasePoints,
+                isExplicitOverride: true
+            )
+        )
+        let markerPanel = TerminalPanel(
+            workspaceId: workspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+
+        var targetChanges: [WorkspaceTerminalFontSizeChange] = []
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                targetChanges.append(change)
+                guard targetChanges.count > 1 else {
+                    return .failed
+                }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+        coordinator.terminalWillLeaveWorkspace(
+            markerPanel,
+            workspace: workspace
+        )
+        coordinator.enqueue(
+            .relative([1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+
+        coordinator.terminalDidEnterWorkspace(
+            panel,
+            workspace: workspace
+        )
+        coordinator.terminalDidEnterWorkspace(
+            panel,
+            workspace: workspace
+        )
+
+        XCTAssertEqual(
+            targetChanges,
+            [
+                .relative([-1]),
+                .relative([-1]),
+                .relative([1]),
+            ],
+            "A later transfer request must not overtake a failed mutation"
+        )
+        guard let finalBasePoints =
+                panel.surface.fontSizeLineageSnapshot()?.basePoints else {
+            XCTFail("Expected the terminal to retain font-size lineage")
+            return
+        }
+        XCTAssertEqual(
+            finalBasePoints,
+            maximumBasePoints,
+            accuracy: 0.001
+        )
+    }
+
     func testWindowDockFontSizeDrainAppliesToUnrelatedEnteringTerminal() {
         let manager = TabManager()
         guard let requestedWorkspace = manager.selectedWorkspace else {
