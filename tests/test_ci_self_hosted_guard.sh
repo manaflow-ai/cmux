@@ -843,10 +843,17 @@ check_web_test_global_isolation() {
   if ! awk '
     /^  web-typecheck:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /run: bun test --isolate \$\(ls tests\/\*\.test\.ts tests\/\*\.test\.tsx \| sort\)/ { saw_isolated_tests=1 }
-    END { exit !saw_isolated_tests }
+    in_job && /test_files=\(\)/ { saw_file_array=1 }
+    in_job && /while IFS= read -r test_file/ { saw_file_loop=1 }
+    in_job && /find tests -maxdepth 1 -type f/ { saw_find=1 }
+    in_job && /-name '\''\*\.test\.ts'\''/ { saw_ts_pattern=1 }
+    in_job && /-name '\''\*\.test\.tsx'\''/ { saw_tsx_pattern=1 }
+    in_job && /^[[:space:]]+sort$/ { saw_sort=1 }
+    in_job && /\$\{#test_files\[@\]\} == 0/ { saw_empty_guard=1 }
+    in_job && /bun test --isolate "\$\{test_files\[@\]\}"/ { saw_isolated_tests=1 }
+    END { exit !(saw_file_array && saw_file_loop && saw_find && saw_ts_pattern && saw_tsx_pattern && saw_sort && saw_empty_guard && saw_isolated_tests) }
   ' "$CI_FILE"; then
-    echo "FAIL: web-typecheck must run Bun with --isolate so global module mocks cannot leak between test files"
+    echo "FAIL: web-typecheck must safely enumerate tests and run Bun with --isolate so global module mocks cannot leak between files"
     exit 1
   fi
 
