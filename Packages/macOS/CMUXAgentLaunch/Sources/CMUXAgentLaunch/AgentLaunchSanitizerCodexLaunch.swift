@@ -238,7 +238,8 @@ private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, ti
 ]
 
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {
-    let normalized = command.replacingOccurrences(of: "\\", with: "/")
+    guard !command.contains("\\") else { return false }
+    let normalized = command
     let scriptFilename = cmuxCodexHookScriptFilename(from: normalized)
     let subcommands = [subcommand] + (codexWrapperInjectedHookSubcommandAliases[subcommand] ?? [])
     for candidate in subcommands {
