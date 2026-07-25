@@ -293,8 +293,6 @@ enum CodexResumeTestHarness {
     process.standardInput = stdinPipe ?? FileHandle.nullDevice
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
-    process.terminationHandler = { _ in exitSignal.signal() }
-
     do {
       try process.run()
     } catch {
@@ -321,6 +319,11 @@ enum CodexResumeTestHarness {
     DispatchQueue.global(qos: .utility).async {
       stderrCapture.replace(with: stderrPipe.fileHandleForReading.readDataToEndOfFile())
       outputGroup.leave()
+    }
+
+    DispatchQueue.global(qos: .userInitiated).async {
+      process.waitUntilExit()
+      exitSignal.signal()
     }
 
     let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut

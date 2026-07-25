@@ -311,11 +311,18 @@ struct CodexResumeTrustTests {
     environment["CODEX_HOME"] = codexHome.path
 
     let processCount = 8
-    var running: [(process: Process, stdout: Pipe, stderr: Pipe)] = []
+    var running:
+      [(
+        process: Process,
+        stdout: Pipe,
+        stderr: Pipe,
+        exitSignal: DispatchSemaphore
+      )] = []
     for _ in 0..<processCount {
       let process = Process()
       let stdout = Pipe()
       let stderr = Pipe()
+      let exitSignal = DispatchSemaphore(value: 0)
       process.executableURL = URL(fileURLWithPath: cliPath)
       process.arguments = ["hooks", "codex", "inject-resume-args"]
       process.environment = environment
@@ -323,18 +330,23 @@ struct CodexResumeTrustTests {
       process.standardOutput = stdout
       process.standardError = stderr
       try process.run()
-      running.append((process, stdout, stderr))
+      DispatchQueue.global(qos: .userInitiated).async {
+        process.waitUntilExit()
+        exitSignal.signal()
+      }
+      running.append((process, stdout, stderr, exitSignal))
     }
 
-    let deadline = Date().addingTimeInterval(5)
-    while running.contains(where: { $0.process.isRunning }), Date() < deadline {
-      Thread.sleep(forTimeInterval: 0.02)
-    }
-    for item in running where item.process.isRunning {
-      item.process.terminate()
-    }
+    let deadline = DispatchTime.now() + .seconds(20)
     for item in running {
-      item.process.waitUntilExit()
+      let timedOut = item.exitSignal.wait(timeout: deadline) == .timedOut
+      if timedOut {
+        item.process.terminate()
+        if item.exitSignal.wait(timeout: .now() + 1) == .timedOut {
+          kill(item.process.processIdentifier, SIGKILL)
+          _ = item.exitSignal.wait(timeout: .now() + 1)
+        }
+      }
       let stdout =
         String(
           data: item.stdout.fileHandleForReading.readDataToEndOfFile(),
@@ -345,6 +357,7 @@ struct CodexResumeTrustTests {
           data: item.stderr.fileHandleForReading.readDataToEndOfFile(),
           encoding: .utf8
         ) ?? ""
+      codexExpectFalse(timedOut, stderr)
       codexExpectEqual(item.process.terminationStatus, 0, stderr)
       codexExpectTrue(
         stdout.contains("trust_level=\"untrusted\""),
