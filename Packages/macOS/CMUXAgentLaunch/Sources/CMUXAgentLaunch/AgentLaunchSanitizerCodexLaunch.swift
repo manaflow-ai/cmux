@@ -258,12 +258,24 @@ private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bo
 
 private func cmuxCodexHookScriptFilename(from normalizedCommand: String) -> String? {
     guard normalizedCommand.hasPrefix("/"),
-          normalizedCommand.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
+          normalizedCommand.unicodeScalars.allSatisfy({
+              !CharacterSet.controlCharacters.contains($0)
+          })
     else {
         return nil
     }
 
     let url = URL(fileURLWithPath: normalizedCommand, isDirectory: false).standardizedFileURL
+    // A generated command is the complete executable path. Interior spaces in
+    // a path component are valid, while URL normalization changes embedded URL
+    // arguments and token separators leave boundary whitespace on a component.
+    guard url.path == normalizedCommand,
+          url.pathComponents.allSatisfy({
+              $0 == $0.trimmingCharacters(in: .whitespaces)
+          })
+    else {
+        return nil
+    }
     let directoryComponents = url.deletingLastPathComponent().pathComponents
     guard directoryComponents.count >= 2,
           Array(directoryComponents.suffix(2)) == [".cmux", "hooks"]
