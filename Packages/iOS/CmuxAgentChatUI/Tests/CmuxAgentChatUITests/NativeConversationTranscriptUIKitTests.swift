@@ -367,6 +367,42 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(state.value == .jumpingToHead)
     }
 
+    @Test("status-bar scrolling cancels an in-flight tail settle")
+    func statusBarScrollingCancelsInFlightTailSettle() async throws {
+        let state = TranscriptFollowStateBox(.detached(anchorID: 120, offset: 0, unseenCount: 0))
+        let wrappedTailText = Array(
+            repeating: "The final streamed answer resolves into a much taller row after the first tail jump.",
+            count: 160
+        ).joined(separator: " ")
+        let rows = (0..<240).map {
+            TranscriptTestRow(
+                id: $0,
+                text: $0 == 239 ? wrappedTailText : "Compact response \($0)"
+            )
+        }
+        let mounted = mount(TranscriptTestHarness(
+            rows: rows,
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .tail, animated: false)
+        ))
+        defer { mounted.window.isHidden = true }
+        await settle(mounted.host, passes: 1)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        #expect(distanceFromTail(in: table) <= 1.5)
+        #expect(table.delegate?.scrollViewShouldScrollToTop?(table) == true)
+        table.setContentOffset(
+            CGPoint(x: table.contentOffset.x, y: -table.adjustedContentInset.top),
+            animated: false
+        )
+        table.delegate?.scrollViewDidScrollToTop?(table)
+        await settle(mounted.host, passes: 8)
+
+        #expect(abs(table.contentOffset.y + table.adjustedContentInset.top) <= 1.5)
+        #expect(distanceFromTail(in: table) > 1_000)
+        #expect(state.value == .detached(anchorID: rows[0].id, offset: 0, unseenCount: 0))
+    }
+
     @Test("status-bar scrolling requests the authoritative head when history is paged")
     func statusBarScrollingRequestsAuthoritativeHead() async throws {
         let callbacks = TranscriptCallbackBox()
