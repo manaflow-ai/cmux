@@ -8,7 +8,7 @@ public extension TerminalSurface {
     @MainActor
     func processAlive() -> Bool? {
         guard !manualIO,
-              let liveSurface = liveSurfaceForGhosttyAccess(reason: "processAlive") else {
+              let liveSurface = validatedRuntimeSurfaceForObservation() else {
             return nil
         }
         return !ghostty_surface_process_exited(liveSurface)

@@ -126,10 +126,9 @@ extension TerminalSurface {
     /// down a stale wrapper instead of returning a dangling pointer.
     @MainActor
     public func liveSurfaceForGhosttyAccess(reason: String) -> ghostty_surface_t? {
-        guard hasLiveSurface, let surface else { return nil }
-        let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
-        guard registeredOwnerId == id,
-              GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
+        guard let validation = runtimeSurfaceValidationSnapshot() else { return nil }
+        guard validation.isValid else {
+            let surface = validation.surface
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
             let teeLease = mobileByteTeeLease
@@ -141,7 +140,9 @@ extension TerminalSurface {
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
-            let registeredOwnerToken = registeredOwnerId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let registeredOwnerToken = validation.registeredOwnerId.map {
+                String($0.uuidString.prefix(5))
+            } ?? "nil"
             logDebugEvent(
                 "surface.lifecycle.stale surface=\(id.uuidString.prefix(5)) " +
                 "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) " +
@@ -152,7 +153,34 @@ extension TerminalSurface {
             teeLease?.release()
             return nil
         }
-        return surface
+        return validation.surface
+    }
+
+    /// Returns a validated runtime pointer for read-only observation without
+    /// changing surface lifecycle state when validation fails.
+    @MainActor
+    func validatedRuntimeSurfaceForObservation() -> ghostty_surface_t? {
+        guard let validation = runtimeSurfaceValidationSnapshot(),
+              validation.isValid else {
+            return nil
+        }
+        return validation.surface
+    }
+
+    @MainActor
+    private func runtimeSurfaceValidationSnapshot() -> (
+        surface: ghostty_surface_t,
+        registeredOwnerId: UUID?,
+        isValid: Bool
+    )? {
+        guard hasLiveSurface, let surface else { return nil }
+        let registeredOwnerId = registry.runtimeSurfaceOwnerId(surface)
+        return (
+            surface: surface,
+            registeredOwnerId: registeredOwnerId,
+            isValid: registeredOwnerId == id &&
+                GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface)
+        )
     }
 
     func recordTeardownRequest(reason: String) {

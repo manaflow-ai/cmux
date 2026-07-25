@@ -89,6 +89,8 @@ struct ControlCommandCoordinatorSystemTreeProcessAliveTests {
         }
 
         #expect(payloads.count == 3)
+        #expect(surfaces[0].tty == "ttys001")
+        #expect(surfaces[0].reportedTTY == nil)
         #expect(field("process_alive", in: payloads[0]) == .bool(false))
         #expect(field("tty", in: payloads[0]) == .null)
         #expect(field("process_alive", in: payloads[1]) == .bool(true))

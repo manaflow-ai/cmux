@@ -3098,7 +3098,7 @@ class TerminalController {
             "pane_id": v2OrNull(surface.paneID?.uuidString),
             "pane_ref": v2Ref(kind: .pane, uuid: surface.paneID),
             "index_in_pane": v2OrNull(surface.indexInPane),
-            "tty": v2OrNull(surface.tty),
+            "tty": v2OrNull(surface.reportedTTY),
             "process_alive": v2OrNull(surface.processAlive),
             "webviews": []
         ]

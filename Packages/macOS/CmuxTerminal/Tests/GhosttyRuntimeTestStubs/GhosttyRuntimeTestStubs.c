@@ -17,6 +17,7 @@ typedef struct {
 
 static bool cmux_test_needs_confirm_quit = false;
 static bool cmux_test_process_exited = false;
+static void* cmux_test_process_exited_target = NULL;
 static uint64_t cmux_test_foreground_pid = 0;
 static const char* cmux_test_tty_name = NULL;
 static void* cmux_test_renderer_realized_target = NULL;
@@ -28,9 +29,13 @@ static bool cmux_test_renderer_release_was_occluded = false;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
-    cmux_test_process_exited = false;
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
+}
+
+void cmux_test_ghostty_runtime_stubs_reset_process_exited(void) {
+    cmux_test_process_exited = false;
+    cmux_test_process_exited_target = NULL;
 }
 
 void cmux_test_ghostty_renderer_realized_begin(void* surface) {
@@ -55,7 +60,8 @@ void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_
     cmux_test_tty_name = tty_name;
 }
 
-void cmux_test_ghostty_runtime_stubs_set_process_exited(bool process_exited) {
+void cmux_test_ghostty_runtime_stubs_set_process_exited(void* surface, bool process_exited) {
+    cmux_test_process_exited_target = surface;
     cmux_test_process_exited = process_exited;
 }
 
@@ -162,8 +168,7 @@ bool ghostty_surface_needs_confirm_quit(void *surface) {
 }
 void ghostty_surface_new(void) {}
 bool ghostty_surface_process_exited(void *surface) {
-    (void)surface;
-    return cmux_test_process_exited;
+    return surface == cmux_test_process_exited_target && cmux_test_process_exited;
 }
 void ghostty_surface_process_output(void) {}
 void ghostty_surface_quicklook_font(void) {}

@@ -2417,6 +2417,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// the package process-runner seam (replaces the legacy process-wide
     /// `WorkspaceRemoteSessionController.runProcessOverrideForTesting` static).
     var remoteSessionProcessRunnerOverrideForTesting: (any RemoteSessionProcessRunning)?
+    /// Workspace-scoped process-state overrides for control-plane projection
+    /// tests. Unknown IDs continue through the real TerminalSurface probe.
+    var controlProcessAliveOverridesForTesting: [UUID: Bool] = [:]
 #endif
     /// The shell-activity classification per panel id; stored in the
     /// surface-registry sub-model.
@@ -5150,6 +5153,12 @@ final class Workspace: Identifiable, ObservableObject {
     @MainActor
     func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
         activeRemoteTerminalSurfaceIds.contains(panelId)
+    }
+
+    @MainActor
+    func isRemoteTerminalSurfaceOrDisconnectPlaceholder(_ panelId: UUID) -> Bool {
+        isRemoteTerminalSurface(panelId) ||
+            remoteDisconnectPlaceholderPanelIds.contains(panelId)
     }
 
     @MainActor

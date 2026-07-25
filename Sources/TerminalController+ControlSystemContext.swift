@@ -135,10 +135,17 @@ extension TerminalController: ControlSystemContext {
                 dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
             let browserPanel = panel as? BrowserPanel
             let processAlive: Bool?
-            if workspace.isRemoteTerminalSurface(surface.surfaceID) {
+            if workspace.isRemoteTerminalSurfaceOrDisconnectPlaceholder(surface.surfaceID) {
                 processAlive = nil
+            } else if let terminalPanel = panel as? TerminalPanel {
+#if DEBUG
+                processAlive = workspace.controlProcessAliveOverridesForTesting[surface.surfaceID] ??
+                    terminalPanel.surface.processAlive()
+#else
+                processAlive = terminalPanel.surface.processAlive()
+#endif
             } else {
-                processAlive = (panel as? TerminalPanel)?.surface.processAlive()
+                processAlive = nil
             }
             let node = ControlSystemTreeSurfaceNode(
                 surfaceID: surface.surfaceID,

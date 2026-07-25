@@ -30,6 +30,11 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     public let indexInPane: Int?
     /// The terminal's tty name, if known.
     public let tty: String?
+    /// The tty value emitted on the wire. Exited local processes keep their raw
+    /// topology tty for in-process consumers but suppress it in snapshots.
+    public var reportedTTY: String? {
+        processAlive == false ? nil : tty
+    }
     /// Whether the locally spawned terminal process is alive. `nil` means the
     /// process state is unavailable or does not apply to this surface.
     public let processAlive: Bool?
@@ -85,7 +90,7 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         self.selectedInPane = selectedInPane
         self.paneID = paneID
         self.indexInPane = indexInPane
-        self.tty = processAlive == false ? nil : tty
+        self.tty = tty
         self.processAlive = processAlive
         self.isBrowser = isBrowser
         self.url = url
