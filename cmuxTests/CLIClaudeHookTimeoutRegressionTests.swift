@@ -309,6 +309,55 @@ struct CLIClaudeHookTimeoutRegressionTests {
     }
 
     @Test(
+        "Pinned agent queue admission uses its explicit socket without ambient cmux target IDs",
+        arguments: ["grok", "antigravity"]
+    )
+    func pinnedAgentQueueAdmissionUsesExplicitSocket(agent: String) throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let socketPath = makeCodexHookSocketPath("\(agent)-pinned")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "unused-pinned-surface",
+            connectionLimit: 1
+        )
+        let payload = #"{"session_id":"pinned-session","hook_event_name":"Stop"}"#
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "hooks", "enqueue", agent, "stop"],
+            environment: [
+                "HOME": FileManager.default.temporaryDirectory.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: payload,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let request = try #require(capturedCommands.snapshot().compactMap(codexHookJSONObject).first {
+            $0["method"] as? String == "agent.hook.enqueue"
+        })
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["agent"] as? String == agent)
+        #expect(params["subcommand"] as? String == "stop")
+        #expect(params["payload"] as? String == payload)
+        #expect(params["socket_path"] as? String == socketPath)
+        let admittedEnvironment = try #require(params["environment"] as? [String: Any])
+        #expect(admittedEnvironment["CMUX_SURFACE_ID"] == nil)
+        #expect(admittedEnvironment["CMUX_WORKSPACE_ID"] == nil)
+    }
+
+    @Test(
         "Relay-origin delivery skips local PID and TTY routing",
         arguments: [("claude", "CMUX_CLAUDE_PID"), ("codex", "CMUX_CODEX_PID")]
     )
