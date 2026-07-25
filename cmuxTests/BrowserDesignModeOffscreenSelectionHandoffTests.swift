@@ -26,6 +26,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
 
         var visibleCaptureCount = 0
         var fullPageCaptureCount = 0
+        var documentRectCaptureCount = 0
         var copiedPrompt: String?
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
@@ -43,6 +44,13 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
                 fullPageCapture: { _ in
                     fullPageCaptureCount += 1
                     return fullPageImage
+                },
+                documentRectCapture: { _, rect in
+                    documentRectCaptureCount += 1
+                    return self.solidColorImage(
+                        rect.minY < 1_000 ? .systemRed : .systemBlue,
+                        size: rect.size
+                    )
                 }
             ),
             canEnable: { true },
@@ -136,6 +144,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         #expect(abs(encodedAspectRatio - sourceAspectRatio) < 0.01)
         #expect(visibleCaptureCount == 2)
         #expect(fullPageCaptureCount == 1)
+        #expect(documentRectCaptureCount == 2)
         _ = navigationDelegate
     }
 
@@ -147,6 +156,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
+        var documentRectCaptureCount = 0
         var copiedPrompt: String?
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
@@ -162,6 +172,13 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
                 },
                 fullPageCapture: { _ in
                     throw BrowserScreenshotError.captureAreaTooLarge
+                },
+                documentRectCapture: { _, rect in
+                    documentRectCaptureCount += 1
+                    return self.solidColorImage(
+                        rect.minY < 1_000 ? .systemRed : .systemBlue,
+                        size: rect.size
+                    )
                 }
             ),
             canEnable: { true },
@@ -236,6 +253,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         #expect(selectionScreenshots.map(averageColor(of:)) == [.systemRed, .systemBlue])
         #expect(payload["page_screenshot_path"] == nil)
         #expect(!prompt.contains("Full-page screenshot:"))
+        #expect(documentRectCaptureCount == 2)
         _ = navigationDelegate
     }
 
@@ -308,6 +326,15 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         let image = NSImage(size: size)
         image.lockFocus()
         NSColor.white.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        image.unlockFocus()
+        return image
+    }
+
+    private func solidColorImage(_ color: NSColor, size: NSSize) -> NSImage {
+        let image = NSImage(size: size)
+        image.lockFocus()
+        color.setFill()
         NSRect(origin: .zero, size: size).fill()
         image.unlockFocus()
         return image

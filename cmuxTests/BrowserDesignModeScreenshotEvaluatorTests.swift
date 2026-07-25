@@ -25,7 +25,10 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
     @Test func cancelAllReleasesPendingCapture() async {
         let (started, startedContinuation) = AsyncStream<Void>.makeStream()
-        let evaluator = BrowserDesignModeScreenshotEvaluator(timeout: 60) { _, _ in
+        var lateCompletion: (@MainActor (Result<NSImage, any Error>) -> Void)?
+        let expected = NSImage(size: NSSize(width: 20, height: 10))
+        let evaluator = BrowserDesignModeScreenshotEvaluator(timeout: 60) { _, completion in
+            lateCompletion = completion
             startedContinuation.yield(())
         }
         let task = Task { @MainActor in
@@ -35,6 +38,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         _ = await startedIterator.next()
 
         evaluator.cancelAll()
+        lateCompletion?(.success(expected))
         startedContinuation.finish()
 
         do {
@@ -73,6 +77,226 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let captured = try await evaluator.captureFullPage(from: WKWebView())
 
         #expect(captured === expected)
+    }
+
+    @Test func timeoutWaitsForCaptureCleanupBeforeCallerStartsFallback() async throws {
+        var events: [String] = []
+        var cleanupContinuation: CheckedContinuation<Void, Never>?
+        let (cleanupStarted, cleanupStartedContinuation) = AsyncStream<Void>.makeStream()
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 0.01,
+            visibleViewportCapture: { _, _ in },
+            fullPageCapture: { _, _ in
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(60))
+                    return NSImage(size: NSSize(width: 20, height: 40))
+                } catch {
+                    events.append("cleanup-started")
+                    await withCheckedContinuation { continuation in
+                        cleanupContinuation = continuation
+                        cleanupStartedContinuation.yield()
+                    }
+                    events.append("cleanup-finished")
+                    throw error
+                }
+            },
+            documentRectCapture: { _, _ in
+                events.append("fallback")
+                return NSImage(size: NSSize(width: 10, height: 10))
+            }
+        )
+        let owner = Task { @MainActor in
+            do {
+                _ = try await evaluator.captureFullPage(from: WKWebView())
+                Issue.record("Expected full-page capture timeout")
+            } catch {
+                #expect(error as? BrowserDesignModeError == .operationTimedOut)
+                _ = try await evaluator.captureDocumentRect(
+                    NSRect(x: 0, y: 0, width: 10, height: 10),
+                    from: WKWebView()
+                )
+            }
+        }
+
+        var cleanupStartedIterator = cleanupStarted.makeAsyncIterator()
+        _ = await cleanupStartedIterator.next()
+        await Task.yield()
+        #expect(events == ["cleanup-started"])
+
+        cleanupContinuation?.resume()
+        cleanupStartedContinuation.finish()
+        try await owner.value
+
+        #expect(events == ["cleanup-started", "cleanup-finished", "fallback"])
+    }
+
+    @Test func callerCancellationWaitsForCaptureCleanup() async {
+        var events: [String] = []
+        var cleanupContinuation: CheckedContinuation<Void, Never>?
+        let (captureStarted, captureStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (cleanupStarted, cleanupStartedContinuation) = AsyncStream<Void>.makeStream()
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 60,
+            visibleViewportCapture: { _, _ in },
+            fullPageCapture: { _, _ in
+                captureStartedContinuation.yield()
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(60))
+                    return NSImage(size: NSSize(width: 20, height: 40))
+                } catch {
+                    events.append("cleanup-started")
+                    await withCheckedContinuation { continuation in
+                        cleanupContinuation = continuation
+                        cleanupStartedContinuation.yield()
+                    }
+                    events.append("cleanup-finished")
+                    throw error
+                }
+            }
+        )
+        var ownerFinished = false
+        let owner = Task { @MainActor in
+            defer { ownerFinished = true }
+            do {
+                _ = try await evaluator.captureFullPage(from: WKWebView())
+                Issue.record("Expected full-page capture cancellation")
+            } catch {
+                #expect(error is CancellationError)
+            }
+        }
+
+        var captureStartedIterator = captureStarted.makeAsyncIterator()
+        _ = await captureStartedIterator.next()
+        owner.cancel()
+
+        var cleanupStartedIterator = cleanupStarted.makeAsyncIterator()
+        _ = await cleanupStartedIterator.next()
+        await Task.yield()
+        #expect(!ownerFinished)
+        #expect(events == ["cleanup-started"])
+
+        cleanupContinuation?.resume()
+        captureStartedContinuation.finish()
+        cleanupStartedContinuation.finish()
+        await owner.value
+
+        #expect(ownerFinished)
+        #expect(events == ["cleanup-started", "cleanup-finished"])
+    }
+
+    @Test func uncooperativeCaptureCannotDefeatTimeoutOrStartFallback() async {
+        var captureContinuation: CheckedContinuation<NSImage, Never>?
+        var didStartFallback = false
+        let (captureStarted, captureStartedContinuation) = AsyncStream<Void>.makeStream()
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 0.01,
+            cleanupTimeout: 0.01,
+            visibleViewportCapture: { _, _ in },
+            fullPageCapture: { _, _ in
+                await withCheckedContinuation { continuation in
+                    captureContinuation = continuation
+                    captureStartedContinuation.yield()
+                }
+            },
+            documentRectCapture: { _, _ in
+                didStartFallback = true
+                return NSImage(size: NSSize(width: 10, height: 10))
+            }
+        )
+        let owner = Task { @MainActor in
+            do {
+                _ = try await evaluator.captureFullPage(from: WKWebView())
+                Issue.record("Expected full-page capture cancellation")
+            } catch is CancellationError {
+                return
+            } catch {
+                _ = try? await evaluator.captureDocumentRect(
+                    NSRect(x: 0, y: 0, width: 10, height: 10),
+                    from: WKWebView()
+                )
+            }
+        }
+
+        var captureStartedIterator = captureStarted.makeAsyncIterator()
+        _ = await captureStartedIterator.next()
+        await owner.value
+
+        #expect(!didStartFallback)
+        captureContinuation?.resume(returning: NSImage(size: NSSize(width: 20, height: 40)))
+        captureStartedContinuation.finish()
+    }
+
+    @Test func designModeFullPageOverviewUsesBoundedWebKitOutput() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(
+            """
+            <style>
+              html, body { margin: 0; width: 3000px; height: 2000px; }
+              body { background: linear-gradient(#f00, #00f); }
+            </style>
+            """,
+            baseURL: nil
+        )
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+
+        let image = try await BrowserScreenshotWebViewSnapshotter.captureBoundedFullPageOverview(
+            from: webView,
+            maximumPixelCount: BrowserScreenshotPasteboardWriter.maximumDesignModeArtifactPixelCount
+        )
+        let representation = try #require(image.representations.first)
+        let pixelCount = representation.pixelsWide * representation.pixelsHigh
+
+        #expect(pixelCount <= BrowserScreenshotPasteboardWriter.maximumDesignModeArtifactPixelCount)
+        #expect(Int(image.size.width * image.size.height) <= 4_194_304)
+        #expect(abs(image.size.width / image.size.height - 1.5) < 0.01)
+        _ = navigationDelegate
+    }
+
+    @Test func zoomedPageUsesBoundedStitchedOverviewAndSelectionCapture() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(
+            """
+            <style>
+              html, body { margin: 0; width: 1200px; height: 800px; }
+              body { background: linear-gradient(90deg, #f00, #00f); }
+            </style>
+            """,
+            baseURL: nil
+        )
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+        webView.pageZoom = 2
+
+        let screenshotEvaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 10,
+            cleanupTimeout: 2
+        )
+        let overview = try await screenshotEvaluator.captureFullPage(from: webView)
+        let selection = try await screenshotEvaluator.captureDocumentRect(
+            NSRect(x: 200, y: 200, width: 1_200, height: 800),
+            from: webView
+        )
+
+        let overviewRep = try #require(overview.representations.first)
+        let selectionRep = try #require(selection.representations.first)
+        #expect(overviewRep.pixelsWide * overviewRep.pixelsHigh <= 4_194_304)
+        #expect(selectionRep.pixelsWide * selectionRep.pixelsHigh <= 4_194_304)
+        #expect(selection.size.width > 0)
+        #expect(selection.size.height > 0)
+        _ = navigationDelegate
     }
 
     @Test func synthesizedClickKeepsPageRuntimeOutOfTheNativeComposerInputPath() async throws {

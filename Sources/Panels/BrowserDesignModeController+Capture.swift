@@ -236,14 +236,17 @@ extension BrowserDesignModeController {
                 throw CancellationError()
             } catch {
                 pageImage = nil
-                for selection in before.selections
-                    where annotationScreenshotPaths[selection.selector] == nil {
-                    let captureRect = selection.documentCaptureRect(
-                        webViewBounds: beforeViewBounds
-                    )
-                    selectionImages[selection.selector] = try await screenshotEvaluator
-                        .captureDocumentRect(captureRect, from: webView)
-                }
+            }
+            // The bounded page overview is prompt context, not a high-quality
+            // source for element crops. Capture each selection at its own
+            // bounded resolution, including when the overview succeeded.
+            for selection in before.selections
+                where annotationScreenshotPaths[selection.selector] == nil {
+                let captureRect = selection.documentCaptureRect(
+                    webViewBounds: beforeViewBounds
+                )
+                selectionImages[selection.selector] = try await screenshotEvaluator
+                    .captureDocumentRect(captureRect, from: webView)
             }
             let after = try BrowserDesignModeSupport.decodeSnapshot(
                 try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)

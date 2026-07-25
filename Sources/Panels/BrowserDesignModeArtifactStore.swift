@@ -7,6 +7,7 @@ actor BrowserDesignModeArtifactStore {
     private static let processLiveContextSessionID = String(UUID().uuidString.prefix(8))
     private static let handoffMarkerBasePrefix = ".handoff-"
     private static let releasedMarkerPrefix = ".released-"
+    private static let directoryLockFilename = ".directory.lock"
     private static let screenshotSuffix = "screenshot.png"
 
     private let rootDirectory: URL
@@ -81,23 +82,25 @@ actor BrowserDesignModeArtifactStore {
         ].joined(separator: "-")
         let url = directory.appendingPathComponent(filename, isDirectory: false)
         try prepareDirectory()
-        try data.write(to: url, options: .atomic)
-        if let handoffLease {
-            do {
-                try Data().write(
-                    to: handoffMarkerURL(for: url, lease: handoffLease),
-                    options: .atomic
-                )
-            } catch {
-                removeArtifact(at: url)
-                throw error
+        return try withDirectoryLock {
+            try data.write(to: url, options: .atomic)
+            if let handoffLease {
+                do {
+                    try Data().write(
+                        to: handoffMarkerURL(for: url, lease: handoffLease),
+                        options: .atomic
+                    )
+                } catch {
+                    removeArtifactLocked(at: url)
+                    throw error
+                }
             }
+            pruneKeepingNewestLocked(limit: Self.fileLimit)
+            guard fileManager.fileExists(atPath: url.path) else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+            return url
         }
-        pruneKeepingNewest(limit: Self.fileLimit)
-        guard fileManager.fileExists(atPath: url.path) else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        return url
     }
 
     private func prepareDirectory() throws {
@@ -135,63 +138,73 @@ actor BrowserDesignModeArtifactStore {
     /// The caller releases the candidate if clipboard delivery fails, or the
     /// previous clipboard bundle after a later delivery replaces it.
     func retainHandoffArtifacts(at paths: [String], lease: UUID) -> Bool {
-        let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
-        let standardizedDirectory = directory.standardizedFileURL
-        guard !urls.isEmpty,
-              urls.allSatisfy({
-                  $0.deletingLastPathComponent() == standardizedDirectory
-                      && !$0.lastPathComponent.hasPrefix(".")
-                      && fileManager.fileExists(atPath: $0.path)
-              }) else { return false }
+        (try? withDirectoryLock {
+            let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
+            let standardizedDirectory = directory.standardizedFileURL
+            guard !urls.isEmpty,
+                  urls.allSatisfy({
+                      $0.deletingLastPathComponent() == standardizedDirectory
+                          && !$0.lastPathComponent.hasPrefix(".")
+                          && fileManager.fileExists(atPath: $0.path)
+                  }) else { return false }
 
-        var retainedURLs: [URL] = []
-        for url in urls {
-            do {
-                try Data().write(
-                    to: handoffMarkerURL(for: url, lease: lease),
-                    options: .atomic
-                )
-                retainedURLs.append(url)
-            } catch {
-                retainedURLs.forEach { removeHandoffMarker(for: $0, lease: lease) }
+            var retainedURLs: [URL] = []
+            for url in urls {
+                do {
+                    try Data().write(
+                        to: handoffMarkerURL(for: url, lease: lease),
+                        options: .atomic
+                    )
+                    retainedURLs.append(url)
+                } catch {
+                    retainedURLs.forEach { removeHandoffMarkerLocked(for: $0, lease: lease) }
+                    return false
+                }
+            }
+            guard urls.allSatisfy({ fileManager.fileExists(atPath: $0.path) }) else {
+                retainedURLs.forEach { removeHandoffMarkerLocked(for: $0, lease: lease) }
                 return false
             }
-        }
-        guard urls.allSatisfy({ fileManager.fileExists(atPath: $0.path) }) else {
-            retainedURLs.forEach { removeHandoffMarker(for: $0, lease: lease) }
-            return false
-        }
-        return true
+            return true
+        }) ?? false
     }
 
     func releaseHandoff(_ lease: UUID) {
-        guard let directoryURLs = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: []
-        ) else { return }
-        let leaseMarkerPrefix = "\(handoffMarkerPrefix)\(lease.uuidString)-"
-        for markerURL in directoryURLs where markerURL.lastPathComponent.hasPrefix(leaseMarkerPrefix) {
-            try? fileManager.removeItem(at: markerURL)
+        try? withDirectoryLock {
+            guard let directoryURLs = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: []
+            ) else { return }
+            let leaseMarkerPrefix = "\(handoffMarkerPrefix)\(lease.uuidString)-"
+            for markerURL in directoryURLs where markerURL.lastPathComponent.hasPrefix(leaseMarkerPrefix) {
+                try? fileManager.removeItem(at: markerURL)
+            }
+            pruneKeepingNewestLocked(limit: Self.fileLimit)
         }
-        pruneKeepingNewest(limit: Self.fileLimit)
     }
 
     /// Deletes a capture that never became part of authoritative prompt context.
     func remove(_ url: URL) {
-        removeArtifact(at: url)
+        try? withDirectoryLock {
+            removeArtifactLocked(at: url)
+        }
     }
 
     /// Makes a former live-context file prunable without changing its handed-off path.
     func release(_ url: URL) {
-        if url.lastPathComponent.hasSuffix("-\(liveContextSuffix)"),
-           fileManager.fileExists(atPath: url.path) {
-            try? Data().write(to: releasedMarkerURL(for: url), options: .atomic)
+        try? withDirectoryLock {
+            if url.lastPathComponent.hasSuffix("-\(liveContextSuffix)"),
+               fileManager.fileExists(atPath: url.path) {
+                try? Data().write(to: releasedMarkerURL(for: url), options: .atomic)
+            }
+            pruneKeepingNewestLocked(limit: Self.fileLimit)
         }
-        pruneKeepingNewest(limit: Self.fileLimit)
     }
 
-    private func pruneKeepingNewest(limit: Int) {
+    /// Caller must hold the process-directory lock so a separate store actor
+    /// cannot install a handoff marker between the retention snapshot and delete.
+    private func pruneKeepingNewestLocked(limit: Int) {
         guard let directoryURLs = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -230,7 +243,7 @@ actor BrowserDesignModeArtifactStore {
         }
         for staleURL in ordered.dropFirst(prunableLimit) {
             if !isRetained(staleURL, handoffArtifactNames: handoffArtifactNames) {
-                removeArtifact(at: staleURL)
+                removeArtifactLocked(at: staleURL)
             }
         }
     }
@@ -248,10 +261,10 @@ actor BrowserDesignModeArtifactStore {
             || handoffArtifactNames.contains(url.lastPathComponent)
     }
 
-    private func removeArtifact(at url: URL) {
+    private func removeArtifactLocked(at url: URL) {
         try? fileManager.removeItem(at: url)
         try? fileManager.removeItem(at: releasedMarkerURL(for: url))
-        removeHandoffMarkers(for: url)
+        removeHandoffMarkersLocked(for: url)
     }
 
     private func handoffMarkerURL(for url: URL, lease: UUID) -> URL {
@@ -261,11 +274,11 @@ actor BrowserDesignModeArtifactStore {
         )
     }
 
-    private func removeHandoffMarker(for url: URL, lease: UUID) {
+    private func removeHandoffMarkerLocked(for url: URL, lease: UUID) {
         try? fileManager.removeItem(at: handoffMarkerURL(for: url, lease: lease))
     }
 
-    private func removeHandoffMarkers(for url: URL) {
+    private func removeHandoffMarkersLocked(for url: URL) {
         guard let directoryURLs = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
@@ -275,6 +288,30 @@ actor BrowserDesignModeArtifactStore {
             && artifactURL(forMarker: markerURL)?.standardizedFileURL == url.standardizedFileURL {
             try? fileManager.removeItem(at: markerURL)
         }
+    }
+
+    /// Uses BSD `flock` because actor isolation cannot serialize separate store
+    /// instances or processes; the bounded critical section never suspends.
+    private func withDirectoryLock<T>(_ body: () throws -> T) throws -> T {
+        let lockURL = directory.appendingPathComponent(
+            Self.directoryLockFilename,
+            isDirectory: false
+        )
+        let descriptor = lockURL.path.withCString {
+            Darwin.open($0, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { Darwin.close(descriptor) }
+
+        while flock(descriptor, LOCK_EX) != 0 {
+            guard errno == EINTR else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        return try body()
     }
 
     private func releasedMarkerURL(for url: URL) -> URL {

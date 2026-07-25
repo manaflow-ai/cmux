@@ -185,7 +185,13 @@ enum BrowserScreenshotCrop {
 }
 
 struct BrowserScreenshotPasteboardWriter: Sendable {
-    static let defaultMaximumPixelCount = 4_194_304
+    static let maximumDesignModeArtifactPixelCount = 4_194_304
+    static let maximumOrdinaryClipboardPixelCount = 16_777_216
+
+    enum OversizedImagePolicy: Equatable, Sendable {
+        case reject
+        case downscale
+    }
 
     private struct EncodedImage: Sendable {
         let png: Data
@@ -193,9 +199,14 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
     }
 
     private let maximumPixelCount: Int
+    private let oversizedImagePolicy: OversizedImagePolicy
 
-    init(maximumPixelCount: Int = defaultMaximumPixelCount) {
+    init(
+        maximumPixelCount: Int = maximumOrdinaryClipboardPixelCount,
+        oversizedImagePolicy: OversizedImagePolicy = .reject
+    ) {
         self.maximumPixelCount = maximumPixelCount
+        self.oversizedImagePolicy = oversizedImagePolicy
     }
 
     @MainActor
@@ -275,6 +286,10 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
         let pixelCount = source.width.multipliedReportingOverflow(by: source.height)
         guard !pixelCount.overflow else {
             throw BrowserScreenshotError.invalidImageRepresentation
+        }
+        if pixelCount.partialValue > maximumPixelCount,
+           oversizedImagePolicy == .reject {
+            throw BrowserScreenshotError.captureAreaTooLarge
         }
         let scale = min(
             1,

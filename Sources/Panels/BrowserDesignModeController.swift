@@ -99,7 +99,10 @@ final class BrowserDesignModeController {
         artifactStore: BrowserDesignModeArtifactStore,
         javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator,
         screenshotEvaluator: BrowserDesignModeScreenshotEvaluator,
-        screenshotWriter: BrowserScreenshotPasteboardWriter = .init(),
+        screenshotWriter: BrowserScreenshotPasteboardWriter = .init(
+            maximumPixelCount: BrowserScreenshotPasteboardWriter.maximumDesignModeArtifactPixelCount,
+            oversizedImagePolicy: .downscale
+        ),
         canEnable: @escaping @MainActor @Sendable () -> Bool,
         clipboardWriter: @escaping ClipboardWriter,
         onActivityChanged: @escaping @MainActor @Sendable () -> Void
@@ -512,12 +515,6 @@ final class BrowserDesignModeController {
                 let selectionImage: NSImage
                 if let fallbackImage = capture.selectionImages[selection.selector] {
                     selectionImage = fallbackImage
-                } else if let pageImage = capture.pageImage {
-                    selectionImage = try BrowserScreenshotCrop.croppedImage(
-                        from: pageImage,
-                        selectionInView: selection.fullPageCaptureRect(imageSize: pageImage.size),
-                        viewBounds: NSRect(origin: .zero, size: pageImage.size)
-                    )
                 } else {
                     throw BrowserScreenshotError.invalidSelection
                 }

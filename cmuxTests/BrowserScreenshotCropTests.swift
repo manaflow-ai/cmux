@@ -72,6 +72,15 @@ struct BrowserScreenshotCropTests {
     }()
 
     @Test
+    func extremeAspectRatioBoundIsConstantTimeAndWithinPixelLimit() throws {
+        let size = try BrowserScreenshotCaptureBounds.boundedOutputSize(
+            for: NSSize(width: 100_000_000, height: 1),
+            maximumPixelCount: 4_194_304
+        )
+        #expect(size == NSSize(width: 4_194_304, height: 1))
+    }
+
+    @Test
     func encodedCropUsesOnePixelPerSnapshotCoordinate() async throws {
         let source = try makePatternedBitmapImage()
 
@@ -113,13 +122,58 @@ struct BrowserScreenshotCropTests {
         let image = NSImage(size: bitmap.size)
         image.addRepresentation(bitmap)
 
-        let item = try await BrowserScreenshotPasteboardWriter().pasteboardItem(for: image)
+        let item = try await BrowserScreenshotPasteboardWriter(
+            maximumPixelCount: BrowserScreenshotPasteboardWriter.maximumDesignModeArtifactPixelCount,
+            oversizedImagePolicy: .downscale
+        ).pasteboardItem(for: image)
         for type in [UTType.png, UTType.tiff] {
             let data = try #require(item.data(
                 forType: NSPasteboard.PasteboardType(type.identifier)
             ))
             let encoded = try #require(NSBitmapImageRep(data: data))
             #expect(encoded.pixelsWide * encoded.pixelsHigh <= 4_194_304)
+        }
+    }
+
+    @Test
+    func ordinaryScreenshotClipboardKeepsNativeResolution() async throws {
+        let width = 2_050
+        let height = 2_050
+        let image = try makeBlankBitmapImage(width: width, height: height)
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-browser-native-resolution-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+
+        _ = try await BrowserScreenshotPipeline.captureAndWrite(
+            mode: .fullPage,
+            snapshot: { image },
+            pasteboard: pasteboard
+        )
+
+        for type in [UTType.png, UTType.tiff] {
+            let data = try #require(pasteboard.data(
+                forType: NSPasteboard.PasteboardType(type.identifier)
+            ))
+            let encoded = try #require(NSBitmapImageRep(data: data))
+            #expect(encoded.pixelsWide == width)
+            #expect(encoded.pixelsHigh == height)
+        }
+    }
+
+    @Test
+    func ordinaryScreenshotRejectsUnsafeEncodingInsteadOfDownscaling() async throws {
+        let image = try makeBlankBitmapImage(width: 11, height: 10)
+
+        do {
+            _ = try await BrowserScreenshotPasteboardWriter(
+                maximumPixelCount: 100
+            ).pasteboardItem(for: image)
+            Issue.record("Expected unsafe ordinary screenshot encoding to be rejected")
+        } catch BrowserScreenshotError.captureAreaTooLarge {
+            // Expected: ordinary screenshots stay native or fail explicitly.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -176,6 +230,25 @@ struct BrowserScreenshotCropTests {
         let size = NSSize(width: width, height: height)
         bitmap.size = size
         let image = NSImage(size: size)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    private func makeBlankBitmapImage(width: Int, height: Int) throws -> NSImage {
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        bitmap.size = NSSize(width: width, height: height)
+        let image = NSImage(size: bitmap.size)
         image.addRepresentation(bitmap)
         return image
     }
