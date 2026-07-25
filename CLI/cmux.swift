@@ -34643,7 +34643,15 @@ export default CMUXSessionRestore;
 
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
-        if first == "enqueue" || first == "feed" || first == "claude" { return true }
+        if first == "enqueue" {
+            guard let agentName = commandArgs.dropFirst().first?.lowercased(),
+                  let def = Self.agentDef(named: agentName)
+            else {
+                return true
+            }
+            return !usesPinnedHookDispatch(def)
+        }
+        if first == "feed" || first == "claude" { return true }
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "grok" {
