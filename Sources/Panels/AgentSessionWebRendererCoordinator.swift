@@ -739,6 +739,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             if let workingDirectory {
                 context["workingDirectory"] = workingDirectory
             }
+            if let activeSession = processStore.activeSessionInfo {
+                context["activeSession"] = Self.activeSessionContext(activeSession)
+            }
             return context
         case "app.pickFiles":
             return await pickLocalFiles()
@@ -971,6 +974,19 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
           return true;
         })()
         """
+    }
+
+    nonisolated static func activeSessionContext(_ session: AgentSessionControlSessionInfo) -> [String: Any] {
+        var context: [String: Any] = [
+            "sessionId": session.sessionId,
+            "providerId": session.providerID.rawValue,
+            "executablePath": session.executablePath,
+            "arguments": session.arguments
+        ]
+        if let workingDirectory = session.workingDirectory {
+            context["workingDirectory"] = workingDirectory
+        }
+        return context
     }
 
     private func emitControlInputAccepted(session: AgentSessionControlSessionInfo, text: String) {

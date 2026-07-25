@@ -93,12 +93,7 @@ export function initialState(_renderer: AppContext["renderer"]): SessionState {
 export function reduceSession(state: SessionState, action: Action): SessionState {
   switch (action.type) {
     case "context":
-      return appendContextReadyLog({
-        ...state,
-        context: action.context,
-        selectedProviderId: action.context.initialProviderId,
-        status: "idle",
-      });
+      return appendContextReadyLog(sessionStateWithContext(state, action.context));
     case "providers":
       return { ...state, providers: action.providers };
     case "selectProvider":
@@ -130,6 +125,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         runningSessionId: action.sessionId,
         requestedStopSessionId: undefined,
         seenSessionIds: rememberSessionId(state, action.sessionId),
+        status: "running",
       };
     case "stopping":
       return {
@@ -182,6 +178,33 @@ export function reduceSession(state: SessionState, action: Action): SessionState
     default:
       return state;
   }
+}
+
+function sessionStateWithContext(state: SessionState, context: AppContext): SessionState {
+  if (context.activeSession) {
+    return {
+      ...state,
+      context,
+      runningSessionId: context.activeSession.sessionId,
+      requestedStopSessionId: undefined,
+      selectedProviderId: context.activeSession.providerId,
+      seenSessionIds: rememberSessionId(state, context.activeSession.sessionId),
+      status: "running",
+    };
+  }
+  if (state.runningSessionId) {
+    return {
+      ...state,
+      context,
+      status: state.status === "loading" ? "running" : state.status,
+    };
+  }
+  return {
+    ...state,
+    context,
+    selectedProviderId: context.initialProviderId,
+    status: "idle",
+  };
 }
 
 export async function loadInitialData(dispatch: (action: Action) => void): Promise<void> {
@@ -385,7 +408,8 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         !state.runningSessionId &&
         state.status !== "starting" &&
         state.status !== "idle" &&
-        state.status !== "failed"
+        state.status !== "failed" &&
+        state.status !== "loading"
       ) {
         return state;
       }

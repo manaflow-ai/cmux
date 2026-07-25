@@ -35,10 +35,19 @@ export type AppContext = {
   workspaceId: string;
   renderer: RendererKind;
   initialProviderId: ProviderId;
+  activeSession?: AgentSessionActiveSession;
   workingDirectory?: string;
   rateLimitRows?: AgentSessionRateLimitRow[];
   copy: AgentSessionCopy;
   theme: AgentSessionTheme;
+};
+
+export type AgentSessionActiveSession = {
+  sessionId: string;
+  providerId: ProviderId;
+  executablePath: string;
+  arguments: string[];
+  workingDirectory?: string;
 };
 
 export type AgentSessionRateLimitRow = {

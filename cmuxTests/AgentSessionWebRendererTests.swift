@@ -80,6 +80,25 @@ struct AgentSessionWebRendererTests {
         expectTrue(script.contains(#"bridge.receive({"type":"provider.inputAccepted"});"#))
     }
 
+    @Test
+    func testActiveSessionContextCarriesNativeSessionMetadata() {
+        let context = AgentSessionWebRendererCoordinator.activeSessionContext(
+            AgentSessionControlSessionInfo(
+                sessionId: "session-1",
+                providerID: .codex,
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["app-server", "--listen", "stdio://"],
+                workingDirectory: "/tmp/project"
+            )
+        )
+
+        expectEqual(context["sessionId"] as? String, "session-1")
+        expectEqual(context["providerId"] as? String, "codex")
+        expectEqual(context["executablePath"] as? String, "/usr/local/bin/codex")
+        expectEqual(context["arguments"] as? [String], ["app-server", "--listen", "stdio://"])
+        expectEqual(context["workingDirectory"] as? String, "/tmp/project")
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-agent-session-web-renderer-tests-\(UUID().uuidString)",

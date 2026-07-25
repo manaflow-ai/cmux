@@ -217,6 +217,46 @@ test("provider input accepted event from native submit attaches while idle", () 
   });
 });
 
+test("context active session hydrates running state from native snapshot", () => {
+  const state = reduceSession(initialState("react"), {
+    type: "context",
+    context: {
+      ...context,
+      activeSession: {
+        sessionId: "session-restored",
+        providerId: "claude",
+        executablePath: "/usr/local/bin/claude",
+        arguments: ["-p"],
+        workingDirectory: "/tmp/project",
+      },
+    },
+  });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-restored");
+  expect(state.selectedProviderId).toBe("claude");
+  expect(state.context?.activeSession?.workingDirectory).toBe("/tmp/project");
+  expect(shouldAutoStartProvider(state)).toBe(false);
+});
+
+test("context load preserves provider event that arrived before context", () => {
+  const startedBeforeContext = reduceSession(initialState("react"), {
+    type: "event",
+    event: {
+      type: "provider.started",
+      providerId: "codex",
+      sessionId: "session-before-context",
+      executablePath: "/usr/local/bin/codex",
+      arguments: ["app-server", "--listen", "stdio://"],
+    },
+  });
+  const state = reduceSession(startedBeforeContext, { type: "context", context });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-before-context");
+  expect(state.selectedProviderId).toBe("codex");
+});
+
 test("rate limit row event updates context", () => {
   const initial = reduceSession(initialState("react"), { type: "context", context });
   const state = reduceSession(initial, {
@@ -624,7 +664,7 @@ test("accepted start reply tracks session before provider started event", () => 
   );
   const accepted = reduceSession(starting, { type: "startAccepted", sessionId: "session-1" });
 
-  expect(accepted.status).toBe("starting");
+  expect(accepted.status).toBe("running");
   expect(accepted.runningSessionId).toBe("session-1");
   expect(canStopProvider(accepted)).toBe(true);
 
