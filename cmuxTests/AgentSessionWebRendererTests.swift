@@ -68,6 +68,18 @@ struct AgentSessionWebRendererTests {
         expectEqual(resolved, main.appendingPathExtension("deflate"))
     }
 
+    @Test
+    func testBridgeEventDeliveryScriptWaitsForReceiveFunction() {
+        let script = AgentSessionWebRendererCoordinator.bridgeEventDeliveryScript(
+            json: #"{"type":"provider.inputAccepted"}"#
+        )
+
+        expectTrue(script.contains("window.cmuxAgentBridge"))
+        expectTrue(script.contains(#"typeof bridge.receive !== "function""#))
+        expectTrue(script.contains("return false"))
+        expectTrue(script.contains(#"bridge.receive({"type":"provider.inputAccepted"});"#))
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-agent-session-web-renderer-tests-\(UUID().uuidString)",

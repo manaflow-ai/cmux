@@ -21,11 +21,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
+    private var pendingBridgeEvents: [[String: Any]] = []
+    private var isFlushingBridgeEvents = false
+    private var hasScheduledBridgeFlushRetry = false
     private var processStore = AgentSessionProcessStore()
     nonisolated static let agentSessionAssetScheme = "cmux-agent-session"
     nonisolated static let agentSessionAssetHost = "bundle"
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
+    nonisolated private static let maxPendingBridgeEvents = 512
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
         didSet {
             onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
@@ -186,6 +190,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
+        isFlushingBridgeEvents = false
+        hasScheduledBridgeFlushRetry = false
     }
 
     func focus() {
@@ -221,6 +227,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         trustedShellURL = nil
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
+        pendingBridgeEvents.removeAll()
+        isFlushingBridgeEvents = false
+        hasScheduledBridgeFlushRetry = false
     }
 
     func userContentController(
@@ -253,6 +262,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 #endif
         hasFinishedNavigation = true
         applyThemeToLoadedPage()
+        flushPendingBridgeEvents()
         if isPanelFocused {
             focus()
         }
@@ -867,20 +877,100 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     }
 
     private func sendEvent(_ event: [String: Any]) {
-        guard let webView,
-              let data = try? JSONSerialization.data(withJSONObject: event),
-              let json = String(data: data, encoding: .utf8) else {
+        pendingBridgeEvents.append(event)
+        if pendingBridgeEvents.count > Self.maxPendingBridgeEvents {
+            pendingBridgeEvents.removeFirst(pendingBridgeEvents.count - Self.maxPendingBridgeEvents)
+        }
+        flushPendingBridgeEvents()
+    }
+
+    private func flushPendingBridgeEvents() {
+        guard !isFlushingBridgeEvents,
+              hasFinishedNavigation,
+              let webView,
+              !pendingBridgeEvents.isEmpty else {
             return
         }
-        webView.evaluateJavaScript("window.cmuxAgentBridge?.receive(\(json));") { _, error in
-#if DEBUG
-            if let error {
-                cmuxDebugLog("agentSession.bridge.event.failed error=\(error.localizedDescription)")
-            }
-#else
-            _ = error
-#endif
+        isFlushingBridgeEvents = true
+        flushNextBridgeEvent(in: webView)
+    }
+
+    private func flushNextBridgeEvent(in webView: WKWebView) {
+        guard self.webView === webView,
+              hasFinishedNavigation else {
+            isFlushingBridgeEvents = false
+            return
         }
+        guard let event = pendingBridgeEvents.first else {
+            isFlushingBridgeEvents = false
+            return
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: event),
+              let json = String(data: data, encoding: .utf8) else {
+            pendingBridgeEvents.removeFirst()
+            flushNextBridgeEvent(in: webView)
+            return
+        }
+        webView.evaluateJavaScript(Self.bridgeEventDeliveryScript(json: json)) { [weak self, weak webView] result, error in
+            Task { @MainActor in
+                guard let self,
+                      let webView,
+                      self.webView === webView else {
+                    return
+                }
+#if DEBUG
+                if let error {
+                    cmuxDebugLog("agentSession.bridge.event.failed error=\(error.localizedDescription)")
+                }
+#else
+                _ = error
+#endif
+                if error != nil {
+                    self.isFlushingBridgeEvents = false
+                    self.scheduleBridgeFlushRetry()
+                    return
+                }
+                guard (result as? Bool) == true else {
+                    self.isFlushingBridgeEvents = false
+                    self.scheduleBridgeFlushRetry()
+                    return
+                }
+                if !self.pendingBridgeEvents.isEmpty {
+                    self.pendingBridgeEvents.removeFirst()
+                }
+                self.flushNextBridgeEvent(in: webView)
+            }
+        }
+    }
+
+    private func scheduleBridgeFlushRetry() {
+        guard !hasScheduledBridgeFlushRetry,
+              hasFinishedNavigation,
+              webView != nil,
+              !pendingBridgeEvents.isEmpty else {
+            return
+        }
+        hasScheduledBridgeFlushRetry = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.hasScheduledBridgeFlushRetry = false
+                self.flushPendingBridgeEvents()
+            }
+        }
+    }
+
+    nonisolated static func bridgeEventDeliveryScript(json: String) -> String {
+        """
+        (() => {
+          const bridge = window.cmuxAgentBridge;
+          if (!bridge || typeof bridge.receive !== "function") {
+            return false;
+          }
+          bridge.receive(\(json));
+          return true;
+        })()
+        """
     }
 
     private func emitControlInputAccepted(session: AgentSessionControlSessionInfo, text: String) {
