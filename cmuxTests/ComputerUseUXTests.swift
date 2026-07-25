@@ -385,8 +385,11 @@ struct ComputerUseUXTests {
         ))
     }
 
-    @Test func liveDriverSessionRejectsGenerationlessPIDFallback() throws {
+    @Test func generationlessLiveAgentStillProducesComputerUseMenuSession() throws {
         let processID = Int(ProcessInfo.processInfo.processIdentifier)
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
         let entry = RestorableAgentSessionIndex.Entry(
             snapshot: SessionRestorableAgentSnapshot(
                 kind: .codex,
@@ -397,6 +400,30 @@ struct ComputerUseUXTests {
             processLiveness: .running,
             processIDs: [processID],
             agentProcessIDs: [processID],
+            agentProcessIdentities: [:]
+        )
+
+        let session = try #require(ComputerUseLiveDriverSession(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            entry: entry
+        ))
+
+        #expect(session.rootProcessIdentities == [currentIdentity])
+    }
+
+    @Test func exitedGenerationlessAgentCannotProduceComputerUseMenuSession() {
+        let exitedProcessID = Int(Int32.max)
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "exited-generationless-session"
+            ),
+            lifecycle: .running,
+            updatedAt: Date().timeIntervalSince1970,
+            processLiveness: .running,
+            processIDs: [exitedProcessID],
+            agentProcessIDs: [exitedProcessID],
             agentProcessIdentities: [:]
         )
 
