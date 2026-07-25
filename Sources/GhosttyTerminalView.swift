@@ -874,6 +874,7 @@ class GhosttyApp {
             let requestedContents = String(cString: content)
             let stateBits: Int = state.map { Int(bitPattern: $0) } ?? 0
             DispatchQueue.main.async {
+                guard callbackContext.runtimeSurface == requestSurface else { return }
                 TerminalClipboardRuntimeBridge.handleReadConfirmation(
                     contents: requestedContents,
                     window: callbackContext.surfaceView?.window,
@@ -919,14 +920,21 @@ class GhosttyApp {
             }
 
             guard let contents = preferred ?? fallback else { return }
-            let callbackContext = GhosttyApp.callbackContext(from: userdata)
+            guard requiresConfirmation else {
+                GhosttyApp.terminalPasteboard.writeString(contents, to: location)
+                return
+            }
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let requestSurface = callbackContext.runtimeSurface else { return }
             DispatchQueue.main.async {
+                guard callbackContext.runtimeSurface == requestSurface else { return }
                 TerminalClipboardRuntimeBridge.handleWrite(
                     contents: contents,
-                    requiresConfirmation: requiresConfirmation,
-                    window: callbackContext?.surfaceView?.window,
+                    requiresConfirmation: true,
+                    window: callbackContext.surfaceView?.window,
                     requester: TerminalClipboardAccessPrompter.shared
                 ) {
+                    guard callbackContext.runtimeSurface == requestSurface else { return }
                     GhosttyApp.terminalPasteboard.writeString(contents, to: location)
                 }
             }
