@@ -268,8 +268,14 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(environment["CMUX_CLAUDE_PID"] as? String == "8535")
     }
 
-    @Test("Queued replay rehomes its route without consulting the admitted PID")
-    func queuedReplayRehomesRouteWithoutReusingPID() throws {
+    @Test(
+        "Queued replay rehomes its route without consulting or persisting the admitted PID",
+        arguments: [("claude", "CMUX_CLAUDE_PID"), ("cursor", "CMUX_CURSOR_PID")]
+    )
+    func queuedReplayRehomesRouteWithoutReusingPID(
+        agent: String,
+        pidKey: String
+    ) throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: BundledCLILinkageTests.self
         )
@@ -291,6 +297,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         }
         let movedWorkspaceID = "55555555-5555-5555-5555-555555555555"
         let surfaceID = "66666666-6666-6666-6666-666666666666"
+        let sessionID = "queued-route-replay-\(agent)"
         let capturedCommands = CodexHookCapturedSocketCommands()
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
@@ -308,7 +315,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             executablePath: cliPath,
             arguments: [
                 "--socket", socketPath,
-                "hooks", "cursor", "prompt-submit",
+                "hooks", agent, "prompt-submit",
             ],
             environment: [
                 "HOME": root.path,
@@ -317,11 +324,11 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
-                "CMUX_CURSOR_PID": "8535",
+                pidKey: "8535",
                 "CMUX_WORKSPACE_ID": "77777777-7777-7777-7777-777777777777",
                 "CMUX_SURFACE_ID": surfaceID,
             ],
-            standardInput: #"{"session_id":"queued-route-replay"}"#,
+            standardInput: #"{"session_id":"\#(sessionID)"}"#,
             timeout: 5
         )
 
@@ -333,11 +340,32 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(methods.contains("agent.resolve_delivery_target"))
         #expect(!methods.contains("system.top"))
         #expect(!methods.contains("debug.terminals"))
+        let deliveryTargetRequests = requests.filter {
+            $0["method"] as? String == "agent.resolve_delivery_target"
+        }
+        #expect(deliveryTargetRequests.allSatisfy { request in
+            let params = request["params"] as? [String: Any]
+            return params?["pid"] == nil
+                && params?["surface_id"] as? String == surfaceID
+        })
+        #expect(!commands.contains { $0.hasPrefix("set_agent_pid ") })
+        #expect(!commands.contains { $0.contains(" --pid=8535") })
         #expect(commands.contains {
-            $0.hasPrefix("set_status cursor Running ")
+            $0.hasPrefix("set_status \(agent) Running ")
                 && $0.contains("--tab=\(movedWorkspaceID)")
                 && $0.contains("--panel=\(surfaceID)")
         }, Comment(rawValue: commands.joined(separator: "\n")))
+        let stateURL = root.appendingPathComponent(
+            "\(agent)-hook-sessions.json",
+            isDirectory: false
+        )
+        let state = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL))
+                as? [String: Any]
+        )
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let session = try #require(sessions[sessionID] as? [String: Any])
+        #expect(session["pid"] == nil)
     }
 
     @Test("Claude prompt hook fails open before its declared timeout")
