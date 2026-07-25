@@ -846,6 +846,70 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("empty Window Dock keeps its own font-size lineage during a shortcut")
+    func emptyWindowDockKeepsOwnFontSizeLineageDuringShortcut() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let workspacePanelID = try #require(workspace.focusedPanelId)
+        let workspacePanel = try #require(
+            workspace.panels[workspacePanelID] as? TerminalPanel
+        )
+        workspacePanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 10,
+                isExplicitOverride: true
+            )
+        )
+        workspace.rememberTerminalConfigInheritanceSource(workspacePanel)
+
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        windowDock.rememberTerminalFontSizeLineageForNewTerminals(
+            fallback: TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+
+        let rootPane = try #require(
+            windowDock.bonsplitController.allPaneIds.first
+        )
+        let panelID = try #require(
+            windowDock.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                focus: false
+            )
+        )
+        let panel = try #require(
+            windowDock.panels[panelID] as? TerminalPanel
+        )
+        #expect(
+            panel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 19,
+                    isExplicitOverride: true
+                ),
+            "The selected workspace's lineage must not replace an empty Dock's durable lineage"
+        )
+    }
+
     @Test("workspace zoom seeds a legacy Dock created afterward")
     func workspaceZoomSeedsLazyLegacyDock() throws {
         let workspace = Workspace()

@@ -1930,7 +1930,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
-    func testEnteringTerminalReconcilesOutstandingRequestsWithOneApply() {
+    func testEnteringTerminalReconcilesOutstandingRequestsWithinDrainBudgets() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected an initial workspace")
@@ -1991,11 +1991,29 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             workspace: workspace
         )
 
+#if DEBUG
+        XCTAssertEqual(
+            coordinator.debugLastSynchronousTransferRequestVisitCount,
+            0,
+            "A transfer callback must register constant-size work without visiting queued requests"
+        )
         XCTAssertEqual(
             enteringPanelApplyCount,
-            1,
-            "Transfer reconciliation must collapse outstanding work into one bounded apply"
+            0,
+            "A transfer callback must defer native work to the budgeted drain"
         )
+        coordinator.debugFlushOneDrain()
+        XCTAssertLessThanOrEqual(
+            enteringPanelApplyCount,
+            WorkspaceTerminalFontSizeDrainBudget
+                .maximumLiveActionsPerDrain,
+            "One drain must keep transfer actions inside its native-action budget"
+        )
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
         guard let enteringBasePoints =
                 enteringPanel.surface
                     .fontSizeLineageSnapshot()?.basePoints else {
@@ -2006,7 +2024,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             enteringBasePoints,
             TerminalFontSizePolicy.minimumRuntimePoints,
             accuracy: 0.001,
-            "The bounded apply must preserve the ordered result of every request"
+            "Budgeted transfer work must preserve every request in order"
         )
     }
 

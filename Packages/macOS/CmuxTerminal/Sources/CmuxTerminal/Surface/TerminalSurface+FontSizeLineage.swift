@@ -15,6 +15,9 @@ extension TerminalSurface {
     private static var transferReconciledSurfacesByToken:
         [UUID: [ObjectIdentifier: WeakFontSizeChangeSurface]] = [:]
 
+    @MainActor
+    static var debugLastTransferTokenRetirementSurfaceVisitCount = 0
+
     /// Marks that a higher-level batched font-size request already contributed
     /// to this surface's lineage. New descendants can carry the same request
     /// provenance without inferring ownership from a colliding point value.
@@ -54,6 +57,7 @@ extension TerminalSurface {
     public static func clearFontSizeChangeReconciledForTransfer(
         token: UUID
     ) {
+        debugLastTransferTokenRetirementSurfaceVisitCount = 0
         guard let surfaces =
                 transferReconciledSurfacesByToken.removeValue(
                     forKey: token
@@ -61,6 +65,7 @@ extension TerminalSurface {
             return
         }
         for surface in surfaces.values {
+            debugLastTransferTokenRetirementSurfaceVisitCount += 1
             surface.value?
                 .transferReconciledFontSizeChangeTokens.remove(token)
         }

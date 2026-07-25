@@ -410,6 +410,11 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
             descendant.runtimeCreationConfigTemplate()
                 .fontSizeChangeTokens.isEmpty
         )
+        #expect(
+            TerminalSurface
+                .debugLastTransferTokenRetirementSurfaceVisitCount == 0,
+            "Retiring transient provenance must use lazy invalidation"
+        )
     }
 
     private func makeSurface(

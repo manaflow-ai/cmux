@@ -544,6 +544,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
 #if DEBUG
+    private(set) var debugLastSynchronousTransferRequestVisitCount = 0
+
     func debugFlushOneDrain() {
         invalidateScheduledDrain()
         drain()
@@ -1363,9 +1365,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
         ],
         applyChanges: Bool
     ) {
+#if DEBUG
+        debugLastSynchronousTransferRequestVisitCount = 0
+#endif
         var combinedChange: WorkspaceTerminalFontSizeChange?
         var combinedConfiguredRuntimePoints: Float32?
         for entry in requests {
+#if DEBUG
+            debugLastSynchronousTransferRequestVisitCount += 1
+#endif
             if applyChanges,
                !transferReconciliation(
                     on: terminalPanel,
@@ -1399,6 +1407,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
         }
         for entry in requests {
+#if DEBUG
+            debugLastSynchronousTransferRequestVisitCount += 1
+#endif
             recordTransferReconciliation(
                 on: terminalPanel,
                 for: entry.request
