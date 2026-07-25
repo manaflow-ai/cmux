@@ -1092,9 +1092,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isQuitWarningConfirmed = false
     // One-shot guard for deferred terminate replies.
     private var didReplyToTerminate = false
-    // True while remote tmux kill-before-quit owns the terminate reply.
-    private var isAwaitingTerminateKills = false
-    private var terminateKillWatchdogTask: Task<Void, Never>?
+    // True while owned asynchronous cleanup controls the terminate reply.
+    private var isAwaitingTerminateCleanup = false
+    private var terminateCleanupWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     private let terminationWatchdog = TerminationWatchdog()
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
@@ -1883,28 +1883,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didReplyToTerminate else { return }
         didReplyToTerminate = true
         NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
-        terminateKillWatchdogTask?.cancel()
-        terminateKillWatchdogTask = nil
+        terminateCleanupWatchdogTask?.cancel()
+        terminateCleanupWatchdogTask = nil
         // A cancelled quit ends this terminate request; the next quit must reply again.
         if !shouldTerminate {
             didReplyToTerminate = false
-            isAwaitingTerminateKills = false
+            isAwaitingTerminateCleanup = false
         }
     }
 
-    private func deferTerminateForMarkedRemoteTmuxKills(reason: String) -> Bool {
+    private func deferTerminateForOwnedCleanup(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
-        guard !markedForKill.isEmpty else { return false }
-        if !isAwaitingTerminateKills {
-            isAwaitingTerminateKills = true
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.killLater", fields: ["windows": String(markedForKill.count), "reason": reason])
+        let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
+        guard !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty else { return false }
+        if !isAwaitingTerminateCleanup {
+            isAwaitingTerminateCleanup = true
+            StartupBreadcrumbLog.append(
+                "appDelegate.shouldTerminate.cleanupLater",
+                fields: [
+                    "windows": String(markedForKill.count),
+                    "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "reason": reason,
+                ]
+            )
             Task { @MainActor in
-                await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
+                if !markedForKill.isEmpty {
+                    await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
+                }
+                for cleanupTask in simulatorCleanupTasks {
+                    await cleanupTask.value
+                }
                 self.replyToTerminateOnce(true)
             }
             // Watchdog: release quit if the deferred Task is starved inside a nested run loop.
-            terminateKillWatchdogTask?.cancel()
-            terminateKillWatchdogTask = Task { @MainActor [weak self] in
+            terminateCleanupWatchdogTask?.cancel()
+            terminateCleanupWatchdogTask = Task { @MainActor [weak self] in
                 try? await ContinuousClock().sleep(for: .milliseconds(3_500))
                 guard !Task.isCancelled else { return }
                 self?.replyToTerminateOnce(true)
@@ -1961,7 +1974,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isQuitWarningConfirmed = true
             closeAllWebInspectorsBeforeAppTeardown()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-            if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
+            if deferTerminateForOwnedCleanup(reason: "confirmedDialog") {
                 return
             }
         } else {
@@ -1975,7 +1988,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let reply = Self.pendingTerminateReply(
-            isAwaitingTerminateKills: isAwaitingTerminateKills,
+            isAwaitingTerminateCleanup: isAwaitingTerminateCleanup,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
             activeQuitConfirmationOwnsTerminateRequest: activeQuitConfirmationOwnsTerminateRequest
         ) {
@@ -2014,9 +2027,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
-            // Explicit last-tab closes kill marked remote sessions before quit.
-            // Plain app/window quits have no marker and only detach.
-            if deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
+            // Finish Simulator rollback and any explicitly marked remote-session
+            // kills before AppKit begins synchronous process teardown.
+            if deferTerminateForOwnedCleanup(reason: reason) {
                 return .terminateLater
             }
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])

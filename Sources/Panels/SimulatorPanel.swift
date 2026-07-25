@@ -12,6 +12,12 @@ import Observation
 @MainActor
 @Observable
 final class SimulatorPanel: Panel {
+    private static let livePanelsTable = NSHashTable<SimulatorPanel>.weakObjects()
+
+    static func beginApplicationTerminationCleanup() -> [Task<Void, Never>] {
+        livePanelsTable.allObjects.map { $0.beginClose() }
+    }
+
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .simulator
@@ -95,6 +101,7 @@ final class SimulatorPanel: Panel {
                 self?.reconcileRemoteFeatureFlag()
             }
         }
+        Self.livePanelsTable.add(self)
         reconcileRemoteFeatureFlag()
     }
 
@@ -183,7 +190,17 @@ final class SimulatorPanel: Panel {
     }
 
     func close() {
-        guard !isClosed else { return }
+        _ = beginClose()
+    }
+
+    func closeAndWait() async {
+        await beginClose().value
+    }
+
+    private func beginClose() -> Task<Void, Never> {
+        if isClosed {
+            return shutdownTask ?? Task {}
+        }
         isClosed = true
         featureTransitionGeneration += 1
         featureEnableTask?.cancel()
@@ -197,11 +214,13 @@ final class SimulatorPanel: Panel {
         self.startupTask = nil
         startupTask?.cancel()
         let pendingShutdown = shutdownTask
-        Task {
+        let finalShutdown = Task {
             await pendingShutdown?.value
             _ = await startupTask?.value
             await coordinator.close()
         }
+        shutdownTask = finalShutdown
+        return finalShutdown
     }
 
     func focus() {

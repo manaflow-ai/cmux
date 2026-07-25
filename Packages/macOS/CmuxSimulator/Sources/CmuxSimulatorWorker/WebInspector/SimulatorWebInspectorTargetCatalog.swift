@@ -9,6 +9,7 @@ struct SimulatorWebInspectorTargetCatalog {
 
     private var applications: [String: SimulatorWebInspectorApplication] = [:]
     private var listings: [String: [SimulatorWebInspectorTarget]] = [:]
+    private var targetsByID: [String: SimulatorWebInspectorTarget] = [:]
 
     var targets: [SimulatorWebInspectorTarget] {
         listings.values
@@ -32,6 +33,7 @@ struct SimulatorWebInspectorTargetCatalog {
     mutating func reset() {
         applications.removeAll()
         listings.removeAll()
+        targetsByID.removeAll()
     }
 
     @discardableResult
@@ -55,7 +57,7 @@ struct SimulatorWebInspectorTargetCatalog {
                 replacement[identifier] = application
             }
             let removed = Set(applications.keys).subtracting(replacement.keys)
-            for identifier in removed { listings.removeValue(forKey: identifier) }
+            for identifier in removed { removeListing(for: identifier) }
             guard applications != replacement || !removed.isEmpty else { return false }
             applications = replacement
             return true
@@ -78,14 +80,14 @@ struct SimulatorWebInspectorTargetCatalog {
                 return false
             }
             let removedApplication = applications.removeValue(forKey: identifier) != nil
-            let removedListing = listings.removeValue(forKey: identifier) != nil
+            let removedListing = removeListing(for: identifier)
             return removedApplication || removedListing
         case "_rpc_applicationSentListing:":
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String,
                   identifier.utf8.count <= Self.maximumFieldBytes,
                   let application = applications[identifier] else { return false }
             guard !application.isProxy else {
-                return listings.removeValue(forKey: identifier) != nil
+                return removeListing(for: identifier)
             }
             let rawListing = argument["WIRListingKey"] as? [String: Any] ?? [:]
             let retainedTargets = listings.lazy
@@ -122,6 +124,7 @@ struct SimulatorWebInspectorTargetCatalog {
             replacement.sort { $0.pageIdentifier < $1.pageIdentifier }
             guard listings[identifier] != replacement else { return false }
             listings[identifier] = replacement
+            rebuildTargetIndex()
             return true
         default:
             return false
@@ -129,9 +132,22 @@ struct SimulatorWebInspectorTargetCatalog {
     }
 
     func target(id: String) -> SimulatorWebInspectorTarget? {
-        targets.first(where: { $0.id == id })
+        targetsByID[id]
     }
 
+    @discardableResult
+    private mutating func removeListing(for identifier: String) -> Bool {
+        guard listings.removeValue(forKey: identifier) != nil else { return false }
+        rebuildTargetIndex()
+        return true
+    }
+
+    private mutating func rebuildTargetIndex() {
+        targetsByID.removeAll(keepingCapacity: true)
+        for target in listings.values.lazy.flatMap({ $0 }) {
+            targetsByID[target.id] = target
+        }
+    }
 }
 
 private func simulatorWebInspectorApplication(
