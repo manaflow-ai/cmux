@@ -446,7 +446,7 @@ struct ProcessReader {
 }
 
 impl ProcessReader {
-    fn receive_inner(&mut self, on_progress: &mut dyn FnMut()) -> io::Result<Option<String>> {
+    fn receive_inner(&mut self, on_progress: &mut dyn FnMut(&[u8])) -> io::Result<Option<String>> {
         let _keep_alive = &self.process;
         let message = read_json_line_with_progress(&mut self.inner, on_progress)?;
         if message.is_none()
@@ -460,12 +460,12 @@ impl ProcessReader {
 
 impl RemoteMessageReader for ProcessReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        self.receive_inner(&mut || {})
+        self.receive_inner(&mut |_| {})
     }
 
     fn receive_with_progress(
         &mut self,
-        on_progress: &mut dyn FnMut(),
+        on_progress: &mut dyn FnMut(&[u8]),
     ) -> io::Result<Option<String>> {
         self.receive_inner(on_progress)
     }

@@ -1001,14 +1001,14 @@ fn read_bounded_frame<R: BufRead>(
     reader: &mut R,
     limit: usize,
 ) -> Result<Option<Vec<u8>>, FrameReadFailure> {
-    read_bounded_frame_with_progress(reader, limit, &mut || {})
+    read_bounded_frame_with_progress(reader, limit, &mut |_| {})
 }
 
 #[cfg(unix)]
 fn read_bounded_frame_with_progress<R: BufRead>(
     reader: &mut R,
     limit: usize,
-    on_progress: &mut dyn FnMut(),
+    on_progress: &mut dyn FnMut(&[u8]),
 ) -> Result<Option<Vec<u8>>, FrameReadFailure> {
     let mut frame = Vec::new();
     loop {
@@ -1023,7 +1023,7 @@ fn read_bounded_frame_with_progress<R: BufRead>(
             }
             frame.extend_from_slice(&available[..newline]);
             reader.consume(newline + 1);
-            on_progress();
+            on_progress(&frame);
             if frame.last() == Some(&b'\r') {
                 frame.pop();
             }
@@ -1036,7 +1036,7 @@ fn read_bounded_frame_with_progress<R: BufRead>(
         let consumed = available.len();
         frame.extend_from_slice(available);
         reader.consume(consumed);
-        on_progress();
+        on_progress(&frame);
     }
 }
 
@@ -1070,12 +1070,12 @@ struct BoundedRemoteReader {
 #[cfg(unix)]
 impl RemoteMessageReader for BoundedRemoteReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        self.receive_with_progress(&mut || {})
+        self.receive_with_progress(&mut |_| {})
     }
 
     fn receive_with_progress(
         &mut self,
-        on_progress: &mut dyn FnMut(),
+        on_progress: &mut dyn FnMut(&[u8]),
     ) -> io::Result<Option<String>> {
         let frame = read_bounded_frame_with_progress(
             &mut self.inner,

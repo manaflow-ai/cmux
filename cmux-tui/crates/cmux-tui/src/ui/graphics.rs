@@ -402,7 +402,6 @@ struct GraphicsOperationCounts {
 }
 
 pub struct GraphicsState {
-    next_image_id: u32,
     next_placement_id: u32,
     used_image_ids: HashSet<u32>,
     used_placement_ids: HashSet<u32>,
@@ -418,7 +417,6 @@ pub struct GraphicsState {
 impl Default for GraphicsState {
     fn default() -> Self {
         Self {
-            next_image_id: 1,
             next_placement_id: 1,
             used_image_ids: HashSet::new(),
             used_placement_ids: HashSet::new(),
@@ -562,59 +560,124 @@ impl GraphicsState {
         ordered_images: &[GraphicImageKey],
         batches: &mut Vec<Vec<u8>>,
     ) {
-        let mut previous_id = None;
-        let mut saw_missing = false;
-        let requires_remap = ordered_images.iter().any(|key| match self.image_ids.get(key) {
-            Some(&id) => {
-                let out_of_order =
-                    saw_missing || previous_id.is_some_and(|previous| previous >= id);
-                previous_id = Some(id);
-                out_of_order
-            }
-            None => {
-                saw_missing = true;
-                false
-            }
-        });
-
-        if requires_remap {
-            let ordered_set = ordered_images.iter().copied().collect::<HashSet<_>>();
-            let mut old_host_ids = Vec::new();
-            for key in ordered_images {
-                let was_transmitted = self.transmitted.remove(key).is_some();
-                if let Some(image_id) = self.image_ids.remove(key) {
-                    let removed = self.used_image_ids.remove(&image_id);
-                    debug_assert!(removed, "image ID set must track every image mapping");
-                    if was_transmitted {
-                        old_host_ids.push(image_id);
-                    }
+        if self.image_ids.is_empty() && !ordered_images.is_empty() {
+            let denominator = ordered_images.len() as u64 + 1;
+            for (index, key) in ordered_images.iter().enumerate() {
+                let image_id = (u64::from(u32::MAX) * (index as u64 + 1) / denominator) as u32;
+                let inserted = self.used_image_ids.insert(image_id);
+                debug_assert!(inserted, "even image-ID allocation must be unique");
+                self.image_ids.insert(*key, image_id);
+                #[cfg(test)]
+                {
+                    self.operation_counts.image_id_allocation_checks += 1;
                 }
             }
-            old_host_ids.sort_unstable();
-            for image_id in old_host_ids {
-                batches.push(delete_image(image_id));
-            }
-            self.placement_fingerprints
-                .retain(|placement, _| !ordered_set.contains(&placement.image));
+            return;
         }
 
-        for key in ordered_images {
-            self.image_id(*key);
+        for (index, key) in ordered_images.iter().copied().enumerate() {
+            if self.image_ids.contains_key(&key) {
+                continue;
+            }
+            if let Some(image_id) = self.image_id_between_neighbors(ordered_images, index) {
+                let inserted = self.used_image_ids.insert(image_id);
+                debug_assert!(inserted, "ordered image-ID allocation must be unique");
+                self.image_ids.insert(key, image_id);
+            } else {
+                self.relabel_image_window(ordered_images, index, batches);
+            }
+            #[cfg(test)]
+            {
+                self.operation_counts.image_id_allocation_checks += 1;
+            }
         }
     }
 
-    fn image_id(&mut self, key: GraphicImageKey) -> u32 {
-        if let Some(id) = self.image_ids.get(&key) {
-            return *id;
+    fn image_id_between_neighbors(
+        &self,
+        ordered_images: &[GraphicImageKey],
+        index: usize,
+    ) -> Option<u32> {
+        let previous =
+            ordered_images[..index].iter().rev().find_map(|key| self.image_ids.get(key).copied());
+        let next =
+            ordered_images[index + 1..].iter().find_map(|key| self.image_ids.get(key).copied());
+        match (previous, next) {
+            (None, None) => Some(u32::MAX / 2),
+            (None, Some(next)) => next.checked_sub(1).filter(|id| *id != 0),
+            (Some(previous), None) => previous.checked_add(1),
+            (Some(previous), Some(next))
+                if previous.checked_add(1).is_some_and(|adjacent| adjacent < next) =>
+            {
+                Some(previous + (next - previous) / 2)
+            }
+            _ => None,
         }
-        let (id, _allocation_checks) =
-            allocate_id(&mut self.next_image_id, &mut self.used_image_ids);
-        #[cfg(test)]
-        {
-            self.operation_counts.image_id_allocation_checks += _allocation_checks;
+    }
+
+    fn relabel_image_window(
+        &mut self,
+        ordered_images: &[GraphicImageKey],
+        insertion_index: usize,
+        batches: &mut Vec<Vec<u8>>,
+    ) {
+        let inserted_key = ordered_images[insertion_index];
+        let assigned = ordered_images
+            .iter()
+            .copied()
+            .filter(|key| *key == inserted_key || self.image_ids.contains_key(key))
+            .collect::<Vec<_>>();
+        let insertion_index =
+            assigned.binary_search(&inserted_key).expect("inserted image is in relabel set");
+        let mut radius = 8_usize;
+        let (window_start, window_end, lower, upper) = loop {
+            let start = insertion_index.saturating_sub(radius);
+            let end = (insertion_index + radius + 1).min(assigned.len());
+            let lower = if start == 0 { 0 } else { self.image_ids[&assigned[start - 1]] };
+            let upper =
+                if end == assigned.len() { u32::MAX } else { self.image_ids[&assigned[end]] };
+            let count = end - start;
+            let available = u64::from(upper) - u64::from(lower) - 1;
+            if available >= (count as u64 + 1) * 4 || start == 0 && end == assigned.len() {
+                break (start, end, lower, upper);
+            }
+            radius = radius.saturating_mul(2);
+        };
+
+        let window = &assigned[window_start..window_end];
+        let available = u64::from(upper) - u64::from(lower) - 1;
+        let step = available / (window.len() as u64 + 1);
+        debug_assert!(step > 0, "u32 image-ID space must fit the bounded active image set");
+        let mut remapped = Vec::new();
+        for key in window {
+            if let Some(old_id) = self.image_ids.remove(key) {
+                let removed = self.used_image_ids.remove(&old_id);
+                debug_assert!(removed, "image ID set must track every mapping");
+                remapped.push((*key, old_id, self.transmitted.remove(key).is_some()));
+            }
         }
-        self.image_ids.insert(key, id);
-        id
+        let remapped_keys = remapped.iter().map(|(key, _, _)| *key).collect::<HashSet<_>>();
+        self.placement_fingerprints
+            .retain(|placement, _| !remapped_keys.contains(&placement.image));
+        let mut deleted = remapped
+            .iter()
+            .filter_map(|(_, old_id, transmitted)| transmitted.then_some(*old_id))
+            .collect::<Vec<_>>();
+        deleted.sort_unstable();
+        for old_id in deleted {
+            batches.push(delete_image(old_id));
+        }
+        for (offset, key) in window.iter().enumerate() {
+            let image_id = u32::try_from(u64::from(lower) + step * (offset as u64 + 1))
+                .expect("bounded image-ID relabel must fit u32");
+            let inserted = self.used_image_ids.insert(image_id);
+            debug_assert!(inserted, "relabelled image IDs must be unique");
+            self.image_ids.insert(*key, image_id);
+        }
+    }
+
+    fn image_id(&self, key: GraphicImageKey) -> u32 {
+        self.image_ids[&key]
     }
 
     fn placement_id(&mut self, key: GraphicPlacementKey) -> u32 {
@@ -1000,14 +1063,26 @@ mod tests {
     fn raw_rgb_and_rgba_payloads_are_chunked_with_dimensions() {
         let rgb = image(1, 1, 1, GraphicFormat::Rgb, &vec![255; 3_075]);
         let rgba = image(2, 2, 1, GraphicFormat::Rgba, &[255; 16]);
+        let rgb_key = rgb.key;
+        let rgba_key = rgba.key;
         let mut state = GraphicsState::default();
         let output = joined(&state.frame_batches(&[
             placement(rgb, 0, 0, Rect { x: 0, y: 0, width: 2, height: 2 }),
             placement(rgba, 0, 0, Rect { x: 3, y: 0, width: 2, height: 2 }),
         ]));
-        assert!(output.contains("a=t,t=d,f=24,i=1,s=2,v=2,q=2,m=1;"));
+        assert!(
+            output.contains(&format!(
+                "a=t,t=d,f=24,i={},s=2,v=2,q=2,m=1;",
+                state.image_ids[&rgb_key]
+            ))
+        );
         assert!(output.contains("\x1b_Gq=2,m=0;"));
-        assert!(output.contains("a=t,t=d,f=32,i=2,s=2,v=2,q=2,m=0;"));
+        assert!(
+            output.contains(&format!(
+                "a=t,t=d,f=32,i={},s=2,v=2,q=2,m=0;",
+                state.image_ids[&rgba_key]
+            ))
+        );
     }
 
     #[test]
@@ -1101,7 +1176,7 @@ mod tests {
     }
 
     #[test]
-    fn late_lower_inner_image_id_remaps_outer_ids_before_equal_z_compositing() {
+    fn late_lower_inner_image_id_preserves_outer_ids_and_equal_z_compositing() {
         let mut lower = placement(
             image(21, 7, 1, GraphicFormat::Rgb, &[7; 12]),
             1,
@@ -1122,24 +1197,17 @@ mod tests {
 
         state.frame_batches(std::slice::from_ref(&higher));
         let old_higher_id = state.image_ids[&higher_key];
-        let remap = joined(&state.frame_batches(&[higher.clone(), lower.clone()]));
+        let update = joined(&state.frame_batches(&[higher.clone(), lower.clone()]));
 
         assert!(
             state.image_ids[&lower_key] < state.image_ids[&higher_key],
             "outer IDs must preserve inner image-ID order even when allocation first saw another z: {:?}",
             state.image_ids
         );
-        assert!(
-            remap.contains(&format!("a=d,d=I,i={old_higher_id}")),
-            "remapping must delete the old host image: {remap:?}"
-        );
-        assert_eq!(remap.matches("a=t,t=d").count(), 2, "{remap:?}");
-        assert_eq!(remap.matches("a=p").count(), 2, "{remap:?}");
-        assert!(
-            !state.image_ids.values().any(|image_id| *image_id == old_higher_id),
-            "remapping must release the old outer image ID: {:?}",
-            state.image_ids
-        );
+        assert_eq!(state.image_ids[&higher_key], old_higher_id);
+        assert!(!update.contains("a=d,d=I"), "{update:?}");
+        assert_eq!(update.matches("a=t,t=d").count(), 1, "{update:?}");
+        assert_eq!(update.matches("a=p").count(), 1, "{update:?}");
 
         lower.z = 0;
         higher.z = 0;
@@ -1208,6 +1276,7 @@ mod tests {
     #[test]
     fn placement_preserves_crop_offsets_and_z() {
         let image = image(4, 9, 1, GraphicFormat::Rgba, &[255; 16]);
+        let image_key = image.key;
         let mut value = placement(image, 12, 0, Rect { x: 4, y: 6, width: 2, height: 3 });
         value.source = Some(GraphicSourceRect { x: 1, y: 2, width: 3, height: 4 });
         value.x_offset = 5;
@@ -1215,9 +1284,10 @@ mod tests {
         value.z = -7;
         let mut state = GraphicsState::default();
         let output = joined(&state.frame_batches(&[value]));
-        assert!(output.contains(
-            "\x1b7\x1b[7;5H\x1b_Ga=p,i=1,p=1,x=1,y=2,w=3,h=4,X=5,Y=6,c=2,r=3,z=-7,C=1,q=2;\x1b\\\x1b8"
-        ));
+        assert!(output.contains(&format!(
+            "\x1b7\x1b[7;5H\x1b_Ga=p,i={},p=1,x=1,y=2,w=3,h=4,X=5,Y=6,c=2,r=3,z=-7,C=1,q=2;\x1b\\\x1b8",
+            state.image_ids[&image_key]
+        )));
     }
 
     #[test]

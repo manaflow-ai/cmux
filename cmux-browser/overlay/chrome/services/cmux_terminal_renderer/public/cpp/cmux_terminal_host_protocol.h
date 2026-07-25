@@ -17,6 +17,7 @@ namespace cmux {
 inline constexpr std::array<uint8_t, 4> kTerminalHostMagic = {'C', 'M', 'T',
                                                               'H'};
 inline constexpr size_t kTerminalHostHeaderLength = 32;
+inline constexpr uint16_t kTerminalHostProtocolVersionV1 = 1;
 inline constexpr uint16_t kTerminalHostProtocolVersion = 2;
 inline constexpr uint32_t kTerminalHostFlagColorsFollow = 1u << 0;
 inline constexpr uint32_t kTerminalHostFlagViewerSizeAcks = 1u << 1;
@@ -304,6 +305,10 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
 TerminalHostProtocolError DecodeTerminalHostSnapshot(
     std::string_view payload,
     TerminalHostSnapshot* snapshot);
+TerminalHostProtocolError DecodeTerminalHostSnapshotForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
+    TerminalHostSnapshot* snapshot);
 
 struct TerminalHostResize {
   TerminalHostResize();
@@ -326,6 +331,10 @@ TerminalHostProtocolError EncodeTerminalHostResize(
     std::vector<uint8_t>* payload);
 TerminalHostProtocolError DecodeTerminalHostResize(std::string_view payload,
                                                    TerminalHostResize* resize);
+TerminalHostProtocolError DecodeTerminalHostResizeForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
+    TerminalHostResize* resize);
 
 struct TerminalHostResizeAck {
   uint16_t cols = 80;

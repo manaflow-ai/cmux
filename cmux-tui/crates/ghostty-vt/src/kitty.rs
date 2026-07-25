@@ -490,6 +490,9 @@ pub(crate) fn snapshot_for_render(
     force: bool,
 ) -> Result<Option<KittyGraphicsSnapshot>> {
     let Some(graphics) = terminal_graphics(terminal)? else {
+        if force {
+            pixel_cache.clear();
+        }
         return Ok(force.then(KittyGraphicsSnapshot::default));
     };
     if !force {
@@ -548,6 +551,7 @@ fn snapshot_impl(
         )
     })?;
     if generation == 0 {
+        pixel_cache.clear();
         return Ok(KittyReplaySnapshot {
             graphics: KittyGraphicsSnapshot::default(),
             anchors: BTreeMap::new(),

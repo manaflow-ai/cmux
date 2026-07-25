@@ -970,8 +970,20 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
 TerminalHostProtocolError DecodeTerminalHostSnapshot(
     std::string_view payload,
     TerminalHostSnapshot* snapshot) {
+  return DecodeTerminalHostSnapshotForVersion(
+      payload, kTerminalHostProtocolVersion, snapshot);
+}
+
+TerminalHostProtocolError DecodeTerminalHostSnapshotForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
+    TerminalHostSnapshot* snapshot) {
   if (!snapshot) {
     return TerminalHostProtocolError::kInvalidArgument;
+  }
+  if (protocol_version < kTerminalHostProtocolVersionV1 ||
+      protocol_version > kTerminalHostProtocolVersion) {
+    return TerminalHostProtocolError::kInvalidVersion;
   }
   if (payload.size() > kTerminalHostMaxFramePayload) {
     return TerminalHostProtocolError::kPayloadTooLarge;
@@ -1007,9 +1019,12 @@ TerminalHostProtocolError DecodeTerminalHostSnapshot(
     }
     decoded.command.push_back(std::move(argument));
   }
-  if (ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
-          TerminalHostProtocolError::kNone ||
-      !reader.finished()) {
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (!reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   *snapshot = std::move(decoded);
@@ -1062,8 +1077,20 @@ TerminalHostProtocolError EncodeTerminalHostResize(
 
 TerminalHostProtocolError DecodeTerminalHostResize(std::string_view payload,
                                                    TerminalHostResize* resize) {
+  return DecodeTerminalHostResizeForVersion(
+      payload, kTerminalHostProtocolVersion, resize);
+}
+
+TerminalHostProtocolError DecodeTerminalHostResizeForVersion(
+    std::string_view payload,
+    uint16_t protocol_version,
+    TerminalHostResize* resize) {
   if (!resize) {
     return TerminalHostProtocolError::kInvalidArgument;
+  }
+  if (protocol_version < kTerminalHostProtocolVersionV1 ||
+      protocol_version > kTerminalHostProtocolVersion) {
+    return TerminalHostProtocolError::kInvalidVersion;
   }
   if (payload.size() > kTerminalHostMaxFramePayload) {
     return TerminalHostProtocolError::kPayloadTooLarge;
@@ -1076,9 +1103,12 @@ TerminalHostProtocolError DecodeTerminalHostResize(std::string_view payload,
     return TerminalHostProtocolError::kMalformedPayload;
   }
   decoded.replay.assign(replay.begin(), replay.end());
-  if (ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
-          TerminalHostProtocolError::kNone ||
-      !reader.finished()) {
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      ReadKittyImageAliases(&reader, &decoded.kitty_image_aliases) !=
+          TerminalHostProtocolError::kNone) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  if (!reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
   decoded.cols = std::max<uint16_t>(decoded.cols, 1);

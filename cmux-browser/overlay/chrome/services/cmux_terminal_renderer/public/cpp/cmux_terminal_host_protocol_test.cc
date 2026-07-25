@@ -791,12 +791,12 @@ void TestProtocolV1SnapshotAndResizeCompatibility() {
   snapshot_payload.resize(snapshot_payload.size() - 2);
 
   cmux::TerminalHostSnapshot decoded_snapshot;
-  Check(cmux::DecodeTerminalHostSnapshot(
+  Check(cmux::DecodeTerminalHostSnapshotForVersion(
             Bytes(snapshot_payload), cmux::kTerminalHostProtocolVersionV1,
             &decoded_snapshot) == Error::kNone &&
             decoded_snapshot == snapshot,
         "protocol-v1 snapshot decodes without a Kitty alias suffix");
-  Check(cmux::DecodeTerminalHostSnapshot(
+  Check(cmux::DecodeTerminalHostSnapshotForVersion(
             Bytes(snapshot_payload), cmux::kTerminalHostProtocolVersion,
             &decoded_snapshot) == Error::kMalformedPayload,
         "protocol-v2 snapshot still requires its Kitty alias suffix");
@@ -813,12 +813,12 @@ void TestProtocolV1SnapshotAndResizeCompatibility() {
   resize_payload.resize(resize_payload.size() - 2);
 
   cmux::TerminalHostResize decoded_resize;
-  Check(cmux::DecodeTerminalHostResize(
+  Check(cmux::DecodeTerminalHostResizeForVersion(
             Bytes(resize_payload), cmux::kTerminalHostProtocolVersionV1,
             &decoded_resize) == Error::kNone &&
             decoded_resize == resize,
         "protocol-v1 resize decodes without a Kitty alias suffix");
-  Check(cmux::DecodeTerminalHostResize(
+  Check(cmux::DecodeTerminalHostResizeForVersion(
             Bytes(resize_payload), cmux::kTerminalHostProtocolVersion,
             &decoded_resize) == Error::kMalformedPayload,
         "protocol-v2 resize still requires its Kitty alias suffix");

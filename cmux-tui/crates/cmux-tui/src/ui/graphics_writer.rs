@@ -135,6 +135,8 @@ impl GraphicsOutput for InterruptibleStdout {
             match error.raw_os_error() {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
+                    #[cfg(test)]
+                    control.report_write_attempt();
                     let mut poll_fd =
                         libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
                     let ready = unsafe { libc::poll(&mut poll_fd, 1, OUTPUT_POLL_INTERVAL_MS) };
@@ -804,34 +806,27 @@ mod tests {
         let mut full_bytes: libc::c_int = 0;
         assert_eq!(unsafe { libc::ioctl(read_fd.as_raw_fd(), libc::FIONREAD, &mut full_bytes) }, 0);
         let mut drained = [0_u8; 4_096];
+        let drain_bytes = usize::try_from(full_bytes).unwrap().min(drained.len());
         assert_eq!(
-            unsafe { libc::read(read_fd.as_raw_fd(), drained.as_mut_ptr().cast(), drained.len()) },
-            drained.len() as isize
+            unsafe { libc::read(read_fd.as_raw_fd(), drained.as_mut_ptr().cast(), drain_bytes) },
+            drain_bytes as isize
         );
 
         let mut command = b"\x1b_Gq=2;".to_vec();
         command.resize(256 * 1024, b'A');
         command.extend_from_slice(b"\x1b\\");
         let control = Arc::new(WriterControl::default());
+        let (blocked_tx, blocked_rx) = sync_channel(1);
+        control.observe_write_attempts(blocked_tx);
         let worker_control = control.clone();
         let worker = std::thread::spawn(move || {
             let mut output = InterruptibleStdout { fd: write_fd };
             output.write_segment(&command, &worker_control)
         });
 
-        let fill_deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            let mut available: libc::c_int = 0;
-            assert_eq!(
-                unsafe { libc::ioctl(read_fd.as_raw_fd(), libc::FIONREAD, &mut available) },
-                0
-            );
-            if available == full_bytes {
-                break;
-            }
-            assert!(Instant::now() < fill_deadline, "writer never partially filled the pipe");
-            std::thread::yield_now();
-        }
+        blocked_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer never reached terminal backpressure");
         let started = Instant::now();
         control.cancelled.store(true, Ordering::Release);
         let error = worker.join().unwrap().unwrap_err();
@@ -960,7 +955,7 @@ mod tests {
         drop(draw_guard);
 
         wait_for_output(&flushed_rx, &bytes, |bytes| {
-            String::from_utf8_lossy(bytes).contains("a=p,i=1")
+            String::from_utf8_lossy(bytes).matches("a=p").count() == 1
         });
         let raced_output = bytes.lock().unwrap().clone();
         let mut host = Terminal::new(8, 4, 0, Callbacks::default()).unwrap();

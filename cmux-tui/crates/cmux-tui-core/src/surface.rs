@@ -203,7 +203,7 @@ impl TerminalColors {
 pub struct AttachStream {
     pub cols: u16,
     pub rows: u16,
-    pub replay: Vec<u8>,
+    pub replay: Arc<[u8]>,
     pub kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     pub colors: TerminalColors,
     pub stream: AttachFrameReceiver,
@@ -222,7 +222,7 @@ pub enum AttachFrame {
     Resized {
         cols: u16,
         rows: u16,
-        replay: Vec<u8>,
+        replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     },
     /// One parser transition: `replay` is theme-portable, so `colors` is part
@@ -230,7 +230,7 @@ pub enum AttachFrame {
     ResizedWithColors {
         cols: u16,
         rows: u16,
-        replay: Vec<u8>,
+        replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         colors: Box<TerminalColors>,
     },
@@ -423,14 +423,14 @@ impl AttachFrame {
             + match self {
                 Self::Output(bytes) => bytes.capacity(),
                 Self::Resized { replay, kitty_image_aliases, .. } => {
-                    replay.capacity()
+                    replay.len()
                         + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()
                 }
                 Self::OutputWithColors { output, .. } => {
                     output.capacity() + size_of::<TerminalColors>()
                 }
                 Self::ResizedWithColors { replay, kitty_image_aliases, .. } => {
-                    replay.capacity()
+                    replay.len()
                         + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()
                         + size_of::<TerminalColors>()
                 }
@@ -1489,7 +1489,7 @@ impl Surface {
                                     pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                                         cols,
                                         rows,
-                                        replay,
+                                        replay: replay.into(),
                                         kitty_image_aliases,
                                         colors: Box::new(
                                             pty.terminal_colors_locked(&term, defaults),
@@ -1720,7 +1720,7 @@ impl Surface {
                             pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                                 cols: replacement_snapshot.cols,
                                 rows: replacement_snapshot.rows,
-                                replay: replacement_snapshot.replay,
+                                replay: replacement_snapshot.replay.into(),
                                 kitty_image_aliases: replacement_snapshot.kitty_image_aliases,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                             });
@@ -2499,7 +2499,7 @@ impl Surface {
         Ok(AttachStream {
             cols,
             rows,
-            replay: replay.bytes,
+            replay: replay.bytes.into(),
             kitty_image_aliases: replay.kitty_image_aliases,
             colors,
             stream: AttachFrameReceiver {
@@ -3063,7 +3063,7 @@ impl PtySurface {
             self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                 cols: next.cols,
                 rows: next.rows,
-                replay: replay.bytes,
+                replay: replay.bytes.into(),
                 kitty_image_aliases: replay.kitty_image_aliases,
                 colors,
             });

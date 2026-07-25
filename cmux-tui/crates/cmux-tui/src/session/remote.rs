@@ -507,11 +507,22 @@ enum RequestDeadline {
     Attach,
 }
 
+struct PendingRemoteRequest {
+    response: Sender<Value>,
+    progress: Arc<AtomicU64>,
+    attach_surface: Option<SurfaceId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RemoteProgressTarget {
+    Request(u64),
+    AttachSurface(SurfaceId),
+}
+
 pub struct RemoteSession {
     writer: Mutex<Box<dyn RemoteMessageWriter>>,
-    pending: Mutex<HashMap<u64, Sender<Value>>>,
+    pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
-    read_progress: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
     exited_surfaces: Mutex<HashSet<SurfaceId>>,
@@ -539,14 +550,30 @@ pub trait RemoteMessageReader: Send {
 
     fn receive_with_progress(
         &mut self,
-        on_progress: &mut dyn FnMut(),
+        on_progress: &mut dyn FnMut(&[u8]),
     ) -> io::Result<Option<String>> {
         let message = self.receive()?;
-        if message.is_some() {
-            on_progress();
+        if let Some(message) = message.as_deref() {
+            on_progress(message.as_bytes());
         }
         Ok(message)
     }
+}
+
+fn decimal_after_prefix(bytes: &[u8], prefix: &[u8]) -> Option<u64> {
+    let tail = bytes.strip_prefix(prefix)?;
+    let digits = tail.iter().take_while(|byte| byte.is_ascii_digit()).count();
+    if digits == 0 || !matches!(tail.get(digits), Some(b',') | Some(b'}')) {
+        return None;
+    }
+    std::str::from_utf8(&tail[..digits]).ok()?.parse().ok()
+}
+
+fn remote_progress_target(partial: &[u8]) -> Option<RemoteProgressTarget> {
+    decimal_after_prefix(partial, br#"{"id":"#).map(RemoteProgressTarget::Request).or_else(|| {
+        decimal_after_prefix(partial, br#"{"event":"vt-state","surface":"#)
+            .map(RemoteProgressTarget::AttachSurface)
+    })
 }
 
 /// Send complete JSON protocol messages over one transport.
@@ -584,7 +611,7 @@ struct JsonLineReader {
 
 pub(crate) fn read_json_line_with_progress<R: BufRead>(
     reader: &mut R,
-    on_progress: &mut dyn FnMut(),
+    on_progress: &mut dyn FnMut(&[u8]),
 ) -> io::Result<Option<String>> {
     let mut bytes = Vec::new();
     loop {
@@ -599,7 +626,7 @@ pub(crate) fn read_json_line_with_progress<R: BufRead>(
             (consumed, complete_at.is_some())
         };
         reader.consume(consumed);
-        on_progress();
+        on_progress(&bytes);
         if complete {
             break;
         }
@@ -621,12 +648,12 @@ pub(crate) fn read_json_line_with_progress<R: BufRead>(
 
 impl RemoteMessageReader for JsonLineReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        self.receive_with_progress(&mut || {})
+        self.receive_with_progress(&mut |_| {})
     }
 
     fn receive_with_progress(
         &mut self,
-        on_progress: &mut dyn FnMut(),
+        on_progress: &mut dyn FnMut(&[u8]),
     ) -> io::Result<Option<String>> {
         read_json_line_with_progress(&mut self.inner, on_progress)
     }
@@ -696,7 +723,6 @@ impl RemoteSession {
             writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
-            read_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
@@ -716,9 +742,9 @@ impl RemoteSession {
 
         let reader_session = Arc::downgrade(&session);
         std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            let mut report_progress = || {
+            let mut report_progress = |partial: &[u8]| {
                 if let Some(session) = reader_session.upgrade() {
-                    session.read_progress.fetch_add(1, Ordering::Release);
+                    session.report_read_progress(partial);
                 }
             };
             while let Ok(Some(message)) = reader.receive_with_progress(&mut report_progress) {
@@ -797,14 +823,33 @@ impl RemoteSession {
         self.subscribers.subscribe()
     }
 
+    fn report_read_progress(&self, partial: &[u8]) {
+        let Some(target) = remote_progress_target(partial) else { return };
+        let pending = self.pending.lock().unwrap();
+        match target {
+            RemoteProgressTarget::Request(id) => {
+                if let Some(request) = pending.get(&id) {
+                    request.progress.fetch_add(1, Ordering::Release);
+                }
+            }
+            RemoteProgressTarget::AttachSurface(surface) => {
+                for request in
+                    pending.values().filter(|request| request.attach_surface == Some(surface))
+                {
+                    request.progress.fetch_add(1, Ordering::Release);
+                }
+            }
+        }
+    }
+
     fn handle_line(self: &Arc<Self>, value: Value) {
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
         match value.get("event").and_then(|v| v.as_str()) {
             None => {
                 // Response: route to the waiting request.
                 let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
-                if let Some(tx) = self.pending.lock().unwrap().remove(&id) {
-                    let _ = tx.send(value);
+                if let Some(request) = self.pending.lock().unwrap().remove(&id) {
+                    let _ = request.response.send(value);
                 }
             }
             Some("vt-state") => {
@@ -1202,7 +1247,10 @@ impl RemoteSession {
         deadline: RequestDeadline,
     ) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let initial_read_progress = self.read_progress.load(Ordering::Acquire);
+        let progress = Arc::new(AtomicU64::new(0));
+        let attach_surface = matches!(deadline, RequestDeadline::Attach)
+            .then(|| cmd.get("surface").and_then(Value::as_u64))
+            .flatten();
         cmd["id"] = json!(id);
         let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
@@ -1212,7 +1260,10 @@ impl RemoteSession {
         }
 
         let (tx, rx) = channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        self.pending.lock().unwrap().insert(
+            id,
+            PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
+        );
         let mut writer = self.writer.lock().unwrap();
         let send_result = writer.send(&message);
         zeroize_string(&mut message);
@@ -1229,7 +1280,7 @@ impl RemoteSession {
             return Err(RemoteRequestError::Shutdown.into());
         }
 
-        let response = match self.wait_for_response(rx, deadline, initial_read_progress) {
+        let response = match self.wait_for_response(rx, deadline, progress) {
             Ok(response) => response,
             Err(error) => {
                 // Drop the pending entry so a half-open session does not
@@ -1254,7 +1305,7 @@ impl RemoteSession {
         &self,
         rx: Receiver<Value>,
         deadline: RequestDeadline,
-        mut read_progress: u64,
+        progress: Arc<AtomicU64>,
     ) -> Result<Value, RemoteRequestError> {
         if matches!(deadline, RequestDeadline::Standard) {
             return match rx.recv_timeout(REMOTE_REQUEST_TIMEOUT) {
@@ -1270,6 +1321,7 @@ impl RemoteSession {
         let started = Instant::now();
         let maximum_deadline = started + REMOTE_ATTACH_MAX_TIMEOUT;
         let mut idle_deadline = started + REMOTE_ATTACH_IDLE_TIMEOUT;
+        let mut observed_progress = progress.load(Ordering::Acquire);
         loop {
             let now = Instant::now();
             if now >= maximum_deadline {
@@ -1287,9 +1339,9 @@ impl RemoteSession {
             if self.shutdown.load(Ordering::Acquire) {
                 return Err(RemoteRequestError::Shutdown);
             }
-            let current_progress = self.read_progress.load(Ordering::Acquire);
-            if current_progress != read_progress {
-                read_progress = current_progress;
+            let current_progress = progress.load(Ordering::Acquire);
+            if current_progress != observed_progress {
+                observed_progress = current_progress;
                 idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
                 continue;
             }
@@ -1308,8 +1360,8 @@ impl RemoteSession {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
-        for (_, sender) in pending {
-            let _ = sender.send(json!({"shutdown": true}));
+        for (_, request) in pending {
+            let _ = request.response.send(json!({"shutdown": true}));
         }
     }
 
@@ -1884,7 +1936,6 @@ fn test_session_with_provider_context(
         writer: Mutex::new(Box::new(NoopWriter)),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
-        read_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
         exited_surfaces: Mutex::new(HashSet::new()),
@@ -1954,6 +2005,23 @@ mod tests {
     #[test]
     fn protocol_9_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
+    }
+
+    #[test]
+    fn partial_message_progress_targets_only_its_request_or_attach() {
+        assert_eq!(
+            remote_progress_target(br#"{"id":41,"ok":true,"data":"partial"#),
+            Some(RemoteProgressTarget::Request(41))
+        );
+        assert_eq!(
+            remote_progress_target(br#"{"event":"vt-state","surface":7,"cols":80,"data":"partial"#),
+            Some(RemoteProgressTarget::AttachSurface(7))
+        );
+        assert_eq!(
+            remote_progress_target(br#"{"event":"output","surface":7,"id":41,"data":"partial"#),
+            None
+        );
+        assert_eq!(remote_progress_target(br#"{"id":41"#), None);
     }
 
     #[test]
@@ -2188,6 +2256,7 @@ mod tests {
                 .remove(&id)
                 .ok_or_else(|| io::Error::other("remote request was not pending"))?;
             response
+                .response
                 .send(json!({"id": id, "ok": true, "data": null}))
                 .map_err(|_| io::Error::other("remote response receiver was dropped"))
         }
@@ -2206,7 +2275,6 @@ mod tests {
             writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
-            read_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
@@ -2276,6 +2344,7 @@ mod tests {
                 .remove(&id)
                 .ok_or_else(|| io::Error::other("remote request was not pending"))?;
             response
+                .response
                 .send(json!({"id": id, "ok": false, "error": "injected rejection"}))
                 .map_err(|_| io::Error::other("remote response receiver was dropped"))
         }
@@ -2319,6 +2388,7 @@ mod tests {
                 json!({"resizes": [], "failures": []})
             };
             response
+                .response
                 .send(json!({"id": id, "ok": true, "data": data}))
                 .map_err(|_| io::Error::other("remote response receiver was dropped"))
         }
@@ -2445,17 +2515,13 @@ mod tests {
             peer.read_line(&mut line).unwrap();
             let request: Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["cmd"], "attach-surface");
-            let frame = json!({
-                "event": "vt-state",
-                "surface": 7,
-                "cols": 80,
-                "rows": 24,
-                "data": "",
-                "kitty_image_aliases": [],
-            })
-            .to_string();
-            let first = frame.len() / 3;
-            let second = frame.len() * 2 / 3;
+            let frame = concat!(
+                "{\"event\":\"vt-state\",\"surface\":7,",
+                "\"cols\":80,\"rows\":24,\"data\":\"\",",
+                "\"kitty_image_aliases\":[]}"
+            );
+            let first = frame.find(",\"cols\"").unwrap() + 1;
+            let second = first + (frame.len() - first) / 2;
             for (index, fragment) in [
                 &frame.as_bytes()[..first],
                 &frame.as_bytes()[first..second],

@@ -23,8 +23,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -715,6 +716,7 @@ const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
+const OUTBOUND_GLOBAL_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 4;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -786,23 +788,150 @@ impl RenderGraphicBase64Cache {
     }
 }
 
+struct OutboundByteBudget {
+    retained_bytes: AtomicUsize,
+    max_bytes: usize,
+}
+
+impl OutboundByteBudget {
+    fn new(max_bytes: usize) -> Self {
+        Self { retained_bytes: AtomicUsize::new(0), max_bytes }
+    }
+
+    fn try_retain(&self, bytes: usize) -> bool {
+        self.retained_bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |retained| {
+                retained.checked_add(bytes).filter(|next| *next <= self.max_bytes)
+            })
+            .is_ok()
+    }
+
+    fn release(&self, bytes: usize) {
+        let previous = self.retained_bytes.fetch_sub(bytes, Ordering::AcqRel);
+        debug_assert!(previous >= bytes, "outbound byte budget underflow");
+    }
+}
+
+struct BudgetedText {
+    text: Box<str>,
+    budget: Arc<OutboundByteBudget>,
+}
+
+impl Deref for BudgetedText {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.text
+    }
+}
+
+impl Drop for BudgetedText {
+    fn drop(&mut self) {
+        self.budget.release(self.text.len());
+    }
+}
+
+struct BudgetedJsonWriter {
+    bytes: Vec<u8>,
+    retained_bytes: usize,
+    budget: Arc<OutboundByteBudget>,
+}
+
+impl BudgetedJsonWriter {
+    fn new(budget: Arc<OutboundByteBudget>) -> Self {
+        Self { bytes: Vec::new(), retained_bytes: 0, budget }
+    }
+
+    fn finish(mut self) -> Arc<BudgetedText> {
+        let bytes = std::mem::take(&mut self.bytes);
+        self.retained_bytes = 0;
+        let text = String::from_utf8(bytes).expect("serde_json emits UTF-8").into_boxed_str();
+        Arc::new(BudgetedText { text, budget: self.budget.clone() })
+    }
+}
+
+impl Write for BudgetedJsonWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if !self.budget.try_retain(bytes.len()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "global outbound byte budget overflowed",
+            ));
+        }
+        self.retained_bytes += bytes.len();
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for BudgetedJsonWriter {
+    fn drop(&mut self) {
+        if self.retained_bytes > 0 {
+            self.budget.release(self.retained_bytes);
+        }
+    }
+}
+
 struct RenderService {
     graphic_base64: Mutex<RenderGraphicBase64Cache>,
+    outbound_budget: Arc<OutboundByteBudget>,
 }
 
 impl RenderService {
     fn new() -> Self {
+        Self::new_with_outbound_budget(OUTBOUND_GLOBAL_BYTE_CAPACITY)
+    }
+
+    fn new_with_outbound_budget(max_bytes: usize) -> Self {
         Self {
             graphic_base64: Mutex::new(RenderGraphicBase64Cache::new(
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES,
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES,
             )),
+            outbound_budget: Arc::new(OutboundByteBudget::new(max_bytes)),
         }
     }
 
     fn encode_graphic(&self, data: &Arc<[u8]>) -> Arc<str> {
         self.graphic_base64.lock().unwrap().encode(data)
     }
+
+    fn serialize<T: Serialize + ?Sized>(&self, value: &T) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
+        Ok(writer.finish())
+    }
+
+    fn serialize_vt_state(&self, value: &VtStateMessage) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        write!(
+            writer,
+            "{{\"event\":\"vt-state\",\"surface\":{},\"cols\":{},\"rows\":{},\"data\":\"",
+            value.surface, value.cols, value.rows
+        )?;
+        {
+            let mut encoder = base64::write::EncoderWriter::new(
+                &mut writer,
+                &base64::engine::general_purpose::STANDARD,
+            );
+            encoder.write_all(&value.replay)?;
+            encoder.finish()?;
+        }
+        writer.write_all(b"\",\"kitty_image_aliases\":")?;
+        serde_json::to_writer(&mut writer, &value.kitty_image_aliases).map_err(json_error_to_io)?;
+        writer.write_all(b",\"colors\":")?;
+        serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
+        writer.write_all(b"}")?;
+        Ok(writer.finish())
+    }
+}
+
+fn json_error_to_io(error: serde_json::Error) -> std::io::Error {
+    std::io::Error::new(error.io_error_kind().unwrap_or(std::io::ErrorKind::InvalidData), error)
 }
 
 #[derive(Clone)]
@@ -810,16 +939,16 @@ struct OutboundStream {
     id: u64,
     open: Arc<AtomicBool>,
     terminal_enqueued: Arc<AtomicBool>,
-    overflow_text: Arc<str>,
+    overflow_text: Arc<BudgetedText>,
 }
 
 impl OutboundStream {
-    fn new(id: u64, overflow_text: String) -> Self {
+    fn new(id: u64, overflow_text: Arc<BudgetedText>) -> Self {
         Self {
             id,
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
-            overflow_text: overflow_text.into(),
+            overflow_text,
         }
     }
 
@@ -833,10 +962,15 @@ impl OutboundStream {
 }
 
 trait MessageSink: Send + Sync {
-    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
-    fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
-    fn send_control(&self, value: &Value) -> std::io::Result<()>;
-    fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
+    fn send_initial(&self, text: Arc<BudgetedText>, stream: &OutboundStream)
+    -> std::io::Result<()>;
+    fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()>;
+    fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    fn send_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()>;
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
@@ -874,48 +1008,88 @@ impl MessageWriter {
     fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
         Ok(OutboundStream::new(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
-            serde_json::to_string(overflow)?,
+            self.render_service.serialize(overflow)?,
         ))
     }
 
-    fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+    fn send_stream<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.sink.send_stream(value, stream);
+        let result = self
+            .render_service
+            .serialize(value)
+            .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
         result
     }
 
-    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+    fn send_initial<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.sink.send_initial(value, stream);
+        let result = self
+            .render_service
+            .serialize(value)
+            .and_then(|text| self.sink.send_initial(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
         result
     }
 
-    fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+    fn send_initial_vt_state(
+        &self,
+        value: &VtStateMessage,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.sink.send_terminal(value, stream);
+        let result = self
+            .render_service
+            .serialize_vt_state(value)
+            .and_then(|text| self.sink.send_initial(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    fn send_terminal<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize(value)
+            .and_then(|text| self.sink.send_terminal(text, stream));
         if result.is_err() {
             self.close();
         }
         result
     }
 
-    fn send_control(&self, value: &Value) -> std::io::Result<()> {
+    fn send_control<T: Serialize + ?Sized>(&self, value: &T) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.sink.send_control(value);
+        let result =
+            self.render_service.serialize(value).and_then(|text| self.sink.send_control(text));
         if result.is_err() {
             self.close();
         }
@@ -946,7 +1120,7 @@ struct BoundedOutbound {
 #[derive(Default)]
 struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
-    control: VecDeque<String>,
+    control: VecDeque<Arc<BudgetedText>>,
     regular: VecDeque<RegularOutbound>,
     control_bytes: usize,
     regular_bytes: usize,
@@ -954,7 +1128,7 @@ struct BoundedOutboundState {
 }
 
 struct RegularOutbound {
-    text: String,
+    text: Arc<BudgetedText>,
     stream: OutboundStream,
 }
 
@@ -976,17 +1150,25 @@ fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
 }
 
 impl BoundedOutbound {
-    fn push_regular(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+    fn push_regular(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         self.push_regular_with_priority(text, stream, false)
     }
 
-    fn push_initial(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+    fn push_initial(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         self.push_regular_with_priority(text, stream, true)
     }
 
     fn push_regular_with_priority(
         &self,
-        text: String,
+        text: Arc<BudgetedText>,
         stream: &OutboundStream,
         initial: bool,
     ) -> std::io::Result<()> {
@@ -1041,14 +1223,18 @@ impl BoundedOutbound {
         Ok(())
     }
 
-    fn push_control(&self, text: String) -> std::io::Result<()> {
+    fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
         Self::push_control_locked(&mut state, text)?;
         self.changed.notify_one();
         Ok(())
     }
 
-    fn push_terminal(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+    fn push_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
         stream.close();
         Self::purge_stream_locked(&mut state, stream.id);
@@ -1069,7 +1255,7 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.to_string()) {
+        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.clone()) {
             state.closed = true;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
@@ -1114,7 +1300,10 @@ impl BoundedOutbound {
             .map(|(_, _, stream)| stream)
     }
 
-    fn push_control_locked(state: &mut BoundedOutboundState, text: String) -> std::io::Result<()> {
+    fn push_control_locked(
+        state: &mut BoundedOutboundState,
+        text: Arc<BudgetedText>,
+    ) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
@@ -1135,10 +1324,10 @@ impl BoundedOutbound {
     #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        Self::pop_locked(&mut state)
+        Self::pop_locked(&mut state).map(|text| text.to_string())
     }
 
-    fn recv(&self) -> Option<String> {
+    fn recv(&self) -> Option<Arc<BudgetedText>> {
         let mut state = self.state.lock().unwrap();
         loop {
             if let Some(text) = Self::pop_locked(&mut state) {
@@ -1151,7 +1340,7 @@ impl BoundedOutbound {
         }
     }
 
-    fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<Arc<BudgetedText>> {
         if let Some(message) = state.initial.pop_front() {
             state.regular_bytes -= message.text.len();
             return Some(message.text);
@@ -1244,23 +1433,27 @@ impl SinkControl {
 }
 
 impl MessageSink for QueuedSink {
-    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
-        let text = serde_json::to_string(value)?;
+    fn send_initial(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         self.outbound.push_initial(text, stream)
     }
 
-    fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
-        let text = serde_json::to_string(value)?;
+    fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_regular(text, stream)
     }
 
-    fn send_control(&self, value: &Value) -> std::io::Result<()> {
-        let text = serde_json::to_string(value)?;
+    fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
     }
 
-    fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
-        let text = serde_json::to_string(value)?;
+    fn send_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
         self.outbound.push_terminal(text, stream)
     }
 
@@ -1906,7 +2099,7 @@ fn handle_websocket_connection(
             let mut websocket =
                 WebSocket::from_raw_socket(writer_stream, Role::Server, Some(outbound_config));
             while let Some(text) = writer_outbound.recv() {
-                if websocket.send(Message::Text(text.into())).is_err() {
+                if websocket.send(Message::Text(text.to_string().into())).is_err() {
                     writer_outbound.close();
                     break;
                 }
@@ -2658,6 +2851,15 @@ fn kitty_image_aliases_json(aliases: &[ghostty_vt::KittyImageAlias]) -> Vec<Valu
         .collect()
 }
 
+struct VtStateMessage {
+    surface: SurfaceId,
+    cols: u16,
+    rows: u16,
+    replay: Arc<[u8]>,
+    kitty_image_aliases: Vec<Value>,
+    colors: Value,
+}
+
 fn rgb_hex(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
@@ -2717,96 +2919,180 @@ fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
     })
 }
 
-fn render_graphics_json(
+fn serialize_arc_str<S>(value: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(value)
+}
+
+#[derive(Serialize)]
+struct RenderGraphicImageMessage {
+    id: u32,
+    generation: u64,
+    width: u32,
+    height: u32,
+    format: &'static str,
+    #[serde(serialize_with = "serialize_arc_str")]
+    data: Arc<str>,
+}
+
+#[derive(Serialize)]
+struct RenderGraphicPlacementMessage {
+    image_id: u32,
+    placement_id: u32,
+    ordinal: u32,
+    x_offset: u32,
+    y_offset: u32,
+    source_x: u32,
+    source_y: u32,
+    source_width: u32,
+    source_height: u32,
+    columns: u32,
+    rows: u32,
+    grid_cols: u32,
+    grid_rows: u32,
+    pixel_width: u32,
+    pixel_height: u32,
+    viewport_col: i32,
+    viewport_row: i32,
+    viewport_visible: bool,
+    z: i32,
+}
+
+impl From<&ghostty_vt::KittyPlacement> for RenderGraphicPlacementMessage {
+    fn from(placement: &ghostty_vt::KittyPlacement) -> Self {
+        Self {
+            image_id: placement.image_id,
+            placement_id: placement.placement_id,
+            ordinal: placement.key.ordinal,
+            x_offset: placement.x_offset,
+            y_offset: placement.y_offset,
+            source_x: placement.source_x,
+            source_y: placement.source_y,
+            source_width: placement.source_width,
+            source_height: placement.source_height,
+            columns: placement.columns,
+            rows: placement.rows,
+            grid_cols: placement.grid_cols,
+            grid_rows: placement.grid_rows,
+            pixel_width: placement.pixel_width,
+            pixel_height: placement.pixel_height,
+            viewport_col: placement.viewport_col,
+            viewport_row: placement.viewport_row,
+            viewport_visible: placement.viewport_visible,
+            z: placement.z,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct RenderGraphicsMessage {
+    generation: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    placements: Option<Vec<RenderGraphicPlacementMessage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    images: Option<Vec<RenderGraphicImageMessage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    removed_image_ids: Option<Vec<u32>>,
+}
+
+fn render_graphics_message(
     render_service: &RenderService,
     graphics: &ghostty_vt::KittyGraphicsSnapshot,
     image_ids: Option<&HashSet<u32>>,
     removed_image_ids: &[u32],
     include_placements: bool,
-) -> Value {
+) -> RenderGraphicsMessage {
     let images = graphics
         .images
         .iter()
         .filter(|image| image_ids.is_none_or(|ids| ids.contains(&image.id)))
         .map(|image| {
             let data = render_service.encode_graphic(&image.data);
-            json!({
-                "id": image.id,
-                "generation": image.generation,
-                "width": image.width,
-                "height": image.height,
-                "format": match image.format {
+            RenderGraphicImageMessage {
+                id: image.id,
+                generation: image.generation,
+                width: image.width,
+                height: image.height,
+                format: match image.format {
                     ghostty_vt::KittyImageFormat::Rgb => "rgb",
                     ghostty_vt::KittyImageFormat::Rgba => "rgba",
                 },
-                "data": data.as_ref(),
-            })
+                data,
+            }
         })
         .collect::<Vec<_>>();
-    let mut value = json!({ "generation": graphics.generation });
-    if include_placements {
-        value["placements"] = json!(
-            graphics
-                .placements
-                .iter()
-                .map(|placement| {
-                    json!({
-                        "image_id": placement.image_id,
-                        "placement_id": placement.placement_id,
-                        "ordinal": placement.key.ordinal,
-                        "x_offset": placement.x_offset,
-                        "y_offset": placement.y_offset,
-                        "source_x": placement.source_x,
-                        "source_y": placement.source_y,
-                        "source_width": placement.source_width,
-                        "source_height": placement.source_height,
-                        "columns": placement.columns,
-                        "rows": placement.rows,
-                        "grid_cols": placement.grid_cols,
-                        "grid_rows": placement.grid_rows,
-                        "pixel_width": placement.pixel_width,
-                        "pixel_height": placement.pixel_height,
-                        "viewport_col": placement.viewport_col,
-                        "viewport_row": placement.viewport_row,
-                        "viewport_visible": placement.viewport_visible,
-                        "z": placement.z,
-                    })
-                })
-                .collect::<Vec<_>>()
-        );
+    RenderGraphicsMessage {
+        generation: graphics.generation,
+        placements: include_placements
+            .then(|| graphics.placements.iter().map(RenderGraphicPlacementMessage::from).collect()),
+        images: (image_ids.is_none() || !images.is_empty()).then_some(images),
+        removed_image_ids: (!removed_image_ids.is_empty()).then(|| removed_image_ids.to_vec()),
     }
-    if image_ids.is_none() || !images.is_empty() {
-        value["images"] = json!(images);
-    }
-    if !removed_image_ids.is_empty() {
-        value["removed_image_ids"] = json!(removed_image_ids);
-    }
-    value
 }
 
-fn render_state_json(
+#[derive(Serialize)]
+struct RenderSizeMessage {
+    cols: u16,
+    rows: u16,
+}
+
+#[derive(Serialize)]
+struct RenderStateMessage {
+    event: &'static str,
+    surface: SurfaceId,
+    size: RenderSizeMessage,
+    cursor: Value,
+    default_fg: String,
+    default_bg: String,
+    scrollback_rows: u32,
+    rows: Vec<Value>,
+    graphics: RenderGraphicsMessage,
+}
+
+fn render_state_message(
     render_service: &RenderService,
     surface: SurfaceId,
     frame: &SurfaceRenderFrame,
-) -> Value {
+) -> RenderStateMessage {
     let (cols, rows) = frame.frame.size;
-    json!({
-        "event": "render-state",
-        "surface": surface,
-        "size": { "cols": cols, "rows": rows },
-        "cursor": render_cursor_json(frame),
-        "default_fg": rgb_hex(frame.frame.default_colors.1),
-        "default_bg": rgb_hex(frame.frame.default_colors.0),
-        "scrollback_rows": frame.scrollback_rows,
-        "rows": render_rows_json(frame, 0..rows),
-        "graphics": render_graphics_json(
+    RenderStateMessage {
+        event: "render-state",
+        surface,
+        size: RenderSizeMessage { cols, rows },
+        cursor: render_cursor_json(frame),
+        default_fg: rgb_hex(frame.frame.default_colors.1),
+        default_bg: rgb_hex(frame.frame.default_colors.0),
+        scrollback_rows: frame.scrollback_rows,
+        rows: render_rows_json(frame, 0..rows),
+        graphics: render_graphics_message(
             render_service,
             &frame.frame.kitty_graphics,
             None,
             &[],
             true,
         ),
-    })
+    }
+}
+
+#[derive(Serialize)]
+struct RenderDeltaMessage {
+    event: &'static str,
+    surface: SurfaceId,
+    cursor: Value,
+    full: bool,
+    rows: Vec<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<RenderSizeMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_fg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_bg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scrollback_rows: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graphics: Option<RenderGraphicsMessage>,
 }
 
 struct RenderClientState {
@@ -2838,7 +3124,11 @@ impl RenderClientState {
         }
     }
 
-    fn delta_json(&mut self, surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+    fn delta_message(
+        &mut self,
+        surface: SurfaceId,
+        frame: &SurfaceRenderFrame,
+    ) -> RenderDeltaMessage {
         let size_changed = self.size != frame.frame.size;
         let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
         let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
@@ -2852,25 +3142,21 @@ impl RenderClientState {
         } else {
             render_rows_json(frame, frame.frame.dirty_rows.iter().copied())
         };
-        let mut value = json!({
-            "event": "render-delta",
-            "surface": surface,
-            "cursor": render_cursor_json(frame),
-            "full": full,
-            "rows": rows,
-        });
-        if size_changed {
-            value["size"] = json!({ "cols": frame.frame.size.0, "rows": frame.frame.size.1 });
-        }
-        if foreground_changed {
-            value["default_fg"] = json!(rgb_hex(frame.frame.default_colors.1));
-        }
-        if background_changed {
-            value["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
-        }
-        if scrollback_changed {
-            value["scrollback_rows"] = json!(frame.scrollback_rows);
-        }
+        let mut message = RenderDeltaMessage {
+            event: "render-delta",
+            surface,
+            cursor: render_cursor_json(frame),
+            full,
+            rows,
+            size: size_changed.then_some(RenderSizeMessage {
+                cols: frame.frame.size.0,
+                rows: frame.frame.size.1,
+            }),
+            default_fg: foreground_changed.then(|| rgb_hex(frame.frame.default_colors.1)),
+            default_bg: background_changed.then(|| rgb_hex(frame.frame.default_colors.0)),
+            scrollback_rows: scrollback_changed.then_some(frame.scrollback_rows),
+            graphics: None,
+        };
         if !Arc::ptr_eq(&self.graphics_snapshot, &frame.frame.kitty_graphics) {
             let graphics = &frame.frame.kitty_graphics;
             let image_generations = graphics
@@ -2894,13 +3180,13 @@ impl RenderClientState {
             let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
             let placements_changed = self.graphics_placements != graphics.placements;
             if images_changed || placements_changed {
-                value["graphics"] = render_graphics_json(
+                message.graphics = Some(render_graphics_message(
                     &self.render_service,
                     graphics,
                     Some(&upsert_image_ids),
                     &removed_image_ids,
                     placements_changed,
-                );
+                ));
             }
             if images_changed {
                 self.graphics_image_generations = image_generations;
@@ -2913,7 +3199,7 @@ impl RenderClientState {
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
         self.scrollback_rows = frame.scrollback_rows;
-        value
+        message
     }
 }
 
@@ -4388,7 +4674,7 @@ fn handle_command(
                     }
                 };
                 if let Err(error) = writer.send_initial(
-                    &render_state_json(&writer.render_service, surface_id, &attach.initial),
+                    &render_state_message(&writer.render_service, surface_id, &attach.initial),
                     &outbound_stream,
                 ) {
                     handle_attach_send_error(&lifecycle, &error);
@@ -4422,22 +4708,27 @@ fn handle_command(
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
-                            let value = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
-                                Ok(RenderAttachFrame::Frame(frame)) => {
-                                    state.delta_json(surface_id, &frame)
-                                }
-                                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                                    json!({
-                                        "event": "scroll-changed",
-                                        "surface": surface_id,
-                                        "offset": offset,
-                                        "at_bottom": at_bottom,
-                                    })
-                                }
-                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                            };
-                            if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                            let send_result =
+                                match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                                    Ok(RenderAttachFrame::Frame(frame)) => {
+                                        let message = state.delta_message(surface_id, &frame);
+                                        writer.send_stream(&message, &outbound_stream)
+                                    }
+                                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                                        writer.send_stream(
+                                            &json!({
+                                                "event": "scroll-changed",
+                                                "surface": surface_id,
+                                                "offset": offset,
+                                                "at_bottom": at_bottom,
+                                            }),
+                                            &outbound_stream,
+                                        )
+                                    }
+                                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                                };
+                            if let Err(error) = send_result {
                                 handle_attach_send_error(&lifecycle, &error);
                                 break;
                             }
@@ -4656,19 +4947,15 @@ fn handle_command(
                     return Err(error.into());
                 }
             };
-            let initial_aliases = kitty_image_aliases_json(&attach.kitty_image_aliases);
-            if let Err(error) = writer.send_initial(
-                &json!({
-                    "event": "vt-state",
-                    "surface": surface_id,
-                    "cols": attach.cols,
-                    "rows": attach.rows,
-                    "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
-                    "kitty_image_aliases": initial_aliases,
-                    "colors": terminal_colors_json(attach.colors),
-                }),
-                &outbound_stream,
-            ) {
+            let initial = VtStateMessage {
+                surface: surface_id,
+                cols: attach.cols,
+                rows: attach.rows,
+                replay: attach.replay.clone(),
+                kitty_image_aliases: kitty_image_aliases_json(&attach.kitty_image_aliases),
+                colors: terminal_colors_json(attach.colors),
+            };
+            if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
                 handle_attach_send_error(&lifecycle, &error);
                 rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
@@ -5056,11 +5343,11 @@ mod tests {
         terminal.vt_write(&large_rgba_kitty_transmission());
         let mut render_state = RenderState::new().unwrap();
         let frame = render_protocol_frame(&mut terminal, &mut render_state);
-        let value = render_state_json(&RenderService::new(), 7, &frame);
+        let value = render_state_message(&RenderService::new(), 7, &frame);
         let serialized = serde_json::to_string(&value).unwrap();
 
         assert_eq!(
-            value["graphics"]["images"][0]["data"].as_str().unwrap().len(),
+            value.graphics.images.as_ref().unwrap()[0].data.len(),
             LARGE_RENDER_IMAGE_BASE64_CHARS
         );
         assert!(
@@ -5139,7 +5426,13 @@ mod tests {
 
     #[test]
     fn outbound_memory_budget_is_shared_across_connections() {
-        let service = Arc::new(RenderService::new_with_outbound_budget(512));
+        let first_overflow = attach_overflow_json(1);
+        let second_overflow = attach_overflow_json(2);
+        let message = json!({"event": "render-state", "data": "x".repeat(300)});
+        let budget = serde_json::to_vec(&first_overflow).unwrap().len()
+            + serde_json::to_vec(&second_overflow).unwrap().len()
+            + serde_json::to_vec(&message).unwrap().len();
+        let service = Arc::new(RenderService::new_with_outbound_budget(budget));
         let first_outbound = Arc::new(BoundedOutbound::default());
         let second_outbound = Arc::new(BoundedOutbound::default());
         let first = MessageWriter::new_with_render_service(
@@ -5147,12 +5440,11 @@ mod tests {
             service.clone(),
         );
         let second = MessageWriter::new_with_render_service(
-            QueuedSink { outbound: second_outbound.clone(), control: None },
+            QueuedSink { outbound: second_outbound, control: None },
             service,
         );
-        let first_stream = first.start_stream(&attach_overflow_json(1)).unwrap();
-        let second_stream = second.start_stream(&attach_overflow_json(2)).unwrap();
-        let message = json!({"event": "render-state", "data": "x".repeat(300)});
+        let first_stream = first.start_stream(&first_overflow).unwrap();
+        let second_stream = second.start_stream(&second_overflow).unwrap();
 
         first.send_initial(&message, &first_stream).unwrap();
         let error = second.send_initial(&message, &second_stream).unwrap_err();
@@ -5220,7 +5512,8 @@ mod tests {
             images: Vec::new(),
             placements: vec![placement],
         };
-        let serialized = render_graphics_json(&RenderService::new(), &graphics, None, &[], true);
+        let message = render_graphics_message(&RenderService::new(), &graphics, None, &[], true);
+        let serialized = serde_json::to_value(&message).unwrap();
         let placement_bytes = serde_json::to_string(&serialized["placements"][0]).unwrap().len();
         let placement_array_bytes = 2
             + placement_bytes * RENDER_GRAPHIC_MAX_PLACEMENTS
@@ -5252,7 +5545,7 @@ mod tests {
 
         terminal.vt_write(b"text");
         let frame = render_protocol_frame(&mut terminal, &mut render_state);
-        let delta = client.delta_json(1, &frame);
+        let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
 
         assert!(delta.get("graphics").is_none(), "{delta:#}");
     }
@@ -5266,7 +5559,7 @@ mod tests {
 
         terminal.vt_write(b"\x1b[3G\x1b_Ga=p,i=41,p=9,c=1,r=1,q=2;\x1b\\");
         let frame = render_protocol_frame(&mut terminal, &mut render_state);
-        let delta = client.delta_json(1, &frame);
+        let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
         let graphics = &delta["graphics"];
 
         assert!(graphics.get("images").is_none(), "{delta:#}");
@@ -5292,7 +5585,7 @@ mod tests {
         let image = graphics.images.iter_mut().find(|image| image.id == 41).unwrap();
         image.generation += 1;
         image.data = Arc::<[u8]>::from([0, 0, 255]);
-        let delta = client.delta_json(1, &frame);
+        let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
         let images = delta["graphics"]["images"].as_array().unwrap();
 
         assert_eq!(images.len(), 1, "{delta:#}");
@@ -5311,7 +5604,7 @@ mod tests {
 
         terminal.vt_write(b"\x1b_Ga=d,d=I,i=41,q=2;\x1b\\");
         let frame = render_protocol_frame(&mut terminal, &mut render_state);
-        let delta = client.delta_json(1, &frame);
+        let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
         let graphics = &delta["graphics"];
 
         assert_eq!(graphics["removed_image_ids"], json!([41]));
@@ -5422,6 +5715,46 @@ mod tests {
         assert_eq!(overflow["event"], "overflow");
         assert_eq!(overflow["surface"], 8);
         assert!(writer.is_open());
+    }
+
+    #[test]
+    fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
+        let replay = Arc::<[u8]>::from(vec![b'x'; 1024]);
+        let message = VtStateMessage {
+            surface: 7,
+            cols: 80,
+            rows: 24,
+            replay: replay.clone(),
+            kitty_image_aliases: Vec::new(),
+            colors: Value::Null,
+        };
+
+        let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
+
+        assert!(serialized.starts_with(r#"{"event":"vt-state","surface":7,"#), "{}", &**serialized);
+        let decoded: Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(replay));
+    }
+
+    #[test]
+    fn vt_state_streaming_releases_partial_global_budget_on_overflow() {
+        let service = RenderService::new_with_outbound_budget(64);
+        let message = VtStateMessage {
+            surface: 7,
+            cols: 80,
+            rows: 24,
+            replay: Arc::from(vec![b'x'; 1024]),
+            kitty_image_aliases: Vec::new(),
+            colors: Value::Null,
+        };
+
+        let error = service
+            .serialize_vt_state(&message)
+            .err()
+            .expect("oversized replay must exhaust the global budget");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(service.outbound_budget.retained_bytes.load(Ordering::Acquire), 0);
     }
 
     #[test]
@@ -5536,13 +5869,18 @@ mod tests {
     #[test]
     fn bounded_writer_rejects_payloads_beyond_each_byte_budget() {
         let outbound = BoundedOutbound::default();
-        let stream = OutboundStream::new(1, r#"{"event":"overflow"}"#.to_string());
+        let service = RenderService::new_with_outbound_budget(
+            OUTBOUND_GLOBAL_BYTE_CAPACITY.saturating_mul(2),
+        );
+        let stream =
+            OutboundStream::new(1, service.serialize(&json!({"event": "overflow"})).unwrap());
 
-        let regular =
-            outbound.push_regular("x".repeat(OUTBOUND_BYTE_CAPACITY + 1), &stream).unwrap_err();
+        let regular_text = service.serialize(&"x".repeat(OUTBOUND_BYTE_CAPACITY + 1)).unwrap();
+        let regular = outbound.push_regular(regular_text, &stream).unwrap_err();
         assert_eq!(regular.kind(), std::io::ErrorKind::WouldBlock);
-        let control =
-            outbound.push_control("x".repeat(OUTBOUND_CONTROL_BYTE_RESERVE + 1)).unwrap_err();
+        let control_text =
+            service.serialize(&"x".repeat(OUTBOUND_CONTROL_BYTE_RESERVE + 1)).unwrap();
+        let control = outbound.push_control(control_text).unwrap_err();
         assert_eq!(control.kind(), std::io::ErrorKind::WouldBlock);
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
@@ -5676,7 +6014,7 @@ mod tests {
 
         outbound.close();
 
-        assert_eq!(drain.join().unwrap(), None);
+        assert!(drain.join().unwrap().is_none());
     }
 
     #[test]
