@@ -4,8 +4,6 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct NotificationFeedRow: View, Equatable {
-    @Environment(\.dismissSearch) private var dismissSearch
-
     let item: MobileNotificationFeedItem
     let actions: NotificationFeedActions
 
@@ -112,7 +110,6 @@ struct NotificationFeedRow: View, Equatable {
 
     private func open() {
         actions.open(item)
-        dismissSearch()
     }
 
     private var accessibilitySuffix: String {

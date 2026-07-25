@@ -870,7 +870,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var notificationFeedRefreshPendingMacIDs: Set<String> = []
     @ObservationIgnored var notificationFeedOpenTask: Task<Void, Never>?
     @ObservationIgnored var notificationFeedOpenToken: UUID?
-    @ObservationIgnored var notificationFeedOpenSurvivesFeedDisappearance = false
     let notificationFeedAggregation = MobileNotificationFeedAggregation()
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
