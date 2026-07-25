@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import PostHog
+import os
 
 struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
     var id: String { key }
@@ -29,7 +30,7 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
 @MainActor
 @Observable
 final class CmuxFeatureFlags {
-    static let shared = CmuxFeatureFlags()
+    static let shared = CmuxFeatureFlags(publishesOffMainSnapshot: true)
 
     #if DEBUG
     private static let proUpgradeUIDefault = true
@@ -45,6 +46,11 @@ final class CmuxFeatureFlags {
     private static let cloudVMUIDefault = false
     #endif
     private static let agentChatUIDefault = false
+    #if DEBUG
+    private static let mobileWorkspaceChangesDefault = true
+    #else
+    private static let mobileWorkspaceChangesDefault = false
+    #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
@@ -67,6 +73,28 @@ final class CmuxFeatureFlags {
             defaultValue: "Renders the workspace sidebar with a native AppKit list and divider for smoother scrolling and resizing with many workspaces."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
+    )
+
+    // FLAG(key: mobile-workspace-changes-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // Serves the iOS diff viewer: advertises workspace.changes.v1 to phones
+    // and answers the mobile.workspace.changes.* RPCs behind it. Every iOS
+    // entry point (workspace-row chip, toolbar button, one-time hint, Changes
+    // sheet, summary polling) feature-detects on that capability, so this one
+    // Mac-side flag turns the whole feature off end to end. Release builds
+    // keep it off until the PostHog flag enables it; DEBUG keeps it on for
+    // dogfood.
+    static let mobileWorkspaceChangesFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-workspace-changes-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileWorkspaceChanges.title",
+            defaultValue: "Mobile diff viewer"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileWorkspaceChanges.description",
+            defaultValue: "Serves workspace diffs to paired phones: the iOS changes chip, toolbar button, and Changes sheet."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -173,6 +201,8 @@ final class CmuxFeatureFlags {
             ),
 
             CmuxFeatureFlags.appKitSidebarListFlag,
+
+            CmuxFeatureFlags.mobileWorkspaceChangesFlag,
         ]
     }()
 
@@ -204,6 +234,28 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.appKitSidebarListFlag)
     }
 
+    var isMobileWorkspaceChangesEnabled: Bool {
+        effectiveValue(for: Self.mobileWorkspaceChangesFlag)
+    }
+
+    /// Effective values mirrored for nonisolated readers: the mobile host
+    /// serves status payloads (which carry the capability list) off the main
+    /// actor. Written only by the shared instance so test instances cannot
+    /// stomp process-wide state. Before the shared instance exists, readers
+    /// get the per-flag compile-time default (fail-closed for release flags).
+    private nonisolated static let offMainEffectiveValues = OSAllocatedUnfairLock(
+        initialState: [String: Bool]()
+    )
+
+    nonisolated static func offMainEffectiveValue(
+        for definition: CmuxFeatureFlagDefinition
+    ) -> Bool {
+        offMainEffectiveValues.withLock { $0[definition.key] }
+            ?? definition.defaultWhenUnavailable
+    }
+
+    @ObservationIgnored
+    private let publishesOffMainSnapshot: Bool
     @ObservationIgnored
     private let defaults: UserDefaults
     @ObservationIgnored
@@ -217,9 +269,11 @@ final class CmuxFeatureFlags {
 
     init(
         defaults: UserDefaults = .standard,
-        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) }
+        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
+        publishesOffMainSnapshot: Bool = false
     ) {
         self.defaults = defaults
+        self.publishesOffMainSnapshot = publishesOffMainSnapshot
         self.remoteFlagValueProvider = remoteFlagValueProvider
         localOverridesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
             if let value = Self.storedOverrideValue(for: definition.key, defaults: defaults) {
@@ -312,6 +366,10 @@ final class CmuxFeatureFlags {
                 overrideValue: localOverridesByKey[definition.key],
                 defaultValue: definition.defaultWhenUnavailable
             )
+        }
+        if publishesOffMainSnapshot {
+            let effectiveValues = resolutionsByKey.mapValues(\.effectiveValue)
+            Self.offMainEffectiveValues.withLock { $0 = effectiveValues }
         }
     }
 

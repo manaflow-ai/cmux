@@ -103239,6 +103239,40 @@
         }
       }
     },
+    "featureFlags.mobileWorkspaceChanges.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serves workspace diffs to paired phones: the iOS changes chip, toolbar button, and Changes sheet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのスマートフォンにワークスペースの差分を提供します（iOSの変更チップ、ツールバーボタン、変更シート）。"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileWorkspaceChanges.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile diff viewer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル差分ビューア"
+          }
+        }
+      }
+    },
     "featureFlags.override.none": {
       "extractionState": "manual",
       "localizations": {
@@ -126970,6 +127004,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースの識別子が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.capabilityDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace changes are not enabled on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacではワークスペースの変更機能が有効になっていません"
           }
         }
       }
