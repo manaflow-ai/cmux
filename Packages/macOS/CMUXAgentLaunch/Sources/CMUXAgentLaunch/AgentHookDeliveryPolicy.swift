@@ -24,7 +24,7 @@ public struct AgentHookDeliveryPolicy: Sendable {
 
     private static let auxiliaryQueuedSubcommands: [String: Set<String>] = [
         "claude": ["pre-tool-use", "push-notification", "feed"],
-        "codex": ["post-tool-use"],
+        "codex": ["pre-tool-use", "post-tool-use"],
     ]
 
     /// Creates the shared queued-delivery policy.

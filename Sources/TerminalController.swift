@@ -1229,9 +1229,18 @@ class TerminalController {
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "agent.hook.enqueue":
+            let hookParams: [String: Any]
+            if request.params["relay_backed"] as? Bool == true,
+               request.params["caller_tty"] != nil {
+                hookParams = v2MainSync {
+                    self.agentHookParametersResolvingRelayTTY(request.params)
+                }
+            } else {
+                hookParams = request.params
+            }
             guard let localSocketPath = currentSocketPathForRemoteRestore(),
                   let event = AgentHookDeliveryEvent(
-                      params: request.params,
+                      params: hookParams,
                       deliverySocketPath: localSocketPath
                   ) else {
                 return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook event")
@@ -1241,9 +1250,18 @@ class TerminalController {
             }
             return v2Ok(id: request.id, result: ["queued": true])
         case "agent.hook.barrier":
+            let hookParams: [String: Any]
+            if request.params["relay_backed"] as? Bool == true,
+               request.params["caller_tty"] != nil {
+                hookParams = v2MainSync {
+                    self.agentHookParametersResolvingRelayTTY(request.params)
+                }
+            } else {
+                hookParams = request.params
+            }
             guard let localSocketPath = currentSocketPathForRemoteRestore(),
                   let orderingKey = AgentHookDeliveryEvent.orderingKey(
-                      params: request.params,
+                      params: hookParams,
                       deliverySocketPath: localSocketPath
                   ) else {
                 return v2Error(id: request.id, code: "invalid_params", message: "Invalid agent hook barrier")

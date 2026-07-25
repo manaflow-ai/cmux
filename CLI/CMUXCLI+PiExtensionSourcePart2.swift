@@ -304,6 +304,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
       });
     }
+    if (sendHook("session-finalize", ctx)) {
+      sessionStates.delete(sessionId);
+      return;
+    }
     if (clearResumeBinding(ctx, sessionId, cwd)) sessionStates.delete(sessionId);
   });
 }

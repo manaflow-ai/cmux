@@ -227,12 +227,12 @@ private func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
 }
 
 private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, timeoutMs: [Int])] = [
-    "SessionStart": ("session-start", [10000]),
-    "UserPromptSubmit": ("prompt-submit", [10000]),
-    "Stop": ("stop", [10000]),
-    "SessionStop": ("stop", [10000]),
-    "PreToolUse": ("pre-tool-use", [120000, 10000]),
-    "PostToolUse": ("post-tool-use", [10000]),
+    "SessionStart": ("session-start", [3000, 10000]),
+    "UserPromptSubmit": ("prompt-submit", [3000, 10000]),
+    "Stop": ("stop", [3000, 10000]),
+    "SessionStop": ("stop", [3000, 10000]),
+    "PreToolUse": ("pre-tool-use", [3000, 120000, 10000]),
+    "PostToolUse": ("post-tool-use", [3000, 10000]),
     "PermissionRequest": ("notification", [120000]),
     "Notification": ("notification", [10000]),
 ]

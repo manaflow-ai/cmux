@@ -3,9 +3,10 @@ import Foundation
 extension CMUXCLI {
     /// The per-invocation Codex hook events the wrapper injects, paired with the
     /// cmux subcommand they call and the codex hook timeout (ms). Lifecycle
-    /// non-decision events use short admission budgets; decision events
-    /// (`PreToolUse`/`PermissionRequest`) remain long because the user may take
-    /// time to approve. This is the single source of
+    /// non-decision events use short admission budgets; the decision event
+    /// (`PermissionRequest`) remains long because the user may take time to
+    /// approve. Codex `PreToolUse` is telemetry because Codex obtains decisions
+    /// from `PermissionRequest`. This is the single source of
     /// truth for `cmux-codex-wrapper`'s injection, mirrored from the historic
     /// hand-rolled `cmux_codex_add_hook` calls in the wrapper.
     static let codexWrapperInjectionEvents: [(
@@ -17,7 +18,7 @@ extension CMUXCLI {
         ("SessionStart", "session-start", agentHookDeclaredTimeoutMilliseconds, .queued),
         ("UserPromptSubmit", "prompt-submit", agentHookDeclaredTimeoutMilliseconds, .queued),
         ("Stop", "stop", agentHookDeclaredTimeoutMilliseconds, .queued),
-        ("PreToolUse", "pre-tool-use", 120000, .direct),
+        ("PreToolUse", "pre-tool-use", agentHookDeclaredTimeoutMilliseconds, .queued),
         ("PostToolUse", "post-tool-use", agentHookDeclaredTimeoutMilliseconds, .queued),
         ("PermissionRequest", "notification", 120000, .direct),
     ]

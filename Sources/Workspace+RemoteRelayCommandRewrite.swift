@@ -91,7 +91,7 @@ extension Workspace {
                 params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
                 didRewrite = true
             }
-            if method == "agent.hook.enqueue",
+            if (method == "agent.hook.enqueue" || method == "agent.hook.barrier"),
                params["relay_backed"] as? Bool != true {
                 params["relay_backed"] = true
                 didRewrite = true

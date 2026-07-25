@@ -54,9 +54,8 @@ extension CMUXCLI {
     }
 
     /// Captures the identity shared by queued lifecycle events and direct
-    /// decision barriers. Remote-only TTY/PID evidence is resolved while the
-    /// CLI is still connected to the remote cmux; the relay alias-rewrites the
-    /// resulting workspace/surface ids before local admission.
+    /// decision barriers. Relay callers carry their portable TTY separately so
+    /// the app can resolve routing in the admission RPC itself.
     func agentHookOrderingEnvironment(
         agent: String,
         client: SocketClient,
@@ -78,12 +77,6 @@ extension CMUXCLI {
         }
         guard client.isRelayBacked else { return environment }
 
-        let remotePID = environment[pidEnvironmentKey].flatMap(Int.init)
-        if let binding = uniqueCallerTerminalBindingByTTY(client: client)
-            ?? resolveAgentProcessTerminalBinding(pid: remotePID, client: client) {
-            environment["CMUX_WORKSPACE_ID"] = binding.workspaceId
-            environment["CMUX_SURFACE_ID"] = binding.surfaceId
-        }
         let relayEnvironmentKeys: Set<String> = [
             "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
             "CMUX_AGENT_MANAGED_SUBAGENT",
@@ -111,12 +104,17 @@ extension CMUXCLI {
         client: SocketClient
     ) throws {
         let environment = agentHookOrderingEnvironment(agent: agent, client: client)
+        var params: [String: Any] = [
+            "agent": agent,
+            "environment": environment,
+            "relay_backed": client.isRelayBacked,
+        ]
+        if client.isRelayBacked, let callerTTY = resolveCallerTTYName() {
+            params["caller_tty"] = callerTTY
+        }
         _ = try client.sendV2(
             method: "agent.hook.barrier",
-            params: [
-                "agent": agent,
-                "environment": environment,
-            ],
+            params: params,
             responseTimeout: TimeInterval(Self.agentHookBarrierResponseTimeoutSeconds)
         )
     }
@@ -167,6 +165,8 @@ extension CMUXCLI {
         ]
         if !client.isRelayBacked {
             params["socket_path"] = client.socketPath
+        } else if let callerTTY = resolveCallerTTYName() {
+            params["caller_tty"] = callerTTY
         }
         _ = try client.sendV2(
             method: "agent.hook.enqueue",

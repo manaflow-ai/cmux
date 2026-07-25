@@ -37,6 +37,10 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         switch (agent, subcommand) {
         case ("claude", "feed"):
             return ["hooks", "feed", "--source", "claude"]
+        case ("codex", "pre-tool-use"):
+            return ["hooks", "feed", "--source", "codex", "--event", "PreToolUse"]
+        case ("codex", "post-tool-use"):
+            return ["hooks", "feed", "--source", "codex", "--event", "PostToolUse"]
         default:
             return ["hooks", agent, subcommand]
         }
@@ -49,7 +53,8 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         if subcommand == "shell-exec" || subcommand == "shell-done" {
             return true
         }
-        if agent == "codex", subcommand == "post-tool-use" {
+        if agent == "codex",
+           (subcommand == "pre-tool-use" || subcommand == "post-tool-use") {
             return true
         }
         guard agent == "claude", subcommand == "pre-tool-use",
@@ -164,5 +169,60 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
             totalBytes += entryBytes
         }
         return validated
+    }
+}
+
+@MainActor
+extension TerminalController {
+    /// Resolves portable relay TTY evidence against the app's current surface
+    /// registry before an event or barrier receives its delivery-lane identity.
+    func agentHookParametersResolvingRelayTTY(_ params: [String: Any]) -> [String: Any] {
+        guard params["relay_backed"] as? Bool == true,
+              let rawCallerTTY = params["caller_tty"] as? String,
+              rawCallerTTY.utf8.count <= 256,
+              !rawCallerTTY.contains("\0"),
+              let callerTTY = TerminalCallerTTYResolver.normalizedName(rawCallerTTY),
+              var environment = params["environment"] as? [String: String] else {
+            return params
+        }
+
+        var managers: [TabManager] = []
+        func append(_ manager: TabManager?) {
+            guard let manager, !managers.contains(where: { $0 === manager }) else { return }
+            managers.append(manager)
+        }
+        append(tabManager)
+        if let app = AppDelegate.shared {
+            app.listMainWindowSummaries().forEach { summary in
+                append(app.tabManagerFor(windowId: summary.windowId))
+            }
+        }
+
+        var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
+        for manager in managers {
+            for workspace in manager.tabs {
+                for (surfaceID, ttyName) in workspace.surfaceTTYNames
+                    where workspace.panels[surfaceID] != nil {
+                    candidates.append((
+                        binding: TerminalCallerTTYBinding(
+                            workspaceId: workspace.id,
+                            surfaceId: surfaceID
+                        ),
+                        ttyName: ttyName
+                    ))
+                }
+            }
+        }
+        guard let binding = TerminalCallerTTYResolver(
+            reportedCandidates: candidates
+        ).binding(for: callerTTY) else {
+            return params
+        }
+
+        environment["CMUX_WORKSPACE_ID"] = binding.workspaceId.uuidString
+        environment["CMUX_SURFACE_ID"] = binding.surfaceId.uuidString
+        var resolved = params
+        resolved["environment"] = environment
+        return resolved
     }
 }
