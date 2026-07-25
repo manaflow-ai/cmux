@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxFoundation
 import CmuxTerminalCore
 import XCTest
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -382,83 +383,61 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     }
 
     func testWorkspaceTerminalFontSizeRepeatEventsCoalesceAcrossRunLoopTurns() {
-        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
-            guard let appDelegate = AppDelegate.shared else {
-                XCTFail("Expected AppDelegate.shared")
-                return
-            }
-
-            let windowId = appDelegate.createMainWindow()
-            defer { closeWindow(withId: windowId) }
-
-            guard let window = window(withId: windowId),
-                  let manager = appDelegate.tabManagerFor(windowId: windowId),
-                  let workspace = manager.selectedWorkspace,
-                  let panelId = workspace.focusedPanelId,
-                  let panel = workspace.terminalPanel(for: panelId),
-                  let repeatedEvent = makeKeyDownEvent(
-                    key: "-",
-                    modifiers: [.command, .control],
-                    keyCode: 27,
-                    windowNumber: window.windowNumber,
-                    isARepeat: true
-                  ) else {
-                XCTFail("Expected a terminal and repeated Cmd+Ctrl+- event")
-                return
-            }
-
-            let beforeLineage = panel.surface.fontSizeLineageSnapshot()
-            let configuredRuntimePoints = Float32(
-                GhosttyConfig.load(
-                    globalFontMagnificationPercent:
-                        GlobalFontMagnification.storedPercent
-                ).fontSize
-            )
-            let beforeRuntimePoints = beforeLineage.map {
-                CmuxSurfaceConfigTemplate.runtimeFontSize(
-                    fromBasePoints: $0.basePoints,
-                    percent: GlobalFontMagnification.storedPercent
-                )
-            } ?? configuredRuntimePoints
-
-#if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-
-            XCTAssertEqual(
-                panel.surface.fontSizeLineageSnapshot(),
-                beforeLineage,
-                "Repeat events from separate run-loop turns must share a real coalescing window"
-            )
-            XCTAssertEqual(
-                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
-                1
-            )
-
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
-#else
-            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected a selected workspace terminal")
             return
+        }
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:)
+        )
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+
+        let secondRunLoopTurn = expectation(
+            description: "second repeat event on a later run-loop turn"
+        )
+        RunLoop.main.perform(inModes: [.common]) {
+            MainActor.assumeIsolated {
+                coordinator.enqueue(
+                    .relative([-1]),
+                    workspaceId: workspace.id,
+                    deferFlush: true
+                )
+                secondRunLoopTurn.fulfill()
+            }
+        }
+        wait(for: [secondRunLoopTurn], timeout: 1)
+
+        XCTAssertEqual(scheduler.delays, [0.05])
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            20,
+            "Separate run-loop turns must share one scheduled repeat batch"
+        )
+#if DEBUG
+        XCTAssertEqual(coordinator.debugPendingRequestCount, 1)
 #endif
 
-            guard let afterLineage = panel.surface.fontSizeLineageSnapshot() else {
-                XCTFail("Expected the coalesced font-size lineage")
-                return
-            }
-            let afterRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
-                fromBasePoints: afterLineage.basePoints,
-                percent: GlobalFontMagnification.storedPercent
-            )
-            XCTAssertEqual(
-                afterRuntimePoints,
-                TerminalFontSizePolicy().clampedRuntimePoints(
-                    beforeRuntimePoints - 2
-                ),
-                accuracy: 0.001
-            )
-        }
+        scheduler.fire(at: 0)
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            18
+        )
     }
 
     func testWorkspaceTerminalFontSizeResetRepeatDoesNotQueueFanout() {
@@ -598,11 +577,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return panel
             }
 
-            let adjustedSource = dormantPanel(
-                id: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
-            )
-            for suffix in 2...10 {
-                _ = dormantPanel(
+            let sourcePanels = (1...32).map { suffix in
+                dormantPanel(
                     id: UUID(
                         uuidString: String(
                             format: "00000000-0000-4000-8000-%012d",
@@ -611,10 +587,6 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                     )!
                 )
             }
-            let staleSource = dormantPanel(
-                id: UUID(uuidString: "FFFFFFFF-FFFF-4FFF-BFFF-FFFFFFFFFFFF")!,
-                basePoints: 19
-            )
 
 #if DEBUG
             appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
@@ -636,9 +608,16 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             } else {
                 XCTFail("Expected an active Dock font-size inheritance context")
             }
-            XCTAssertEqual(
-                adjustedSource.surface.fontSizeLineageSnapshot()?.basePoints,
-                19
+
+            guard let adjustedSource = sourcePanels.first(where: {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+            }) else {
+                XCTFail("Expected one source inside the first bounded drain")
+                return
+            }
+            let staleSource = dormantPanel(
+                id: UUID(uuidString: "FFFFFFFF-FFFF-4FFF-BFFF-FFFFFFFFFFFF")!,
+                basePoints: 19
             )
             XCTAssertEqual(
                 staleSource.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -1598,5 +1577,36 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+}
+
+@MainActor
+private final class ManualWorkspaceFontSizeDrainScheduler {
+    private struct ScheduledDrain {
+        var isCancelled = false
+        let action: @MainActor () -> Void
+    }
+
+    private var scheduledDrains: [ScheduledDrain] = []
+    private(set) var delays: [TimeInterval] = []
+
+    func schedule(
+        delay: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> WorkspaceTerminalFontSizeCoordinator.DrainCancellation {
+        let index = scheduledDrains.count
+        delays.append(delay)
+        scheduledDrains.append(ScheduledDrain(action: action))
+        return { [weak self] in
+            self?.scheduledDrains[index].isCancelled = true
+        }
+    }
+
+    func fire(at index: Int) {
+        guard scheduledDrains.indices.contains(index),
+              !scheduledDrains[index].isCancelled else {
+            return
+        }
+        scheduledDrains[index].action()
     }
 }
