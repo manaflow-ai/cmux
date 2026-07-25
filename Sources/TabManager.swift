@@ -2342,7 +2342,18 @@ class TabManager: ObservableObject {
             }
         }
 
-        for workspace in plan.workspaces {
+        // Close non-anchor workspaces before group anchors (same ordering group
+        // deletion uses). Closing an anchor promotes the group's next member and
+        // renormalizes the whole tabs/groups collection; iterating in raw tabs
+        // order (anchor first) would re-promote and rescan once per targeted
+        // member, turning a k-member batch into O(k x totalTabs) main-actor work
+        // plus a burst of title/order invalidations. Draining members first
+        // leaves at most one promotion per group (or none, when the anchor was
+        // the group's last surviving workspace).
+        let anchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
+        let closeOrder = plan.workspaces.filter { !anchorIds.contains($0.id) }
+            + plan.workspaces.filter { anchorIds.contains($0.id) }
+        for workspace in closeOrder {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
             // Closing a group's anchor is no longer destructive to the group
             // (its next member is promoted to anchor), so batch close needs no

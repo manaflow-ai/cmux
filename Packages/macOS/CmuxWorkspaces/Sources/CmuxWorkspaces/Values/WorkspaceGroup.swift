@@ -22,7 +22,9 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     public var isPinned: Bool
     /// Identifier of the member workspace that owns this group's lifecycle.
     /// Always present and always points to a workspace in the window's tabs
-    /// whose `groupId == self.id`. Closing this workspace dissolves the group.
+    /// whose `groupId == self.id`. Closing this workspace promotes the group's
+    /// next member to be the new anchor; the group is removed only when the
+    /// anchor was its last workspace.
     public var anchorWorkspaceId: UUID
     /// Group-level color override (hex string). When nil, falls back to the
     /// cwd-config color resolved from `cmux.json` for the anchor's cwd, then
