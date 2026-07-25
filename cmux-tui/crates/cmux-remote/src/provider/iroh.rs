@@ -35,6 +35,7 @@ pub const ROUTING_NODE_ID: &str = "node_id";
 pub const ROUTING_RELAY_URL: &str = "relay_url";
 /// Optional routing key containing comma or whitespace separated socket addresses.
 pub const ROUTING_DIRECT_ADDRS: &str = "direct_addrs";
+const AUTO_RELAY_BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Constrains which network paths an Iroh endpoint may use.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -516,8 +517,45 @@ async fn connect_iroh_connection(
 }
 
 fn initial_iroh_dial_addr(path_mode: IrohPathMode, node_addr: &NodeAddr) -> NodeAddr {
-    let _ = path_mode;
-    node_addr.clone()
+    if path_mode != IrohPathMode::Auto
+        || node_addr.relay_urls().next().is_none()
+        || node_addr.ip_addrs().next().is_none()
+    {
+        return node_addr.clone();
+    }
+
+    let mut relay_bootstrap = node_addr.clone();
+    relay_bootstrap.addrs.retain(|addr| matches!(addr, ::iroh::TransportAddr::Relay(_)));
+    relay_bootstrap
+}
+
+async fn connect_iroh_for_path_mode(
+    endpoint: &Endpoint,
+    node_addr: &NodeAddr,
+    alpn: &[u8],
+    path_mode: IrohPathMode,
+) -> Result<::iroh::endpoint::Connection, ProviderError> {
+    let dial_addr = initial_iroh_dial_addr(path_mode, node_addr);
+    let relay_assisted = dial_addr.ip_addrs().next().is_none()
+        && node_addr.ip_addrs().next().is_some()
+        && dial_addr.relay_urls().next().is_some();
+    if !relay_assisted {
+        return connect_iroh_connection(endpoint, &dial_addr, alpn).await;
+    }
+
+    // A relay-first handshake avoids letting an explicitly advertised but
+    // blackholed IP path starve Iroh's relay. Once connected, Iroh discovers
+    // and promotes a working direct path on the same QUIC connection. A LAN
+    // without relay access still falls back to the complete address set.
+    match tokio::time::timeout(
+        AUTO_RELAY_BOOTSTRAP_TIMEOUT,
+        connect_iroh_connection(endpoint, &dial_addr, alpn),
+    )
+    .await
+    {
+        Ok(Ok(connection)) => Ok(connection),
+        Ok(Err(_)) | Err(_) => connect_iroh_connection(endpoint, node_addr, alpn).await,
+    }
 }
 
 fn iroh_connect_error(remote_node_id: NodeId) -> ProviderError {
@@ -561,8 +599,13 @@ impl TransportProvider for IrohProvider {
         let remote_node_id = route.node_id();
         let node_addr = route.into_node_addr();
         let endpoint = self.endpoint().await?.clone();
-        let dial_addr = initial_iroh_dial_addr(self.config.path_mode, &node_addr);
-        let connection = connect_iroh_connection(&endpoint, &dial_addr, &self.config.alpn).await?;
+        let connection = connect_iroh_for_path_mode(
+            &endpoint,
+            &node_addr,
+            &self.config.alpn,
+            self.config.path_mode,
+        )
+        .await?;
         let description = format!("iroh://{remote_node_id}");
         let transport = iroh_transport_snapshot(&description, &connection);
 
@@ -572,6 +615,7 @@ impl TransportProvider for IrohProvider {
             endpoint,
             node_addr,
             alpn: self.config.alpn.clone(),
+            path_mode: self.config.path_mode,
             description,
             evidence: CarrierEvidence::Iroh { endpoint_id: remote_node_id.to_string() },
             maximum_frame_bytes: self.config.maximum_frame_bytes,
@@ -841,6 +885,7 @@ struct IrohLinkGroup {
     endpoint: Endpoint,
     node_addr: NodeAddr,
     alpn: Vec<u8>,
+    path_mode: IrohPathMode,
     description: String,
     evidence: CarrierEvidence,
     maximum_frame_bytes: usize,
@@ -934,10 +979,11 @@ impl LinkGroup for IrohLinkGroup {
                             "Iroh connection group is closed".into(),
                         ));
                     }
-                    let replacement = connect_iroh_connection(
+                    let replacement = connect_iroh_for_path_mode(
                         &self.endpoint,
                         &self.node_addr,
                         &self.alpn,
+                        self.path_mode,
                     )
                     .await
                     .map_err(|reconnect_error| {
@@ -1200,10 +1246,7 @@ mod tests {
         let route = IrohRoute::from_request(&request(
             node_id,
             BTreeMap::from([
-                (
-                    ROUTING_RELAY_URL.into(),
-                    "https://relay.example.test".into(),
-                ),
+                (ROUTING_RELAY_URL.into(), "https://relay.example.test".into()),
                 (ROUTING_DIRECT_ADDRS.into(), "203.0.113.7:4010".into()),
             ]),
         ))
@@ -1410,6 +1453,7 @@ mod tests {
             endpoint: endpoint.clone(),
             node_addr,
             alpn: CMUX_IROH_ALPN.to_vec(),
+            path_mode: IrohPathMode::Auto,
             description,
             evidence: CarrierEvidence::Iroh { endpoint_id: server_key.public().to_string() },
             maximum_frame_bytes: 32,
