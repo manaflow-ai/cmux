@@ -16,21 +16,24 @@ extension CMUXCLI {
         disableEnvironmentVariable: String
     ) -> String {
         let pidEnvironmentVariable = agentHookPIDEnvironmentVariable(agentName: agent)
-        let executableExpression: String
-        switch agent {
-        case "claude":
-            executableExpression = "${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
-        case "codex":
-            executableExpression = "${CMUX_CODEX_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
-        default:
-            executableExpression = "${CMUX_BUNDLED_CLI_PATH:-}"
-        }
+        let executableExpression = agentHookCLIExecutableExpression(agent: agent)
         return [
             "cmux_cli=\"\(executableExpression)\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${\(pidEnvironmentVariable):-${PPID:-}}\"",
             "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(disableEnvironmentVariable)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || echo '{}'; else \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || echo '{}'; fi; else echo '{}'; fi",
         ].joined(separator: "; ")
+    }
+
+    static func agentHookCLIExecutableExpression(agent: String) -> String {
+        switch agent {
+        case "claude":
+            return "${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
+        case "codex":
+            return "${CMUX_CODEX_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
+        default:
+            return "${CMUX_BUNDLED_CLI_PATH:-}"
+        }
     }
 
     /// Sends one immutable hook event to the app-owned queue, then returns the
