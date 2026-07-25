@@ -1260,11 +1260,15 @@ fn append_codex_apply_patch_section(
         repo_root,
         working_directory,
     };
-    let old_path = relative_patch_path(path_context, Path::new(&section.path))?;
-    let new_path = section.move_path.as_ref().map_or_else(
+    let Ok(old_path) = relative_patch_path(path_context, Path::new(&section.path)) else {
+        return Ok(());
+    };
+    let Ok(new_path) = section.move_path.as_ref().map_or_else(
         || Ok(old_path.clone()),
         |path| relative_patch_path(path_context, Path::new(path)),
-    )?;
+    ) else {
+        return Ok(());
+    };
     match section.operation {
         CodexApplyPatchOperation::Add => {
             let mut content = String::new();
