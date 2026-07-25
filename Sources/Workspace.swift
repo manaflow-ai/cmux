@@ -6894,13 +6894,48 @@ final class Workspace: Identifiable, ObservableObject {
     /// without inheriting a local terminal's command, environment, or other
     /// process configuration.
     private func inheritedTerminalFontSizeConfig() -> CmuxSurfaceConfigTemplate? {
-        guard let inheritedConfig = inheritedTerminalConfig(),
-              let fontSizeLineage = inheritedConfig.fontSizeLineage else {
+        let sourcePanel: TerminalPanel? = {
+            if let remembered =
+                    lastRememberedTerminalPanelForConfigInheritance() {
+                return remembered
+            }
+            if let focusedTerminalPanel {
+                rememberTerminalConfigInheritanceSource(
+                    focusedTerminalPanel
+                )
+                return focusedTerminalPanel
+            }
+            var deterministicFallback: TerminalPanel?
+            for terminalPanel in panels.values.compactMap({
+                $0 as? TerminalPanel
+            }) {
+                guard deterministicFallback.map({
+                    terminalPanel.id.uuidString < $0.id.uuidString
+                }) ?? true else {
+                    continue
+                }
+                deterministicFallback = terminalPanel
+            }
+            if let deterministicFallback {
+                rememberTerminalConfigInheritanceSource(
+                    deterministicFallback
+                )
+            }
+            return deterministicFallback
+        }()
+        let inheritanceContext =
+            activeTerminalFontSizeChangeInheritanceContext
+        let sourceLineage =
+            sourcePanel?.surface.fontSizeLineageSnapshot()
+        guard let fontSizeLineage =
+                inheritanceContext?.inheritedLineage(from: sourcePanel)
+                ?? sourceLineage
+                ?? lastTerminalConfigInheritanceFontSizeLineage else {
             return nil
         }
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = fontSizeLineage
-        config.fontSizeChangeToken = inheritedConfig.fontSizeChangeToken
+        config.fontSizeChangeToken = inheritanceContext?.token
         return config
     }
 

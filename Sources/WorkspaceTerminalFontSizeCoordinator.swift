@@ -181,6 +181,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private struct PendingRequest {
         let token: UUID
         let target: RequestTarget
+        let fallbackSourceIdentity: ObjectIdentifier?
+        let fallbackSourceLineage: TerminalFontSizeLineage?
+        var resultingFallbackLineage: TerminalFontSizeLineage?
         var change: WorkspaceTerminalFontSizeChange
     }
 
@@ -320,6 +323,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         let workspaceReference = WeakWorkspaceReference(workspace)
+        let fallbackSourceIdentity = windowDock.map(ObjectIdentifier.init)
+        let fallbackSourceLineage =
+            windowDock?.terminalFontSizeLineageForWorkspaceChange()
         let workspaceCoordinator = coordinatorOwningWork(
             for: workspace
         ) ?? self
@@ -327,7 +333,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
         workspaceCoordinator.appendWorkspaceRequest(
             change,
             workspaceId: workspaceId,
-            workspaceReference: workspaceReference
+            workspaceReference: workspaceReference,
+            fallbackSourceIdentity: fallbackSourceIdentity,
+            fallbackSourceLineage: fallbackSourceLineage
         )
         appendWindowDockRequest(
             change,
@@ -488,19 +496,62 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func appendWorkspaceRequest(
         _ change: WorkspaceTerminalFontSizeChange,
         workspaceId: UUID,
-        workspaceReference: WeakWorkspaceReference
+        workspaceReference: WeakWorkspaceReference,
+        fallbackSourceIdentity: ObjectIdentifier?,
+        fallbackSourceLineage: TerminalFontSizeLineage?
     ) {
         if var existing = pendingWorkspaceRequests[workspaceId] {
+            guard existing.fallbackSourceIdentity
+                    == fallbackSourceIdentity,
+                  existing.fallbackSourceLineage
+                    == fallbackSourceLineage else {
+                sealWorkspaceRequest(workspaceId: workspaceId)
+                appendWorkspaceRequest(
+                    change,
+                    workspaceId: workspaceId,
+                    workspaceReference: workspaceReference,
+                    fallbackSourceIdentity: fallbackSourceIdentity,
+                    fallbackSourceLineage: fallbackSourceLineage
+                )
+                return
+            }
             append(change, to: &existing)
+            if let resultingFallbackLineage =
+                    existing.resultingFallbackLineage {
+                existing.resultingFallbackLineage =
+                    change.resultingInheritanceLineage(
+                        from: resultingFallbackLineage,
+                        configuredRuntimePoints:
+                            workspaceReference.value?
+                                .configuredTerminalRuntimeFontSize()
+                            ?? currentConfiguredTerminalRuntimeFontSize(),
+                        magnificationPercent:
+                            GlobalFontMagnification.storedPercent
+                    )
+            }
             pendingWorkspaceRequests[workspaceId] = existing
             return
         }
+        let configuredRuntimePoints =
+            workspaceReference.value?
+                .configuredTerminalRuntimeFontSize()
+            ?? currentConfiguredTerminalRuntimeFontSize()
         pendingWorkspaceRequests[workspaceId] = PendingRequest(
             token: UUID(),
             target: .workspace(
                 id: workspaceId,
                 reference: workspaceReference
             ),
+            fallbackSourceIdentity: fallbackSourceIdentity,
+            fallbackSourceLineage: fallbackSourceLineage,
+            resultingFallbackLineage: fallbackSourceLineage.map {
+                change.resultingInheritanceLineage(
+                    from: $0,
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent:
+                        GlobalFontMagnification.storedPercent
+                )
+            },
             change: change
         )
     }
@@ -519,6 +570,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             target: .windowDock(
                 seedWorkspace: seedWorkspaceReference
             ),
+            fallbackSourceIdentity: nil,
+            fallbackSourceLineage: nil,
+            resultingFallbackLineage: nil,
             change: change
         )
     }
@@ -591,7 +645,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 workspace.beginTerminalFontSizeChangeInheritance(
                     token: token,
                     change: request.change,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    fallbackLineage:
+                        request.resultingFallbackLineage,
+                    fallbackLineageAlreadyIncludesChange:
+                        request.resultingFallbackLineage != nil
                 )
             activeRequest = ActiveRequest(
                 request: request,

@@ -414,7 +414,12 @@ struct TerminalFontZoomSessionPersistenceTests {
         coordinator.enqueue(
             .relative([-1]),
             workspaceId: workspace.id,
-            deferFlush: false
+            deferFlush: true
+        )
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
         )
 #if DEBUG
         coordinator.debugDrainAll()
@@ -423,7 +428,7 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(
             dockPanel.surface.fontSizeLineageSnapshot()
                 == TerminalFontSizeLineage(
-                    basePoints: 4,
+                    basePoints: 3,
                     isExplicitOverride: true
                 )
         )
@@ -437,7 +442,7 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(
             inheritedPanel.surface.fontSizeLineageSnapshot()
                 == TerminalFontSizeLineage(
-                    basePoints: 4,
+                    basePoints: 3,
                     isExplicitOverride: true
                 )
         )

@@ -334,7 +334,9 @@ extension Workspace {
     func beginTerminalFontSizeChangeInheritance(
         token: UUID,
         change: WorkspaceTerminalFontSizeChange,
-        configuredRuntimePoints: Float32
+        configuredRuntimePoints: Float32,
+        fallbackLineage: TerminalFontSizeLineage? = nil,
+        fallbackLineageAlreadyIncludesChange: Bool = false
     ) -> TerminalFontSizeChangeInheritanceContext {
         let preferredSourcePanel =
             lastRememberedTerminalPanelForConfigInheritance()
@@ -344,7 +346,10 @@ extension Workspace {
             configuredRuntimePoints: configuredRuntimePoints,
             preferredSourcePanel: preferredSourcePanel,
             fallbackLineage:
-                lastRememberedTerminalFontSizeLineageForConfigInheritance()
+                fallbackLineage
+                ?? lastRememberedTerminalFontSizeLineageForConfigInheritance(),
+            fallbackLineageAlreadyIncludesChange:
+                fallbackLineageAlreadyIncludesChange
         )
         activeTerminalFontSizeChangeInheritanceContext = context
         rememberTerminalFontSizeLineageForConfigInheritance(
