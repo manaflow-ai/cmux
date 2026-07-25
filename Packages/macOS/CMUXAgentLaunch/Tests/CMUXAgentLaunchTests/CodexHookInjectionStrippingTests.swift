@@ -161,6 +161,29 @@ struct CodexHookInjectionStrippingTests {
                 fallbackKind: "codex"
             ) == absoluteCommandArguments
         )
+
+        for command in [
+            "/bin/true&&/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh",
+            "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh*",
+        ] {
+            let compoundCommandArguments = [
+                "codex",
+                "--enable",
+                "hooks",
+                "--dangerously-bypass-hook-trust",
+                "-c",
+                "hooks.Stop=[{hooks=[{type=\"command\",command='''\(command)''',timeout=10000}]}]",
+                "--model",
+                "gpt-5.5",
+            ]
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    compoundCommandArguments,
+                    launcher: "",
+                    fallbackKind: "codex"
+                ) == compoundCommandArguments
+            )
+        }
     }
 
     @Test("Keeps user hook enabling flags when cmux injection is stripped")
