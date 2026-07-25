@@ -17,6 +17,12 @@ struct TerminalArtifactChipCountState: Sendable {
         case none
         case report(Report)
         case request(Request)
+        /// A chip-only report while a session scan is already in flight.
+        ///
+        /// Provisional reports fire on every settled viewport change during
+        /// streaming, so they must not fan out to gallery refresh listeners;
+        /// only authoritative scan completions (and legacy `.report`) do.
+        case provisionalReport(Report)
         /// Report a provisional count now and refine it with a session scan.
         ///
         /// The provisional report is what keeps the chip honest on a busy
@@ -81,7 +87,7 @@ struct TerminalArtifactChipCountState: Sendable {
         let pending = Pending(surfaceGeneration: surfaceGeneration, localCount: localCount)
         guard inFlight == nil else {
             trailing = pending
-            return .report(provisional)
+            return .provisionalReport(provisional)
         }
         let request = makeRequest(pending)
         inFlight = request
@@ -109,12 +115,17 @@ struct TerminalArtifactChipCountState: Sendable {
             return .stale
         }
         inFlight = nil
-        if let sessionTotal {
-            lastSessionTotal = sessionTotal
-        }
 
         let outcome: CompletionOutcome
         if request.surfaceGeneration == currentSurfaceGeneration {
+            // Cache only accepted, current-generation responses: a dropped
+            // response may belong to a superseded surface state (a generation
+            // bump can coincide with a new agent session binding), and its
+            // total must not seed provisional reports for the new one. The
+            // re-armed request re-fetches under the current generation.
+            if let sessionTotal {
+                lastSessionTotal = sessionTotal
+            }
             outcome = .reported(Report(
                 count: displayCount(forLocalCount: request.localCount),
                 surfaceGeneration: request.surfaceGeneration

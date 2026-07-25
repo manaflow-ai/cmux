@@ -46,14 +46,18 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 break
             case .report(let report):
                 deliverArtifactCountReport(report, surfaceView: surfaceView)
+            case .provisionalReport(let report):
+                deliverProvisionalArtifactCountReport(report, surfaceView: surfaceView)
             case .request(let request):
                 startArtifactCountRequest(request, surfaceView: surfaceView)
             case .reportAndRequest(let report, let request):
-                deliverArtifactCountReport(report, surfaceView: surfaceView)
+                deliverProvisionalArtifactCountReport(report, surfaceView: surfaceView)
                 startArtifactCountRequest(request, surfaceView: surfaceView)
             }
         }
 
+        /// Authoritative delivery: updates the chip and notifies gallery
+        /// refresh listeners (an open Files sheet re-queries on this signal).
         private func deliverArtifactCountReport(
             _ report: TerminalArtifactChipCountState.Report,
             surfaceView: GhosttySurfaceView
@@ -66,6 +70,20 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 count: report.count,
                 surfaceGeneration: report.surfaceGeneration
             ))
+        }
+
+        /// Provisional delivery: chip-only. These fire on every settled
+        /// viewport change during streaming, and each gallery refresh signal
+        /// makes an open Files sheet run a session transcript query — so only
+        /// authoritative scan completions may fan out.
+        private func deliverProvisionalArtifactCountReport(
+            _ report: TerminalArtifactChipCountState.Report,
+            surfaceView: GhosttySurfaceView
+        ) {
+            _ = surfaceView.reportArtifactCount(
+                report.count,
+                generation: report.surfaceGeneration
+            )
         }
 
         private func startArtifactCountRequest(

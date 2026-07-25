@@ -190,6 +190,31 @@ struct TerminalArtifactChipCountStateTests {
         #expect(reported.nextRequest == nil)
     }
 
+    @Test("a dropped response's total does not seed provisional reports")
+    func droppedResponseDoesNotSeedProvisional() throws {
+        var state = TerminalArtifactChipCountState()
+        let request = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 11,
+            supportsSessionCount: true
+        ))
+        let dropped = state.complete(
+            request,
+            sessionTotal: 30,
+            currentSurfaceGeneration: 12,
+            freshestLocalCount: 8
+        )
+        #expect(dropped.outcome == .droppedForSurfaceGenerationMismatch)
+
+        // The re-armed request is in flight; a fresh viewport trigger must
+        // report the local count, not the dropped response's stale total.
+        #expect(state.trigger(
+            localCount: 8,
+            surfaceGeneration: 12,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 8, surfaceGeneration: 12)))
+    }
+
     @Test("surface-generation re-arms stop after the bounded retry count")
     func rearmBound() throws {
         var state = TerminalArtifactChipCountState()
@@ -260,12 +285,12 @@ struct TerminalArtifactChipCountStateTests {
             localCount: 2,
             surfaceGeneration: 21,
             supportsSessionCount: true
-        ) == .report(.init(count: 2, surfaceGeneration: 21)))
+        ) == .provisionalReport(.init(count: 2, surfaceGeneration: 21)))
         #expect(state.trigger(
             localCount: 3,
             surfaceGeneration: 22,
             supportsSessionCount: true
-        ) == .report(.init(count: 3, surfaceGeneration: 22)))
+        ) == .provisionalReport(.init(count: 3, surfaceGeneration: 22)))
 
         let completion = state.complete(
             first,
@@ -284,7 +309,7 @@ struct TerminalArtifactChipCountStateTests {
         switch action {
         case .request(let request), .reportAndRequest(_, let request):
             return request
-        case .none, .report:
+        case .none, .report, .provisionalReport:
             Issue.record("Expected a session-count request")
             throw UnexpectedAction()
         }
