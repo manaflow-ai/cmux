@@ -82,6 +82,10 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
         completion(nil)
         return true
     }
+    @discardableResult func sendNewPane(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
+        completion(nil)
+        return true
+    }
     @discardableResult func sendWindowReorder(_ commands: [String], verification: ((Bool) -> Void)?) -> Bool {
         verification?(true)
         return true

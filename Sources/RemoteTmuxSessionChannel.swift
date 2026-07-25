@@ -217,6 +217,9 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     @discardableResult func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
         underlying.sendNewWindow(command, completion: completion)
     }
+    @discardableResult func sendNewPane(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
+        underlying.sendNewPane(command, completion: completion)
+    }
     @discardableResult func sendWindowReorder(_ commands: [String], verification: ((Bool) -> Void)?) -> Bool {
         guard !commands.isEmpty else {
             verification?(true)
@@ -395,6 +398,14 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
                 if signature == self.lastTopologySignature { return }
                 self.lastTopologySignature = signature
                 for o in self.observers.values { o.onTopologyChanged?() }
+            },
+            // Host-global: fires once per shared stream after reconnect attach
+            // drainage, with no pane or window id to scope it. Every session's
+            // mirror schedules its post-reconnect force-resize from this, so it
+            // fans to all observers unfiltered.
+            onReconnectReady: { [weak self] in
+                guard let self else { return }
+                for o in self.observers.values { o.onReconnectReady?() }
             },
             onExit: {
                 // Deliberately NOT fanned. The shared stream's `%exit` is host-stream
