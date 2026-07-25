@@ -139,7 +139,13 @@ pub struct Callbacks {
 }
 
 #[derive(Default)]
-enum MouseModeScan {
+struct MouseModeScan {
+    state: MouseModeScanState,
+    utf8_remaining: u8,
+}
+
+#[derive(Default)]
+enum MouseModeScanState {
     #[default]
     Ground,
     Escape,
@@ -155,25 +161,31 @@ enum MouseModeScan {
 
 impl MouseModeScan {
     fn feed(&mut self, data: &[u8]) -> bool {
+        use MouseModeScanState as State;
+
         let mut changed = false;
         for &byte in data {
-            let state = std::mem::take(self);
-            *self = match state {
-                Self::Ground => match byte {
-                    0x1b => Self::Escape,
+            if self.consume_utf8_continuation(byte) {
+                continue;
+            }
+            self.note_utf8_lead(byte);
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                State::Ground => match byte {
+                    0x1b => State::Escape,
                     0x9b => Self::csi(),
-                    _ => Self::Ground,
+                    _ => State::Ground,
                 },
-                Self::Escape => match byte {
+                State::Escape => match byte {
                     b'[' => Self::csi(),
-                    0x1b => Self::Escape,
+                    0x1b => State::Escape,
                     b'c' => {
                         changed = true;
-                        Self::Ground
+                        State::Ground
                     }
-                    _ => Self::Ground,
+                    _ => State::Ground,
                 },
-                Self::Csi {
+                State::Csi {
                     mut private,
                     mut at_start,
                     mut parameter,
@@ -184,7 +196,7 @@ impl MouseModeScan {
                     b'?' if at_start => {
                         private = true;
                         at_start = false;
-                        Self::Csi {
+                        State::Csi {
                             private,
                             at_start,
                             parameter,
@@ -198,7 +210,7 @@ impl MouseModeScan {
                         has_parameter = true;
                         parameter =
                             parameter.saturating_mul(10).saturating_add(u16::from(byte - b'0'));
-                        Self::Csi {
+                        State::Csi {
                             private,
                             at_start,
                             parameter,
@@ -213,7 +225,7 @@ impl MouseModeScan {
                         at_start = false;
                         parameter = 0;
                         has_parameter = false;
-                        Self::Csi {
+                        State::Csi {
                             private,
                             at_start,
                             parameter,
@@ -224,7 +236,7 @@ impl MouseModeScan {
                     }
                     b'!' => {
                         soft_reset = true;
-                        Self::Csi {
+                        State::Csi {
                             private,
                             at_start,
                             parameter,
@@ -241,18 +253,18 @@ impl MouseModeScan {
                         {
                             changed = true;
                         }
-                        Self::Ground
+                        State::Ground
                     }
-                    0x1b => Self::Escape,
-                    _ => Self::Ground,
+                    0x1b => State::Escape,
+                    _ => State::Ground,
                 },
             };
         }
         changed
     }
 
-    fn csi() -> Self {
-        Self::Csi {
+    fn csi() -> MouseModeScanState {
+        MouseModeScanState::Csi {
             private: false,
             at_start: true,
             parameter: 0,
@@ -264,6 +276,28 @@ impl MouseModeScan {
 
     fn is_mouse_mode(mode: u16) -> bool {
         matches!(mode, 9 | 1000 | 1002 | 1003 | 1005 | 1006 | 1015 | 1016)
+    }
+
+    fn consume_utf8_continuation(&mut self, byte: u8) -> bool {
+        if self.utf8_remaining == 0 {
+            return false;
+        }
+        if matches!(byte, 0x80..=0xbf) {
+            self.utf8_remaining -= 1;
+            true
+        } else {
+            self.utf8_remaining = 0;
+            false
+        }
+    }
+
+    fn note_utf8_lead(&mut self, byte: u8) {
+        self.utf8_remaining = match byte {
+            0xc2..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
     }
 }
 
