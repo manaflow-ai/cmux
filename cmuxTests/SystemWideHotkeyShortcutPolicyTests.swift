@@ -65,20 +65,27 @@ final class SystemWideHotkeyShortcutPolicyTests {
     }
 
     @Test func controllerRegistersOnlyOptInShowHideShortcut() throws {
+        SystemWideHotkeyController.shared.start()
+        SystemWideHotkeySettings.setEnabled(false)
+        notifyHotkeyControllerOfDefaultsChange()
+
+        let syntheticShortcuts = availableSyntheticShortcuts()
+        let showHideShortcut = try #require(syntheticShortcuts.first)
+        let globalSearchShortcut = try #require(syntheticShortcuts.dropFirst().first)
+        SystemWideHotkeySettings.setShortcut(showHideShortcut)
+        KeyboardShortcutSettings.setShortcut(globalSearchShortcut, for: .globalSearch)
+
         let showHideRegistration = try #require(
-            SystemWideHotkeySettings.defaultShortcut.carbonHotKeyRegistration
+            showHideShortcut.carbonHotKeyRegistration
         )
         let globalSearchRegistration = try #require(
-            KeyboardShortcutSettings.Action.globalSearch.defaultShortcut.carbonHotKeyRegistration
+            globalSearchShortcut.carbonHotKeyRegistration
         )
-        SystemWideHotkeyController.shared.start()
         defer {
             SystemWideHotkeySettings.setEnabled(false)
             notifyHotkeyControllerOfDefaultsChange()
         }
 
-        SystemWideHotkeySettings.setEnabled(false)
-        notifyHotkeyControllerOfDefaultsChange()
         #expect(probeRegistrationStatus(showHideRegistration) == noErr)
         #expect(probeRegistrationStatus(globalSearchRegistration) == noErr)
 
@@ -90,6 +97,33 @@ final class SystemWideHotkeyShortcutPolicyTests {
         SystemWideHotkeySettings.setEnabled(false)
         notifyHotkeyControllerOfDefaultsChange()
         #expect(probeRegistrationStatus(showHideRegistration) == noErr)
+    }
+
+    private func availableSyntheticShortcuts() -> [StoredShortcut] {
+        [
+            ("f13", 105),
+            ("f14", 107),
+            ("f15", 113),
+            ("f16", 106),
+            ("f17", 64),
+            ("f18", 79),
+            ("f19", 80),
+            ("f20", 90),
+        ].compactMap { key, keyCode in
+            let shortcut = StoredShortcut(
+                key: key,
+                command: true,
+                shift: true,
+                option: true,
+                control: true,
+                keyCode: UInt16(keyCode)
+            )
+            guard let registration = shortcut.carbonHotKeyRegistration,
+                  probeRegistrationStatus(registration) == noErr else {
+                return nil
+            }
+            return shortcut
+        }
     }
 
     private func commandGraveShortcut(shift: Bool = false) -> StoredShortcut {
