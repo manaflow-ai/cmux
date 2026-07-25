@@ -78,8 +78,8 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedItems.first?.notificationID == "new-\(cap - 1)")
     }
 
-    @Test("Source cache enforces the same phone-wide retention cap")
-    func sourceCacheEnforcesPhoneWideRetentionCap() throws {
+    @Test("Source cache preserves per-Mac tails so aggregation refills after another source disappears")
+    func sourceCachePreservesPerMacTailsForAggregateRefill() throws {
         let store = MobileShellComposite()
         let cap = MobileNotificationFeedAggregation.maxItemCount
         let newerCount = 25
@@ -112,13 +112,19 @@ struct MobileShellNotificationFeedStateTests {
         let sourceItemCount = store.notificationFeedSnapshotsByMac.values.reduce(0) { count, snapshot in
             count + snapshot.items.count
         }
-        #expect(sourceItemCount == cap)
+        #expect(sourceItemCount == cap + newerCount)
         #expect(store.notificationFeedSnapshotsByMac["mac-b"]?.items.count == newerCount)
-        #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.items.count == cap - newerCount)
+        #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.items.count == cap)
         #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.items.contains {
             $0.notificationID == "old-0"
-        } == false)
+        } == true)
         #expect(store.notificationFeedItems.count == cap)
+
+        store.removeNotificationFeedSnapshot(macDeviceID: "mac-b")
+
+        #expect(store.notificationFeedItems.count == cap)
+        #expect(store.notificationFeedItems.allSatisfy { $0.macDeviceID == "mac-a" })
+        #expect(store.notificationFeedItems.contains { $0.notificationID == "old-0" })
     }
 
     @Test("Source cache deduplicates repeated wire notification identities")
