@@ -51,7 +51,7 @@ final class GlobalSearchVisiblePopoverShortcutTests {
             appDelegate.debugHandleCustomShortcut(event: event),
             "The visible Search popover must own its configured toggle shortcut"
         )
-        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(waitUntilGlobalSearchCloses())
 #else
         Issue.record("Global Search visible-popover routing requires a DEBUG build")
 #endif
@@ -96,7 +96,7 @@ final class GlobalSearchVisiblePopoverShortcutTests {
         )
         #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
         #expect(appDelegate.debugHandleCustomShortcut(event: suffixEvent))
-        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(waitUntilGlobalSearchCloses())
 #else
         Issue.record("Global Search visible-popover routing requires a DEBUG build")
 #endif
@@ -194,6 +194,20 @@ final class GlobalSearchVisiblePopoverShortcutTests {
     private func findWindow(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+    }
+
+    private func waitUntilGlobalSearchCloses(timeout: TimeInterval = 2) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if !GlobalSearchCoordinator.shared.isPaletteVisible() {
+                return true
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return !GlobalSearchCoordinator.shared.isPaletteVisible()
     }
 
     private func closeHarness(
