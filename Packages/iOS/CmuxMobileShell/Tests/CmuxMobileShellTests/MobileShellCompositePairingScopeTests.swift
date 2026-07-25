@@ -84,6 +84,52 @@ import Testing
         ) == .connected)
     }
 
+    @Test func siblingBuildsAreSeparateAggregationCandidates() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50922,
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "nightly"
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50923,
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "default"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        let candidates = store.secondaryAggregationCandidateMacs(
+            from: store.displayPairedMacs
+        )
+
+        // Previously coalescePairedMacsByCanonicalDeviceID collapsed sibling
+        // builds to one candidate per physical Mac.
+        #expect(candidates.count == 2)
+        #expect(Set(candidates.map(\.id)).count == 2)
+        #expect(Set(candidates.map(\.macDeviceID)) == ["mac-a"])
+    }
+
     private static func pairedMac(
         id: String,
         displayName: String,
