@@ -494,13 +494,18 @@ extension MobileShellComposite {
             let data = try await client.sendRequest(request)
             let stringLimits = Self.notificationFeedListStringLimits()
             let maxNotifications = MobileNotificationFeedAggregation.maxItemCount
-            let response = try await Task.detached(priority: .userInitiated) {
+            let decoderTask = Task.detached(priority: .userInitiated) {
                 try MobileNotificationFeedListResponse.decodeBounded(
                     data,
                     maxNotifications: maxNotifications,
                     stringLimits: stringLimits
                 )
-            }.value
+            }
+            let response = try await withTaskCancellationHandler(
+                operation: { try await decoderTask.value },
+                onCancel: { decoderTask.cancel() }
+            )
+            guard !Task.isCancelled else { return }
             guard notificationFeedClient(for: macDeviceID) === client else { return }
             _ = applyNotificationFeedSnapshot(
                 response,

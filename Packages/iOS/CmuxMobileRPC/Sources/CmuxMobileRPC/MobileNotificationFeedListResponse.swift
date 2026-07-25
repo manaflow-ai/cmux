@@ -32,6 +32,7 @@ public struct MobileNotificationFeedListResponse: Decodable, Equatable, Sendable
         maxNotifications: Int,
         stringLimits: MobileNotificationFeedListStringLimits
     ) throws -> MobileNotificationFeedListResponse {
+        try Task.checkCancellation()
         let decoder = JSONDecoder()
         decoder.userInfo[.mobileNotificationFeedListBoundedDecodeOptions] = BoundedDecodeOptions(
             maxNotifications: max(0, maxNotifications),
@@ -90,6 +91,7 @@ private struct BoundedResponse: Decodable {
         var notifications: [MobileNotificationFeedListItem] = []
         notifications.reserveCapacity(min(options.maxNotifications, notificationsContainer.count ?? options.maxNotifications))
         while !notificationsContainer.isAtEnd, notifications.count < options.maxNotifications {
+            try Task.checkCancellation()
             if let item = try notificationsContainer.decode(BoundedListItem.self).item {
                 notifications.append(item)
             }
