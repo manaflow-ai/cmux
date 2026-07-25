@@ -3649,6 +3649,60 @@ def test_pi_feed_treats_blank_ambient_workspace_as_absent(cli_path: str, root: P
         raise AssertionError(f"Pi feed did not preserve surface-only routing: {event!r}")
 
 
+def test_pi_compacted_feed_rejects_blank_explicit_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-blank-explicit-surface.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-blank-explicit-surface-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-blank-explicit-surface-session",
+                "tool_call_id": "pi-blank-explicit-surface-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--surface= \t ",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Pi compacted feed did not reject its blank explicit surface as unavailable: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    leaked_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if leaked_frames:
+        raise AssertionError(
+            "Pi compacted feed widened its blank explicit surface to workspace scope: "
+            f"{leaked_frames!r}"
+        )
+
+
 def test_pi_hook_rejects_malformed_explicit_surface(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-pi-malformed-explicit-surface.sock"
     env = os.environ.copy()
@@ -3883,6 +3937,7 @@ def main() -> int:
             test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
             test_pi_feed_rejects_missing_explicit_workspace(cli_path, root)
             test_pi_feed_treats_blank_ambient_workspace_as_absent(cli_path, root)
+            test_pi_compacted_feed_rejects_blank_explicit_surface(cli_path, root)
             test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
             test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
             test_pi_feed_rejects_oversized_input(cli_path, root)

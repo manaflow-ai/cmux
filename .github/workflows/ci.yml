@@ -646,12 +646,12 @@ jobs:
             -only-testing:cmuxTests/PhonePushPresenceGateTests \
             test
 
-      - name: Run Pi Feed Dock ownership regression
+      - name: Run Pi Feed ownership regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep Dock re-homing on a non-tolerant focused
-          # invocation so a valid Pi Feed target cannot regress to not_found.
+          # app-host suite. Keep Feed ingestion and ownership on a non-tolerant
+          # focused invocation so valid Pi Feed targets cannot silently regress.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -662,6 +662,8 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/FeedCoordinatorTests \
+            -only-testing:cmuxTests/PiFeedOwnershipTests \
             -only-testing:cmuxTests/PiFeedDockOwnershipTests \
             test
 

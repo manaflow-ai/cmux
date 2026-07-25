@@ -158,6 +158,17 @@ def no_reply_handler(conn: socket.socket, stop_event: threading.Event) -> None:
     stop_event.wait(timeout=1.0)
 
 
+def slowly_drain_request_handler(conn: socket.socket, stop_event: threading.Event) -> None:
+    conn.settimeout(0.1)
+    while not stop_event.wait(timeout=0.05):
+        try:
+            chunk = conn.recv(8192)
+        except socket.timeout:
+            continue
+        if not chunk or b"\n" in chunk:
+            return
+
+
 def pong_handler(conn: socket.socket, stop_event: threading.Event) -> None:
     command = read_one_command(conn, stop_event)
     if command.startswith(b"ping\n"):
@@ -272,6 +283,32 @@ def main() -> int:
                 failures.append(f"no-reply socket did not surface timeout: {merged!r}")
             if result.elapsed > 1.5:
                 failures.append(f"no-reply socket took too long: {result.elapsed:.3f}s")
+
+        large_text = "x" * (256 * 1024)
+        with FakeUnixServer(slowly_drain_request_handler) as server:
+            result = run_cli(
+                cli_path,
+                server.path,
+                timeout=1.5,
+                args=(
+                    "send",
+                    "--workspace",
+                    "11111111-1111-1111-1111-111111111111",
+                    "--surface",
+                    "22222222-2222-2222-2222-222222222222",
+                    large_text,
+                ),
+            )
+            merged = f"{result.stdout}\n{result.stderr}"
+            if result.returncode == 0:
+                failures.append("slowly drained large request unexpectedly succeeded")
+            if "Command timed out" not in merged:
+                failures.append(f"slowly drained large request did not surface timeout: {merged!r}")
+            if result.elapsed > 0.8:
+                failures.append(
+                    "slowly drained large request exceeded one total operation deadline: "
+                    f"{result.elapsed:.3f}s"
+                )
 
         with FakeTCPRelay(trickle_relay_challenge_handler) as relay:
             result = run_cli(cli_path, relay.endpoint)
