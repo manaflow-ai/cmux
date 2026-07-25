@@ -273,6 +273,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     ) {
         let intoTarget = dropIntoTarget
         dropIntoTarget = nil
+        // UIKit nils UITableViewDropItem.sourceIndexPath as soon as the data
+        // source applies ANY snapshot during the drag session (the footer
+        // boundary reconfigure does on every drag; live list updates do too).
+        // The dragged item's identity is the durable handle: resolve the
+        // source row from the current items instead of trusting UIKit's
+        // snapshot-bound index path.
         if let intoTarget,
            intoTarget.sessionIdentifier == ObjectIdentifier(coordinator.session),
            coordinator.proposal.intent == .insertIntoDestinationIndexPath,
@@ -281,14 +287,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
            let dropIntoGroup = configuration.dropIntoGroup,
            coordinator.items.count == 1,
            let dropItem = coordinator.items.first,
-           let sourceIndexPath = dropItem.sourceIndexPath,
            let destinationIndexPath = coordinator.destinationIndexPath,
            destinationIndexPath == intoTarget.headerIndexPath,
            let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
            case .workspace(let workspaceID, _) = draggedItem,
            workspaceID == intoTarget.workspaceID,
-           configuration.items.indices.contains(sourceIndexPath.row),
-           configuration.items[sourceIndexPath.row] == draggedItem,
+           configuration.items.contains(draggedItem),
            dataSource?.itemIdentifier(for: destinationIndexPath)
                == .groupHeader(intoTarget.groupID),
            isMovable(draggedItem) {
@@ -314,21 +318,20 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let moveRows = configuration.moveRows,
             coordinator.items.count == 1,
             let dropItem = coordinator.items.first,
-            let sourceIndexPath = dropItem.sourceIndexPath,
             let destinationIndexPath = coordinator.destinationIndexPath,
             let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
-            configuration.items.indices.contains(sourceIndexPath.row),
-            configuration.items[sourceIndexPath.row] == draggedItem,
+            let sourceRow = configuration.items.firstIndex(of: draggedItem),
             isMovable(draggedItem)
         else {
             MobileDebugLog.anchormux(
-                "move.performDrop REJECTED reorder=\(configuration.enablesReorder) items=\(coordinator.items.count) source=\(String(describing: coordinator.items.first?.sourceIndexPath?.row)) dest=\(String(describing: coordinator.destinationIndexPath?.row)) dragged=\((coordinator.items.first?.dragItem.localObject as? WorkspaceListTableItem)?.id ?? "nil")"
+                "move.performDrop REJECTED reorder=\(configuration.enablesReorder) items=\(coordinator.items.count) dest=\(String(describing: coordinator.destinationIndexPath?.row)) dragged=\((coordinator.items.first?.dragItem.localObject as? WorkspaceListTableItem)?.id ?? "nil")"
             )
             return
         }
+        let sourceIndexPath = IndexPath(row: sourceRow, section: destinationIndexPath.section)
 
         let chromePrefixCount = chromePrefixCount
-        let source = sourceIndexPath.row - chromePrefixCount
+        let source = sourceRow - chromePrefixCount
         let destination = destinationIndexPath.row - chromePrefixCount
         let movableItemCount = configuration.items.count - chromePrefixCount
         // destination == movableItemCount is UIKit's past-the-end insertion
