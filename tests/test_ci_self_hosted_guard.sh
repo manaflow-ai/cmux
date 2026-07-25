@@ -856,7 +856,7 @@ check_web_test_runner_wiring() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /- name: Web tests/ { in_step=1; next }
     in_step && /^[[:space:]]*- name:/ { in_step=0 }
-    in_step && /run: bun run test/ { saw_shared_runner=1 }
+    in_step && /^[[:space:]]*run:[[:space:]]*bun run test([[:space:]]|$)/ { saw_shared_runner=1 }
     END { exit !saw_shared_runner }
   ' "$CI_FILE"; then
     echo "FAIL: web-typecheck must use the shared local web test runner"
@@ -864,6 +864,63 @@ check_web_test_runner_wiring() {
   fi
 
   echo "PASS: CI and local web tests use the shared runner"
+}
+
+check_web_test_runner_behavior() {
+  local fixture_dir fixture_runner args_log expected_args
+  fixture_dir="$(mktemp -d)"
+  fixture_runner="$fixture_dir/web/scripts/run-tests.sh"
+  args_log="$fixture_dir/bun-args.log"
+  mkdir -p "$fixture_dir/web/scripts" "$fixture_dir/web/tests/nested" "$fixture_dir/bin"
+  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_runner"
+  touch \
+    "$fixture_dir/web/tests/z-last.test.ts" \
+    "$fixture_dir/web/tests/a-first.test.tsx" \
+    "$fixture_dir/web/tests/ignored.ts" \
+    "$fixture_dir/web/tests/nested/ignored.test.ts"
+
+  cat > "$fixture_dir/bin/bun" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$CMUX_WEB_TEST_RUNNER_ARGS_LOG"
+EOF
+  chmod +x "$fixture_dir/bin/bun"
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner default discovery should execute"
+    exit 1
+  fi
+
+  expected_args=$'test\n--isolate\ntests/a-first.test.tsx\ntests/z-last.test.ts'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: shared web test runner must sort top-level test files and ignore other paths"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  mkdir -p "$fixture_dir/empty/scripts" "$fixture_dir/empty/tests"
+  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \
+    >"$fixture_dir/empty.stdout" 2>"$fixture_dir/empty.stderr"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner must fail when no top-level tests exist"
+    exit 1
+  fi
+  if ! grep -Fq "No top-level web test files found" "$fixture_dir/empty.stderr"; then
+    echo "FAIL: shared web test runner must explain an empty top-level test suite"
+    cat "$fixture_dir/empty.stderr"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  rm -rf "$fixture_dir"
+  echo "PASS: shared web test runner sorts default discovery and fails closed when empty"
 }
 
 check_tmux_terminal_nightly_isolation() {
@@ -1055,4 +1112,5 @@ check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_web_test_runner_wiring
+check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
