@@ -4,6 +4,7 @@ import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 /// Comprehensive per-computer detail + debug sheet, pushed from the Computers
@@ -20,6 +21,7 @@ struct MacComputerDetailView: View {
     let macDeviceID: String
     let instanceTag: String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.irohSettingsController) private var irohSettingsController
 
     /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
     /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
@@ -28,6 +30,7 @@ struct MacComputerDetailView: View {
     @State private var pingResults: [String: CmxRoutePingResult] = [:]
     /// True while a ping pass is in flight (drives the spinner + disables Ping).
     @State private var isPinging = false
+    @State private var selectedIrohTransportPath = CmxIrohSelectedTransportPath.unavailable
     @State private var editName = ""
     @State private var customColorPick = Color.blue
     @State private var customEmoji = ""
@@ -91,6 +94,7 @@ struct MacComputerDetailView: View {
                 customColorPick = color
             }
         }
+        .task { await observeConnectionPath() }
     }
 
     // MARK: - Appearance editing
@@ -236,8 +240,85 @@ struct MacComputerDetailView: View {
                 LabeledContent(L10n.string("mobile.computers.field.role", defaultValue: "Role"),
                                value: L10n.string("mobile.computers.role.foreground", defaultValue: "Active (foreground)"))
             }
+            LabeledContent(
+                L10n.string(
+                    "mobile.computers.field.connectionPath",
+                    defaultValue: "Connection Path"
+                ),
+                value: connectionPathText
+            )
             LabeledContent(L10n.string("mobile.computers.field.workspaces", defaultValue: "Workspaces"),
                            value: "\(workspaceCount)")
+        }
+    }
+
+    private var connectionPathText: String {
+        guard isForeground, connectionStatus == .connected,
+              let activeRoute = store.activeRoute else {
+            return unavailableConnectionPathText
+        }
+        switch activeRoute.kind {
+        case .tailscale:
+            return L10n.string(
+                "mobile.computers.connectionPath.tailscaleCompatibility",
+                defaultValue: "Tailscale (compatibility)"
+            )
+        case .iroh:
+            switch selectedIrohTransportPath {
+            case .unavailable:
+                return unavailableConnectionPathText
+            case .direct:
+                return L10n.string(
+                    "mobile.computers.connectionPath.direct",
+                    defaultValue: "Direct"
+                )
+            case .privateNetwork:
+                return L10n.string(
+                    "mobile.computers.connectionPath.privateNetwork",
+                    defaultValue: "Private network"
+                )
+            case let .managedRelay(provider, region):
+                return String(
+                    format: L10n.string(
+                        "mobile.computers.connectionPath.managedRelay",
+                        defaultValue: "Managed relay · %1$@/%2$@"
+                    ),
+                    provider,
+                    region
+                )
+            case let .customRelay(displayName, provider, region):
+                return String(
+                    format: L10n.string(
+                        "mobile.computers.connectionPath.customRelay",
+                        defaultValue: "Custom relay · %1$@ (%2$@/%3$@)"
+                    ),
+                    displayName,
+                    provider,
+                    region
+                )
+            }
+        case .websocket, .debugLoopback:
+            return unavailableConnectionPathText
+        }
+    }
+
+    private var unavailableConnectionPathText: String {
+        L10n.string(
+            "mobile.computers.connectionPath.unavailable",
+            defaultValue: "Unavailable"
+        )
+    }
+
+    private func observeConnectionPath() async {
+        guard let irohSettingsController else {
+            selectedIrohTransportPath = .unavailable
+            return
+        }
+        let snapshot = await irohSettingsController.irohSettingsSnapshot()
+        selectedIrohTransportPath = snapshot.selectedTransportPath
+        for await snapshot in irohSettingsController.irohSettingsUpdates() {
+            guard !Task.isCancelled else { return }
+            selectedIrohTransportPath = snapshot.selectedTransportPath
         }
     }
 

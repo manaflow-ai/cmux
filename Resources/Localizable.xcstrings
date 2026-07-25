@@ -241440,13 +241440,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On iPhone, go to Settings → Networking → Private Networks → Add Private Addresses. WireGuard, ZeroTier, and any VPN or LAN that routes to this Mac work; connections stay end-to-end encrypted and verified against this Mac's Iroh identity."
+            "value": "Use your own VPN when relays are blocked, on restricted corporate networks, or when you prefer a private route. Keep the VPN active on both devices, then add one of this Mac's suggested addresses on iPhone. Connections remain end-to-end encrypted and verify this Mac's Iroh identity."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone で「設定」→「ネットワーク」→「プライベートネットワーク」→「プライベートアドレスを追加」の順に進みます。WireGuard、ZeroTier、およびこの Mac にルーティングできるすべての VPN または LAN で利用でき、接続はエンドツーエンドで暗号化され、この Mac の Iroh ID に対して検証されます。"
+            "value": "リレーがブロックされている場合、制限のある社内ネットワークを使う場合、またはプライベート経路を優先する場合は、ご自身のVPNを使用してください。両方のデバイスでVPNを有効にしてから、iPhoneでこのMacが提案するアドレスのいずれかを追加します。接続は引き続きエンドツーエンドで暗号化され、このMacのIroh IDが検証されます。"
           }
         }
       }

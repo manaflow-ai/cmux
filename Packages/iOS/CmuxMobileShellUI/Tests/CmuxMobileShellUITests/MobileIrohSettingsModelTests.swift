@@ -108,6 +108,37 @@ struct MobileIrohSettingsModelTests {
         }
     }
 
+    @Test func privatePathTestsAreExactAddressScopedAndSerialized() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.holdsPrivatePathProbe = true
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.testPrivatePath(macDeviceID: "mac-1", address: "10.0.0.8")
+        await waitUntil { controller.privatePathProbeRequests.count == 1 }
+        model.testPrivatePath(macDeviceID: "mac-2", address: "fd00::8")
+
+        #expect(controller.privatePathProbeRequests.count == 1)
+        #expect(model.privatePathProbePresentation(
+            macDeviceID: "mac-1",
+            address: "10.0.0.8"
+        ) == .testing)
+        #expect(model.privatePathProbePresentation(
+            macDeviceID: "mac-2",
+            address: "fd00::8"
+        ) == .idle)
+
+        controller.resumePrivatePathProbe(returning: .reachable(latencyMilliseconds: 14))
+        await waitUntil { !model.isPrivatePathProbeInFlight }
+
+        #expect(model.privatePathProbePresentation(
+            macDeviceID: "mac-1",
+            address: "10.0.0.8"
+        ) == .finished(.reachable(latencyMilliseconds: 14)))
+        #expect(controller.privatePathProbeRequests.count == 1)
+        #expect(controller.privatePathProbeRequests[0].macDeviceID == "mac-1")
+        #expect(controller.privatePathProbeRequests[0].address == "10.0.0.8")
+    }
+
     @Test func observationLoadsSafeDiagnosticReportAndExportText() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let report = diagnosticReport()
@@ -253,6 +284,14 @@ private final class MobileIrohSettingsControllerDouble:
     var debugTransportModeMutations: [CmxIrohTransportVerificationMode] = []
     var customPrivatePathUpserts: [CmxIrohCustomPrivatePathDraft] = []
     var customPrivatePathRemovals: [String] = []
+    var privatePathProbeRequests: [
+        (macDeviceID: String, address: String)
+    ] = []
+    var holdsPrivatePathProbe = false
+    private var pendingPrivatePathProbe: CheckedContinuation<
+        CmxIrohPrivatePathProbeResult,
+        Never
+    >?
     var holdsDiagnosticReportReads = false
     private(set) var nextDiagnosticReportRequestID = 0
     private var pendingDiagnosticReportReads: [
@@ -298,6 +337,26 @@ private final class MobileIrohSettingsControllerDouble:
 
     func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
         customPrivatePathRemovals.append(macDeviceID)
+    }
+
+    func testIrohCustomPrivatePath(
+        macDeviceID: String,
+        address: String
+    ) async -> CmxIrohPrivatePathProbeResult {
+        privatePathProbeRequests.append((macDeviceID, address))
+        guard holdsPrivatePathProbe else {
+            return .reachable(latencyMilliseconds: 1)
+        }
+        return await withCheckedContinuation { continuation in
+            pendingPrivatePathProbe = continuation
+        }
+    }
+
+    func resumePrivatePathProbe(
+        returning result: CmxIrohPrivatePathProbeResult
+    ) {
+        pendingPrivatePathProbe?.resume(returning: result)
+        pendingPrivatePathProbe = nil
     }
 
     func refreshIrohSettings() async {}

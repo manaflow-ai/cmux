@@ -97,6 +97,9 @@ struct MobileIrohSettingsView: View {
             MobileIrohPrivateNetworksSection(
                 configurations: model.snapshot.customPrivateNetworks,
                 availableMacs: model.snapshot.privateNetworkMacs,
+                probePresentation: model.privatePathProbePresentation,
+                isProbeInFlight: model.isPrivatePathProbeInFlight,
+                testAddress: model.testPrivatePath,
                 edit: { macDeviceID in
                     editedPrivatePathMacDeviceID = macDeviceID
                     showsPrivatePathEditor = true
@@ -160,7 +163,10 @@ struct MobileIrohSettingsView: View {
         .sheet(isPresented: $showsPrivatePathEditor) {
             MobileIrohCustomPrivatePathEditor(
                 path: editedPrivatePath,
-                availableMacs: privatePathEditorMacs
+                availableMacs: privatePathEditorMacs,
+                probePresentation: model.privatePathProbePresentation,
+                isProbeInFlight: model.isPrivatePathProbeInFlight,
+                testAddress: model.testPrivatePath
             ) { path in
                 await model.upsertCustomPrivatePath(path)
             }

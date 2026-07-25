@@ -1,6 +1,125 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.computers.connectionPath.customRelay" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Custom relay · %1$@ (%2$@/%3$@)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "カスタムリレー · %1$@（%2$@/%3$@）" } }
+      }
+    },
+    "mobile.computers.connectionPath.direct" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Direct" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ダイレクト" } }
+      }
+    },
+    "mobile.computers.connectionPath.managedRelay" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Managed relay · %1$@/%2$@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "マネージドリレー · %1$@/%2$@" } }
+      }
+    },
+    "mobile.computers.connectionPath.privateNetwork" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private network" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートネットワーク" } }
+      }
+    },
+    "mobile.computers.connectionPath.tailscaleCompatibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale (compatibility)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale（互換）" } }
+      }
+    },
+    "mobile.computers.connectionPath.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用不可" } }
+      }
+    },
+    "mobile.computers.field.connectionPath" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection Path" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続経路" } }
+      }
+    },
+    "mobile.iroh.private.test.action" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Test" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "テスト" } }
+      }
+    },
+    "mobile.iroh.private.test.failure.busy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Another test is running" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "別のテストを実行中です" } }
+      }
+    },
+    "mobile.iroh.private.test.failure.macNotListening" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mac not listening" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macが待ち受けていません" } }
+      }
+    },
+    "mobile.iroh.private.test.failure.noRoute" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No route" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路なし" } }
+      }
+    },
+    "mobile.iroh.private.test.failure.stalePort" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Stale port" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ポート情報が古くなっています" } }
+      }
+    },
+    "mobile.iroh.private.test.failure.timedOut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Timed out" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タイムアウト" } }
+      }
+    },
+    "mobile.iroh.private.test.failure.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用不可" } }
+      }
+    },
+    "mobile.iroh.private.test.failure.wrongPeer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Wrong Mac answered" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "別のMacが応答しました" } }
+      }
+    },
+    "mobile.iroh.private.test.reachable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld ms" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%lldミリ秒" } }
+      }
+    },
+    "mobile.iroh.private.test.testing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Testing" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "テスト中" } }
+      }
+    },
     "mobile.iroh.private.custom.suggestion.add" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -835,8 +954,8 @@
     "mobile.iroh.private.footer" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private addresses stay on this device and are fallback paths only. cmux pins the Mac's broker-authenticated Iroh EndpointID and current UDP port; an address never proves identity." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスはこのデバイス内にのみ保存され、フォールバック経路としてのみ使用されます。cmuxはブローカーが認証したMacのIroh EndpointIDと現在のUDPポートを固定します。アドレス自体を本人確認には使用しません。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use your own VPN when relays are blocked, on restricted corporate networks, or when you prefer a private route. Keep the VPN active on both devices, then add one of the Mac's suggested addresses. Connections remain end-to-end encrypted and verify the Mac's Iroh identity." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレーがブロックされている場合、制限のある社内ネットワークを使う場合、またはプライベート経路を優先する場合は、ご自身のVPNを使用してください。両方のデバイスでVPNを有効にしてから、Macが提案するアドレスのいずれかを追加します。接続は引き続きエンドツーエンドで暗号化され、MacのIroh IDが検証されます。" } }
       }
     },
     "mobile.iroh.private.lan" : {

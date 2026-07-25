@@ -9,6 +9,9 @@ struct MobileIrohCustomPrivatePathEditor: View {
     private let suggestionText = MobilePrivateNetworkSuggestionText()
     private let existing: CmxIrohSettingsSnapshot.CustomPrivateNetwork?
     private let availableMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac]
+    private let probePresentation: (String, String) -> MobileIrohPrivatePathProbePresentation
+    private let isProbeInFlight: Bool
+    private let testAddress: (String, String) -> Void
     private let onSave: (CmxIrohCustomPrivatePathDraft) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -26,10 +29,19 @@ struct MobileIrohCustomPrivatePathEditor: View {
     init(
         path: CmxIrohSettingsSnapshot.CustomPrivateNetwork?,
         availableMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac],
+        probePresentation: @escaping (
+            String,
+            String
+        ) -> MobileIrohPrivatePathProbePresentation,
+        isProbeInFlight: Bool,
+        testAddress: @escaping (String, String) -> Void,
         onSave: @escaping (CmxIrohCustomPrivatePathDraft) async -> Bool
     ) {
         existing = path
         self.availableMacs = availableMacs
+        self.probePresentation = probePresentation
+        self.isProbeInFlight = isProbeInFlight
+        self.testAddress = testAddress
         self.onSave = onSave
         let selectedMacDeviceID = path?.macDeviceID ?? availableMacs.first?.id ?? ""
         let addressesText = path?.addresses.joined(separator: "\n") ?? ""
@@ -77,37 +89,57 @@ struct MobileIrohCustomPrivatePathEditor: View {
                                 suggestion,
                                 in: addressesText
                             )
-                            Button {
-                                addressesText = suggestionText.appending(
-                                    suggestion,
-                                    to: addressesText
-                                )
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(suggestion.address)
-                                            .font(.body.monospaced())
-                                            .foregroundStyle(.primary)
-                                        Text(suggestionSubtitle(suggestion))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                            HStack {
+                                Button {
+                                    addressesText = suggestionText.appending(
+                                        suggestion,
+                                        to: addressesText
+                                    )
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(suggestion.address)
+                                                .font(.body.monospaced())
+                                                .foregroundStyle(.primary)
+                                            Text(suggestionSubtitle(suggestion))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Image(
+                                            systemName: isAdded
+                                                ? "checkmark.circle.fill"
+                                                : "plus.circle"
+                                        )
+                                        .foregroundStyle(
+                                            isAdded ? Color.green : Color.accentColor
+                                        )
                                     }
-                                    Spacer()
-                                    Image(systemName: isAdded ? "checkmark.circle.fill" : "plus.circle")
-                                        .foregroundStyle(isAdded ? Color.green : Color.accentColor)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isAdded)
+                                .accessibilityLabel(isAdded
+                                    ? L10n.string(
+                                        "mobile.iroh.private.custom.suggestion.added",
+                                        defaultValue: "Address Added"
+                                    )
+                                    : L10n.string(
+                                        "mobile.iroh.private.custom.suggestion.add",
+                                        defaultValue: "Add Address"
+                                    ))
+                                MobileIrohPrivatePathTestButton(
+                                    presentation: probePresentation(
+                                        selectedMacDeviceID,
+                                        suggestion.address
+                                    ),
+                                    isAnotherProbeInFlight: isProbeInFlight
+                                ) {
+                                    testAddress(
+                                        selectedMacDeviceID,
+                                        suggestion.address
+                                    )
                                 }
                             }
-                            .buttonStyle(.plain)
-                            .disabled(isAdded)
-                            .accessibilityLabel(isAdded
-                                ? L10n.string(
-                                    "mobile.iroh.private.custom.suggestion.added",
-                                    defaultValue: "Address Added"
-                                )
-                                : L10n.string(
-                                    "mobile.iroh.private.custom.suggestion.add",
-                                    defaultValue: "Add Address"
-                                ))
                         }
                     } header: {
                         Text(String(

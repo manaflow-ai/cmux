@@ -269,7 +269,7 @@ public struct IrohNetworkingSection: View {
 
             SettingsCardNote(String(
                 localized: "settings.networking.private.note.short",
-                defaultValue: "On iPhone, go to Settings → Networking → Private Networks → Add Private Addresses. WireGuard, ZeroTier, and any VPN or LAN that routes to this Mac work; connections stay end-to-end encrypted and verified against this Mac's Iroh identity."
+                defaultValue: "Use your own VPN when relays are blocked, on restricted corporate networks, or when you prefer a private route. Keep the VPN active on both devices, then add one of this Mac's suggested addresses on iPhone. Connections remain end-to-end encrypted and verify this Mac's Iroh identity."
             ))
         }
     }

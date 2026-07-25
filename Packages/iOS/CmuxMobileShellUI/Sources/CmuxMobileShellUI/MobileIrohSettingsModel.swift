@@ -13,6 +13,9 @@ final class MobileIrohSettingsModel {
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
+    private(set) var privatePathProbeMacDeviceID: String?
+    private(set) var privatePathProbeAddress: String?
+    private(set) var privatePathProbeResult: CmxIrohPrivatePathProbeResult?
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
     private(set) var verboseLogEnabled = UserDefaults.standard.bool(
@@ -94,6 +97,40 @@ final class MobileIrohSettingsModel {
 
     func testCustomRelay(id: String) {
         Task { testResults[id] = await controller.testIrohCustomRelay(id: id) }
+    }
+
+    var isPrivatePathProbeInFlight: Bool {
+        privatePathProbeMacDeviceID != nil && privatePathProbeResult == nil
+    }
+
+    func privatePathProbePresentation(
+        macDeviceID: String,
+        address: String
+    ) -> MobileIrohPrivatePathProbePresentation {
+        guard privatePathProbeMacDeviceID == macDeviceID,
+              privatePathProbeAddress == address else {
+            return .idle
+        }
+        if let privatePathProbeResult {
+            return .finished(privatePathProbeResult)
+        }
+        return .testing
+    }
+
+    func testPrivatePath(macDeviceID: String, address: String) {
+        guard !isPrivatePathProbeInFlight else { return }
+        privatePathProbeMacDeviceID = macDeviceID
+        privatePathProbeAddress = address
+        privatePathProbeResult = nil
+        Task {
+            let result = await controller.testIrohCustomPrivatePath(
+                macDeviceID: macDeviceID,
+                address: address
+            )
+            guard privatePathProbeMacDeviceID == macDeviceID,
+                  privatePathProbeAddress == address else { return }
+            privatePathProbeResult = result
+        }
     }
 
     func upsertCustomPrivatePath(
