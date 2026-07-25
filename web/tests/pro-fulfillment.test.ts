@@ -8,7 +8,7 @@ import {
 } from "../services/billing/proFulfillment";
 
 describe("cmux Pro checkout fulfillment", () => {
-  test("enrolls TestFlight before sending a separate Pro welcome", async () => {
+  test("sends a separate Pro welcome with signup link without auto-enrolling", async () => {
     const calls: string[] = [];
     const enrollTester = mock(async () => {
       calls.push("testflight");
@@ -31,12 +31,8 @@ describe("cmux Pro checkout fulfillment", () => {
       },
     );
 
-    expect(calls).toEqual(["testflight", "email"]);
-    expect(enrollTester).toHaveBeenCalledWith(
-      "ada@example.com",
-      "Ada",
-      "Lovelace",
-    );
+    expect(calls).toEqual(["email"]);
+    expect(enrollTester).not.toHaveBeenCalled();
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const [payload, options] = (sendEmail as unknown as {
       mock: { calls: [[Record<string, unknown>, Record<string, unknown>]] };
@@ -51,7 +47,8 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(payload).not.toHaveProperty("cc");
     expect(payload.text).toContain("still building out the full Pro experience");
     expect(payload.text).toContain("based on how many months you’ve been subscribed");
-    expect(payload.text).toContain("cmux iOS beta through TestFlight");
+    expect(payload.text).toContain("use the signup link below");
+    expect(payload.text).toContain("After you sign up, Apple will send");
     expect(payload.text).toContain(
       `Sign up for TestFlight here: ${PRO_TESTFLIGHT_SIGNUP_URL}`,
     );
@@ -73,15 +70,16 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(email.subject).toBe("cmux Pro へようこそ！");
     expect(email.text).toContain("Pro の体験をさらに充実させるため開発を進めており");
     expect(email.text).toContain("購読いただいた月数に応じて利用クレジット");
-    expect(email.text).toContain("TestFlight を通じた cmux iOS ベータ");
-    expect(email.text).toContain("別の招待メール");
+    expect(email.text).toContain("下の登録リンク");
+    expect(email.text).toContain("登録後、Apple から");
     expect(email.text).toContain(PRO_TESTFLIGHT_SIGNUP_URL);
     expect(email.html).toContain(
       `<a href="${PRO_TESTFLIGHT_SIGNUP_URL}">TestFlight に登録する</a>`,
     );
   });
 
-  test("fails the checkout event when TestFlight is unavailable", async () => {
+  test("sends the signup email when ASC is unavailable", async () => {
+    const enrollTester = mock(async () => {});
     const sendEmail = mock(async () => ({ error: null }));
 
     await expect(
@@ -89,13 +87,14 @@ describe("cmux Pro checkout fulfillment", () => {
         { session: checkoutSession(), stackUserId: "user_1" },
         {
           isAscConfigured: () => false,
-          enrollTester: mock(async () => {}),
+          enrollTester,
           sendEmail,
           fromEmail: () => "pro@cmux.com",
         },
       ),
-    ).rejects.toThrow("TestFlight enrollment is not configured");
-    expect(sendEmail).not.toHaveBeenCalled();
+    ).resolves.toBeUndefined();
+    expect(enrollTester).not.toHaveBeenCalled();
+    expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
   test("fails the checkout event when the Pro email provider rejects the send", async () => {
