@@ -166,6 +166,64 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
     }
 
     @MainActor
+    @Test func distinctSessionFallbackResolutionHasGlobalAdmissionBound() async {
+        let registry = AgentChatSessionRegistry()
+        let records = (0..<5).map { index in
+            registry.noteHookEvent(
+                WorkstreamEvent(
+                    sessionId: "fallback-global-admission-\(index)",
+                    hookEventName: .sessionStart,
+                    source: "codex"
+                )
+            )
+        }
+        let probes = Dictionary(uniqueKeysWithValues: records.map { record in
+            (
+                record.sessionID,
+                AgentChatFallbackResolutionProbe(
+                    path: nil,
+                    returnPathAfterCancellation: true,
+                    suspendUntilReleased: true
+                )
+            )
+        })
+        let coordinator = AgentChatFallbackTranscriptResolutionCoordinator(
+            transcriptResolver: AgentChatTranscriptResolver(),
+            resolver: { record, deadline in
+                guard let probe = probes[record.sessionID] else { return nil }
+                return await probe.resolve(record: record, deadline: deadline)
+            },
+            timeout: .milliseconds(50)
+        )
+
+        let admittedTasks = records.prefix(4).map { record in
+            Task { @MainActor in
+                await coordinator.resolve(for: record)
+            }
+        }
+        for record in records.prefix(4) {
+            await probes[record.sessionID]?.waitUntilStarted()
+        }
+
+        let overflowRecord = records[4]
+        #expect(await coordinator.resolve(for: overflowRecord) == nil)
+        #expect(
+            await probes[overflowRecord.sessionID]?.callCount() == 0,
+            "fallback scans for distinct sessions must have a global admission bound"
+        )
+
+        for probe in probes.values {
+            if await probe.callCount() > 0 {
+                await probe.releaseSuspendedResolution()
+                await probe.waitUntilFinished()
+            }
+        }
+        for task in admittedTasks {
+            #expect(await task.value == nil)
+        }
+    }
+
+    @MainActor
     @Test func expiredDeadlineSkipsCodexFallbackEnumeration() throws {
         let fixture = try makeCodexFixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }

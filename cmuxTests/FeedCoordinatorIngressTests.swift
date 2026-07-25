@@ -183,6 +183,9 @@ extension FeedCoordinatorTests {
                 event: event,
                 waitTimeout: 2,
                 onAccepted: { _ in
+                    if !Thread.isMainThread {
+                        callbackRanOffMain.signal()
+                    }
                     callbackStarted.signal()
                     releaseCallback.wait()
                 }
@@ -192,6 +195,10 @@ extension FeedCoordinatorTests {
         }
 
         #expect(callbackStarted.wait(timeout: .now() + 1) == .success)
+        #expect(
+            callbackRanOffMain.wait(timeout: .now()) == .success,
+            "nonisolated Feed publication must not run on the main thread"
+        )
         #expect(
             callerReturned.wait(timeout: .now() + 0.2) == .timedOut,
             "the synchronous caller must not return before accepted-event publication finishes"
@@ -209,6 +216,7 @@ extension FeedCoordinatorTests {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
         let callbackStarted = DispatchSemaphore(value: 0)
+        let callbackRanOffMain = DispatchSemaphore(value: 0)
         let releaseCallback = DispatchSemaphore(value: 0)
         let callbackFinished = DispatchSemaphore(value: 0)
         let callerReturned = DispatchSemaphore(value: 0)
@@ -270,6 +278,7 @@ extension FeedCoordinatorTests {
         }
         defer { Self.resetFeedCoordinatorTestHooks() }
         let callbackStarted = DispatchSemaphore(value: 0)
+        let callbackRanOffMain = DispatchSemaphore(value: 0)
         let releaseCallback = DispatchSemaphore(value: 0)
         let callerReturned = DispatchSemaphore(value: 0)
         defer { releaseCallback.signal() }
@@ -285,6 +294,9 @@ extension FeedCoordinatorTests {
                 event: event,
                 waitTimeout: 2,
                 onAccepted: { _ in
+                    if !Thread.isMainThread {
+                        callbackRanOffMain.signal()
+                    }
                     callbackStarted.signal()
                     releaseCallback.wait()
                 }
@@ -294,6 +306,10 @@ extension FeedCoordinatorTests {
         }
 
         #expect(callbackStarted.wait(timeout: .now() + 1) == .success)
+        #expect(
+            callbackRanOffMain.wait(timeout: .now()) == .success,
+            "blocking Feed publication must not run on the main thread"
+        )
         #expect(
             callerReturned.wait(timeout: .now() + 0.2) == .timedOut,
             "completed publication must not overtake accepted-event publication"
