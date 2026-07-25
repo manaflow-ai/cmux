@@ -82,37 +82,6 @@ import CmuxSettings
         #expect(model.bareKeyRejections.contains(action.rawValue))
     }
 
-    @Test func globalSearchRejectsMediaKeyChordBeforePersistence() async throws {
-        // WHY: Global Search is routed through AppKit's foreground key handler,
-        // which cannot execute system-defined media-key strokes. Settings must
-        // reject the recording instead of displaying a binding runtime discards.
-        let (store, catalog, errorLog) = makeStore()
-        let action = ShortcutAction.globalSearch
-        let chord = StoredShortcut(
-            first: ShortcutStroke(
-                key: "j",
-                command: true,
-                shift: true,
-                option: true,
-                control: true
-            ),
-            second: ShortcutStroke(key: "media.playPause")
-        )
-        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
-
-        await model.assignChord(chord, to: action)
-
-        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
-        #expect(storeBindings[action.rawValue] == nil)
-        #expect(
-            model.validationMessage(for: action)
-                == String(
-                    localized: "shortcut.recorder.error.reservedBySystem",
-                    defaultValue: "This keystroke is reserved by macOS."
-                )
-        )
-    }
-
     @Test func clearThenRestoreRoundTrips() async throws {
         // WHY: clearOrRestore must snapshot the effective binding before clearing;
         // a second call on the same now-unbound action must restore exactly that snapshot.

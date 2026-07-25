@@ -1,6 +1,8 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import Testing
+@testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -226,6 +228,47 @@ final class GlobalSearchShortcutSettingsTests {
                 KeyboardShortcutSettings.Action.globalSearch.normalizedSettingsFileShortcut(shortcut) == nil
             )
         }
+    }
+
+    @Test func settingsModelRejectsMediaKeyChordBeforePersistence() async throws {
+        // WHY: Global Search is routed through AppKit's foreground key handler,
+        // which cannot execute system-defined media-key strokes. Settings must
+        // reject the recording instead of displaying a binding runtime discards.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-settings-model-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = JSONConfigStore(fileURL: directory.appendingPathComponent("cmux.json"))
+        let catalog = SettingCatalog()
+        let action = CmuxSettings.ShortcutAction.globalSearch
+        let chord = CmuxSettings.StoredShortcut(
+            first: CmuxSettings.ShortcutStroke(
+                key: "j",
+                command: true,
+                shift: true,
+                option: true,
+                control: true
+            ),
+            second: CmuxSettings.ShortcutStroke(key: "media.playPause")
+        )
+        let model = ShortcutListModel(
+            jsonStore: store,
+            catalog: catalog,
+            errorLog: SettingsErrorLog()
+        )
+
+        await model.assignChord(chord, to: action)
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[action.rawValue] == nil)
+        #expect(
+            model.validationMessage(for: action)
+                == String(
+                    localized: "shortcut.recorder.error.reservedBySystem",
+                    defaultValue: "This keystroke is reserved by macOS."
+                )
+        )
     }
 
     @Test func settingsFileStoreParsesGlobalSearchShortcut() throws {
