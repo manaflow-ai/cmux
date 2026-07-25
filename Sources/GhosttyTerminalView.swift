@@ -877,7 +877,7 @@ class GhosttyApp {
 
             let requestedContents = String(cString: content)
             let stateBits: Int = state.map { Int(bitPattern: $0) } ?? 0
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard callbackContext.runtimeSurface == requestSurface else { return }
                 TerminalClipboardRuntimeBridge.handleReadConfirmation(
                     contents: requestedContents,
@@ -930,7 +930,7 @@ class GhosttyApp {
             }
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
                   let requestSurface = callbackContext.runtimeSurface else { return }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard callbackContext.runtimeSurface == requestSurface else { return }
                 TerminalClipboardRuntimeBridge.handleWrite(
                     contents: contents,
