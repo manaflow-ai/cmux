@@ -10,18 +10,12 @@ import Foundation
 final class AgentChatTranscriptService {
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
-    typealias FallbackTranscriptPathResolver = @Sendable (
-        AgentChatSessionRecord,
-        ContinuousClock.Instant
-    ) async -> String?
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
-    private let fallbackTranscriptPathResolver: FallbackTranscriptPathResolver
-    private let fallbackResolutionTimeout: Duration
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
@@ -29,6 +23,7 @@ final class AgentChatTranscriptService {
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     private var failedResolutions: Set<String> = []
+    private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
     /// Creates the service with a hook-store-backed registry.
@@ -53,20 +48,19 @@ final class AgentChatTranscriptService {
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
         },
         now: @escaping () -> Date = { Date() },
-        fallbackTranscriptPathResolver: FallbackTranscriptPathResolver? = nil,
+        fallbackTranscriptPathResolver: AgentChatFallbackTranscriptResolutionCoordinator.Resolver? = nil,
         fallbackResolutionTimeout: Duration = .seconds(3)
     ) {
         self.registry = registry
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
-        self.fallbackTranscriptPathResolver = fallbackTranscriptPathResolver ?? { record, _ in
-            await Task.detached(priority: .userInitiated) {
-                resolver.transcriptPath(for: record)
-            }.value
-        }
-        self.fallbackResolutionTimeout = fallbackResolutionTimeout
         self.now = now
+        self.fallbackResolutionCoordinator = AgentChatFallbackTranscriptResolutionCoordinator(
+            transcriptResolver: resolver,
+            resolver: fallbackTranscriptPathResolver,
+            timeout: fallbackResolutionTimeout
+        )
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
@@ -336,8 +330,7 @@ final class AgentChatTranscriptService {
             if let initialPath {
                 fallbackPath = initialPath
             } else {
-                let deadline = ContinuousClock.now + fallbackResolutionTimeout
-                fallbackPath = await fallbackTranscriptPathResolver(record, deadline)
+                fallbackPath = await fallbackResolutionCoordinator.resolve(for: record)
             }
             guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
             failedResolutions.remove(sessionID)
@@ -493,9 +486,11 @@ final class AgentChatTranscriptService {
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
         if transcriptBecameAvailable {
+            fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             failedResolutions.remove(record.sessionID)
         }
         if stateChanged, record.state == .ended {
+            fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
             proseStreamer.turnEnded(sessionID: record.sessionID)
@@ -529,6 +524,7 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         proseStreamer.turnEnded(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
