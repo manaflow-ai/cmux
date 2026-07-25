@@ -138,7 +138,7 @@ struct MobilePrimaryTabScaffold<
         return Binding(
             get: { searchCoordinator.nativeSearchText(for: scope) },
             set: { value in
-                searchCoordinator.commitNativeSearchText(
+                searchCoordinator.updateNativeSearchText(
                     value,
                     for: scope,
                     activationGeneration: activationGeneration

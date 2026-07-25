@@ -30,6 +30,7 @@ final class MobilePrimarySearchCoordinator {
 
     func setPresentation(_ presented: Bool) {
         if isPresented, !presented {
+            commitNativeDraft(for: scope)
             beginDeactivation(for: scope)
         }
         isPresented = presented
@@ -40,12 +41,14 @@ final class MobilePrimarySearchCoordinator {
 
     func commitSubmit() -> MobilePrimaryTab {
         let submittedScope = scope
+        commitNativeDraft(for: submittedScope)
         beginDeactivation(for: submittedScope)
         isPresented = false
         return submittedScope.primaryTab
     }
 
     func deactivateCurrentSearch() {
+        commitNativeDraft(for: scope)
         beginDeactivation(for: scope)
         isPresented = false
     }
@@ -54,6 +57,7 @@ final class MobilePrimarySearchCoordinator {
         if isSearching {
             activate(scope: scope)
         } else if phase == .active(scope) {
+            commitNativeDraft(for: scope)
             beginDeactivation(for: scope)
         }
     }
@@ -71,17 +75,18 @@ final class MobilePrimarySearchCoordinator {
         }
     }
 
-    func commitNativeSearchText(
+    func updateNativeSearchText(
         _ value: String,
         for scope: MobilePrimarySearchScope,
         activationGeneration: UInt64
     ) {
         guard acceptsNativeEdit(for: scope, activationGeneration: activationGeneration) else {
-            syncNativeSearchText(fromCommittedQueryFor: scope)
+            if phase != .active(scope) || !isPresented {
+                syncNativeSearchText(fromCommittedQueryFor: scope)
+            }
             return
         }
         setNativeSearchText(value, for: scope)
-        setCommittedSearchText(value, for: scope)
     }
 
     func acceptsNativeEdit(
@@ -93,7 +98,14 @@ final class MobilePrimarySearchCoordinator {
             && self.activationGeneration == activationGeneration
     }
 
-    private func committedSearchText(for scope: MobilePrimarySearchScope) -> String {
+    func searchDestinationText(for scope: MobilePrimarySearchScope) -> String {
+        if phase == .active(scope), isPresented {
+            return nativeSearchText(for: scope)
+        }
+        return committedSearchText(for: scope)
+    }
+
+    func committedSearchText(for scope: MobilePrimarySearchScope) -> String {
         switch scope {
         case .workspaces:
             workspaces
@@ -122,6 +134,10 @@ final class MobilePrimarySearchCoordinator {
             guard notifications != value else { return }
             notifications = value
         }
+    }
+
+    private func commitNativeDraft(for scope: MobilePrimarySearchScope) {
+        setCommittedSearchText(nativeSearchText(for: scope), for: scope)
     }
 
     private func syncNativeSearchText(fromCommittedQueryFor scope: MobilePrimarySearchScope) {

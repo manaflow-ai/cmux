@@ -38,7 +38,7 @@ struct MobilePrimaryWorkspaceSearchContentHost<Content: View>: View {
     }
 
     var body: some View {
-        content(searchCoordinator.workspaces)
+        content(searchCoordinator.searchDestinationText(for: .workspaces))
     }
 }
 
@@ -47,10 +47,13 @@ struct NotificationFeedSearchProjectionSync: View {
     let projection: NotificationFeedProjection
 
     var body: some View {
+        let searchText = searchCoordinator.isPresented && searchCoordinator.scope == .notifications
+            ? searchCoordinator.searchDestinationText(for: .notifications)
+            : searchCoordinator.committedSearchText(for: .notifications)
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
-            .onChange(of: searchCoordinator.notifications, initial: true) { _, searchText in
+            .onChange(of: searchText, initial: true) { _, searchText in
                 projection.searchText = searchText
             }
     }

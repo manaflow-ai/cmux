@@ -189,6 +189,10 @@ struct NotificationFeedHistoryTests {
             .appendingPathComponent("notification-feed-size-limit-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let fileURL = directory.appendingPathComponent("history.json")
+        let staleBackupURL = directory.appendingPathComponent(
+            "history.json.oversized-stale.quarantine",
+            isDirectory: false
+        )
         let workspaceID = UUID()
         let largeRecord = NotificationFeedHistoryRecord(notification: notification(
             workspaceID: workspaceID,
@@ -197,6 +201,8 @@ struct NotificationFeedHistoryTests {
             date: Date(timeIntervalSince1970: 1_600),
             isRead: false
         ))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("stale backup".utf8).write(to: staleBackupURL)
         let data = try write(
             NotificationFeedHistorySnapshot(
                 revision: 6,
@@ -231,9 +237,10 @@ struct NotificationFeedHistoryTests {
             at: directory,
             includingPropertiesForKeys: nil
         ).filter {
-            $0.lastPathComponent.hasPrefix("history.json.oversized-")
+            $0.lastPathComponent.hasPrefix("history.json.oversized")
         }
         #expect(quarantinedURLs.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: staleBackupURL.path))
         await persistence.persist(NotificationFeedHistorySnapshot(revision: 7, notifications: []))
         let quarantined = try JSONDecoder().decode(
             NotificationFeedHistorySnapshot.self,
@@ -286,6 +293,39 @@ struct NotificationFeedHistoryTests {
             includingPropertiesForKeys: nil
         ).filter {
             $0.lastPathComponent.hasPrefix("history.json.oversized-")
+        }
+        #expect(quarantinedURLs.isEmpty)
+    }
+
+    @Test func oversizedFutureSnapshotIgnoresNestedMetadataInPrefix() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-nested-metadata-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("history.json")
+        let id = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let body = String(repeating: "x", count: 70_000)
+        let rawJSON = """
+        {"notifications":[{"revision":6,"version":1,"body":"\(body)","createdAt":0,"id":"\(id)","isRead":false,"retargetsToLiveSurfaceOwner":false,"subtitle":"Agent","tabId":"\(workspaceID)","title":"Nested metadata"}],"revision":14,"version":\(NotificationFeedHistorySnapshot.currentVersion + 1)}
+        """
+        let data = Data(rawJSON.utf8)
+        try data.write(to: fileURL, options: .atomic)
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: UInt64(data.count - 1)
+        )
+
+        #expect(await persistence.load() == .unsupportedVersion(NotificationFeedHistorySnapshot.currentVersion + 1))
+        #expect(try Data(contentsOf: fileURL) == data)
+        let quarantinedURLs = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("history.json.oversized")
         }
         #expect(quarantinedURLs.isEmpty)
     }
