@@ -170,16 +170,17 @@ final class FeedCoordinator: @unchecked Sendable {
             ) { result in
                 _ = DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
-                        result.commit {
+                        guard let acceptance = result.commit({
                             guard ContinuousClock.now < deliveryDeadline else {
                                 return FeedEventAcceptance.unavailable
                             }
-                            let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
-                            if case .accepted(let event, _) = acceptance {
-                                onAcceptedOnMainActor(event)
-                                onAccepted(event)
-                            }
-                            return acceptance
+                            return FeedCoordinator.shared.acceptOnMainActor(event)
+                        }) else {
+                            return
+                        }
+                        if case .accepted(let acceptedEvent, _) = acceptance {
+                            onAcceptedOnMainActor(acceptedEvent)
+                            onAccepted(acceptedEvent)
                         }
                     }
                 }
@@ -209,7 +210,7 @@ final class FeedCoordinator: @unchecked Sendable {
         ) { result in
             _ = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
-                    result.commit {
+                    guard let acceptance = result.commit({
                         guard ContinuousClock.now < deliveryDeadline else {
                             return FeedEventAcceptance.unavailable
                         }
@@ -218,46 +219,58 @@ final class FeedCoordinator: @unchecked Sendable {
                         FeedCoordinator.shared.waiterLock.lock()
                         FeedCoordinator.shared.waiters[requestId] = waiter
                         FeedCoordinator.shared.waiterLock.unlock()
-                        let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
-                        guard case .accepted(let acceptedEvent, let itemId) = acceptance else {
-                            return acceptance
-                        }
-                        // Surface in-app attention (needs-input status + bell +
-                        // workspace elevation) for the blocking decision. This fires
-                        // regardless of app focus, unlike the desktop banner below,
-                        // so the pending decision is visible in the sidebar even
-                        // while the user is in another workspace of the same window.
-                        // The target is resolved before entering this main-thread
-                        // section so hook-session disk I/O never extends the UI
-                        // critical section.
-                        // The target is recorded on the waiter here — inside the
-                        // ingest `main.sync`, before the card can render and a reply
-                        // can fire — so the overlay is cleared exactly once when the
-                        // decision concludes (no race with `deliverReply`).
-                        let liveWorkspaceId = acceptedEvent.workspaceId.flatMap {
-                            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-                        }
-                        let liveSurfaceId = acceptedEvent.surfaceId.flatMap {
-                            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-                        }
-                        let attentionTarget = liveWorkspaceId.map {
-                            (workspaceId: $0, surfaceId: liveSurfaceId)
-                        } ?? resolvedAttentionTarget
-                        if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-                            event: acceptedEvent,
-                            resolved: attentionTarget
-                        ) {
-                            FeedCoordinator.shared.waiterLock.lock()
-                            FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
-                            FeedCoordinator.shared.waiterLock.unlock()
-                        }
-                        onAcceptedOnMainActor(acceptedEvent)
-                        #if DEBUG
-                        FeedCoordinatorTestHooks.afterBlockingEventIngested?(acceptedEvent, requestId)
-                        #endif
-                        onAccepted(acceptedEvent)
-                        return FeedEventAcceptance.accepted(event: acceptedEvent, itemId: itemId)
+                        return FeedCoordinator.shared.acceptOnMainActor(event)
+                    }) else {
+                        return
                     }
+                    guard case .accepted(let acceptedEvent, _) = acceptance else {
+                        return
+                    }
+                    // Surface in-app attention (needs-input status + bell +
+                    // workspace elevation) for the blocking decision. This fires
+                    // regardless of app focus, unlike the desktop banner below,
+                    // so the pending decision is visible in the sidebar even
+                    // while the user is in another workspace of the same window.
+                    // The target is resolved before entering this main-thread
+                    // section so hook-session disk I/O never extends the UI
+                    // critical section.
+                    //
+                    // Publication intentionally follows the committed mutation:
+                    // a stalled callback cannot hold the synchronous result lock
+                    // past the socket caller's deadline.
+                    let liveWorkspaceId = acceptedEvent.workspaceId.flatMap {
+                        UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                    let liveSurfaceId = acceptedEvent.surfaceId.flatMap {
+                        UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                    let attentionTarget = liveWorkspaceId.map {
+                        (workspaceId: $0, surfaceId: liveSurfaceId)
+                    } ?? resolvedAttentionTarget
+                    if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                        event: acceptedEvent,
+                        resolved: attentionTarget
+                    ) {
+                        var shouldConcludeImmediately = false
+                        FeedCoordinator.shared.waiterLock.lock()
+                        if let registeredWaiter = FeedCoordinator.shared.waiters[requestId],
+                           registeredWaiter.decision == nil {
+                            registeredWaiter.attentionTarget = target
+                        } else {
+                            // A reply raced attention publication. Its reply path
+                            // could not observe this target, so balance it here.
+                            shouldConcludeImmediately = true
+                        }
+                        FeedCoordinator.shared.waiterLock.unlock()
+                        if shouldConcludeImmediately {
+                            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+                        }
+                    }
+                    onAcceptedOnMainActor(acceptedEvent)
+                    #if DEBUG
+                    FeedCoordinatorTestHooks.afterBlockingEventIngested?(acceptedEvent, requestId)
+                    #endif
+                    onAccepted(acceptedEvent)
                 }
             }
         }
@@ -333,15 +346,23 @@ final class FeedCoordinator: @unchecked Sendable {
                         guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
                             return nil
                         }
-                        onAcceptedOnMainActor(event)
                         return event
                     }
-                    guard let result else { return accept() }
+                    guard let result else {
+                        let acceptedEvent = accept()
+                        if let acceptedEvent {
+                            onAcceptedOnMainActor(acceptedEvent)
+                        }
+                        return acceptedEvent
+                    }
                     var committedEvent: WorkstreamEvent?
                     guard result.commit({
                         committedEvent = accept()
                     }) != nil else {
                         return nil
+                    }
+                    if let committedEvent {
+                        onAcceptedOnMainActor(committedEvent)
                     }
                     return committedEvent
                 }
