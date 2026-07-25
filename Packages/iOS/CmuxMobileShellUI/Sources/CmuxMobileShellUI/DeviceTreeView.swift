@@ -24,7 +24,6 @@ struct DeviceTreeView: View {
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-    @State private var showingForgetAllConfirmation = false
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -63,9 +62,6 @@ struct DeviceTreeView: View {
                 if store.hasHiddenComputers {
                     hiddenComputersSection
                 }
-                if !computers.isEmpty || store.hasHiddenComputers {
-                    forgetAllComputersSection
-                }
             }
             .listStyle(.insetGrouped)
             .navigationDestination(for: String.self) { pairingID in
@@ -97,33 +93,6 @@ struct DeviceTreeView: View {
                 }
             }
             .refreshable { await reload() }
-            .confirmationDialog(
-                L10n.string(
-                    "mobile.computers.forgetAll.title",
-                    defaultValue: "Forget All Computers?"
-                ),
-                isPresented: $showingForgetAllConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button(
-                    L10n.string(
-                        "mobile.computers.forgetAll",
-                        defaultValue: "Forget All Computers"
-                    ),
-                    role: .destructive
-                ) {
-                    Task { await store.forgetAllComputers() }
-                }
-                Button(
-                    L10n.string("mobile.common.cancel", defaultValue: "Cancel"),
-                    role: .cancel
-                ) {}
-            } message: {
-                Text(L10n.string(
-                    "mobile.computers.forgetAll.message",
-                    defaultValue: "This phone disconnects and hides every computer. Computers reappear when they are paired again or unhidden."
-                ))
-            }
             .task {
                 // This screen is the user's connection-debug view. The online dots
                 // (presence) and secondary workspace counts already update live via
@@ -174,26 +143,6 @@ struct DeviceTreeView: View {
                 )
             }
         )
-    }
-
-    /// A quiet, footer-style destructive action: centered red text with no
-    /// icon and no card background, so the rare whole-phone action does not
-    /// compete with the computer rows above it.
-    private var forgetAllComputersSection: some View {
-        Section {
-            Button(role: .destructive) {
-                showingForgetAllConfirmation = true
-            } label: {
-                Text(L10n.string(
-                    "mobile.computers.forgetAll",
-                    defaultValue: "Forget All Computers"
-                ))
-                .font(.subheadline)
-                .frame(maxWidth: .infinity)
-            }
-            .accessibilityIdentifier("MobileComputersForgetAll")
-            .listRowBackground(Color.clear)
-        }
     }
 
     @ViewBuilder

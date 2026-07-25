@@ -1123,57 +1123,6 @@
         }
       }
     },
-    "mobile.computers.forgetAll": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forget All Computers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのコンピュータの登録を解除"
-          }
-        }
-      }
-    },
-    "mobile.computers.forgetAll.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This phone disconnects and hides every computer. Computers reappear when they are paired again or unhidden."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このiPhoneはすべてのコンピュータから切断し、非表示にします。コンピュータは、再度ペアリングするか、非表示を解除すると再表示されます。"
-          }
-        }
-      }
-    },
-    "mobile.computers.forgetAll.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forget All Computers?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのコンピュータの登録を解除しますか？"
-          }
-        }
-      }
-    },
     "mobile.computers.field.build": {
       "extractionState": "manual",
       "localizations": {

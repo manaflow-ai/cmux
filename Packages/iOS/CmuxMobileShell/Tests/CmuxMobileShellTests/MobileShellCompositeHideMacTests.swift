@@ -192,60 +192,6 @@ import Testing
         #expect(store.hasKnownPairedMac)
     }
 
-    @Test func forgetAllComputersDisconnectsAndHidesVisibleHiddenAndTaggedPairings() async throws {
-        let pairedStore = DelayedTeamPairedMacStore(
-            recordsByTeam: [
-                "team-a": [
-                    try Self.pairedMac(
-                        id: "mac-a",
-                        displayName: "Desk Mac",
-                        host: "100.82.214.112",
-                        lastSeenAt: Date(timeIntervalSince1970: 30),
-                        isActive: true
-                    ),
-                    try Self.pairedMac(
-                        id: "mac-a",
-                        displayName: "Desk Mac Nightly",
-                        host: "100.82.214.112",
-                        port: 50923,
-                        lastSeenAt: Date(timeIntervalSince1970: 20),
-                        isActive: false,
-                        instanceTag: "nightly"
-                    ),
-                    try Self.pairedMac(
-                        id: "mac-b",
-                        displayName: "Laptop Mac",
-                        host: "100.82.214.113",
-                        lastSeenAt: Date(timeIntervalSince1970: 10),
-                        isActive: false
-                    ),
-                ],
-            ],
-            blockedTeams: []
-        )
-        let store = MobileShellComposite(
-            isSignedIn: true,
-            connectionState: .connected,
-            pairedMacStore: pairedStore,
-            identityProvider: StaticIdentityProvider(userID: "user-1"),
-            teamIDProvider: { "team-a" },
-            hiddenMacStore: InMemoryPairedMacHiddenStore()
-        )
-        await store.loadPairedMacs()
-        await store.hideMac(macDeviceID: "mac-b", instanceTag: nil)
-
-        await store.forgetAllComputers()
-
-        #expect(store.connectionState == .disconnected)
-        #expect(store.pairedMacs.isEmpty)
-        #expect(store.displayPairedMacs.isEmpty)
-        #expect(Set(store.hiddenComputers.map(\.id)) == [
-            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: nil),
-            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"),
-            MobilePairedMac.pairingID(macDeviceID: "mac-b", instanceTag: nil),
-        ])
-    }
-
     @Test func signOutThenNeverPairedReconnectClearsSavedMacHint() async throws {
         let defaultsSuiteName = "never-paired-hint-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
