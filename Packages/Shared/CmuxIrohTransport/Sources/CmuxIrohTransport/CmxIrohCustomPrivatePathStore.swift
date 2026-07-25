@@ -202,6 +202,31 @@ public actor CmxIrohCustomPrivatePathStore {
         }
     }
 
+    /// Creates one unpersisted bootstrap used only for an explicit Test action.
+    ///
+    /// The returned profile is scoped exactly like a saved configuration, but
+    /// this method does not create, enable, or otherwise mutate that configuration.
+    public func probePath(
+        address: CmxIrohCustomPrivateAddress,
+        forMacDeviceID macDeviceID: String,
+        accountID: String
+    ) throws -> CmxIrohCustomPrivatePathBootstrap {
+        let canonicalDeviceID = cmxCanonicalDeviceID(
+            macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        guard let uuid = UUID(uuidString: canonicalDeviceID),
+              uuid.uuidString.lowercased() == canonicalDeviceID else {
+            throw CmxIrohCustomPrivatePathStoreError.invalidConfiguration
+        }
+        return try CmxIrohCustomPrivatePathBootstrap(
+            address: address,
+            networkProfile: profile(
+                accountScope: try storageScope(accountID),
+                macDeviceID: canonicalDeviceID
+            )
+        )
+    }
+
     private static func validatedConfiguration(
         _ draft: CmxIrohCustomPrivatePathDraft
     ) throws -> CmxIrohCustomPrivatePathConfiguration {

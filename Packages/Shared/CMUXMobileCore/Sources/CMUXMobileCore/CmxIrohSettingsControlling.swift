@@ -30,6 +30,12 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Removes this device's custom private paths for one Mac.
     func removeIrohCustomPrivatePath(macDeviceID: String) async throws
 
+    /// Tests one address against the broker-authenticated identity and current port of a Mac.
+    func testIrohCustomPrivatePath(
+        macDeviceID: String,
+        address: String
+    ) async -> CmxIrohPrivatePathProbeResult
+
     /// Fetches the latest signed fleet and account preference.
     func refreshIrohSettings() async
 
@@ -54,6 +60,13 @@ public extension CmxIrohSettingsControlling {
 
     func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
         throw CmxIrohSettingsControlError.unsupported
+    }
+
+    func testIrohCustomPrivatePath(
+        macDeviceID _: String,
+        address _: String
+    ) async -> CmxIrohPrivatePathProbeResult {
+        .unreachable(.unavailable)
     }
 
     func irohDiagnosticReport() async -> DiagnosticReport {

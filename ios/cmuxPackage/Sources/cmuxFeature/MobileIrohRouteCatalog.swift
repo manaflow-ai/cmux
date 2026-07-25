@@ -221,6 +221,28 @@ public actor MobileIrohRouteCatalog {
         return routesByTag.values.first ?? []
     }
 
+    /// Returns the preferred authenticated Iroh route for a per-device settings action.
+    func preferredRoute(
+        forKnownMacDeviceID macDeviceID: String,
+        preferredTag: String
+    ) -> CmxAttachRoute? {
+        guard let routesByTag = routesByMacDeviceID[
+            cmxCanonicalDeviceID(macDeviceID)
+        ] else {
+            return nil
+        }
+        if let preferred = routesByTag[preferredTag]?.first {
+            return preferred
+        }
+        let orderedTags = routesByTag.keys.sorted { left, right in
+            let leftRank = Self.tagRank(left, preferred: preferredTag)
+            let rightRank = Self.tagRank(right, preferred: preferredTag)
+            if leftRank != rightRank { return leftRank < rightRank }
+            return left < right
+        }
+        return orderedTags.lazy.compactMap { routesByTag[$0]?.first }.first
+    }
+
     /// Clears this exact lifecycle scope, ignoring stale teardown callbacks.
     func deactivate(scope: UInt64) {
         guard activeScope == scope else { return }

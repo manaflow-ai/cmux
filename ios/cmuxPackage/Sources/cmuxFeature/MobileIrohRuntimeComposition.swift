@@ -2143,6 +2143,35 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         publishIrohSettingsUpdate()
     }
 
+    public func testIrohCustomPrivatePath(
+        macDeviceID: String,
+        address: String
+    ) async -> CmxIrohPrivatePathProbeResult {
+        guard let activeAccountID,
+              let runtime,
+              let parsedAddress = try? CmxIrohCustomPrivateAddress(address),
+              let route = await routeCatalog.preferredRoute(
+                  forKnownMacDeviceID: macDeviceID,
+                  preferredTag: tag
+              ),
+              let path = try? await customPrivatePaths.probePath(
+                  address: parsedAddress,
+                  forMacDeviceID: macDeviceID,
+                  accountID: activeAccountID
+              ) else {
+            return .unreachable(.unavailable)
+        }
+        return await runtime.probeCustomPrivatePath(
+            for: CmxByteTransportRequest(
+                route: route,
+                expectedPeerDeviceID: cmxCanonicalDeviceID(macDeviceID),
+                authorizationMode: .transportAdmission,
+                sessionPurpose: .probe
+            ),
+            path: path
+        )
+    }
+
     public func refreshIrohSettings() async {
         guard let context = try? relaySettingsContext() else {
             publishIrohSettingsUpdate()

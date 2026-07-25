@@ -101,6 +101,21 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     public func context(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIrohClientContext {
+        try await context(for: request, privatePathProbe: nil)
+    }
+
+    /// Resolves one authenticated context constrained to exactly one custom address.
+    func privatePathProbeContext(
+        for request: CmxByteTransportRequest,
+        path: CmxIrohCustomPrivatePathBootstrap
+    ) async throws -> CmxIrohClientContext {
+        try await context(for: request, privatePathProbe: path)
+    }
+
+    private func context(
+        for request: CmxByteTransportRequest,
+        privatePathProbe: CmxIrohCustomPrivatePathBootstrap?
+    ) async throws -> CmxIrohClientContext {
         let route = request.route
         guard route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
@@ -135,7 +150,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                     targetBinding: cached.targetBinding,
                     routeHints: routeHints,
                     pairGrantToken: cached.pairGrant.grant,
-                    at: clock
+                    at: clock,
+                    privatePathProbe: privatePathProbe
                 )
             }
         }
@@ -199,7 +215,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 targetBinding: cached.targetBinding,
                 routeHints: routeHints,
                 pairGrantToken: cached.pairGrant.grant,
-                at: clock
+                at: clock,
+                privatePathProbe: privatePathProbe
             )
         }
         if let offlinePolicy {
@@ -216,7 +233,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             targetBinding: targetBinding,
             routeHints: routeHints,
             pairGrantToken: pairGrant.grant,
-            at: clock
+            at: clock,
+            privatePathProbe: privatePathProbe
         )
     }
 
@@ -264,8 +282,17 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         targetBinding: CmxIrohBrokerBinding,
         routeHints: [CmxIrohPathHint],
         pairGrantToken: String,
-        at clock: Date
+        at clock: Date,
+        privatePathProbe: CmxIrohCustomPrivatePathBootstrap?
     ) async throws -> CmxIrohClientContext {
+        if let privatePathProbe {
+            return try privatePathProbeContext(
+                targetBinding: targetBinding,
+                path: privatePathProbe,
+                pairGrantToken: pairGrantToken,
+                at: clock
+            )
+        }
         let targetIdentity = targetBinding.endpointID
         var routeHints = authoritativePrivateRouteHints(
             routeHints,
@@ -313,6 +340,56 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             dialPlan: dialPlan,
             credential: try .pairGrant(pairGrantToken),
             privateFallbackAuthorization: fallbackAuthorization
+        )
+    }
+
+    /// Builds a one-attempt plan with no relay or alternate direct hints.
+    private func privatePathProbeContext(
+        targetBinding: CmxIrohBrokerBinding,
+        path: CmxIrohCustomPrivatePathBootstrap,
+        pairGrantToken: String,
+        at clock: Date
+    ) throws -> CmxIrohClientContext {
+        guard let directPorts = freshDirectPorts(
+            targetBinding: targetBinding,
+            at: clock
+        ) else {
+            throw CmxIrohPrivatePathProbeDialError.stalePort
+        }
+        let port: UInt16?
+        switch path.address.family {
+        case .ipv4:
+            port = directPorts.ipv4
+        case .ipv6:
+            port = directPorts.ipv6
+        }
+        guard let port,
+              let hint = try? CmxIrohPathHint(
+                  kind: .directAddress,
+                  value: path.address.socketAddress(port: port),
+                  source: .customVPN,
+                  privacyScope: .privateNetwork,
+                  observedAt: clock,
+                  expiresAt: clock.addingTimeInterval(
+                      CmxIrohPathHint.maximumPrivateHintTTL
+                  ),
+                  networkProfile: path.networkProfile
+              ),
+              let dialPlan = CmxAttachEndpoint.peer(
+                  identity: targetBinding.endpointID,
+                  pathHints: [hint]
+              ).irohDialPlan(
+                  at: clock,
+                  managedRelayURLs: [],
+                  activeNetworkProfiles: [path.networkProfile]
+              ),
+              dialPlan.publicPaths.isEmpty,
+              dialPlan.privateFallbackPaths == [hint] else {
+            throw CmxIrohPrivatePathProbeDialError.stalePort
+        }
+        return CmxIrohClientContext(
+            dialPlan: dialPlan,
+            credential: try .pairGrant(pairGrantToken)
         )
     }
 
