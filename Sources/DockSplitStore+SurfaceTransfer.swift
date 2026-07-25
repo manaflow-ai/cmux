@@ -69,6 +69,13 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalWillLeaveDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
         let icon = panel.displayIcon
@@ -257,6 +264,13 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 
@@ -325,6 +339,13 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 

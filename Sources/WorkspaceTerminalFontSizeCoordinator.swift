@@ -160,6 +160,14 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
     }
 
+    private final class WeakTerminalPanelReference {
+        weak var value: TerminalPanel?
+
+        init(_ value: TerminalPanel) {
+            self.value = value
+        }
+    }
+
     private enum RequestTarget {
         case workspace(
             id: UUID,
@@ -171,13 +179,53 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private struct PendingRequest {
+        let token: UUID
         let target: RequestTarget
         var change: WorkspaceTerminalFontSizeChange
     }
 
+    private struct PendingRequestQueue {
+        private var storage: [PendingRequest] = []
+        private var head = 0
+
+        var isEmpty: Bool {
+            head >= storage.count
+        }
+
+        var count: Int {
+            storage.count - head
+        }
+
+        var elements: ArraySlice<PendingRequest> {
+            storage[head...]
+        }
+
+        mutating func append(_ request: PendingRequest) {
+            storage.append(request)
+        }
+
+        mutating func popFirst() -> PendingRequest? {
+            guard !isEmpty else { return nil }
+            let request = storage[head]
+            head += 1
+            if head == storage.count {
+                storage.removeAll(keepingCapacity: false)
+                head = 0
+            } else if head >= 16, head * 2 >= storage.count {
+                storage.removeFirst(head)
+                head = 0
+            }
+            return request
+        }
+
+        mutating func removeAll() {
+            storage.removeAll(keepingCapacity: false)
+            head = 0
+        }
+    }
+
     private struct ActiveRequest {
         let request: PendingRequest
-        let token: UUID
         let inheritanceContext: TerminalFontSizeChangeInheritanceContext
         var discovery: WorkspaceTerminalFontSizePanelDiscovery
         var pendingCandidate:
@@ -186,6 +234,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
         var participatingLineage = TerminalFontSizeLineageSelection()
         var windowDockLineage = TerminalFontSizeLineageSelection()
         let configuredRuntimePoints: Float32
+
+        var token: UUID {
+            request.token
+        }
     }
 
     private weak var tabManager: TabManager?
@@ -196,7 +248,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private var pendingWorkspaceRequests: [UUID: PendingRequest] = [:]
     private var pendingWindowDockRequest: PendingRequest?
+    private var sealedWorkspaceRequests = PendingRequestQueue()
+    private var sealedWindowDockRequests = PendingRequestQueue()
     private var activeRequest: ActiveRequest?
+    private var transferReconciledPanelsByToken:
+        [UUID: [UUID: WeakTerminalPanelReference]] = [:]
     private let schedule: DrainScheduler
     private var cancelScheduledDrain: DrainCancellation?
 
@@ -234,6 +290,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     func attachWindowDock(_ dock: DockSplitStore) {
         windowDock = dock
+        dock.terminalFontSizeChangeCoordinator = self
+        dock.terminalFontSizeOwningWorkspace = nil
         if let inheritanceContext = pendingWindowDockInheritanceContext {
             dock.beginTerminalFontSizeChangeInheritance(
                 token: inheritanceContext.token,
@@ -262,7 +320,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         let workspaceReference = WeakWorkspaceReference(workspace)
-        appendWorkspaceRequest(
+        let workspaceCoordinator = coordinatorOwningWork(
+            for: workspace
+        ) ?? self
+        workspaceCoordinator.claimWorkspace(workspace)
+        workspaceCoordinator.appendWorkspaceRequest(
             change,
             workspaceId: workspaceId,
             workspaceReference: workspaceReference
@@ -271,11 +333,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
             change,
             seedWorkspaceReference: workspaceReference
         )
-        if deferFlush {
-            scheduleDrain(after: Self.repeatCoalescingInterval)
+        if workspaceCoordinator === self {
+            flushOrSchedule(deferFlush: deferFlush)
         } else {
-            invalidateScheduledDrain()
-            drain()
+            workspaceCoordinator.flushOrSchedule(
+                deferFlush: deferFlush
+            )
+            flushOrSchedule(deferFlush: deferFlush)
         }
     }
 
@@ -284,9 +348,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
         if let activeRequest {
             cancelInheritance(for: activeRequest)
         }
+        clearAllTransferReconciliationMarks()
+        releaseAllWorkspaceClaims()
         activeRequest = nil
         pendingWorkspaceRequests.removeAll(keepingCapacity: false)
         pendingWindowDockRequest = nil
+        sealedWorkspaceRequests.removeAll()
+        sealedWindowDockRequests.removeAll()
         pendingWindowDockLineage = nil
         pendingWindowDockInheritanceContext = nil
     }
@@ -305,13 +373,17 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     var debugPendingRequestCount: Int {
-        pendingWorkspaceRequests.count + (activeRequest == nil ? 0 : 1)
+        pendingWorkspaceRequests.count
+            + sealedWorkspaceRequests.count
+            + (activeRequest == nil ? 0 : 1)
     }
 #endif
 
     private var hasPendingRequests: Bool {
         !pendingWorkspaceRequests.isEmpty
             || pendingWindowDockRequest != nil
+            || !sealedWorkspaceRequests.isEmpty
+            || !sealedWindowDockRequests.isEmpty
     }
 
     private func attachedWorkspace(
@@ -327,6 +399,92 @@ final class WorkspaceTerminalFontSizeCoordinator {
         return workspace
     }
 
+    private func coordinatorOwningWork(
+        for workspace: Workspace
+    ) -> WorkspaceTerminalFontSizeCoordinator? {
+        guard let coordinator =
+                workspace.terminalFontSizeChangeCoordinator else {
+            return nil
+        }
+        guard coordinator.hasOutstandingWork(for: workspace) else {
+            if workspace.terminalFontSizeChangeCoordinator === coordinator {
+                workspace.terminalFontSizeChangeCoordinator = nil
+            }
+            return nil
+        }
+        return coordinator
+    }
+
+    private func claimWorkspace(_ workspace: Workspace) {
+        workspace.terminalFontSizeChangeCoordinator = self
+        workspace._dockSplit?.terminalFontSizeChangeCoordinator = self
+        workspace._dockSplit?.terminalFontSizeOwningWorkspace = workspace
+    }
+
+    private func hasOutstandingWork(for workspace: Workspace) -> Bool {
+        if let activeRequest,
+           request(activeRequest.request, targets: workspace) {
+            return true
+        }
+        if let request = pendingWorkspaceRequests[workspace.id],
+           self.request(request, targets: workspace) {
+            return true
+        }
+        return sealedWorkspaceRequests.elements.contains {
+            request($0, targets: workspace)
+        }
+    }
+
+    private func request(
+        _ request: PendingRequest,
+        targets workspace: Workspace
+    ) -> Bool {
+        guard case .workspace(let workspaceId, let reference) =
+                request.target else {
+            return false
+        }
+        return workspaceId == workspace.id
+            && reference.value === workspace
+    }
+
+    private func releaseWorkspaceClaimIfIdle(_ workspace: Workspace?) {
+        guard let workspace,
+              workspace.terminalFontSizeChangeCoordinator === self,
+              !hasOutstandingWork(for: workspace) else {
+            return
+        }
+        workspace.terminalFontSizeChangeCoordinator = nil
+    }
+
+    private func releaseAllWorkspaceClaims() {
+        var workspacesByIdentity: [ObjectIdentifier: Workspace] = [:]
+        func collect(_ request: PendingRequest) {
+            guard case .workspace(_, let reference) = request.target,
+                  let workspace = reference.value else {
+                return
+            }
+            workspacesByIdentity[ObjectIdentifier(workspace)] = workspace
+        }
+        if let activeRequest {
+            collect(activeRequest.request)
+        }
+        pendingWorkspaceRequests.values.forEach(collect)
+        sealedWorkspaceRequests.elements.forEach(collect)
+        for workspace in workspacesByIdentity.values
+        where workspace.terminalFontSizeChangeCoordinator === self {
+            workspace.terminalFontSizeChangeCoordinator = nil
+        }
+    }
+
+    private func flushOrSchedule(deferFlush: Bool) {
+        if deferFlush {
+            scheduleDrain(after: Self.repeatCoalescingInterval)
+        } else {
+            invalidateScheduledDrain()
+            drain()
+        }
+    }
+
     private func appendWorkspaceRequest(
         _ change: WorkspaceTerminalFontSizeChange,
         workspaceId: UUID,
@@ -338,6 +496,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         pendingWorkspaceRequests[workspaceId] = PendingRequest(
+            token: UUID(),
             target: .workspace(
                 id: workspaceId,
                 reference: workspaceReference
@@ -356,6 +515,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         pendingWindowDockRequest = PendingRequest(
+            token: UUID(),
             target: .windowDock(
                 seedWorkspace: seedWorkspaceReference
             ),
@@ -376,12 +536,35 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
     }
 
+    private func sealWorkspaceRequest(workspaceId: UUID) {
+        guard let request = pendingWorkspaceRequests.removeValue(
+            forKey: workspaceId
+        ) else {
+            return
+        }
+        sealedWorkspaceRequests.append(request)
+    }
+
+    private func sealWindowDockRequest() {
+        guard let request = pendingWindowDockRequest else {
+            return
+        }
+        pendingWindowDockRequest = nil
+        sealedWindowDockRequests.append(request)
+    }
+
     private func popPendingRequest() -> PendingRequest? {
         // Establish the window-Dock inheritance result before a bounded
         // workspace scan can span another event-loop turn. A Dock created
         // during that scan then inherits the pending result exactly once.
+        if let request = sealedWindowDockRequests.popFirst() {
+            return request
+        }
         if let request = pendingWindowDockRequest {
             pendingWindowDockRequest = nil
+            return request
+        }
+        if let request = sealedWorkspaceRequests.popFirst() {
             return request
         }
         if let workspaceId = pendingWorkspaceRequests.keys.first {
@@ -393,7 +576,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private func activate(_ request: PendingRequest) -> Bool {
-        let token = UUID()
+        let token = request.token
         switch request.target {
         case .workspace(let workspaceId, let workspaceReference):
             guard let workspace = attachedWorkspace(
@@ -412,7 +595,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 )
             activeRequest = ActiveRequest(
                 request: request,
-                token: token,
                 inheritanceContext: inheritanceContext,
                 discovery: WorkspaceTerminalFontSizePanelDiscovery(
                     workspace: workspace
@@ -456,7 +638,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
             activeRequest = ActiveRequest(
                 request: request,
-                token: token,
                 inheritanceContext: inheritanceContext,
                 discovery: WorkspaceTerminalFontSizePanelDiscovery(
                     windowDock: windowDock
@@ -474,6 +655,213 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     GlobalFontMagnification.storedPercent
             ).fontSize
         )
+    }
+
+    func terminalWillLeaveWorkspace(
+        _ terminalPanel: TerminalPanel,
+        workspace: Workspace
+    ) {
+        guard workspace.terminalFontSizeChangeCoordinator === self else {
+            return
+        }
+        sealWorkspaceRequest(workspaceId: workspace.id)
+        reconcileTransfer(
+            terminalPanel,
+            requests: outstandingWorkspaceRequests(for: workspace),
+            applyChanges: true
+        )
+    }
+
+    func terminalDidEnterWorkspace(
+        _ terminalPanel: TerminalPanel,
+        workspace: Workspace
+    ) {
+        guard workspace.terminalFontSizeChangeCoordinator === self else {
+            return
+        }
+        sealWorkspaceRequest(workspaceId: workspace.id)
+        reconcileTransfer(
+            terminalPanel,
+            requests: outstandingWorkspaceRequests(for: workspace),
+            applyChanges: false
+        )
+    }
+
+    func terminalWillLeaveDock(
+        _ terminalPanel: TerminalPanel,
+        dock: DockSplitStore
+    ) {
+        if let workspace = dock.terminalFontSizeOwningWorkspace {
+            terminalWillLeaveWorkspace(
+                terminalPanel,
+                workspace: workspace
+            )
+            return
+        }
+        guard dock === windowDock else { return }
+        sealWindowDockRequest()
+        reconcileTransfer(
+            terminalPanel,
+            requests: outstandingWindowDockRequests(),
+            applyChanges: true
+        )
+    }
+
+    func terminalDidEnterDock(
+        _ terminalPanel: TerminalPanel,
+        dock: DockSplitStore
+    ) {
+        if let workspace = dock.terminalFontSizeOwningWorkspace {
+            terminalDidEnterWorkspace(
+                terminalPanel,
+                workspace: workspace
+            )
+            return
+        }
+        guard dock === windowDock else { return }
+        sealWindowDockRequest()
+        reconcileTransfer(
+            terminalPanel,
+            requests: outstandingWindowDockRequests(),
+            applyChanges: false
+        )
+    }
+
+    private func outstandingWorkspaceRequests(
+        for workspace: Workspace
+    ) -> [(request: PendingRequest, configuredRuntimePoints: Float32)] {
+        var requests: [
+            (request: PendingRequest, configuredRuntimePoints: Float32)
+        ] = []
+        if let activeRequest,
+           request(activeRequest.request, targets: workspace) {
+            requests.append(
+                (
+                    request: activeRequest.request,
+                    configuredRuntimePoints:
+                        activeRequest.configuredRuntimePoints
+                )
+            )
+        }
+        let configuredRuntimePoints =
+            workspace.configuredTerminalRuntimeFontSize()
+        for request in sealedWorkspaceRequests.elements
+        where self.request(request, targets: workspace) {
+            requests.append(
+                (
+                    request: request,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            )
+        }
+        if let request = pendingWorkspaceRequests[workspace.id],
+           self.request(request, targets: workspace) {
+            requests.append(
+                (
+                    request: request,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            )
+        }
+        return requests
+    }
+
+    private func outstandingWindowDockRequests()
+        -> [(request: PendingRequest, configuredRuntimePoints: Float32)] {
+        var requests: [
+            (request: PendingRequest, configuredRuntimePoints: Float32)
+        ] = []
+        if let activeRequest,
+           case .windowDock = activeRequest.request.target {
+            requests.append(
+                (
+                    request: activeRequest.request,
+                    configuredRuntimePoints:
+                        activeRequest.configuredRuntimePoints
+                )
+            )
+        }
+        for request in sealedWindowDockRequests.elements {
+            requests.append(
+                (
+                    request: request,
+                    configuredRuntimePoints:
+                        configuredRuntimePoints(for: request)
+                )
+            )
+        }
+        if let request = pendingWindowDockRequest {
+            requests.append(
+                (
+                    request: request,
+                    configuredRuntimePoints:
+                        configuredRuntimePoints(for: request)
+                )
+            )
+        }
+        return requests
+    }
+
+    private func configuredRuntimePoints(
+        for request: PendingRequest
+    ) -> Float32 {
+        guard case .windowDock(let seedReference) = request.target,
+              let seedReference,
+              let workspace = seedReference.value else {
+            return currentConfiguredTerminalRuntimeFontSize()
+        }
+        return workspace.configuredTerminalRuntimeFontSize()
+    }
+
+    private func reconcileTransfer(
+        _ terminalPanel: TerminalPanel,
+        requests: [
+            (request: PendingRequest, configuredRuntimePoints: Float32)
+        ],
+        applyChanges: Bool
+    ) {
+        for entry in requests {
+            if applyChanges,
+               !terminalPanel.surface.hasAppliedFontSizeChange(
+                    token: entry.request.token
+               ) {
+                _ = cmuxApplyTerminalFontSizeChange(
+                    entry.request.change,
+                    to: terminalPanel,
+                    configuredRuntimePoints:
+                        entry.configuredRuntimePoints
+                )
+            }
+            terminalPanel.surface
+                .markFontSizeChangeReconciledForTransfer(
+                    token: entry.request.token
+                )
+            var panels =
+                transferReconciledPanelsByToken[entry.request.token] ?? [:]
+            panels[terminalPanel.id] =
+                WeakTerminalPanelReference(terminalPanel)
+            transferReconciledPanelsByToken[entry.request.token] = panels
+        }
+    }
+
+    private func clearTransferReconciliationMarks(token: UUID) {
+        guard let panels =
+                transferReconciledPanelsByToken.removeValue(
+                    forKey: token
+                ) else {
+            return
+        }
+        for reference in panels.values {
+            reference.value?.surface
+                .clearFontSizeChangeReconciledForTransfer(token: token)
+        }
+    }
+
+    private func clearAllTransferReconciliationMarks() {
+        let tokens = Array(transferReconciledPanelsByToken.keys)
+        for token in tokens {
+            clearTransferReconciliationMarks(token: token)
+        }
     }
 
     private func apply(
@@ -504,6 +892,17 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private func finish(_ activeRequest: ActiveRequest) {
+        defer {
+            clearTransferReconciliationMarks(
+                token: activeRequest.token
+            )
+            if case .workspace(_, let workspaceReference) =
+                    activeRequest.request.target {
+                releaseWorkspaceClaimIfIdle(
+                    workspaceReference.value
+                )
+            }
+        }
         switch activeRequest.request.target {
         case .workspace(let workspaceId, let workspaceReference):
             guard let workspace = attachedWorkspace(
@@ -604,7 +1003,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     guard let request = popPendingRequest() else {
                         break
                     }
-                    guard activate(request) else { continue }
+                    guard activate(request) else {
+                        clearTransferReconciliationMarks(
+                            token: request.token
+                        )
+                        if case .workspace(_, let workspaceReference) =
+                                request.target {
+                            releaseWorkspaceClaimIfIdle(
+                                workspaceReference.value
+                            )
+                        }
+                        continue
+                    }
                     activeRequestHasBudgetReservation = true
                     break
                 }

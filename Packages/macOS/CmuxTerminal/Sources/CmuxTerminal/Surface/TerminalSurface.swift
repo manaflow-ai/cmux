@@ -152,6 +152,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let configTemplate: CmuxSurfaceConfigTemplate?
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     var lastAppliedFontSizeChangeToken: UUID?
+    var transferReconciledFontSizeChangeTokens: Set<UUID> = []
     /// Whether runtime creation should ignore inherited lineage and follow current config.
     var followsConfiguredFontSize: Bool
     let workingDirectory: String?

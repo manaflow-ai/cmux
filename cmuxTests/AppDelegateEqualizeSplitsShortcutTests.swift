@@ -1302,6 +1302,20 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             19,
             "Moving between two request targets must preserve one application"
         )
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: false
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            visitedDockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            18,
+            "A transfer marker must not suppress a later destination request"
+        )
     }
 
     func testClosingWindowCancelsPendingWorkspaceTerminalFontSizeChange() {

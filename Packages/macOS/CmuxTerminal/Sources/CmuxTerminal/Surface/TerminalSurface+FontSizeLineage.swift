@@ -11,10 +11,24 @@ extension TerminalSurface {
         lastAppliedFontSizeChangeToken = token
     }
 
+    /// Records transient request provenance while this live panel transfers
+    /// between containers. The owning coordinator retires the token when its
+    /// bounded request finishes, so this set is bounded by in-flight moves.
+    @MainActor
+    public func markFontSizeChangeReconciledForTransfer(token: UUID) {
+        transferReconciledFontSizeChangeTokens.insert(token)
+    }
+
+    @MainActor
+    public func clearFontSizeChangeReconciledForTransfer(token: UUID) {
+        transferReconciledFontSizeChangeTokens.remove(token)
+    }
+
     /// Returns whether this surface's lineage already includes `token`.
     @MainActor
     public func hasAppliedFontSizeChange(token: UUID) -> Bool {
         lastAppliedFontSizeChangeToken == token
+            || transferReconciledFontSizeChangeTokens.contains(token)
     }
 
     /// Adjusts this terminal's runtime font size and records an explicit override.
