@@ -42,10 +42,9 @@ extension DockSplitStore {
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
         let sourceWorkspaceIdsByPanelId: [UUID: UUID] = Dictionary(
-            uniqueKeysWithValues: panelSnapshots.compactMap {
-            panel in
-            guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
-            return (panel.id, transfer.sessionRestoreWorkspaceId)
+            uniqueKeysWithValues: panelSnapshots.compactMap { panel -> (UUID, UUID)? in
+                guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
+                return (panel.id, transfer.sessionRestoreWorkspaceId)
             }
         )
         let layout = layoutCodec.pruned(
@@ -337,12 +336,13 @@ extension DockSplitStore {
         let expectedSessionId = resumeBinding?.isAgentHookBinding == true
             ? resumeBinding?.checkpointId
             : restorableAgent?.sessionId
-        let relevantObservation: RestorableAgentSessionIndex.Entry? = observation.flatMap { entry in
-            guard entry.snapshot.kind == expectedKind, entry.snapshot.sessionId == expectedSessionId else {
-                return nil
+        let relevantObservation: RestorableAgentSessionIndex.Entry? =
+            observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
+                guard entry.snapshot.kind == expectedKind, entry.snapshot.sessionId == expectedSessionId else {
+                    return nil
+                }
+                return entry
             }
-            return entry
-        }
         let confirmedRuntimeIdentities: Set<AgentPIDProcessIdentity> = {
             guard let expectedKind, expectedKind != .claude,
                   let expectedSessionId,
