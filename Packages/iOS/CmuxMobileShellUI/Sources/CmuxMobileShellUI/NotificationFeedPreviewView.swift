@@ -13,8 +13,13 @@ public struct NotificationFeedPreviewView: View {
     @State private var referenceDate: Date
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
-    @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var notificationRoute: NotificationWorkspaceRoute?
+    @State private var pendingSearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+
+    private struct NotificationWorkspaceRoute: Identifiable, Hashable {
+        let id: MobileWorkspacePreview.ID
+    }
 
     public init() {
         let referenceDate = Date()
@@ -31,7 +36,7 @@ public struct NotificationFeedPreviewView: View {
             ) {
                 NotificationFeedPreviewWorkspacesView()
             } notifications: {
-                NavigationStack(path: $notificationNavigationPath) {
+                NavigationStack {
                     NotificationFeedView(
                         status: .ready,
                         projection: projection,
@@ -53,12 +58,22 @@ public struct NotificationFeedPreviewView: View {
                             showAddDevice: nil
                         )
                     }
-                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                    .navigationDestination(isPresented: notificationRouteIsPresented) {
                         NotificationFeedPreviewWorkspaceDestination(
-                            workspaceName: workspaceName(for: workspaceID)
+                            workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
+                                ?? L10n.string(
+                                    "mobile.notificationFeed.workspaceFallback",
+                                    defaultValue: "Workspace"
+                                )
                         )
                         .toolbarVisibility(.hidden, for: .tabBar)
                     }
+                }
+                .onAppear {
+                    consumePendingSearchNavigation(for: .notifications)
+                }
+                .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
+                    consumePendingSearchNavigation(for: .notifications)
                 }
             } workspaceSearch: {
                 NotificationFeedPreviewWorkspacesView()
@@ -70,6 +85,16 @@ public struct NotificationFeedPreviewView: View {
                         refreshesOnAppear: false,
                         actions: actions
                     )
+                    .navigationDestination(isPresented: notificationRouteIsPresented) {
+                        NotificationFeedPreviewWorkspaceDestination(
+                            workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
+                                ?? L10n.string(
+                                    "mobile.notificationFeed.workspaceFallback",
+                                    defaultValue: "Workspace"
+                                )
+                        )
+                        .toolbarVisibility(.hidden, for: .tabBar)
+                    }
                 }
             }
             .background {
@@ -80,6 +105,10 @@ public struct NotificationFeedPreviewView: View {
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
         }
+        .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
+            guard !isPresented else { return }
+            consumePendingSearchNavigation(for: selectedTab)
+        }
         .onChange(of: items, initial: true) { _, items in
             projection.update(items: items, referenceDate: referenceDate)
         }
@@ -88,9 +117,16 @@ public struct NotificationFeedPreviewView: View {
     private var actions: NotificationFeedActions {
         NotificationFeedActions(
             open: { item in
-                notificationNavigationPath.append(
-                    MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
-                )
+                let workspaceID = MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
+                if selectedTab == .search {
+                    notificationRoute = NotificationWorkspaceRoute(id: workspaceID)
+                } else if primarySearchCoordinator.isPresented {
+                    pendingSearchNotificationNavigationID = workspaceID
+                    transitionPrimaryTab(to: .notifications)
+                } else {
+                    transitionPrimaryTab(to: .notifications)
+                    notificationRoute = NotificationWorkspaceRoute(id: workspaceID)
+                }
                 setRead(true, for: item.id)
             },
             markRead: { item in
@@ -111,10 +147,44 @@ public struct NotificationFeedPreviewView: View {
             ?? L10n.string("mobile.notificationFeed.workspaceFallback", defaultValue: "Workspace")
     }
 
+    private var notificationRouteIsPresented: Binding<Bool> {
+        Binding(
+            get: { notificationRoute != nil },
+            set: { isPresented in
+                if !isPresented {
+                    notificationRoute = nil
+                }
+            }
+        )
+    }
+
     private func setRead(_ isRead: Bool, for id: MobileNotificationFeedItemID) {
         items = items.map { item in
             item.id == id ? item.updating(isRead: isRead) : item
         }
+    }
+
+    private func consumePendingSearchNavigation(for tab: MobilePrimaryTab) {
+        guard !primarySearchCoordinator.isPresented else { return }
+        guard tab == .notifications,
+              let workspaceID = pendingSearchNotificationNavigationID else { return }
+        pendingSearchNotificationNavigationID = nil
+        notificationRoute = NotificationWorkspaceRoute(id: workspaceID)
+    }
+
+    @discardableResult
+    private func transitionPrimaryTab(
+        to tab: MobilePrimaryTab,
+        beforeSelection: () -> Void = {}
+    ) -> Bool {
+        let previousTab = selectedTab
+        if (selectedTab == .search || primarySearchCoordinator.isPresented),
+           tab.searchScope != nil {
+            primarySearchCoordinator.deactivateCurrentSearch()
+        }
+        beforeSelection()
+        selectedTab = tab
+        return previousTab != tab
     }
 
     private static func makeFixtureItems(referenceDate: Date) -> [MobileNotificationFeedItem] {

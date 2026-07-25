@@ -94,7 +94,8 @@ struct MobilePrimaryTabScaffold<
         Binding(
             get: { selection },
             set: { newValue in
-                if selection == .search, newValue.searchScope != nil {
+                if (selection == .search || searchCoordinator.isPresented),
+                   newValue.searchScope != nil {
                     searchCoordinator.deactivateCurrentSearch()
                 }
                 selection = newValue

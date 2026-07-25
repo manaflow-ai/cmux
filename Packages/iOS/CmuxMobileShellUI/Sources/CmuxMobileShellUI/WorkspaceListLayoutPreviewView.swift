@@ -277,9 +277,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
             selectWorkspace: { id in
                 selectedWorkspaceID = id
-                if reorderEnabled {
-                    fixtureRoute = FixtureWorkspaceRoute(id: id)
-                }
+                fixtureRoute = FixtureWorkspaceRoute(id: id)
             },
             createWorkspace: {},
             macSelection: $macSelection,

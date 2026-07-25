@@ -158,6 +158,8 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
+    @State private var pendingPrimarySearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var showingRootSettings = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
@@ -245,6 +247,12 @@ struct WorkspaceShellView: View {
                             .toolbarVisibility(.hidden, for: .tabBar)
                     }
                 }
+                .onAppear {
+                    consumePendingPrimarySearchNavigation(for: .notifications)
+                }
+                .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
+                    consumePendingPrimarySearchNavigation(for: .notifications)
+                }
             } workspaceSearch: {
                 workspaceSearchTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -260,6 +268,10 @@ struct WorkspaceShellView: View {
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
+            .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
+                guard !isPresented else { return }
+                consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+            }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
                 consumeDeeplinkNavigationRequestIfNeeded()
@@ -292,8 +304,9 @@ struct WorkspaceShellView: View {
                 DeviceTreeView(
                     store: store,
                     selectWorkspace: { id in
-                        selectedPrimaryTab = .workspaces
-                        selectWorkspace(id)
+                        transitionPrimaryTab(to: .workspaces) {
+                            selectWorkspace(id)
+                        }
                     },
                     showAddDevice: showAddDevice
                 )
@@ -352,7 +365,7 @@ struct WorkspaceShellView: View {
     private func notificationSearchTabContent(
         presentation: WorkspaceShellRenderPresentation
     ) -> some View {
-        NavigationStack {
+        NavigationStack(path: $notificationNavigationPath) {
             NotificationFeedStoreView(
                 store: store,
                 items: presentation.notificationFeedItems,
@@ -361,6 +374,14 @@ struct WorkspaceShellView: View {
             )
             .toolbar {
                 rootToolbarContent
+            }
+            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                workspaceDestination(
+                    for: workspaceID,
+                    createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
+                .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
     }
@@ -488,6 +509,10 @@ struct WorkspaceShellView: View {
         }
         .onAppear {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
+            consumePendingPrimarySearchNavigation(for: .workspaces)
+        }
+        .onChange(of: pendingPrimarySearchWorkspaceNavigationID) { _, _ in
+            consumePendingPrimarySearchNavigation(for: .workspaces)
         }
     }
 
@@ -787,21 +812,79 @@ struct WorkspaceShellView: View {
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         #if os(iOS)
         if request.origin == .notificationFeed {
-            selectedPrimaryTab = .notifications
-            if notificationNavigationPath.last != workspaceID {
-                notificationNavigationPath = [workspaceID]
+            if selectedPrimaryTab == .search {
+                if notificationNavigationPath.last != workspaceID {
+                    notificationNavigationPath = [workspaceID]
+                }
+            } else if primarySearchCoordinator.isPresented {
+                pendingPrimarySearchNotificationNavigationID = workspaceID
+                transitionPrimaryTab(to: .notifications)
+            } else {
+                transitionPrimaryTab(to: .notifications)
+                if notificationNavigationPath.last != workspaceID {
+                    notificationNavigationPath = [workspaceID]
+                }
             }
             return
         }
-        selectedPrimaryTab = .workspaces
+        if selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
+            pendingPrimarySearchWorkspaceNavigationID = workspaceID
+            transitionPrimaryTab(to: .workspaces)
+        } else {
+            transitionPrimaryTab(to: .workspaces) {
+                guard usesCompactStack, compactNavigationPath.last != workspaceID else { return }
+                compactNavigationPath = [workspaceID]
+            }
+        }
         #endif
         guard usesCompactStack else { return }
-        if compactNavigationPath.last != workspaceID {
-            compactNavigationPath = [workspaceID]
+    }
+
+    private func consumePendingPrimarySearchNavigation(for tab: MobilePrimaryTab) {
+        guard !primarySearchCoordinator.isPresented else { return }
+        switch tab {
+        case .workspaces:
+            guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
+            pendingPrimarySearchWorkspaceNavigationID = nil
+            selectWorkspaceImmediately(workspaceID)
+        case .notifications:
+            guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
+            pendingPrimarySearchNotificationNavigationID = nil
+            if notificationNavigationPath.last != workspaceID {
+                notificationNavigationPath = [workspaceID]
+            }
+        case .search:
+            break
         }
     }
 
+    @discardableResult
+    private func transitionPrimaryTab(
+        to tab: MobilePrimaryTab,
+        beforeSelection: () -> Void = {}
+    ) -> Bool {
+        let previousTab = selectedPrimaryTab
+        if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
+           tab.searchScope != nil {
+            primarySearchCoordinator.deactivateCurrentSearch()
+        }
+        beforeSelection()
+        selectedPrimaryTab = tab
+        return previousTab != tab
+    }
+
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
+        #if os(iOS)
+        if selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
+            pendingPrimarySearchWorkspaceNavigationID = id
+            transitionPrimaryTab(to: .workspaces)
+            return
+        }
+        #endif
+        selectWorkspaceImmediately(id)
+    }
+
+    private func selectWorkspaceImmediately(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
@@ -810,27 +893,29 @@ struct WorkspaceShellView: View {
     }
 
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
-        selectedPrimaryTab = .workspaces
-        selectWorkspace(id)
+        pendingPrimarySearchWorkspaceNavigationID = id
+        transitionPrimaryTab(to: .workspaces)
     }
 
     private func createWorkspaceFromSearch() {
-        selectedPrimaryTab = .workspaces
-        if usesCompactStack {
-            createWorkspaceInCompactStack()
-        } else {
-            createWorkspaceIfConnected()
+        transitionPrimaryTab(to: .workspaces) {
+            if usesCompactStack {
+                createWorkspaceInCompactStack()
+            } else {
+                createWorkspaceIfConnected()
+            }
         }
     }
 
     private var createWorkspaceInGroupFromSearchClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
         guard store.supportsWorkspaceCreateInGroup else { return nil }
         return { groupID in
-            selectedPrimaryTab = .workspaces
-            if usesCompactStack {
-                createWorkspaceInCompactStack(inGroup: groupID)
-            } else {
-                createWorkspaceIfConnected(inGroup: groupID)
+            transitionPrimaryTab(to: .workspaces) {
+                if usesCompactStack {
+                    createWorkspaceInCompactStack(inGroup: groupID)
+                } else {
+                    createWorkspaceIfConnected(inGroup: groupID)
+                }
             }
         }
     }
@@ -838,8 +923,9 @@ struct WorkspaceShellView: View {
     private var createWorkspaceGroupFromSearchClosure: (() -> Void)? {
         guard store.supportsWorkspaceGroupCreate else { return nil }
         return {
-            selectedPrimaryTab = .workspaces
-            createWorkspaceGroupIfConnected()
+            transitionPrimaryTab(to: .workspaces) {
+                createWorkspaceGroupIfConnected()
+            }
         }
     }
 

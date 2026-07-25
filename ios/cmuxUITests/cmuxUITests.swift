@@ -419,7 +419,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
-        tap(workspacesTab, in: app)
+        tap(docsRow, in: app)
+        let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+        XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(waitForHittable(backButton, timeout: 3))
+        tap(backButton, in: app)
+        XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
+        XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
         XCTAssertTrue(waitForKeyboardDismissal(in: app))
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
@@ -618,6 +627,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
+
+        matchingRow.tap()
+        let workspaceDestination = app.descendants(matching: .any)[
+            "MobileNotificationFeedPreviewWorkspaceDestination"
+        ]
+        XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["Release"].waitForExistence(timeout: 3))
     }
 
     @MainActor
