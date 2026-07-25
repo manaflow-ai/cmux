@@ -184,6 +184,19 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
         #expect(attachment.pixelHeight == 768)
     }
 
+    @Test("markdown image ratio metadata survives projection without dimensions")
+    func markdownImageRatioMetadataSurvivesProjectionWithoutDimensions() throws {
+        let attachment = try Self.projectedMarkdownImageAttachment(
+            "![Agent GUI preview](/tmp/cmux-agent-gui-preview.png?aspect_ratio=1.333333)"
+        )
+
+        #expect(attachment.media == .image)
+        #expect(attachment.hostPath == "/tmp/cmux-agent-gui-preview.png")
+        #expect(attachment.pixelWidth == nil)
+        #expect(attachment.pixelHeight == nil)
+        #expect(attachment.aspectRatio == 1.333333)
+    }
+
     @Test("attachment author role controls rendered message role")
     func attachmentAuthorRoleControlsRenderedMessageRole() throws {
         let row = TranscriptRow(

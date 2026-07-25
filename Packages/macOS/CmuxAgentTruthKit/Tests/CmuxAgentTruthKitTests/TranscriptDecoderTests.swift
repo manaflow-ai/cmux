@@ -393,6 +393,20 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexAssistantMarkdownImageRatioMetadataSurvivesWithoutImageFile() throws {
+        let line = #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"![Codex Preview](/tmp/codex-preview.png?aspect_ratio=1.333333)"}]}}"#
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 0))
+        #expect(attachment.hostPath == "/tmp/codex-preview.png")
+        #expect(attachment.width == nil)
+        #expect(attachment.height == nil)
+        #expect(attachment.aspectRatio == 1.333333)
+    }
+
+    @Test
     func codexViewImageToolCarriesPreviewMetadataThroughCompletion() throws {
         let imageURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-view-image-\(UUID().uuidString).png")
@@ -579,6 +593,20 @@ struct TranscriptDecoderTests {
         #expect(attachment.displayName == "hook-preview")
         #expect(attachment.aspectRatio == 0.75)
         #expect(attachment.authorRole == "agent")
+    }
+
+    @Test
+    func claudeAssistantMarkdownImageRatioMetadataSurvivesWithoutImageFile() throws {
+        let line = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"![Claude Preview](/tmp/claude-preview.png \"ratio=0.75\")"}]}}"#
+        var decoder = ClaudeTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 0))
+        #expect(attachment.hostPath == "/tmp/claude-preview.png")
+        #expect(attachment.width == nil)
+        #expect(attachment.height == nil)
+        #expect(attachment.aspectRatio == 0.75)
     }
 
     @Test
