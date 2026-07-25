@@ -273,7 +273,7 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$client")\"" \
         "-c" \
-        "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\"]" \
+        "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\",\"--codex-computer-use-compat\"]" \
         "-c" \
         'mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_MCP_FORCE_PROXY="1"' \
         "-c" \
