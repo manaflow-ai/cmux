@@ -2120,12 +2120,16 @@ class TabManager: ObservableObject {
             }
 
             // A promoted anchor's resolved display title switches from its own
-            // title to the group name. If the selected workspace was promoted
-            // (e.g. Close Others / a socket close of the anchor while a member
-            // stays selected), refresh the imperatively-cached window/toolbar
-            // title chrome, which is not driven by the observable model.
-            if let selectedTabId, promotedAnchorIds.contains(selectedTabId) {
-                updateWindowTitleForSelectedTab()
+            // title to the group name. The imperatively-cached title consumers
+            // (custom titlebar text, WindowToolbarController label, notification
+            // popover titles) refresh on the group-name / order-change
+            // notifications, not on the observable model — and on a non-focused
+            // anchor close (Close Others, a socket close while a member stays
+            // selected) selectedTabId never changes, so nothing would otherwise
+            // invalidate them. Publish both signals for the promotion.
+            if !promotedAnchorIds.isEmpty {
+                workspaceGroupNameDidChange()
+                workspaceOrderDidChange(movedWorkspaceIds: promotedAnchorIds)
             }
         }
         publishCmuxWorkspaceClosed(workspace)

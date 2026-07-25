@@ -6,9 +6,11 @@ public import Foundation
 /// anchor workspace whose lifecycle gates the group itself.
 ///
 /// The anchor workspace is always a real member workspace. It is created
-/// fresh when the group is created (never promoted from an existing member),
-/// rendered IMPLICITLY as the group header (no separate sidebar row), and
-/// when closed dissolves the group while keeping other members alive.
+/// fresh when the group is created (never promoted from an existing member at
+/// creation time) and rendered IMPLICITLY as the group header (no separate
+/// sidebar row). Closing the anchor promotes the group's next member to be the
+/// new anchor and keeps the group; the group is removed only when the anchor
+/// was its last workspace.
 public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     /// The group's stable identity.
     public let id: UUID
