@@ -1,0 +1,52 @@
+import AppKit
+
+extension GhosttyNSView {
+    func beginClipboardRead(_ requestID: UInt) {
+        terminalClipboardInputSequencer.beginRequest(id: requestID)
+    }
+
+    func clipboardReadRequiresConfirmation(
+        _ requestID: UInt
+    ) {
+        terminalClipboardInputSequencer.requireConfirmation(
+            for: requestID
+        )
+    }
+
+    func completeClipboardRead(
+        _ requestID: UInt,
+        confirmed: Bool
+    ) {
+        terminalClipboardInputSequencer.completeRequest(
+            id: requestID,
+            confirmed: confirmed
+        ) { [weak self] event in
+            self?.replayClipboardDeferredInput(event)
+        }
+    }
+
+    func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {
+        switch terminalClipboardInputSequencer.route(event) {
+        case .dispatchNow:
+            return false
+        case .queued:
+            return true
+        case .rejected:
+            NSSound.beep()
+            return true
+        }
+    }
+
+    private func replayClipboardDeferredInput(_ event: NSEvent) {
+        switch event.type {
+        case .keyDown:
+            keyDown(with: event)
+        case .keyUp:
+            keyUp(with: event)
+        case .flagsChanged:
+            flagsChanged(with: event)
+        default:
+            assertionFailure("Only keyboard events enter clipboard sequencing")
+        }
+    }
+}

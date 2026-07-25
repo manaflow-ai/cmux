@@ -11,6 +11,23 @@ import Testing
 @MainActor
 @Suite("TextBox pending paste reservations", .serialized)
 struct TextBoxPendingPasteReservationTests {
+    private final class TextChangeProbe: NSObject, NSTextViewDelegate {
+        var publishedText: String
+        private(set) var changeCount = 0
+
+        init(publishedText: String) {
+            self.publishedText = publishedText
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else {
+                return
+            }
+            changeCount += 1
+            publishedText = textView.string
+        }
+    }
+
     @Test("rejected paste restores selected content")
     func rejectedPasteRestoresSelectedContent() {
         let (window, textView) = makeTextView()
@@ -51,6 +68,35 @@ struct TextBoxPendingPasteReservationTests {
             textView.attributedContentForPreservation().string
                 == "before selected after"
         )
+    }
+
+    @Test("reservation staging never publishes truncated selected text")
+    func reservationStagingStaysPrivate() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+        let authoritativeText = textView.string
+        let probe = TextChangeProbe(publishedText: authoritativeText)
+        textView.delegate = probe
+
+        textView.insertPendingAttachmentUploadPlaceholder(id: UUID())
+
+        #expect(probe.changeCount == 0)
+        #expect(probe.publishedText == authoritativeText)
+        let preserved = textView.attributedContentForPreservation()
+        #expect(preserved.string == authoritativeText)
+
+        textView.invalidatePendingAttachmentUploads()
+        #expect(probe.changeCount == 0)
+        #expect(probe.publishedText == authoritativeText)
+        #expect(textView.string == authoritativeText)
+
+        textView.installPreservedContent(
+            preserved,
+            notifyingTextChange: false
+        )
+        #expect(probe.changeCount == 0)
+        #expect(textView.string == authoritativeText)
     }
 
     @Test("successful text paste is one undoable edit")

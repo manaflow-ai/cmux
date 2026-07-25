@@ -38,7 +38,6 @@ extension TextBoxInputTextView {
         setSelectedRange(stagedSelection)
         normalizeTextBaselineOffsets()
         recenterSingleLineTextContainer()
-        didChangeText()
         return true
     }
 

@@ -1,0 +1,30 @@
+import AppKit
+
+extension GhosttyNSView {
+    func recordDirectAgentHibernationTerminalInput() {
+        guard let terminalSurface else { return }
+        recordAgentHibernationTerminalInput(
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id
+        )
+    }
+
+    @IBAction func paste(_ sender: Any?) {
+        guard prepareSurfaceForPaste(reason: "paste.missingSurface") else {
+            return
+        }
+        recordDirectAgentHibernationTerminalInput()
+        _ = performBindingAction("paste_from_clipboard")
+    }
+
+    /// Pastes clipboard text as plain text, stripping any rich formatting.
+    @IBAction func pasteAsPlainText(_ sender: Any?) {
+        guard prepareSurfaceForPaste(
+            reason: "pasteAsPlainText.missingSurface"
+        ) else {
+            return
+        }
+        recordDirectAgentHibernationTerminalInput()
+        _ = performBindingAction("paste_from_clipboard")
+    }
+}

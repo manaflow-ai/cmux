@@ -5,7 +5,10 @@ struct TerminalPastePreparationJob {
     let id: UUID
     let request: TerminalPastePreparationRequest
     var continuation: CheckedContinuation<
-        TerminalPastePreparationResult?,
+        Result<
+            TerminalPastePreparationResult,
+            TerminalPastePreparationFailure
+        >,
         Never
     >?
     var deadlineTask: Task<Void, Never>?

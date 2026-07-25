@@ -1,16 +1,21 @@
 import Foundation
 
 actor ControlledPastePreparationDeadlines {
+    private struct Sleeper {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private var arrivalCount = 0
     private var arrivalWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
-    private var sleepers: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var sleepers: [Sleeper] = []
 
     func sleep() async throws {
         try Task.checkCancellation()
         let id = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                sleepers[id] = continuation
+                sleepers.append(Sleeper(id: id, continuation: continuation))
                 arrivalCount += 1
                 let readyTargets = arrivalWaiters.keys.filter {
                     $0 <= arrivalCount
@@ -34,12 +39,22 @@ actor ControlledPastePreparationDeadlines {
     }
 
     func fireAll() {
-        let continuations = sleepers.values
+        let continuations = sleepers.map(\.continuation)
         sleepers.removeAll()
         continuations.forEach { $0.resume() }
     }
 
+    @discardableResult
+    func fireNext() -> Bool {
+        guard !sleepers.isEmpty else { return false }
+        sleepers.removeFirst().continuation.resume()
+        return true
+    }
+
     private func cancel(id: UUID) {
-        sleepers.removeValue(forKey: id)?.resume()
+        guard let index = sleepers.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        sleepers.remove(at: index).continuation.resume()
     }
 }

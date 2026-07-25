@@ -372,7 +372,7 @@ class GhosttyApp {
     /// The process-wide pasteboard service (was the `GhosttyPasteboardHelper`
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
-    /// The single bounded lane shared by terminal and composer paste preparation.
+    /// The bounded FIFO shared by terminal and composer paste preparation.
     static let terminalImageTransferPreparation = TerminalImageTransferPreparationService()
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
@@ -480,21 +480,6 @@ class GhosttyApp {
         return URL(fileURLWithPath: "/tmp/cmux-bg.log")
     }
 
-#if DEBUG
-    private static func debugDescription(
-        for preparedContent: TerminalImageTransferPreparedContent
-    ) -> String {
-        switch preparedContent {
-        case .insertText(let text):
-            return "insertText(length:\(text.utf8.count),hasNewlines:\(text.contains(where: \.isNewline) ? 1 : 0))"
-        case .fileURLs(let fileURLs):
-            return "fileURLs(count:\(fileURLs.count))"
-        case .reject:
-            return "reject"
-        }
-    }
-#endif
-
     fileprivate static func runtimeReadClipboardCallback(
         _ userdata: UnsafeMutableRawPointer?,
         _ location: ghostty_clipboard_e,
@@ -502,10 +487,30 @@ class GhosttyApp {
     ) -> Bool {
         guard let callbackContext = Self.callbackContext(from: userdata),
               let requestSurface = callbackContext.runtimeSurface else { return false }
+        let clipboardRequestID = UInt(bitPattern: state)
+        let beginClipboardReadOnDispatch = !Thread.isMainThread
+        if !beginClipboardReadOnDispatch {
+            MainActor.assumeIsolated {
+                callbackContext.surfaceView?.beginClipboardRead(
+                    clipboardRequestID
+                )
+            }
+        }
 
         DispatchQueue.main.async {
+            if beginClipboardReadOnDispatch {
+                callbackContext.surfaceView?.beginClipboardRead(
+                    clipboardRequestID
+                )
+            }
             func completeClipboardRequest(with text: String) {
                 let finish = {
+                    defer {
+                        callbackContext.surfaceView?.completeClipboardRead(
+                            clipboardRequestID,
+                            confirmed: false
+                        )
+                    }
                     guard callbackContext.runtimeSurface == requestSurface else { return }
                     // Remote tmux mirror panes need tmux to bracket the paste
                     // because the local manual-I/O surface cannot know the
@@ -547,7 +552,7 @@ class GhosttyApp {
                 cmuxDebugLog(
                     "terminal.clipboard.read surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
                     "types=\(pasteboardTypeDescription) " +
-                    "prepared=\(Self.debugDescription(for: preparedContent))"
+                    "prepared=\(preparedContent.cmuxDebugDescription)"
                 )
 #endif
 
@@ -871,13 +876,16 @@ class GhosttyApp {
             to: ghostty_runtime_read_clipboard_cb.self
         )
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
-            guard let content else { return }
-            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
-                  let surface = callbackContext.runtimeSurface else { return }
-
-            ghostty_surface_complete_clipboard_request(surface, content, state, true)
-            DispatchQueue.main.async {
-                callbackContext.terminalSurface?.noteClipboardReadCompleted()
+            guard let content,
+                  let callbackContext = GhosttyApp.callbackContext(from: userdata)
+            else { return }
+            // Ghostty invokes confirmation synchronously from cmux's
+            // main-actor clipboard completion above.
+            MainActor.assumeIsolated {
+                callbackContext.confirmClipboardRead(
+                    String(cString: content),
+                    stateAddress: UInt(bitPattern: state)
+                )
             }
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
@@ -3348,6 +3356,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
+    let terminalClipboardInputSequencer =
+        TerminalClipboardInputSequencer<NSEvent, UInt>(
+            maximumBufferedEvents: 256
+        )
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
@@ -4899,29 +4911,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func recordDirectAgentHibernationTerminalInput() {
-        guard let terminalSurface else { return }
-        recordAgentHibernationTerminalInput(
-            workspaceId: terminalSurface.tabId,
-            panelId: terminalSurface.id
-        )
-    }
-
-    // MARK: - Clipboard paste
-
-    @IBAction func paste(_ sender: Any?) {
-        guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
-        recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
-    }
-
-    /// Pastes clipboard text as plain text, stripping any rich formatting.
-    @IBAction func pasteAsPlainText(_ sender: Any?) {
-        guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
-        recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
-    }
-
     private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
         guard let keyEquivalent = shortcut.menuItemKeyEquivalent else {
             item.keyEquivalent = ""
@@ -5391,6 +5380,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -5862,6 +5852,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
@@ -5895,6 +5886,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         guard let surface = ensureSurfaceReadyForInput() else {
             super.flagsChanged(with: event)
             return
