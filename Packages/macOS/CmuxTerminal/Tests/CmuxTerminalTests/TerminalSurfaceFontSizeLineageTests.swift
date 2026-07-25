@@ -223,6 +223,93 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         #expect(!surfaceWasUpdated(runtimeSurface))
     }
 
+    @Test func liveAdjustmentUsesDurableMobileFitBase() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: 13,
+            fittedRuntimePointSize: 8
+        )
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(surface.adjustFontSize(byRuntimePoints: -1))
+        #expect(
+            try #require(surface.fontSizeLineageSnapshot())
+                == TerminalFontSizeLineage(
+                    basePoints: 12,
+                    isExplicitOverride: true
+                )
+        )
+        #expect(
+            surface.mobileViewportFontFitState
+                == MobileViewportFontFitState(
+                    baseRuntimePointSize: 12,
+                    fittedRuntimePointSize: 8
+                )
+        )
+    }
+
+    @Test func liveResetPreservesTemporaryMobileFit() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: 13,
+            fittedRuntimePointSize: 8
+        )
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(surface.resetFontSize(toConfiguredRuntimePoints: 14))
+        #expect(
+            try #require(surface.fontSizeLineageSnapshot())
+                == TerminalFontSizeLineage(
+                    basePoints: 14,
+                    isExplicitOverride: false
+                )
+        )
+        #expect(surface.sessionFontSizeOverrideBasePoints() == nil)
+        #expect(
+            surface.mobileViewportFontFitState
+                == MobileViewportFontFitState(
+                    baseRuntimePointSize: 14,
+                    fittedRuntimePointSize: 8
+                )
+        )
+    }
+
     @Test func staleRuntimePointerFallsBackToDurableLineageAdjustment() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: true)

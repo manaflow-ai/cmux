@@ -1741,6 +1741,210 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testWorkspaceTerminalFontSizeDrainAppliesToUnrelatedEnteringTerminal() {
+        let manager = TabManager()
+        guard let sourceWorkspace = manager.selectedWorkspace,
+              let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a source workspace pane")
+            return
+        }
+        let destinationWorkspace = manager.addTab(select: false)
+        guard let destinationPane =
+                destinationWorkspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a destination workspace pane")
+            return
+        }
+
+        let enteringPanel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        enteringPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard sourceWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: enteringPanel,
+                sourceWorkspaceId: sourceWorkspace.id
+            ),
+            inPane: sourcePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected an unrelated source terminal")
+            return
+        }
+
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: destinationWorkspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            guard destinationWorkspace.attachDetachedSurface(
+                makeDormantTerminalTransfer(
+                    panel: panel,
+                    sourceWorkspaceId: destinationWorkspace.id
+                ),
+                inPane: destinationPane,
+                focus: false
+            ) != nil else {
+                XCTFail("Expected a busy destination terminal")
+                return
+            }
+        }
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        defer { coordinator.cancelAll() }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: destinationWorkspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#endif
+
+        guard let detached = sourceWorkspace.detachSurface(
+            panelId: enteringPanel.id
+        ),
+        destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected the unrelated terminal to enter the destination")
+            return
+        }
+
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            enteringPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "An unrelated entering terminal must receive outstanding destination work"
+        )
+    }
+
+    func testWindowDockFontSizeDrainAppliesToUnrelatedEnteringTerminal() {
+        let manager = TabManager()
+        guard let requestedWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected a requested workspace")
+            return
+        }
+        let sourceWorkspace = manager.addTab(select: false)
+        guard let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected an unrelated source workspace pane")
+            return
+        }
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        guard let dockPane =
+                windowDock.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a window Dock pane")
+            return
+        }
+
+        let enteringPanel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        enteringPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard sourceWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: enteringPanel,
+                sourceWorkspaceId: sourceWorkspace.id
+            ),
+            inPane: sourcePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected an unrelated source terminal")
+            return
+        }
+
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: windowDock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            guard windowDock.attachDetachedSurface(
+                makeDormantTerminalTransfer(
+                    panel: panel,
+                    sourceWorkspaceId: windowDock.workspaceId
+                ),
+                inPane: dockPane,
+                focus: false
+            ) != nil else {
+                XCTFail("Expected a busy Dock terminal")
+                return
+            }
+        }
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: requestedWorkspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#endif
+
+        guard let detached = sourceWorkspace.detachSurface(
+            panelId: enteringPanel.id
+        ),
+        windowDock.attachDetachedSurface(
+            detached,
+            inPane: dockPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected the unrelated terminal to enter the Dock")
+            return
+        }
+
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            enteringPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "An unrelated entering terminal must receive outstanding Dock work"
+        )
+    }
+
     func testWorkspaceTerminalFontSizeDrainDoesNotDoubleApplyDockMove() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

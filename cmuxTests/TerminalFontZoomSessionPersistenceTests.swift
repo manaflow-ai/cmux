@@ -646,6 +646,66 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("terminal-free relative no-op does not cache configured lineage")
+    func terminalFreeRelativeNoOpClearsConfiguredFallback() throws {
+        let workspace = Workspace()
+        let terminalPanelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(
+            workspace.bonsplitController.focusedPaneId
+        )
+        _ = try #require(
+            workspace.newBrowserSurface(
+                inPane: paneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(workspace.closePanel(terminalPanelID, force: true))
+        #expect(
+            workspace
+                .lastRememberedTerminalFontSizeLineageForConfigInheritance()
+                == nil
+        )
+
+        let token = UUID()
+        let minimum = TerminalFontSizePolicy.minimumRuntimePoints
+        let change = WorkspaceTerminalFontSizeChange.relative([-1])
+        let context = workspace.beginTerminalFontSizeChangeInheritance(
+            token: token,
+            change: change,
+            configuredRuntimePoints: minimum
+        )
+        #expect(
+            context.fallbackLineage
+                == TerminalFontSizeLineage(
+                    basePoints: minimum,
+                    isExplicitOverride: false
+                )
+        )
+
+        workspace.completeTerminalFontSizeChange(
+            change,
+            participatingLineage: nil,
+            configuredRuntimePoints: minimum
+        )
+        workspace.endTerminalFontSizeChangeInheritance(token: token)
+
+        #expect(
+            workspace
+                .lastRememberedTerminalFontSizeLineageForConfigInheritance()
+                == nil
+        )
+        #expect(
+            TabManager()
+                .inheritedTerminalConfigForNewWorkspace(
+                    workspace: workspace
+                )?
+                .fontSizeLineage
+                == nil
+        )
+    }
+
     @Test("Dock terminal at the clamp bound still seeds first main terminal")
     func boundedWindowDockFontSizeAdjustmentSeedsFirstMainTerminal() throws {
         let workspace = Workspace()
