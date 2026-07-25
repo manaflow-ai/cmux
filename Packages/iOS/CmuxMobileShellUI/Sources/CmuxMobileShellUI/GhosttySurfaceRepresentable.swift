@@ -641,6 +641,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // height flows separately through `sizeThatFits`. Clear background so the
             // terminal/glass shows through.
             controller.view.backgroundColor = .clear
+            // Keyboard geometry is owned explicitly by the surface's frame math;
+            // opting out here prevents the hosted field from avoiding it a second time.
+            controller.safeAreaRegions = .container
             return controller
         }
 
@@ -677,7 +680,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             let width = max(1, surfaceView.bounds.width)
             let target = CGSize(width: width, height: .greatestFiniteMagnitude)
             let fitting = controller.sizeThatFits(in: target)
-            surfaceView.setComposerBandHeight(fitting.height, animated: animated)
+            let clampedHeight = min(
+                fitting.height,
+                floor(surfaceView.bounds.height * 0.45)
+            )
+            if clampedHeight < fitting.height {
+                MobileDebugLog.anchormux(
+                    "composer.bandHeightClamped measured=\(fitting.height) clamped=\(clampedHeight)"
+                )
+            }
+            surfaceView.setComposerBandHeight(clampedHeight, animated: animated)
         }
 
         /// Re-measure the open composer after a non-text layout change (rotation /
