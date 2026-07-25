@@ -2543,7 +2543,7 @@ impl ContextMenu {
     fn captured_resource(&self, action: MenuAction) -> Option<Option<MenuActionResource>> {
         self.captured_resources
             .iter()
-            .find_map(|(candidate, resource)| (*candidate == action).then_some(*resource))
+            .find_map(|(candidate, resource)| (*candidate == action).then(|| resource.clone()))
     }
 
     /// The item row at a screen cell. Border cells are dead chrome and
@@ -3057,9 +3057,12 @@ struct RenderedMenuLevel {
     resources: Arc<[Option<MenuActionResource>]>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum MenuActionResource {
     Surface(SurfaceId),
+    ManagedWorkspace { machine: MachineKey, id: String, version: u64 },
+    ProviderScope { machine: Option<MachineKey>, id: String },
+    ProviderAction { machine: Option<MachineKey>, id: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3259,7 +3262,7 @@ impl RenderedPointerFrame {
                         |_| {
                             (
                                 MenuPointerRegion::Item { depth, index },
-                                level.resources.get(index).copied().flatten(),
+                                level.resources.get(index).cloned().flatten(),
                             )
                         },
                     )
@@ -5410,7 +5413,9 @@ impl App {
         self.deferred_input_sequence = 0;
         self.rendered_pointer_frame = RenderedPointerFrame::default();
         self.pending_graphics_submission = None;
-        self.last_graphics_snapshot.clear();
+        // Retain the submitted graphics identity until the replacement
+        // session presents its first snapshot. An empty replacement must
+        // differ here so the writer emits delete commands for old images.
         self.pointer_route_phase = PointerRoutePhase::DrawPending;
         self.layout_refresh_retries_remaining = 0;
         self.background_refresh_attempts = 0;
@@ -5572,6 +5577,35 @@ impl App {
                 .pane(pane)
                 .and_then(|pane| pane.active_surface())
                 .map(MenuActionResource::Surface),
+            MenuAction::RestoreManagedWorkspace(index)
+            | MenuAction::PurgeManagedWorkspace(index) => {
+                let machine = self.machine_ui.as_ref()?.snapshot.active?;
+                self.machine_ui.as_ref()?.recoverable_workspaces().get(index).map(|workspace| {
+                    MenuActionResource::ManagedWorkspace {
+                        machine,
+                        id: workspace.id.clone(),
+                        version: workspace.version,
+                    }
+                })
+            }
+            MenuAction::SelectProviderScope(index) => {
+                let ui = self.machine_ui.as_ref()?;
+                ui.provider.as_ref()?.scopes.get(index).map(|scope| {
+                    MenuActionResource::ProviderScope {
+                        machine: ui.snapshot.active,
+                        id: scope.id.clone(),
+                    }
+                })
+            }
+            MenuAction::InvokeProviderAction(index) => {
+                let ui = self.machine_ui.as_ref()?;
+                ui.provider.as_ref()?.actions.get(index).map(|action| {
+                    MenuActionResource::ProviderAction {
+                        machine: ui.snapshot.active,
+                        id: action.id.clone(),
+                    }
+                })
+            }
             _ => None,
         }
     }
@@ -8797,6 +8831,7 @@ impl App {
                 level.ensure_selection_visible();
             }
             self.menu = Some(menu);
+            self.capture_menu_resources();
         }
     }
 
@@ -8819,6 +8854,7 @@ impl App {
             .collect::<Vec<_>>();
         if !items.is_empty() {
             self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
+            self.capture_menu_resources();
         }
     }
 
@@ -12064,6 +12100,10 @@ impl App {
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
         self.build_context_menu(x, y);
+        self.capture_menu_resources();
+    }
+
+    fn capture_menu_resources(&mut self) {
         let captured_resources = self.menu.as_ref().map(|menu| {
             menu.actions()
                 .into_iter()
