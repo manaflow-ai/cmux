@@ -266,6 +266,49 @@ struct RemoteCLIRelayServerTests {
         )
     }
 
+    @Test("unauthenticated relay sessions expire and release capacity")
+    func unauthenticatedSessionsExpireAndReleaseCapacity() throws {
+        let clock = ManualRetryClock()
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter(),
+            clock: clock
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var idleClients: [RelayTestClient] = []
+        defer {
+            for client in idleClients {
+                client.cancel()
+            }
+        }
+
+        for _ in 0..<RemoteCLIRelayServer.maximumConcurrentSessions {
+            let client = RelayTestClient(port: port)
+            idleClients.append(client)
+            #expect(client.wait { data, _ in data.contains(0x0A) })
+        }
+        #expect(
+            clock.waitForSleeps(
+                RemoteCLIRelayServer.maximumConcurrentSessions,
+                timeout: 1
+            ),
+            "Every pre-auth session must arm a bounded handshake deadline"
+        )
+        for _ in 0..<RemoteCLIRelayServer.maximumConcurrentSessions {
+            clock.fireOldestSleep()
+        }
+
+        let recoveredClient = RelayTestClient(port: port)
+        idleClients.append(recoveredClient)
+        #expect(
+            recoveredClient.wait(timeout: 2) { data, _ in data.contains(0x0A) },
+            "Expired unauthenticated sessions must release relay capacity"
+        )
+    }
+
     @Test("an invalid relay token hex is rejected at init (code 7)")
     func invalidTokenRejected() {
         #expect(throws: (any Error).self) {

@@ -121,19 +121,20 @@ struct AgentHookDeliveryQueueTests {
             payload: finalizePayload,
             surfaceID: "surface-a"
         )))
-        #expect(!queue.enqueue(try makeEvent(
+        #expect(queue.enqueue(try makeEvent(
             subcommand: "session-end",
             payload: #"{"session_id":"session-a","state":"ended"}"#,
             surfaceID: "surface-a"
         )))
 
         await probe.release(payload: activePayload)
-        try await probe.waitUntilCompleted(count: 4)
+        try await probe.waitUntilCompleted(count: 5)
         #expect(await probe.completedPayloads() == [
             activePayload,
             notificationPayload,
             needsInputPayload,
             finalizePayload,
+            #"{"session_id":"session-a","state":"ended"}"#,
         ])
     }
 
@@ -164,16 +165,27 @@ struct AgentHookDeliveryQueueTests {
             payload: "session-end-b",
             surfaceID: "surface-b"
         )))
-        #expect(!queue.enqueue(try makeEvent(
+        #expect(queue.enqueue(try makeEvent(
             subcommand: "session-end",
             payload: "session-end-c",
             surfaceID: "surface-c"
         )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: "session-end-d",
+            surfaceID: "surface-d"
+        )))
+        #expect(!queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: "session-end-overflow",
+            surfaceID: "surface-overflow"
+        )))
 
         await probe.release(payload: "active")
-        try await probe.waitUntilCompleted(count: 3)
+        try await probe.waitUntilCompleted(count: 5)
         #expect(await probe.completedPayloads() == [
-            "active", "stop-a", "session-end-b",
+            "active", "stop-a", "session-end-b", "session-end-c",
+            "session-end-d",
         ])
     }
 
