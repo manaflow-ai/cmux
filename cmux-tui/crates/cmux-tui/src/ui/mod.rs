@@ -213,6 +213,9 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
         Action::Detach,
     ];
     for action in actions {
+        if !app.action_available(action) {
+            continue;
+        }
         let Some(key) = app.config.keys.prefixed_key_label(action) else { continue };
         let key = format!(" {key} ");
         let label = format!(" {} ", catalog().action_label(action));

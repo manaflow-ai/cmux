@@ -9673,7 +9673,7 @@ mod tests {
     }
 
     #[test]
-    fn surface_session_subscription_tracks_real_tab_moves() {
+    fn surface_session_subscription_tracks_real_tab_moves_without_layout_churn() {
         let mux = test_mux();
         let source_workspace = mux.create_empty_workspace(None, None, None).unwrap();
         let target = mux
@@ -9719,7 +9719,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(layouts, vec![destination_screen]);
+        assert!(layouts.is_empty());
         mux.shutdown();
     }
 

@@ -4123,7 +4123,7 @@ pub fn run_with_machine_updates(
     }
 
     let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
-    if session_available {
+    if session_available && publishes_global_cell_metrics(surface_only) {
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
     let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
@@ -4866,7 +4866,9 @@ impl App {
             ));
         }
         if session_available {
-            self.session.set_cell_pixel_size(self.cell_pixels.0, self.cell_pixels.1);
+            if publishes_global_cell_metrics(self.surface_only) {
+                self.session.set_cell_pixel_size(self.cell_pixels.0, self.cell_pixels.1);
+            }
             self.session.apply_config(self.config.clone());
             self.session.refresh_clients_background();
         }
@@ -5458,7 +5460,9 @@ impl App {
             }
             self.cell_pixels = next;
             self.browser_input.clear_resize_failures();
-            self.session.set_cell_pixel_size(next.0, next.1);
+            if publishes_global_cell_metrics(self.surface_only) {
+                self.session.set_cell_pixel_size(next.0, next.1);
+            }
         }
     }
 
@@ -10686,7 +10690,7 @@ impl App {
             .collect()
     }
 
-    fn action_available(&self, action: Action) -> bool {
+    pub(crate) fn action_available(&self, action: Action) -> bool {
         action_available_in_mode(action, self.surface_only.is_some())
     }
 
@@ -11140,17 +11144,25 @@ fn browser_only_action(action: Action) -> bool {
     )
 }
 
+fn publishes_global_cell_metrics(surface_only: Option<SurfaceId>) -> bool {
+    surface_only.is_none()
+}
+
 fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
     !surface_only
-        || !matches!(
+        || matches!(
             action,
-            Action::NewTab
-                | Action::NewBrowserTab
-                | Action::NewPaneSmart
-                | Action::SplitRight
-                | Action::SplitDown
-                | Action::NewScreen
-                | Action::NewWorkspace
+            Action::SendPrefix
+                | Action::CloseTab
+                | Action::RenameTab
+                | Action::ScrollUp
+                | Action::ScrollDown
+                | Action::BrowserBack
+                | Action::BrowserForward
+                | Action::BrowserReload
+                | Action::BrowserEditUrl
+                | Action::ShowShortcuts
+                | Action::Detach
         )
 }
 

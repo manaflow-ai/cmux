@@ -149,7 +149,10 @@ impl SurfaceSessionScope {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }
             MuxEvent::TreeDelta(delta) => self.accepts_tree_delta(delta),
-            MuxEvent::LayoutChanged(screen) => *screen == self.screen,
+            // A surface-only client always renders its target across the full
+            // host terminal. Screen layout churn therefore carries no useful
+            // state and would only force repeated whole-tree refreshes.
+            MuxEvent::LayoutChanged(_) => false,
             MuxEvent::ClientAttached { .. }
             | MuxEvent::ClientChanged { .. }
             | MuxEvent::ClientDetached(_)
