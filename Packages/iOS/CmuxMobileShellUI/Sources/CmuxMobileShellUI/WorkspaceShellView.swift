@@ -549,7 +549,10 @@ struct WorkspaceShellView: View {
 
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            MobilePrimaryWorkspaceSearchHost(searchCoordinator: primarySearchCoordinator) { searchText in
+            MobilePrimaryWorkspaceSearchHost(
+                searchCoordinator: primarySearchCoordinator,
+                taskComposerAction: taskComposerAction
+            ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: searchText,
@@ -804,7 +807,7 @@ struct WorkspaceShellView: View {
     private var showsTaskComposerButtonOverlay: Bool {
         guard displaySettings.taskComposerEnabled else { return false }
         if #available(iOS 26.0, *) {
-            return !usesCompactStack
+            return false
         }
         return true
     }
