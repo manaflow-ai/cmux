@@ -18,7 +18,7 @@ use tokio::sync::{Mutex, OnceCell, Semaphore, mpsc, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
-use crate::link::FrameLink;
+use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LengthDelimitedLink, LinkGroup, LinkRequest,
@@ -501,9 +501,10 @@ async fn connect_iroh_connection(
     alpn: &[u8],
 ) -> Result<::iroh::endpoint::Connection, ProviderError> {
     let remote_node_id = node_addr.id;
-    let connection = endpoint.connect(node_addr.clone(), alpn).await.map_err(|_| {
-        ProviderError::Transport(format!("could not connect to Iroh node {remote_node_id}"))
-    })?;
+    let connection = endpoint
+        .connect(node_addr.clone(), alpn)
+        .await
+        .map_err(|_| iroh_connect_error(remote_node_id))?;
     let authenticated_node_id = connection.remote_id();
     if authenticated_node_id != remote_node_id {
         connection.close(1_u8.into(), b"unexpected Iroh peer identity");
@@ -512,6 +513,12 @@ async fn connect_iroh_connection(
         )));
     }
     Ok(connection)
+}
+
+fn iroh_connect_error(remote_node_id: NodeId) -> ProviderError {
+    ProviderError::Link(LinkError::Transport(format!(
+        "could not connect to Iroh node {remote_node_id}"
+    )))
 }
 
 #[async_trait]
