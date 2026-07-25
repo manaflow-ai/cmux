@@ -260,7 +260,11 @@ extension PortalSplitDividerRegion {
     static func structureSnapshotsMatch(_ snapshots: [PortalStructureSnapshot]) -> Bool {
         for snapshot in snapshots {
             guard let view = snapshot.view else { return false }
-            if view.subviews.map(ObjectIdentifier.init) != snapshot.subviewIds { return false }
+            let subviews = view.subviews
+            guard subviews.count == snapshot.subviewIds.count,
+                  zip(subviews, snapshot.subviewIds).allSatisfy({ ObjectIdentifier($0.0) == $0.1 }) else {
+                return false
+            }
         }
         return true
     }
