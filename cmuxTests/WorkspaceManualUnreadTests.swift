@@ -1796,12 +1796,16 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         // stays off because the snapshot's unread notification comes back instead.
         XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
         XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        // One notification plus the manual workspace indicator: the combined badge count
+        // must be 2, or a regression in either contribution passes unnoticed.
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 2)
 
         restored.markPanelRead(restoredPanelId)
 
         XCTAssertFalse(restored.manualUnreadPanelIds.contains(restoredPanelId))
         XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
         XCTAssertFalse(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 0)
     }
 
     func testSessionRestorePreservesFocusedReadIndicator() throws {
