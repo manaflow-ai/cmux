@@ -676,10 +676,8 @@ struct WorkspaceShellView: View {
     private var workspaceShellRenderPresentation: WorkspaceShellRenderPresentation {
         let scope = macSelectionScope
         let selectedMachineIDs = scope.selectedMachineIDs
-        let allNotificationFeedItems = store.notificationFeedItems
-        var visibleNotificationFeedItems: [MobileNotificationFeedItem] = []
-        visibleNotificationFeedItems.reserveCapacity(allNotificationFeedItems.count)
-        var notificationUnreadCount = 0
+        let visibleNotificationFeedItems = store.notificationFeedItems(scopedTo: selectedMachineIDs)
+        let notificationUnreadCount = visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
         var names: [String: String] = [:]
         for workspace in store.workspaces {
             if let id = workspace.macDeviceID,
@@ -688,14 +686,9 @@ struct WorkspaceShellView: View {
                 names[id] = name
             }
         }
-        for item in allNotificationFeedItems {
+        for item in store.notificationFeedItems {
             if !item.macDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 names[item.macDeviceID] = item.macDisplayName
-            }
-            guard selectedMachineIDs?.contains(item.macDeviceID) ?? true else { continue }
-            visibleNotificationFeedItems.append(item)
-            if !item.isRead {
-                notificationUnreadCount += 1
             }
         }
         for device in store.deviceTreeDevices {

@@ -72,6 +72,28 @@ extension MobileShellComposite {
         return .unavailable
     }
 
+    /// Builds a computer-picker-scoped feed from the retained source snapshots
+    /// before applying the global row cap. Filtering the already-capped global
+    /// feed can hide an entire Mac when another Mac owns the newest retained
+    /// rows.
+    public func notificationFeedItems(
+        scopedTo macDeviceIDs: Set<String>?
+    ) -> [MobileNotificationFeedItem] {
+        guard let macDeviceIDs, !macDeviceIDs.isEmpty else {
+            return notificationFeedItems
+        }
+        let projected = notificationFeedSnapshotsByMac.compactMap {
+            entry -> MobileNotificationFeedSourceSnapshot? in
+            let macDeviceID = entry.key
+            guard macDeviceIDs.contains(macDeviceID) else { return nil }
+            return MobileNotificationFeedSourceSnapshot(
+                items: entry.value.items,
+                connectionStatus: notificationFeedConnectionStatus(for: macDeviceID)
+            )
+        }
+        return notificationFeedAggregation.items(from: projected)
+    }
+
     /// Marks one notification read on its owning Mac and reconciles the local snapshot.
     /// - Parameter item: The immutable feed item selected by the user.
     public func markNotificationFeedItemRead(_ item: MobileNotificationFeedItem) async {
