@@ -25,8 +25,11 @@ final class MarkdownSurfaceModel {
     private(set) var phase: Phase = .loading
     private(set) var fetchedBytes: Int64 = 0
     private(set) var totalBytes: Int64?
-    /// The path the current phase describes, so stale loads never publish.
-    private var activePath: String?
+    /// Generation of the newest `load` call. A restarted load for the SAME
+    /// path (retry, title churn) must also invalidate in-flight chunks from
+    /// the superseded stream, so staleness is guarded by generation rather
+    /// than path equality.
+    private var loadGeneration: UInt64 = 0
     private var collected = Data()
 
     /// Stats, streams, and decodes the panel's markdown file.
@@ -34,7 +37,8 @@ final class MarkdownSurfaceModel {
     /// UTF-8 with an ISO-Latin-1 fallback (`MacSurfaceTextDecoder`), so any
     /// byte payload within the preview size limit renders as text.
     func load(path: String, loader: ChatArtifactLoader) async {
-        activePath = path
+        loadGeneration &+= 1
+        let generation = loadGeneration
         phase = .loading
         fetchedBytes = 0
         totalBytes = nil
@@ -42,7 +46,7 @@ final class MarkdownSurfaceModel {
         do {
             let stat = try await loader.stat(path: path)
             try Task.checkCancellation()
-            guard path == activePath else { return }
+            guard generation == loadGeneration else { return }
             totalBytes = stat.size
             let limit = ChatArtifactTransferPolicy.defaultPolicy.maxPreviewBytes
             guard stat.size <= limit else {
@@ -55,22 +59,22 @@ final class MarkdownSurfaceModel {
                 size: stat.size
             ) { chunk in
                 try Task.checkCancellation()
-                await self.receive(chunk, path: path)
+                await self.receive(chunk, generation: generation)
             }
             try Task.checkCancellation()
-            guard path == activePath else { return }
+            guard generation == loadGeneration else { return }
             phase = .loaded(text: MacSurfaceTextDecoder.decode(collected).text)
             collected = Data()
         } catch is CancellationError {
             return
         } catch {
-            guard !Task.isCancelled, path == activePath else { return }
+            guard !Task.isCancelled, generation == loadGeneration else { return }
             phase = .failed(Self.failure(for: error))
         }
     }
 
-    private func receive(_ chunk: ChatArtifactChunk, path: String) {
-        guard path == activePath else { return }
+    private func receive(_ chunk: ChatArtifactChunk, generation: UInt64) {
+        guard generation == loadGeneration else { return }
         collected.append(chunk.data)
         totalBytes = chunk.totalSize
         fetchedBytes = chunk.eof

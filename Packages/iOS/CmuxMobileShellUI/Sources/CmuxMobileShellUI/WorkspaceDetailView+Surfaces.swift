@@ -65,7 +65,7 @@ extension WorkspaceDetailView {
         let renderer = MacSurfaceRenderer.resolve(
             surface: macSurface,
             supportsTodo: store.supportsTodo(in: workspace.id),
-            supportsPanelArtifacts: store.supportsPanelArtifacts
+            supportsPanelArtifacts: store.supportsPanelArtifacts(in: workspace.id)
         )
         let openOnMac: () async -> Bool = { [store, workspaceID = workspace.id, surfaceID = macSurface.id] in
             await store.focusSurfaceOnMac(workspaceID: workspaceID, surfaceID: surfaceID)
