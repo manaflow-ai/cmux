@@ -13291,7 +13291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
         )
         let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
-        let globalSearchIsVisible = GlobalSearchCoordinator.shared.isPaletteVisible()
+        let globalSearchUnarmedChordPrefixMatches = globalSearchShortcut.hasChord
+            && activeConfiguredShortcutChordPrefixForCurrentEvent == nil
+            && matchShortcutStroke(event: event, stroke: globalSearchShortcut.firstStroke)
+        let globalSearchIsVisible = (matchesGlobalSearchShortcut || globalSearchUnarmedChordPrefixMatches)
+            && GlobalSearchCoordinator.shared.isPaletteVisible()
         if matchesGlobalSearchShortcut,
            activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteCanRouteUnarmedGlobalSearch
             || globalSearchIsVisible {
@@ -13299,8 +13303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             toggleGlobalSearchPalette()
             return true
         }
-        if globalSearchShortcut.hasChord,
-           activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+        if globalSearchUnarmedChordPrefixMatches,
            commandPaletteCanRouteUnarmedGlobalSearch || globalSearchIsVisible {
             if globalSearchIsVisible, GlobalSearchKeyEvent(event).queryOwnsEditingShortcut { return false }
             if globalSearchShortcutWhenClauseAllows(event: event),
@@ -15205,10 +15208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(
-        event: NSEvent,
-        shortcut: StoredShortcut
-    ) -> Bool {
+    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
