@@ -204,7 +204,7 @@ extension FeedCoordinatorTests {
         }
     }
 
-    @Test func positiveTimeoutReturnsCommittedAcknowledgmentWhenAcceptanceCallbackStalls() async {
+    @Test func positiveTimeoutReturnsAuthoritativeEventWhenMainActorCallbackStalls() async {
         await MainActor.run {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
         }
@@ -220,17 +220,17 @@ extension FeedCoordinatorTests {
         )
 
         let resultTask = Task.detached {
-            let result = FeedCoordinator.shared.ingestBlocking(
+            let outcome = FeedCoordinator.shared.ingestBlockingWithOutcome(
                 event: event,
                 waitTimeout: 0.05,
-                onAccepted: { _ in
+                onAcceptedOnMainActor: { _ in
                     callbackStarted.signal()
-                    releaseCallback.wait()
+                    _ = releaseCallback.wait(timeout: .now() + 2)
                     callbackFinished.signal()
                 }
             )
             callerReturned.signal()
-            return result
+            return outcome
         }
 
         #expect(callbackStarted.wait(timeout: .now() + 1) == .success)
@@ -243,13 +243,15 @@ extension FeedCoordinatorTests {
         #expect(returnedAtDeadline == .success)
         #expect(
             callbackFinished.wait(timeout: .now()) == .timedOut,
-            "the authoritative acknowledgment must not wait for stalled publication"
+            "the authoritative outcome must not wait for a stalled main-actor callback"
         )
-        guard case .acknowledged(let itemId) = await resultTask.value else {
+        let outcome = await resultTask.value
+        guard case .acknowledged(let itemId) = outcome.result else {
             Issue.record("positive-timeout Feed ingress did not acknowledge the committed event")
             return
         }
         #expect(itemId != nil)
+        #expect(outcome.authoritativeEvent == event)
         releaseCallback.signal()
         #expect(callbackFinished.wait(timeout: .now() + 1) == .success)
     }
