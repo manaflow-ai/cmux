@@ -260,6 +260,8 @@ final class NotificationFeedHistoryStore {
         readRetentionLimit: Int,
         totalRetentionLimit: Int
     ) -> MutationResult {
+        let originalRecords = records
+        let originalReadRecordCount = readRecordCount
         var result = MutationResult()
         switch mutation {
         case .record(let record, let supersededIDs):
@@ -275,7 +277,10 @@ final class NotificationFeedHistoryStore {
 
         case .reconcileActive(let activeRecords):
             var knownIDs = Set(records.map(\.id))
-            for record in activeRecords where knownIDs.insert(record.id).inserted {
+            for record in retainableActiveRecords(
+                activeRecords,
+                totalRetentionLimit: totalRetentionLimit
+            ) where knownIDs.insert(record.id).inserted {
                 insert(record, in: &records)
                 if record.isRead { readRecordCount += 1 }
                 result.changed = true
@@ -344,8 +349,21 @@ final class NotificationFeedHistoryStore {
                 readRecordCount: &readRecordCount,
                 totalRetentionLimit: totalRetentionLimit
             )
+            if records == originalRecords,
+               readRecordCount == originalReadRecordCount {
+                result.changed = false
+            }
         }
         return result
+    }
+
+    private static func retainableActiveRecords(
+        _ records: [NotificationFeedHistoryRecord],
+        totalRetentionLimit: Int
+    ) -> [NotificationFeedHistoryRecord] {
+        guard totalRetentionLimit > 0 else { return [] }
+        guard records.count > totalRetentionLimit else { return records }
+        return Array(records.sorted(by: recordPrecedes).prefix(totalRetentionLimit))
     }
 
     private static func insertOrReplace(

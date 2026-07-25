@@ -106,6 +106,37 @@ struct NotificationFeedHistoryTests {
         #expect(history.notifications.allSatisfy { !$0.isRead })
     }
 
+    @Test func oversizedActiveReconcileDoesNotChurnRevisionAfterRetentionTrim() {
+        var revisions: [Int] = []
+        let history = NotificationFeedHistoryStore(
+            fileURL: nil,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3
+        ) { revision in
+            revisions.append(revision)
+        }
+        let workspaceID = UUID()
+        let baseDate = Date(timeIntervalSince1970: 1_200)
+        let active = (0..<5).map { offset in
+            notification(
+                workspaceID: workspaceID,
+                title: "Active \(offset)",
+                date: baseDate.addingTimeInterval(Double(offset)),
+                isRead: false
+            )
+        }
+
+        history.reconcileActiveNotifications(active)
+        let retainedTitles = history.notifications.map(\.title)
+        let retainedRevision = history.revision
+        history.reconcileActiveNotifications(active)
+
+        #expect(retainedTitles == ["Active 4", "Active 3", "Active 2"])
+        #expect(history.notifications.map(\.title) == retainedTitles)
+        #expect(history.revision == retainedRevision)
+        #expect(revisions == [1])
+    }
+
     @Test func loadingOversizedHistoryPersistsCompactedSnapshot() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-compaction-\(UUID().uuidString)", isDirectory: true)

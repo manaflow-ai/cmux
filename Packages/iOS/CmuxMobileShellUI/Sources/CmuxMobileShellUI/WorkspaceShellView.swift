@@ -390,7 +390,9 @@ struct WorkspaceShellView: View {
                 projection: notificationFeedProjection
             )
             .toolbar {
-                rootToolbarContent
+                if notificationSearchNavigationPath.isEmpty {
+                    rootToolbarContent
+                }
             }
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
