@@ -373,6 +373,10 @@ class GhosttyApp {
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
 
+    /// Serializes terminal clipboard confirmation sheets across all surfaces.
+    @MainActor
+    static let terminalClipboardAccessPrompter = TerminalClipboardAccessPrompter()
+
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -878,7 +882,7 @@ class GhosttyApp {
                 TerminalClipboardRuntimeBridge.handleReadConfirmation(
                     contents: requestedContents,
                     window: callbackContext.surfaceView?.window,
-                    requester: TerminalClipboardAccessPrompter.shared
+                    requester: GhosttyApp.terminalClipboardAccessPrompter
                 ) { contents, confirmed in
                     guard callbackContext.runtimeSurface == requestSurface else { return }
                     let statePointer = stateBits == 0
@@ -932,7 +936,7 @@ class GhosttyApp {
                     contents: contents,
                     requiresConfirmation: true,
                     window: callbackContext.surfaceView?.window,
-                    requester: TerminalClipboardAccessPrompter.shared
+                    requester: GhosttyApp.terminalClipboardAccessPrompter
                 ) {
                     guard callbackContext.runtimeSurface == requestSurface else { return }
                     GhosttyApp.terminalPasteboard.writeString(contents, to: location)

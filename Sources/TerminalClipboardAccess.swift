@@ -119,8 +119,6 @@ enum TerminalClipboardAccessPromptText {
 
 @MainActor
 final class TerminalClipboardAccessPrompter: TerminalClipboardAccessRequesting {
-    static let shared = TerminalClipboardAccessPrompter()
-
     private final class PendingApproval {
         let operation: TerminalClipboardAccessOperation
         let contents: String
