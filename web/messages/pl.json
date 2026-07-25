@@ -3572,7 +3572,7 @@
     "sharedBy": "udostępnione przez {email}",
     "reconnecting": "ponowne łączenie…",
     "hostDisconnected": "host rozłączony",
-    "roleEditor": "może edytować",
+    "roleEditor": "może pisać w terminalach",
     "roleViewer": "tylko do odczytu",
     "participants": "Uczestnicy",
     "hostBadge": "host",

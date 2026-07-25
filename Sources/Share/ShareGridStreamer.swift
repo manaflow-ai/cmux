@@ -4,49 +4,59 @@ import CmuxWorkspaceShare
 import Foundation
 import os
 
-nonisolated private let shareGridStreamerLogger = Logger(
+nonisolated private let shareTerminalStreamerLogger = Logger(
     subsystem: "com.cmuxterm.app",
-    category: "WorkspaceShareGrid"
+    category: "WorkspaceShareTerminal"
 )
 
-/// Streams per-pane render-grid frames to the share socket, but only for
-/// panes with at least one subscribed guest (driven by `guest-sub` messages).
-/// Mirrors `MobileTerminalRenderObserver`: Ghostty frame/tick notification
-/// demand is retained only while any pane is subscribed, updates coalesce per
-/// runloop hop, and per-surface emission state drives full-vs-delta frames.
+/// Streams one authoritative terminal byte stream per subscribed pane.
+///
+/// A complete synthesized VT baseline gives xterm a cold-attach state. Every
+/// subsequent output frame is the exact PTY byte sequence observed by the Mac.
+/// Sequence gaps, runtime replacement, geometry changes, theme changes, and
+/// alternate-screen transitions all force a new baseline and epoch.
 @MainActor
 final class ShareGridStreamer {
-    /// Encoded binary grid frame ready for the socket.
+    /// Canonical `CMXS` frame ready for the bounded share socket mailbox.
     var sendBinary: ((Data) -> Bool)?
 
-    private struct PaneSubscription {
-        var ws: String
-        var count: Int
+    private struct RenderSignature: Equatable {
+        let runtimeGeneration: UInt64
+        let rows: Int
+        let columns: Int
+        let activeScreen: MobileTerminalRenderGridFrame.Screen
     }
 
-    /// Keyed by the pane's surface UUID (`TerminalSurface.id`).
-    private var subscriptionsBySurfaceID: [UUID: PaneSubscription] = [:]
+    private final class PaneStream {
+        var workspaceID: String
+        var subscriberCount: Int
+        var streamEpoch = UUID()
+        var nextSequence: UInt64?
+        var renderSignature: RenderSignature?
+        var needsBaseline = true
+        var outputTaskID = UUID()
+        var outputTask: Task<Void, Never>?
 
+        init(workspaceID: String, subscriberCount: Int) {
+            self.workspaceID = workspaceID
+            self.subscriberCount = subscriberCount
+        }
+    }
+
+    private static let baselineScrollbackBudgets = [
+        1_000, 500, 250, 125, 64, 32, 16, 8, 0,
+    ]
+    private static let maximumOutputPayloadBytes = 64 * 1_024
+
+    /// Keyed by `TerminalSurface.id`.
+    private var streamsBySurfaceID: [UUID: PaneStream] = [:]
     private var releaseFrameDemand: (() -> Void)?
     private var releaseTickDemand: (() -> Void)?
     private var observers: [NSObjectProtocol] = []
     private var pendingSurfaceIDs = Set<UUID>()
     private var hasPendingGlobalUpdate = false
-    private var pendingThemeSurfaceIDs = Set<UUID>()
-    private var hasPendingThemeInvalidation = false
-    private var isEmitFlushScheduled = false
-    private var emitFlushTask: Task<Void, Never>?
-    private var emissionStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
-    private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
-    private var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
-    private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
-    private var cachedTerminalTheme: TerminalTheme = .monokai
-    private var hasLoadedTerminalTheme = false
-    private var terminalThemeRevision: UInt64 = 0
-    private lazy var themeInvalidationScheduler = MobileTerminalThemeInvalidationScheduler {
-        [weak self] surfaceIDs in
-        self?.enqueueCoalescedThemeUpdates(surfaceIDs)
-    }
+    private var isFlushScheduled = false
+    private var flushTask: Task<Void, Never>?
 
     func start() {
         guard observers.isEmpty else { return }
@@ -57,44 +67,46 @@ final class ShareGridStreamer {
         ) { [weak self] notification in
             MainActor.assumeIsolated {
                 guard let view = notification.object as? GhosttyNSView,
-                      let surfaceID = view.terminalSurface?.id else { return }
+                      let surfaceID = view.terminalSurface?.id else {
+                    return
+                }
                 self?.enqueueUpdate(surfaceID: surfaceID)
             }
         })
-        // Tick notifications cover surfaces whose window is off screen (a
-        // background workspace driven by output still updates its guests).
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidTick,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                MobileTerminalByteTee.shared.noteRawOutputPostParseTick()
                 self?.enqueueUpdate(surfaceID: nil)
             }
         })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDefaultBackgroundDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.invalidateTerminalThemes() }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyConfigDidReload,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.invalidateTerminalThemes() }
-        })
+        for name in [
+            Notification.Name.ghosttyDefaultBackgroundDidChange,
+            .ghosttyConfigDidReload,
+        ] {
+            observers.append(NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.requestBaselinesForAllPanes()
+                }
+            })
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttySurfaceThemeDidChange,
             object: nil,
             queue: .main
         ) { [weak self] notification in
             MainActor.assumeIsolated {
-                guard let self, let surfaceID = notification.object as? UUID else { return }
-                guard self.subscriptionsBySurfaceID[surfaceID] != nil else { return }
-                self.themeInvalidationScheduler.schedule(surfaceID: surfaceID)
+                guard let surfaceID = notification.object as? UUID else {
+                    return
+                }
+                self?.requestBaseline(surfaceID: surfaceID)
             }
         })
     }
@@ -104,17 +116,16 @@ final class ShareGridStreamer {
             NotificationCenter.default.removeObserver(observer)
         }
         observers.removeAll()
-        subscriptionsBySurfaceID.removeAll()
+        for stream in streamsBySurfaceID.values {
+            stream.outputTask?.cancel()
+        }
+        streamsBySurfaceID.removeAll()
         refreshNotificationDemand()
-        themeInvalidationScheduler.cancel()
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
-        hasPendingThemeInvalidation = false
-        pendingThemeSurfaceIDs.removeAll()
-        isEmitFlushScheduled = false
-        emitFlushTask?.cancel()
-        emitFlushTask = nil
-        clearEmissionCaches()
+        isFlushScheduled = false
+        flushTask?.cancel()
+        flushTask = nil
     }
 
     deinit {
@@ -123,39 +134,67 @@ final class ShareGridStreamer {
         }
         releaseFrameDemand?()
         releaseTickDemand?()
-        emitFlushTask?.cancel()
+        flushTask?.cancel()
+        for stream in streamsBySurfaceID.values {
+            stream.outputTask?.cancel()
+        }
     }
 
-    /// Applies a `guest-sub` update. Any count increase (including 0 -> N)
-    /// forces a fresh full frame with theme: grid deltas need continuity, so
-    /// a new subscriber must never start mid-delta-stream.
+    /// Applies the authoritative aggregate count from `guest-sub`.
+    ///
+    /// An increased count emits a replacement baseline because a newly
+    /// subscribed guest cannot safely begin in the middle of an output stream.
     func setSubscriberCount(ws: String, pane: String, count: Int) {
         guard let surfaceID = UUID(uuidString: pane) else { return }
-        let previous = subscriptionsBySurfaceID[surfaceID]?.count ?? 0
+        let previousCount = streamsBySurfaceID[surfaceID]?.subscriberCount ?? 0
         if count <= 0 {
-            subscriptionsBySurfaceID.removeValue(forKey: surfaceID)
-            clearEmissionCache(surfaceID: surfaceID)
+            streamsBySurfaceID.removeValue(forKey: surfaceID)?.outputTask?.cancel()
+            pendingSurfaceIDs.remove(surfaceID)
+            refreshNotificationDemand()
+            return
+        }
+
+        let stream: PaneStream
+        if let existing = streamsBySurfaceID[surfaceID] {
+            stream = existing
+            stream.workspaceID = ws
+            stream.subscriberCount = count
         } else {
-            subscriptionsBySurfaceID[surfaceID] = PaneSubscription(ws: ws, count: count)
+            stream = PaneStream(workspaceID: ws, subscriberCount: count)
+            streamsBySurfaceID[surfaceID] = stream
         }
+        startOutputTaskIfNeeded(surfaceID: surfaceID, stream: stream)
         refreshNotificationDemand()
-        if count > previous {
-            emitFullFrame(surfaceID: surfaceID)
+        if count > previousCount {
+            requestBaseline(surfaceID: surfaceID)
         }
     }
 
-    /// Re-sends full frames for every subscribed pane (post-`resync`).
+    /// Replaces every subscribed xterm after a socket or Durable Object resync.
     func resendFullFrames() {
-        for surfaceID in subscriptionsBySurfaceID.keys {
-            emitFullFrame(surfaceID: surfaceID)
-        }
+        requestBaselinesForAllPanes()
     }
 
-    private var hasAnySubscribers: Bool { !subscriptionsBySurfaceID.isEmpty }
+    /// Replaces one currently subscribed xterm after that guest detected a
+    /// sequence gap or remounted its parser.
+    @discardableResult
+    func resendFullFrame(ws: String, pane: String) -> Bool {
+        guard let surfaceID = UUID(uuidString: pane),
+              let stream = streamsBySurfaceID[surfaceID],
+              stream.workspaceID == ws,
+              stream.subscriberCount > 0 else {
+            return false
+        }
+        requestBaseline(surfaceID: surfaceID)
+        return true
+    }
+
+    private var hasSubscribers: Bool {
+        !streamsBySurfaceID.isEmpty
+    }
 
     private func refreshNotificationDemand() {
-        if hasAnySubscribers {
-            if !hasLoadedTerminalTheme { refreshTerminalTheme() }
+        if hasSubscribers {
             if releaseFrameDemand == nil {
                 releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
             }
@@ -167,186 +206,315 @@ final class ShareGridStreamer {
             releaseFrameDemand = nil
             releaseTickDemand?()
             releaseTickDemand = nil
-            pendingSurfaceIDs.removeAll()
-            hasPendingGlobalUpdate = false
-            hasPendingThemeInvalidation = false
-            pendingThemeSurfaceIDs.removeAll()
-            themeInvalidationScheduler.cancel()
-            clearEmissionCaches()
-            hasLoadedTerminalTheme = false
         }
     }
 
+    private func startOutputTaskIfNeeded(
+        surfaceID: UUID,
+        stream: PaneStream
+    ) {
+        guard stream.outputTask == nil,
+              GhosttyApp.terminalSurfaceRegistry.terminalSurface(
+                id: surfaceID
+              ) != nil else {
+            return
+        }
+        let updates = MobileTerminalByteTee.shared.outputUpdates(
+            surfaceID: surfaceID
+        )
+        let taskID = UUID()
+        stream.outputTaskID = taskID
+        stream.outputTask = Task { @MainActor [weak self] in
+            for await chunk in updates {
+                guard !Task.isCancelled else { return }
+                self?.receiveOutput(
+                    chunk,
+                    surfaceID: surfaceID,
+                    taskID: taskID
+                )
+            }
+            guard !Task.isCancelled else { return }
+            self?.outputTaskEnded(surfaceID: surfaceID, taskID: taskID)
+        }
+    }
+
+    private func outputTaskEnded(surfaceID: UUID, taskID: UUID) {
+        guard let stream = streamsBySurfaceID[surfaceID],
+              stream.outputTaskID == taskID else {
+            return
+        }
+        stream.outputTask = nil
+        requestBaseline(surfaceID: surfaceID)
+        startOutputTaskIfNeeded(surfaceID: surfaceID, stream: stream)
+    }
+
+    private func receiveOutput(
+        _ chunk: MobileTerminalByteTee.OutputChunk,
+        surfaceID: UUID,
+        taskID: UUID
+    ) {
+        guard let stream = streamsBySurfaceID[surfaceID],
+              stream.outputTaskID == taskID,
+              !chunk.data.isEmpty else {
+            return
+        }
+        guard !stream.needsBaseline, let expected = stream.nextSequence else {
+            // The next post-parser tick captures these bytes in the baseline.
+            GhosttyApp.shared.scheduleTick()
+            return
+        }
+        let (chunkEnd, overflow) = chunk.sequence.addingReportingOverflow(
+            UInt64(chunk.data.count)
+        )
+        guard !overflow else {
+            requestBaseline(surfaceID: surfaceID)
+            return
+        }
+        if chunkEnd <= expected {
+            return
+        }
+        guard chunk.sequence <= expected else {
+            requestBaseline(surfaceID: surfaceID)
+            return
+        }
+        let offset = Int(expected - chunk.sequence)
+        sendOutput(
+            Data(chunk.data.dropFirst(offset)),
+            startingAt: expected,
+            surfaceID: surfaceID,
+            stream: stream
+        )
+    }
+
+    private func sendOutput(
+        _ data: Data,
+        startingAt start: UInt64,
+        surfaceID: UUID,
+        stream: PaneStream
+    ) {
+        var offset = 0
+        var sequence = start
+        while offset < data.count {
+            let count = min(
+                Self.maximumOutputPayloadBytes,
+                data.count - offset
+            )
+            let payload = Data(data[offset..<(offset + count)])
+            let (end, overflow) = sequence.addingReportingOverflow(
+                UInt64(count)
+            )
+            guard !overflow,
+                  let frame = try? WorkspaceShareTerminalFrame(
+                      kind: .output,
+                      streamEpoch: stream.streamEpoch,
+                      sequenceStart: sequence,
+                      sequenceEnd: end,
+                      rows: 0,
+                      columns: 0,
+                      workspaceID: stream.workspaceID,
+                      paneID: surfaceID.uuidString,
+                      userID: nil,
+                      bytes: payload
+                  ),
+                  let encoded = try? frame.encoded(),
+                  sendBinary?(encoded) == true else {
+                requestBaseline(surfaceID: surfaceID)
+                shareTerminalStreamerLogger.warning(
+                    "Raw terminal output was rejected before transport admission"
+                )
+                return
+            }
+            stream.nextSequence = end
+            sequence = end
+            offset += count
+        }
+    }
+
+    private func requestBaselinesForAllPanes() {
+        guard hasSubscribers else { return }
+        for surfaceID in streamsBySurfaceID.keys {
+            markBaselineNeeded(surfaceID: surfaceID)
+        }
+        GhosttyApp.shared.scheduleTick()
+    }
+
+    private func requestBaseline(surfaceID: UUID) {
+        guard streamsBySurfaceID[surfaceID] != nil else { return }
+        markBaselineNeeded(surfaceID: surfaceID)
+        GhosttyApp.shared.scheduleTick()
+    }
+
+    private func markBaselineNeeded(surfaceID: UUID) {
+        guard let stream = streamsBySurfaceID[surfaceID] else { return }
+        stream.needsBaseline = true
+        stream.nextSequence = nil
+        pendingSurfaceIDs.insert(surfaceID)
+    }
+
     private func enqueueUpdate(surfaceID: UUID?) {
-        // Hot path while sharing with no subscribed panes: notification demand
-        // is released so this rarely fires; the guard keeps it allocation-free.
-        guard hasAnySubscribers else { return }
+        guard hasSubscribers else { return }
         if let surfaceID {
-            guard subscriptionsBySurfaceID[surfaceID] != nil else { return }
+            guard streamsBySurfaceID[surfaceID] != nil else { return }
             pendingSurfaceIDs.insert(surfaceID)
         } else {
             hasPendingGlobalUpdate = true
         }
-        scheduleEmitFlush()
+        scheduleFlush()
     }
 
-    private func enqueueCoalescedThemeUpdates(_ surfaceIDs: Set<UUID>) {
-        guard hasAnySubscribers else { return }
-        let subscribed = surfaceIDs.filter { subscriptionsBySurfaceID[$0] != nil }
-        guard !subscribed.isEmpty else { return }
-        pendingThemeSurfaceIDs.formUnion(subscribed)
-        pendingSurfaceIDs.formUnion(subscribed)
-        scheduleEmitFlush()
-    }
-
-    private func scheduleEmitFlush() {
-        guard !isEmitFlushScheduled else { return }
-        isEmitFlushScheduled = true
-        emitFlushTask = Task { @MainActor [weak self] in
+    private func scheduleFlush() {
+        guard !isFlushScheduled else { return }
+        isFlushScheduled = true
+        flushTask = Task { @MainActor [weak self] in
             self?.flushUpdates()
         }
     }
 
     private func flushUpdates() {
-        emitFlushTask = nil
-        isEmitFlushScheduled = false
-        guard hasAnySubscribers else { return }
-        let surfaceIDs = pendingSurfaceIDs
-        let shouldEmitGlobal = hasPendingGlobalUpdate
-        let shouldEmitAllThemes = hasPendingThemeInvalidation
-        let themeSurfaceIDs = pendingThemeSurfaceIDs
+        flushTask = nil
+        isFlushScheduled = false
+        guard hasSubscribers else { return }
+        let surfaceIDs = hasPendingGlobalUpdate
+            ? Set(streamsBySurfaceID.keys)
+            : pendingSurfaceIDs
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
-        hasPendingThemeInvalidation = false
-        pendingThemeSurfaceIDs.removeAll()
-
-        let emitSurfaceIDs: Set<UUID>
-        if shouldEmitAllThemes || shouldEmitGlobal {
-            emitSurfaceIDs = Set(subscriptionsBySurfaceID.keys)
-        } else {
-            emitSurfaceIDs = surfaceIDs.union(themeSurfaceIDs)
-        }
-        for surfaceID in emitSurfaceIDs {
-            emitRenderGrid(
-                surfaceID: surfaceID,
-                forceIncludeTheme: shouldEmitAllThemes || themeSurfaceIDs.contains(surfaceID)
-            )
+        for surfaceID in surfaceIDs {
+            inspectAndReconcile(surfaceID: surfaceID)
         }
     }
 
-    private func emitFullFrame(surfaceID: UUID) {
-        clearEmissionCache(surfaceID: surfaceID)
-        emitRenderGrid(surfaceID: surfaceID, forceIncludeTheme: true)
-    }
-
-    private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
-        guard let subscription = subscriptionsBySurfaceID[surfaceID] else { return }
-        let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
-        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              surface.surface != nil else {
-            clearEmissionCache(surfaceID: surfaceID)
+    private func inspectAndReconcile(surfaceID: UUID) {
+        guard let stream = streamsBySurfaceID[surfaceID] else { return }
+        startOutputTaskIfNeeded(surfaceID: surfaceID, stream: stream)
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
+            id: surfaceID
+        ), surface.surface != nil else {
+            stream.outputTask?.cancel()
+            stream.outputTask = nil
+            markBaselineNeeded(surfaceID: surfaceID)
             return
         }
-        let runtimeGeneration = surface.runtimeSurfaceGeneration
-        let didReplaceRuntimeSurface = runtimeSurfaceGenerationsBySurfaceID[surfaceID]
-            .map { $0 != runtimeGeneration } ?? false
-        if didReplaceRuntimeSurface {
-            clearEmissionCache(surfaceID: surfaceID)
-        }
-        let includeTheme = forceIncludeTheme
-            || emissionStatesBySurfaceID[surfaceID]?.terminalTheme == nil
-            || didReplaceRuntimeSurface
-        guard let snapshot = surface.mobileRenderGridFrame(
-            stateSeq: stateSeq,
+        guard let inspection = surface.mobileRenderGridFrame(
+            stateSeq: 0,
             full: true,
-            includeTheme: includeTheme
+            scrollbackLines: 0,
+            includeTheme: false
         ) else {
-            clearEmissionCache(surfaceID: surfaceID)
+            markBaselineNeeded(surfaceID: surfaceID)
             return
         }
-
-        var themedFrame = snapshot.frame
-        let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
-            candidate: themedFrame.terminalConfigTheme,
-            cached: terminalConfigThemesBySurfaceID[surfaceID],
-            fallbackBoldColor: cachedTerminalTheme.boldColor
+        let signature = RenderSignature(
+            runtimeGeneration: surface.runtimeSurfaceGeneration,
+            rows: inspection.frame.rows,
+            columns: inspection.frame.columns,
+            activeScreen: inspection.frame.activeScreen
         )
-        themedFrame.terminalConfigTheme = configTheme
-        if snapshot.frame.terminalConfigTheme != nil, let configTheme {
-            terminalConfigThemesBySurfaceID[surfaceID] = configTheme
+        if stream.renderSignature != nil,
+           stream.renderSignature != signature {
+            markBaselineNeeded(surfaceID: surfaceID)
         }
-        let candidateTheme = (themedFrame.terminalTheme
-            ?? terminalThemesBySurfaceID[surfaceID]
-            ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
-        let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
-            candidate: candidateTheme,
-            cached: terminalThemesBySurfaceID[surfaceID],
-            forceCandidate: forceIncludeTheme || didReplaceRuntimeSurface
-        )
-        themedFrame.terminalTheme = themeDecision.theme
-        if themeDecision.shouldScheduleCandidate {
-            themeInvalidationScheduler.schedule(surfaceID: surfaceID)
-        } else {
-            terminalThemesBySurfaceID[surfaceID] = themeDecision.theme
-        }
-        runtimeSurfaceGenerationsBySurfaceID[surfaceID] = runtimeGeneration
-        terminalThemeRevision &+= 1
-        themedFrame.terminalThemeRevision = terminalThemeRevision
-        guard let emission = try? themedFrame.renderGridEmission(
-            comparedTo: emissionStatesBySurfaceID[surfaceID]
-        ) else { return }
-        guard let payload = try? JSONEncoder().encode(emission.frame),
-              let binary = ShareBinaryFrame.encode(
-                  kind: ShareProtocolConstants.binaryKindGrid,
-                  ws: subscription.ws,
-                  pane: surfaceID.uuidString,
-                  payload: payload
-              ),
-              sendBinary?(binary) == true else {
-            // The client did not receive this state. Clearing the comparison
-            // cache makes the next render notification reconcile with a full
-            // frame instead of emitting a delta from unsent state.
-            clearEmissionCache(surfaceID: surfaceID)
-            shareGridStreamerLogger.warning(
-                "A render-grid frame was rejected before share transport admission"
+        if stream.needsBaseline {
+            guard let stateSequence =
+                MobileTerminalByteTee.shared.rawOutputBaselineSequenceIfReady(
+                    surfaceID: surfaceID
+                ) else {
+                return
+            }
+            emitBaseline(
+                surfaceID: surfaceID,
+                surface: surface,
+                stateSequence: stateSequence,
+                signature: signature,
+                stream: stream
             )
+        } else {
+            stream.renderSignature = signature
+        }
+    }
+
+    private func emitBaseline(
+        surfaceID: UUID,
+        surface: TerminalSurface,
+        stateSequence: UInt64,
+        signature: RenderSignature,
+        stream: PaneStream
+    ) {
+        let epoch = UUID()
+        for scrollbackLines in Self.baselineScrollbackBudgets {
+            guard let captured = surface.mobileRenderGridFrame(
+                stateSeq: stateSequence,
+                renderEpoch: epoch.uuidString,
+                renderRevision: 1,
+                full: true,
+                scrollbackLines: scrollbackLines,
+                includeTheme: true
+            ) else {
+                continue
+            }
+            let frame = captured.frame
+            guard let rows = UInt16(exactly: frame.rows),
+                  let columns = UInt16(exactly: frame.columns) else {
+                break
+            }
+            let configTheme = (
+                frame.terminalConfigTheme
+                    ?? frame.terminalTheme
+                    ?? .monokai
+            ).validatedOrDefault()
+            var bytes: Data
+            do {
+                bytes = try configTheme.xtermConfigurationPreambleBytes()
+            } catch {
+                continue
+            }
+            bytes.append(frame.vtPatchBytes())
+            // A PTY callback may have begun on the IO thread while the main
+            // actor exported this snapshot. Only publish when the barrier and
+            // byte cursor are unchanged across the capture.
+            guard MobileTerminalByteTee.shared
+                .rawOutputBaselineSequenceIfReady(surfaceID: surfaceID)
+                == stateSequence else {
+                markBaselineNeeded(surfaceID: surfaceID)
+                return
+            }
+            guard let terminalFrame = try? WorkspaceShareTerminalFrame(
+                kind: .baseline,
+                streamEpoch: epoch,
+                sequenceStart: stateSequence,
+                sequenceEnd: stateSequence,
+                rows: rows,
+                columns: columns,
+                workspaceID: stream.workspaceID,
+                paneID: surfaceID.uuidString,
+                userID: nil,
+                bytes: bytes
+            ), let encoded = try? terminalFrame.encoded() else {
+                continue
+            }
+            guard sendBinary?(encoded) == true else {
+                markBaselineNeeded(surfaceID: surfaceID)
+                shareTerminalStreamerLogger.warning(
+                    "Terminal baseline was rejected before transport admission"
+                )
+                return
+            }
+            stream.streamEpoch = epoch
+            stream.nextSequence = stateSequence
+            stream.renderSignature = signature
+            stream.needsBaseline = false
+            #if DEBUG
+            cmuxDebugLog(
+                "share.terminal_baseline surface=\(surfaceID.uuidString.prefix(8)) " +
+                    "seq=\(stateSequence) rows=\(rows) cols=\(columns) " +
+                    "scrollback=\(scrollbackLines) bytes=\(bytes.count)"
+            )
+            #endif
             return
         }
-        emissionStatesBySurfaceID[surfaceID] = emission.state
-        #if DEBUG
-        cmuxDebugLog(
-            "share.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(emission.frame.full) " +
-                "spans=\(emission.frame.rowSpans.count) seq=\(emission.frame.stateSeq)"
+        markBaselineNeeded(surfaceID: surfaceID)
+        shareTerminalStreamerLogger.error(
+            "No bounded terminal baseline could be encoded"
         )
-        #endif
-    }
-
-    private func refreshTerminalTheme() {
-        cachedTerminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
-        hasLoadedTerminalTheme = true
-    }
-
-    private func invalidateTerminalThemes() {
-        guard hasAnySubscribers else {
-            hasLoadedTerminalTheme = false
-            return
-        }
-        refreshTerminalTheme()
-        hasPendingThemeInvalidation = true
-        scheduleEmitFlush()
-    }
-
-    private func clearEmissionCache(surfaceID: UUID) {
-        emissionStatesBySurfaceID.removeValue(forKey: surfaceID)
-        terminalThemesBySurfaceID.removeValue(forKey: surfaceID)
-        terminalConfigThemesBySurfaceID.removeValue(forKey: surfaceID)
-        runtimeSurfaceGenerationsBySurfaceID.removeValue(forKey: surfaceID)
-    }
-
-    private func clearEmissionCaches() {
-        emissionStatesBySurfaceID.removeAll()
-        terminalThemesBySurfaceID.removeAll()
-        terminalConfigThemesBySurfaceID.removeAll()
-        runtimeSurfaceGenerationsBySurfaceID.removeAll()
     }
 }

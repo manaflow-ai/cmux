@@ -2,7 +2,8 @@
 # CI/CD for the workspace sharing service (workers/share).
 #
 # Pull requests touching the service run its tests and dry-run both deploy
-# configurations. Manual runs from main also deploy to Cloudflare.
+# configurations. Manual runs may deploy the selected ref to development;
+# production remains restricted to main.
 # `wrangler deploy` applies the Durable Object migrations declared in
 # wrangler.toml atomically with the code upload.
 #
@@ -22,6 +23,15 @@ on:
       - ".github/workflows/share.yml"
       - "workers/share/**"
   workflow_dispatch:
+    inputs:
+      target:
+        description: Cloudflare Worker environment to deploy
+        required: true
+        type: choice
+        default: development
+        options:
+          - development
+          - production
 
 permissions:
   contents: read
@@ -63,11 +73,13 @@ jobs:
             --outdir "$RUNNER_TEMP/cmux-share-wrangler-development"
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.target == 'development' || github.ref == 'refs/heads/main')
     needs: test
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     concurrency:
-      group: share-deploy
+      group: share-deploy-${{ inputs.target }}
       cancel-in-progress: false
     defaults:
       run:
@@ -104,7 +116,15 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy (applies DO migrations atomically)
+      - name: Deploy development (applies DO migrations atomically)
+        if: inputs.target == 'development'
+        run: bunx wrangler deploy --config wrangler.dev.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy production (applies DO migrations atomically)
+        if: inputs.target == 'production' && github.ref == 'refs/heads/main'
         run: bunx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

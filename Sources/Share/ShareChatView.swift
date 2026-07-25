@@ -259,7 +259,7 @@ private struct ShareFeedRow: View {
                         } label: {
                             Text(String(
                                 localized: "share.chat.accessRequest.allowEditing",
-                                defaultValue: "Allow editing"
+                                defaultValue: "Allow terminal input"
                             ))
                         }
                         .buttonStyle(.borderedProminent)
@@ -288,6 +288,11 @@ private struct ShareFeedRow: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.secondary.opacity(0.1))
             )
+            .accessibilityIdentifier(
+                resolution == nil
+                    ? "share.pendingAccessRequest"
+                    : "share.resolvedAccessRequest"
+            )
         }
     }
 
@@ -296,7 +301,7 @@ private struct ShareFeedRow: View {
         case .approvedEditor:
             return String(
                 localized: "share.chat.accessRequest.approvedEditor",
-                defaultValue: "Approved as editor"
+                defaultValue: "Terminal input approved"
             )
         case .approvedViewer:
             return String(
@@ -365,7 +370,7 @@ private struct ShareParticipantRow: View {
     static func roleTitle(_ role: ShareRole) -> String {
         switch role {
         case .editor:
-            return String(localized: "share.chat.role.editor", defaultValue: "Editor")
+            return String(localized: "share.chat.role.editor", defaultValue: "Terminal input")
         case .viewer:
             return String(localized: "share.chat.role.viewer", defaultValue: "Viewer")
         }

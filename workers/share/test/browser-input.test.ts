@@ -2,13 +2,17 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { BINARY_KIND_GRID, parseGuestMessage } from "../src/protocol";
+import {
+  BINARY_KIND_BASELINE,
+  BINARY_KIND_OUTPUT,
+  parseGuestMessage,
+} from "../src/protocol";
 import { ShareSessionCore } from "../src/session";
 
 const T0 = 1_700_000_000_000;
 const HOST = { user: "u-host", email: "host@cmux.com", hostToken: true };
 
-describe("terminal-only v1 protocol", () => {
+describe("terminal-only v2 protocol", () => {
   it.each([
     {
       t: "pointer",
@@ -27,18 +31,18 @@ describe("terminal-only v1 protocol", () => {
       down: true,
     },
     { t: "follow", user: "u-host" },
-  ])("rejects the non-v1 guest verb $t", (message) => {
+  ])("rejects the unsupported guest verb $t", (message) => {
     expect(parseGuestMessage(message)).toBeNull();
   });
 
-  it("does not route binary data for a browser placeholder or pixel kind", () => {
+  it("does not route terminal data to a browser placeholder", () => {
     const core = new ShareSessionCore(
       ShareSessionCore.create("code123", { user: HOST.user, email: HOST.email }, T0),
     );
     core.connect("c-host", HOST, T0);
     core.handleHost("c-host", {
       t: "hello",
-      proto: 1,
+      proto: 2,
       shared: [{ id: "workspace:1", title: "main" }],
       layouts: [
         {
@@ -54,11 +58,17 @@ describe("terminal-only v1 protocol", () => {
         "workspace:1",
         "surface:browser",
         new Uint8Array(8),
-        BINARY_KIND_GRID,
+        BINARY_KIND_BASELINE,
       ),
     ).toEqual([]);
     expect(
-      core.routeBinary("c-host", "workspace:1", "surface:browser", new Uint8Array(8), 0x02),
+      core.routeBinary(
+        "c-host",
+        "workspace:1",
+        "surface:browser",
+        new Uint8Array(8),
+        BINARY_KIND_OUTPUT,
+      ),
     ).toEqual([]);
   });
 });

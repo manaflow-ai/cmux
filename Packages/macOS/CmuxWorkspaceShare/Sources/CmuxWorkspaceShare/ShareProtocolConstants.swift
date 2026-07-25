@@ -1,10 +1,25 @@
 /// Stable constants for the cmux workspace-share wire protocol.
 public struct ShareProtocolConstants: Sendable {
-    /// Current JSON protocol version.
-    public static let version = 1
+    /// Current JSON control-protocol version.
+    public static let version = 2
 
-    /// Binary-frame kind for terminal render-grid payloads.
-    public static let binaryKindGrid: UInt8 = 0x01
+    /// Current binary terminal-transport version.
+    public static let terminalTransportVersion: UInt8 = 1
+
+    /// Binary-frame kind for a complete synthesized VT baseline.
+    public static let binaryKindBaseline: UInt8 = 0x01
+
+    /// Binary-frame kind for sequenced raw PTY output.
+    public static let binaryKindOutput: UInt8 = 0x02
+
+    /// Binary-frame kind for untrusted guest terminal input.
+    public static let binaryKindInput: UInt8 = 0x03
+
+    /// Binary-frame kind for relay-authenticated guest terminal input.
+    public static let binaryKindForwardedInput: UInt8 = 0x04
+
+    /// Compatibility alias for the v1 render-grid binary kind.
+    public static let binaryKindGrid = binaryKindBaseline
 
     /// Host JSON frames must contain fewer than this many encoded UTF-8 bytes.
     public static let maximumHostJSONFrameBytes = 64 * 1_024

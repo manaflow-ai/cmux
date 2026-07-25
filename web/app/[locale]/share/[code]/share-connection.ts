@@ -1,6 +1,6 @@
 // ShareClient: the framework-free browser runtime for one terminal-only
 // multiplayer session. React subscribes to session/cursor stores, while each
-// terminal canvas subscribes directly to its bounded grid model.
+// terminal pane binds an xterm parser directly to its sequenced PTY stream.
 
 import type {
   ChatMessage,
@@ -14,8 +14,6 @@ import type {
   WorkspaceLayout,
 } from "./share-protocol";
 import {
-  BINARY_KIND_GRID,
-  decodeBinaryFrame,
   MAX_BINARY_MESSAGE_BYTES,
   MAX_CHAT_HISTORY,
   MAX_CHAT_TEXT_BYTES,
@@ -30,13 +28,51 @@ import {
   utf8ByteLength,
   wireId,
 } from "./share-protocol";
-import { TerminalGridModel } from "./terminal-grid";
+import {
+  TerminalStreamCoordinator,
+  type TerminalCompatibilityError,
+} from "./terminal-stream";
+import {
+  decodeTerminalFrame,
+  encodeTerminalInputFrame,
+  terminalStreamFrame,
+  TERMINAL_KIND_BASELINE,
+  TERMINAL_KIND_OUTPUT,
+  TERMINAL_TRANSPORT_VERSION,
+} from "./terminal-wire";
 
 type DomainServerMessage = Exclude<ServerMessage, { t: "ack-request" }>;
 
+type OutboundPayload = GuestMessage | Uint8Array;
+
+const MAX_PENDING_DELIVERY_BATCHES = 128;
+
 interface DeferredOutboundBatch {
   socket: WebSocket;
-  messages: GuestMessage[];
+  messages: OutboundPayload[];
+  accepted: boolean;
+  settled: boolean;
+  nonce: string | null;
+}
+
+export interface ShareTerminalAdapter {
+  resize(columns: number, rows: number): void;
+  write(data: Uint8Array, onConsumed: () => void): void;
+}
+
+interface TerminalChannel {
+  coordinator: TerminalStreamCoordinator;
+  adapter: ShareTerminalAdapter | null;
+  geometry: { columns: number; rows: number } | null;
+  pendingWrite: { data: Uint8Array; onConsumed: () => void } | null;
+  inFlightConsumed: (() => void) | null;
+  needsResync: boolean;
+}
+
+interface QueuedTerminalInput {
+  readonly ws: string;
+  readonly pane: string;
+  readonly data: Uint8Array;
 }
 
 export type ShareStatus =
@@ -61,6 +97,7 @@ export interface ShareSessionState {
   /** The single server-selected shared workspace. */
   activeWs: string | null;
   reconnecting: boolean;
+  terminalError: TerminalCompatibilityError | null;
 }
 
 const INITIAL_STATE: ShareSessionState = {
@@ -73,6 +110,7 @@ const INITIAL_STATE: ShareSessionState = {
   you: null,
   activeWs: null,
   reconnecting: false,
+  terminalError: null,
 };
 
 type Listener = () => void;
@@ -124,6 +162,9 @@ const RETRY_AFTER_MIN_SECONDS = 1;
 const RETRY_AFTER_MAX_SECONDS = 3_600;
 const MAX_TOKEN_RESPONSE_CHARS = 64 * 1024;
 const MAX_BEARER_TOKEN_BYTES = 8 * 1024;
+const TERMINAL_INPUT_QUEUE_MAX_BYTES = 2 * 1024 * 1024;
+const TERMINAL_INPUT_WINDOW_MS = 1_000;
+const TERMINAL_INPUT_FRAMES_PER_WINDOW = 24;
 const TERMINAL_PROTOCOL_CLOSE_CODES = new Set([1002, 1008, 1009, 4400]);
 const TERMINAL_INVARIANT_CLOSE_REASONS = new Set([
   "delivery_failed",
@@ -232,7 +273,18 @@ function retryAfterMilliseconds(value: string | null, now = Date.now()): number 
 
 function tokenGrant(
   body: Record<string, unknown> | null,
-): { token: string; wsUrl: string } | null {
+):
+  | {
+      ok: true;
+      token: string;
+      wsUrl: string;
+      deploymentId: string;
+    }
+  | {
+      ok: false;
+      error: TerminalCompatibilityError;
+    }
+  | null {
   if (
     !body ||
     typeof body.token !== "string" ||
@@ -240,24 +292,53 @@ function tokenGrant(
     body.token.length > MAX_BEARER_TOKEN_BYTES ||
     utf8ByteLength(body.token) > MAX_BEARER_TOKEN_BYTES ||
     typeof body.wsUrl !== "string" ||
-    body.wsUrl.length > 4_096
+    body.wsUrl.length > 4_096 ||
+    typeof body.deploymentId !== "string" ||
+    body.deploymentId.length === 0 ||
+    body.deploymentId.length > 256 ||
+    utf8ByteLength(body.deploymentId) > 256 ||
+    /\p{Cc}/u.test(body.deploymentId)
   ) {
     return null;
   }
+  if (body.protocolVersion !== PROTO_VERSION) {
+    return {
+      ok: false,
+      error: {
+        code: "protocol_version_mismatch",
+        message: "protocol_version_mismatch",
+      },
+    };
+  }
+  if (body.terminalTransportVersion !== TERMINAL_TRANSPORT_VERSION) {
+    return {
+      ok: false,
+      error: {
+        code: "terminal_version_mismatch",
+        message: "terminal_version_mismatch",
+      },
+    };
+  }
   try {
     const url = new URL(body.wsUrl);
-    if (url.protocol === "wss:") return { token: body.token, wsUrl: body.wsUrl };
-    if (url.protocol !== "ws:") return null;
-    const hostname = url.hostname;
-    const loopback =
-      hostname === "localhost" ||
-      hostname === "[::1]" ||
-      /^127(?:\.\d{1,3}){3}$/u.test(hostname);
-    if (!loopback) return null;
+    if (url.protocol !== "wss:") {
+      if (url.protocol !== "ws:") return null;
+      const hostname = url.hostname;
+      const loopback =
+        hostname === "localhost" ||
+        hostname === "[::1]" ||
+        /^127(?:\.\d{1,3}){3}$/u.test(hostname);
+      if (!loopback) return null;
+    }
   } catch {
     return null;
   }
-  return { token: body.token, wsUrl: body.wsUrl };
+  return {
+    ok: true,
+    token: body.token,
+    wsUrl: body.wsUrl,
+    deploymentId: body.deploymentId,
+  };
 }
 
 export class ShareClient {
@@ -266,8 +347,7 @@ export class ShareClient {
 
   private ws: WebSocket | null = null;
   private tokenAbort: AbortController | null = null;
-  private grids = new Map<string, TerminalGridModel>();
-  private gridListeners = new Map<string, Set<Listener>>();
+  private terminals = new Map<string, TerminalChannel>();
   private subs = new Set<string>();
   private stopped = true;
   private connectionGeneration = 0;
@@ -277,7 +357,12 @@ export class ShareClient {
   private cursorTimer: ReturnType<typeof setTimeout> | null = null;
   private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
   private acceptingPayload: DeferredOutboundBatch | null = null;
-  private pendingPayload: DeferredOutboundBatch | null = null;
+  private pendingPayloads: DeferredOutboundBatch[] = [];
+  private terminalInputQueue: QueuedTerminalInput[] = [];
+  private terminalInputQueuedBytes = 0;
+  private terminalInputWindowStartedAt = 0;
+  private terminalInputFramesInWindow = 0;
+  private terminalInputTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly code: string) {}
 
@@ -295,11 +380,14 @@ export class ShareClient {
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
     if (this.cursorTimer !== null) clearTimeout(this.cursorTimer);
     if (this.bubbleTimer !== null) clearTimeout(this.bubbleTimer);
+    if (this.terminalInputTimer !== null) clearTimeout(this.terminalInputTimer);
     this.reconnectTimer = null;
     this.cursorTimer = null;
     this.bubbleTimer = null;
+    this.terminalInputTimer = null;
     this.acceptingPayload = null;
-    this.pendingPayload = null;
+    this.pendingPayloads = [];
+    this.clearTerminalInputQueue();
     this.pendingCursorResolver = undefined;
     this.reconnectAttempt = 0;
     const socket = this.ws;
@@ -315,8 +403,10 @@ export class ShareClient {
       }
     }
     this.subs.clear();
-    this.grids.clear();
-    this.gridListeners.clear();
+    for (const channel of this.terminals.values()) {
+      this.releaseTerminalChannel(channel);
+    }
+    this.terminals.clear();
   }
 
   // -------------------------------------------------------------------------
@@ -385,6 +475,10 @@ export class ShareClient {
       this.scheduleReconnect();
       return;
     }
+    if (!grant.ok) {
+      this.markCompatibilityError(grant.error);
+      return;
+    }
 
     let socket: WebSocket;
     try {
@@ -409,32 +503,109 @@ export class ShareClient {
       if (!this.isCurrentSocket(socket, generation)) return;
       this.send({ t: "hello", proto: PROTO_VERSION });
     };
-    const dropPendingPayload = (): void => {
-      if (this.pendingPayload?.socket === socket) this.pendingPayload = null;
-      if (this.acceptingPayload?.socket === socket) this.acceptingPayload = null;
-    };
-    const acceptPayload = (handler: () => boolean): void => {
-      dropPendingPayload();
-      const batch: DeferredOutboundBatch = { socket, messages: [] };
-      this.acceptingPayload = batch;
-      let accepted = false;
-      try {
-        accepted = handler();
-      } finally {
-        if (this.acceptingPayload === batch) this.acceptingPayload = null;
+    const dropUnmarkedPayload = (): void => {
+      const pending = this.pendingPayloads.at(-1);
+      if (pending?.socket === socket && pending.nonce === null) {
+        this.pendingPayloads.pop();
       }
-      if (accepted && this.isCurrentSocket(socket, generation)) {
-        this.pendingPayload = batch;
+      if (this.acceptingPayload?.socket === socket) {
+        this.acceptingPayload = null;
+      }
+    };
+    const dropSocketPayloads = (): void => {
+      this.pendingPayloads = this.pendingPayloads.filter(
+        (batch) => batch.socket !== socket,
+      );
+      if (this.acceptingPayload?.socket === socket) {
+        this.acceptingPayload = null;
       }
     };
     const closeLocallyUnavailable = (reason: string): void => {
-      dropPendingPayload();
+      dropSocketPayloads();
       this.markUnavailable();
       try {
         socket.close(1009, reason);
       } catch {
         // The socket is already unusable; stop() still owns final cleanup.
       }
+    };
+    const flushPayloads = (): void => {
+      while (this.isCurrentSocket(socket, generation)) {
+        const batch = this.pendingPayloads[0];
+        if (
+          !batch ||
+          batch.socket !== socket ||
+          batch.nonce === null ||
+          !batch.settled
+        ) {
+          return;
+        }
+        this.pendingPayloads.shift();
+        if (!batch.accepted) continue;
+        if (!this.sendImmediate({ t: "ack", nonce: batch.nonce })) return;
+        for (const deferred of batch.messages) {
+          if (!this.sendImmediate(deferred)) return;
+        }
+      }
+    };
+    const acceptPayload = (
+      handler: () => boolean | Promise<boolean>,
+    ): void => {
+      // A second logical payload without the first payload's adjacent marker
+      // violates the relay contract. Displace only that unmarked payload;
+      // already-marked xterm writes retain their delivery credit.
+      dropUnmarkedPayload();
+      if (this.pendingPayloads.length >= MAX_PENDING_DELIVERY_BATCHES) {
+        closeLocallyUnavailable("delivery window overflow");
+        return;
+      }
+      const batch: DeferredOutboundBatch = {
+        socket,
+        messages: [],
+        accepted: false,
+        settled: false,
+        nonce: null,
+      };
+      this.pendingPayloads.push(batch);
+      this.acceptingPayload = batch;
+      try {
+        const accepted = handler();
+        if (typeof accepted === "boolean") {
+          batch.accepted = accepted;
+          batch.settled = true;
+        } else {
+          void accepted.then(
+            (value) => {
+              batch.accepted = value;
+              batch.settled = true;
+              flushPayloads();
+            },
+            () => {
+              batch.accepted = false;
+              batch.settled = true;
+              flushPayloads();
+            },
+          );
+        }
+      } catch {
+        batch.accepted = false;
+        batch.settled = true;
+      } finally {
+        if (this.acceptingPayload === batch) this.acceptingPayload = null;
+      }
+      if (!this.isCurrentSocket(socket, generation)) {
+        dropSocketPayloads();
+        return;
+      }
+      flushPayloads();
+    };
+    const acknowledgePayload = (
+      batch: DeferredOutboundBatch,
+      nonce: string,
+    ): void => {
+      if (batch.nonce !== null) return;
+      batch.nonce = nonce;
+      flushPayloads();
     };
     const receiveBinary = (data: Uint8Array): void => {
       if (data.byteLength >= MAX_BINARY_MESSAGE_BYTES) {
@@ -454,23 +625,36 @@ export class ShareClient {
             closeLocallyUnavailable("message too large");
             return;
           }
-          const message = normalizeServerMessage(JSON.parse(event.data) as unknown);
-          if (message?.t === "ack-request") {
-            const pending =
-              this.pendingPayload?.socket === socket ? this.pendingPayload : null;
-            dropPendingPayload();
-            if (
-              pending &&
-              this.sendImmediate({ t: "ack", nonce: message.nonce })
-            ) {
-              for (const deferred of pending.messages) {
-                if (!this.sendImmediate(deferred)) break;
-              }
+          const rawMessage = JSON.parse(event.data) as unknown;
+          if (
+            rawMessage !== null &&
+            typeof rawMessage === "object" &&
+            !Array.isArray(rawMessage) &&
+            (rawMessage as { t?: unknown }).t === "session-state" &&
+            (rawMessage as { proto?: unknown }).proto !== PROTO_VERSION
+          ) {
+            this.markCompatibilityError({
+              code: "protocol_version_mismatch",
+              message: "protocol_version_mismatch",
+            });
+            try {
+              socket.close(4406, "unsupported protocol");
+            } catch {
+              // The compatibility state is already authoritative locally.
             }
             return;
           }
+          const message = normalizeServerMessage(rawMessage);
+          if (message?.t === "ack-request") {
+            const pending =
+              this.pendingPayloads.at(-1)?.socket === socket
+                ? this.pendingPayloads.at(-1) ?? null
+                : null;
+            if (pending) acknowledgePayload(pending, message.nonce);
+            return;
+          }
           if (!message) {
-            dropPendingPayload();
+            dropUnmarkedPayload();
             return;
           }
           acceptPayload(() => {
@@ -489,18 +673,19 @@ export class ShareClient {
           );
           return;
         }
-        dropPendingPayload();
+        dropUnmarkedPayload();
       } catch {
-        dropPendingPayload();
+        dropUnmarkedPayload();
         // Untrusted JSON/binary data never escapes the socket boundary.
       }
     };
     socket.onclose = (event) => {
       if (!this.isCurrentSocket(socket, generation)) return;
-      dropPendingPayload();
+      dropSocketPayloads();
       this.ws = null;
+      this.clearTerminalInputQueue();
       // A replacement socket has no server-side subscription state. Preserve
-      // local grids/layout, then rebuild desired subscriptions from snapshot.
+      // local xterm/layout state, then rebuild desired subscriptions.
       this.subs.clear();
       const status = this.session.get().status;
       if (this.stopped || isTerminalStatus(status)) return;
@@ -549,6 +734,18 @@ export class ShareClient {
     this.enterStateWithoutSessionData("unavailable");
   }
 
+  private markCompatibilityError(error: TerminalCompatibilityError): void {
+    this.enterStateWithoutSessionData("unavailable", null, error);
+  }
+
+  /** Fail closed when the pinned xterm runtime contract cannot be installed. */
+  reportTerminalRuntimeFailure(): void {
+    this.markCompatibilityError({
+      code: "terminal_runtime_mismatch",
+      message: "terminal_runtime_mismatch",
+    });
+  }
+
   /** Re-send focus/subs after reconnect or a Durable Object resync. */
   private replayVolatileState(): void {
     const { activeWs } = this.session.get();
@@ -578,6 +775,7 @@ export class ShareClient {
           chat: message.chat.slice(-MAX_CHAT_HISTORY),
           you: message.you,
           activeWs,
+          terminalError: null,
         });
         this.pruneCursors(message.participants);
         this.syncWorkspaceSubscriptions(activeWs);
@@ -647,6 +845,7 @@ export class ShareClient {
       case "role-changed": {
         const you = this.session.get().you;
         if (you) this.session.update({ you: { ...you, role: message.role } });
+        if (message.role !== "editor") this.clearTerminalInputQueue();
         break;
       }
       case "resync":
@@ -664,43 +863,65 @@ export class ShareClient {
   private enterStateWithoutSessionData(
     status: "pending" | "denied" | "kicked" | "ended" | "unavailable",
     endedReason: ShareSessionState["endedReason"] = null,
+    terminalError: TerminalCompatibilityError | null = null,
   ): void {
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
     if (this.cursorTimer !== null) clearTimeout(this.cursorTimer);
     if (this.bubbleTimer !== null) clearTimeout(this.bubbleTimer);
+    if (this.terminalInputTimer !== null) clearTimeout(this.terminalInputTimer);
     this.reconnectTimer = null;
     this.cursorTimer = null;
     this.bubbleTimer = null;
+    this.terminalInputTimer = null;
     this.pendingCursorResolver = undefined;
     this.subs.clear();
-    this.grids.clear();
-    this.gridListeners.clear();
+    this.clearTerminalInputQueue();
+    for (const channel of this.terminals.values()) {
+      this.releaseTerminalChannel(channel);
+    }
+    this.terminals.clear();
     this.session.set({
       ...INITIAL_STATE,
       status,
       endedReason,
       reconnecting: false,
+      terminalError,
     });
     this.cursors.set(new Map());
   }
 
-  private handleBinary(data: Uint8Array): boolean {
-    const frame = decodeBinaryFrame(data);
-    if (!frame || frame.kind !== BINARY_KIND_GRID) return false;
-    const key = paneKey(frame.ws, frame.pane);
-    if (!this.subs.has(key)) return false;
-    const model = this.gridFor(frame.ws, frame.pane);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(frame.payload));
-    } catch {
+  private async handleBinary(data: Uint8Array): Promise<boolean> {
+    const frame = decodeTerminalFrame(data);
+    if (
+      !frame ||
+      (frame.kind !== TERMINAL_KIND_BASELINE &&
+        frame.kind !== TERMINAL_KIND_OUTPUT)
+    ) {
       return false;
     }
-    if (!model.apply(parsed)) return false;
-    const listeners = this.gridListeners.get(key);
-    if (listeners) {
-      for (const listener of listeners) listener();
+    const key = paneKey(frame.ws, frame.pane);
+    if (!this.subs.has(key)) return false;
+    const channel = this.terminalChannelFor(frame.ws, frame.pane);
+    if (
+      frame.kind === TERMINAL_KIND_OUTPUT &&
+      frame.rows > 0 &&
+      frame.columns > 0 &&
+      channel.geometry !== null &&
+      (channel.geometry.rows !== frame.rows ||
+        channel.geometry.columns !== frame.columns)
+    ) {
+      this.requestTerminalResync(frame.ws, frame.pane);
+      return true;
     }
+    const streamFrame = terminalStreamFrame(frame, PROTO_VERSION);
+    if (!streamFrame) return false;
+    await channel.coordinator.consume(streamFrame);
+    if (channel.coordinator.terminalError) {
+      this.markCompatibilityError(channel.coordinator.terminalError);
+    }
+    // A valid, authorized relay frame is transport-consumed even when its
+    // sequence was rejected. In that case the deferred resync is sent
+    // immediately after the ACK, releasing Durable Object delivery credit.
     return true;
   }
 
@@ -771,11 +992,16 @@ export class ShareClient {
   // Outbound
 
   private send(message: GuestMessage): boolean {
+    return this.sendOutbound(message);
+  }
+
+  private sendOutbound(message: OutboundPayload): boolean {
+    const pending = this.pendingPayloads.at(-1);
     const deferred =
       this.acceptingPayload?.socket === this.ws
         ? this.acceptingPayload
-        : this.pendingPayload?.socket === this.ws
-          ? this.pendingPayload
+        : pending?.socket === this.ws
+          ? pending
           : null;
     if (deferred && this.ws?.readyState === WebSocket.OPEN) {
       deferred.messages.push(message);
@@ -784,10 +1010,16 @@ export class ShareClient {
     return this.sendImmediate(message);
   }
 
-  private sendImmediate(message: GuestMessage): boolean {
+  private sendImmediate(message: OutboundPayload): boolean {
     if (this.ws?.readyState !== WebSocket.OPEN) return false;
     try {
-      this.ws.send(JSON.stringify(message));
+      if (message instanceof Uint8Array) {
+        const bytes = new Uint8Array(message.byteLength);
+        bytes.set(message);
+        this.ws.send(bytes.buffer);
+      } else {
+        this.ws.send(JSON.stringify(message));
+      }
       return true;
     } catch {
       // Closing sockets can race an input event; onclose owns reconnect.
@@ -804,7 +1036,9 @@ export class ShareClient {
       const parts = splitPaneKey(key);
       if (parts) this.send({ t: "unsub", ws: parts[0], pane: parts[1] });
       this.subs.delete(key);
-      this.grids.delete(key);
+      const channel = this.terminals.get(key);
+      if (channel) this.releaseTerminalChannel(channel);
+      this.terminals.delete(key);
     }
     for (const key of wanted) {
       if (this.subs.has(key)) continue;
@@ -812,8 +1046,11 @@ export class ShareClient {
       if (parts) this.send({ t: "sub", ws: parts[0], pane: parts[1] });
       this.subs.add(key);
     }
-    for (const key of [...this.grids.keys()]) {
-      if (!wanted.has(key)) this.grids.delete(key);
+    for (const key of [...this.terminals.keys()]) {
+      if (wanted.has(key)) continue;
+      const channel = this.terminals.get(key);
+      if (channel) this.releaseTerminalChannel(channel);
+      this.terminals.delete(key);
     }
   }
 
@@ -899,36 +1136,255 @@ export class ShareClient {
   }
 
   // -------------------------------------------------------------------------
-  // Grid access for terminal canvases
+  // xterm binding for terminal panes
 
-  gridFor(ws: string, pane: string): TerminalGridModel {
+  sendTerminalData(ws: string, pane: string, data: string): boolean {
     const key = paneKey(ws, pane);
-    let model = this.grids.get(key);
-    if (model) return model;
-    while (this.grids.size >= MAX_TERMINAL_PANES) {
-      const evictable = [...this.grids.keys()].find(
-        (candidate) => !this.subs.has(candidate) && !this.gridListeners.has(candidate),
-      );
-      if (!evictable) return new TerminalGridModel();
-      this.grids.delete(evictable);
-    }
-    model = new TerminalGridModel();
-    this.grids.set(key, model);
-    return model;
+    if (!this.subs.has(key)) return false;
+    return this.terminalChannelFor(ws, pane).coordinator.onData(data);
   }
 
-  subscribeGrid(ws: string, pane: string, listener: Listener): () => void {
+  sendTerminalBinary(ws: string, pane: string, data: string): boolean {
     const key = paneKey(ws, pane);
-    let listeners = this.gridListeners.get(key);
-    if (!listeners) {
-      if (this.gridListeners.size >= MAX_LAYOUT_PANES) return () => {};
-      listeners = new Set();
-      this.gridListeners.set(key, listeners);
+    if (!this.subs.has(key)) return false;
+    return this.terminalChannelFor(ws, pane).coordinator.onBinary(data);
+  }
+
+  attachTerminal(
+    ws: string,
+    pane: string,
+    adapter: ShareTerminalAdapter,
+  ): () => void {
+    const key = paneKey(ws, pane);
+    if (!this.subs.has(key)) return () => {};
+    const channel = this.terminalChannelFor(ws, pane);
+    if (channel.adapter && channel.adapter !== adapter) {
+      channel.needsResync = true;
     }
-    listeners.add(listener);
+    channel.adapter = adapter;
+    if (channel.geometry) {
+      adapter.resize(channel.geometry.columns, channel.geometry.rows);
+    }
+    const pending = channel.pendingWrite;
+    channel.pendingWrite = null;
+    if (pending) this.writeToTerminal(channel, adapter, pending);
+    if (channel.needsResync) {
+      channel.needsResync = false;
+      this.requestTerminalResync(ws, pane);
+    }
     return () => {
-      listeners?.delete(listener);
-      if (listeners?.size === 0) this.gridListeners.delete(key);
+      if (channel.adapter !== adapter) return;
+      channel.adapter = null;
+      channel.needsResync = true;
+      const consumed = channel.inFlightConsumed;
+      channel.inFlightConsumed = null;
+      consumed?.();
     };
+  }
+
+  private terminalChannelFor(ws: string, pane: string): TerminalChannel {
+    const key = paneKey(ws, pane);
+    const existing = this.terminals.get(key);
+    if (existing) return existing;
+    let channel: TerminalChannel;
+    const coordinator = new TerminalStreamCoordinator({
+      protocolVersion: PROTO_VERSION,
+      terminalVersion: TERMINAL_TRANSPORT_VERSION,
+      resize: (columns, rows) => {
+        channel.geometry = { columns, rows };
+        channel.adapter?.resize(columns, rows);
+      },
+      write: (data, onConsumed) => {
+        const pending = { data: data.slice(), onConsumed };
+        const adapter = channel.adapter;
+        if (adapter) {
+          this.writeToTerminal(channel, adapter, pending);
+        } else {
+          channel.pendingWrite?.onConsumed();
+          channel.pendingWrite = pending;
+        }
+      },
+      onResyncRequested: () => {
+        this.requestTerminalResync(ws, pane);
+      },
+      sendTerminalInput: ({ data }) =>
+        this.sendTerminalInputBytes(ws, pane, data),
+    });
+    channel = {
+      coordinator,
+      adapter: null,
+      geometry: null,
+      pendingWrite: null,
+      inFlightConsumed: null,
+      needsResync: false,
+    };
+    while (this.terminals.size >= MAX_TERMINAL_PANES) {
+      const evictable = [...this.terminals.entries()].find(
+        ([candidate, value]) =>
+          candidate !== key &&
+          !this.subs.has(candidate) &&
+          value.adapter === null,
+      );
+      if (!evictable) break;
+      this.releaseTerminalChannel(evictable[1]);
+      this.terminals.delete(evictable[0]);
+    }
+    this.terminals.set(key, channel);
+    return channel;
+  }
+
+  private writeToTerminal(
+    channel: TerminalChannel,
+    adapter: ShareTerminalAdapter,
+    write: { data: Uint8Array; onConsumed: () => void },
+  ): void {
+    channel.inFlightConsumed?.();
+    let completed = false;
+    const consumed = (): void => {
+      if (completed) return;
+      completed = true;
+      if (channel.inFlightConsumed === consumed) {
+        channel.inFlightConsumed = null;
+      }
+      write.onConsumed();
+    };
+    channel.inFlightConsumed = consumed;
+    try {
+      adapter.write(write.data, consumed);
+    } catch {
+      consumed();
+      channel.needsResync = true;
+    }
+  }
+
+  private releaseTerminalChannel(channel: TerminalChannel): void {
+    channel.pendingWrite?.onConsumed();
+    channel.pendingWrite = null;
+    channel.inFlightConsumed?.();
+    channel.inFlightConsumed = null;
+    channel.adapter = null;
+  }
+
+  private requestTerminalResync(ws: string, pane: string): boolean {
+    const session = this.session.get();
+    if (
+      session.status !== "active" ||
+      session.reconnecting ||
+      ws !== session.activeWs ||
+      !this.subs.has(paneKey(ws, pane))
+    ) {
+      return false;
+    }
+    return this.send({ t: "terminal-resync", ws, pane });
+  }
+
+  private sendTerminalInputBytes(
+    ws: string,
+    pane: string,
+    data: Uint8Array,
+  ): boolean {
+    const session = this.session.get();
+    if (
+      session.status !== "active" ||
+      session.reconnecting ||
+      session.you?.role !== "editor" ||
+      ws !== session.activeWs ||
+      !this.subs.has(paneKey(ws, pane)) ||
+      data.byteLength === 0
+    ) {
+      return false;
+    }
+    if (
+      data.byteLength >
+      TERMINAL_INPUT_QUEUE_MAX_BYTES - this.terminalInputQueuedBytes
+    ) {
+      return false;
+    }
+    for (
+      let offset = 0;
+      offset < data.byteLength;
+      offset += MAX_TERMINAL_INPUT_BYTES
+    ) {
+      const end = Math.min(
+        data.byteLength,
+        offset + MAX_TERMINAL_INPUT_BYTES,
+      );
+      const chunk = data.slice(offset, end);
+      this.terminalInputQueue.push({ ws, pane, data: chunk });
+      this.terminalInputQueuedBytes += chunk.byteLength;
+    }
+    return this.drainTerminalInputQueue();
+  }
+
+  /**
+   * Preserve large xterm pastes without exceeding the relay's one-second
+   * ingress budget. Frame boundaries do not alter the opaque PTY byte stream.
+   */
+  private drainTerminalInputQueue(): boolean {
+    if (this.terminalInputTimer !== null) {
+      clearTimeout(this.terminalInputTimer);
+      this.terminalInputTimer = null;
+    }
+    const now = Date.now();
+    if (
+      now < this.terminalInputWindowStartedAt ||
+      now >= this.terminalInputWindowStartedAt + TERMINAL_INPUT_WINDOW_MS
+    ) {
+      this.terminalInputWindowStartedAt = now;
+      this.terminalInputFramesInWindow = 0;
+    }
+
+    while (
+      this.terminalInputFramesInWindow < TERMINAL_INPUT_FRAMES_PER_WINDOW
+    ) {
+      const next = this.terminalInputQueue[0];
+      if (!next) return true;
+      const current = this.session.get();
+      if (
+        current.status !== "active" ||
+        current.reconnecting ||
+        current.you?.role !== "editor" ||
+        next.ws !== current.activeWs ||
+        !this.subs.has(paneKey(next.ws, next.pane))
+      ) {
+        this.clearTerminalInputQueue();
+        return false;
+      }
+      const frame = encodeTerminalInputFrame(
+        next.ws,
+        next.pane,
+        next.data,
+      );
+      if (!frame || !this.sendOutbound(frame)) {
+        this.clearTerminalInputQueue();
+        return false;
+      }
+      this.terminalInputQueue.shift();
+      this.terminalInputQueuedBytes -= next.data.byteLength;
+      this.terminalInputFramesInWindow += 1;
+    }
+
+    if (this.terminalInputQueue.length > 0) {
+      const delay = Math.max(
+        1,
+        this.terminalInputWindowStartedAt + TERMINAL_INPUT_WINDOW_MS - now,
+      );
+      this.terminalInputTimer = setTimeout(() => {
+        this.terminalInputTimer = null;
+        this.drainTerminalInputQueue();
+      }, delay);
+    }
+    return true;
+  }
+
+  private clearTerminalInputQueue(): void {
+    if (this.terminalInputTimer !== null) {
+      clearTimeout(this.terminalInputTimer);
+      this.terminalInputTimer = null;
+    }
+    this.terminalInputQueue = [];
+    this.terminalInputQueuedBytes = 0;
+    this.terminalInputWindowStartedAt = 0;
+    this.terminalInputFramesInWindow = 0;
   }
 }

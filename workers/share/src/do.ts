@@ -49,6 +49,11 @@ export interface ShareWorkerEnv {
   SHARE_SESSION: DurableObjectNamespace<ShareSession>;
   /** SPKI PEM for the web API's Ed25519 share-token signing key. */
   SHARE_JWT_PUBLIC_KEY?: string;
+  WORKER_VERSION_METADATA: {
+    id: string;
+    tag: string;
+    timestamp: string;
+  };
 }
 
 export class ShareSession extends DurableObject<ShareWorkerEnv> {
@@ -58,6 +63,16 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   private readonly ingress = new ApplicationIngressLimiter();
   private pendingRestoreEffects: Effect[] = [];
   private restored = false;
+
+  constructor(ctx: DurableObjectState, env: ShareWorkerEnv) {
+    super(ctx, env);
+    // Storage and hibernating socket reconstruction must complete under the
+    // input gate. Otherwise two events can both observe an empty in-memory
+    // core across the first storage await and overwrite each other's restore.
+    ctx.blockConcurrencyWhile(async () => {
+      await this.restoreCore();
+    });
+  }
 
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
@@ -132,6 +147,20 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       await this.flushRestoreEffects();
       if (!this.sockets.has(attachment.connId)) return;
       const bytes = new Uint8Array(message);
+      const receivedAt = Date.now();
+      if (
+        !isHost &&
+        !this.ingress.consume(attachment.connId, bytes.byteLength, receivedAt)
+      ) {
+        await this.closeProtocolSocket(
+          ws,
+          attachment,
+          core,
+          RATE_LIMIT_CLOSE_CODE,
+          RATE_LIMIT_CLOSE_REASON,
+        );
+        return;
+      }
       const decision = validateBinaryIngress(isHost, bytes);
       if (!decision.ok) {
         await this.closeProtocolSocket(
@@ -150,6 +179,7 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
           decision.header.pane,
           bytes,
           decision.header.kind,
+          receivedAt,
         ),
       );
       return;
@@ -284,55 +314,85 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
    * hibernation/eviction. Clients are asked to `resync` volatile state.
    */
   private async ensureCore(): Promise<ShareSessionCore | null> {
-    if (this.core && this.restored) return this.core;
-    if (!this.core) {
-      const stored = await this.ctx.storage.get<unknown>(SESSION_KEY);
-      if (stored === undefined) return null;
-      const persisted = restorePersistedSession(stored);
-      if (!persisted) throw new Error("invalid persisted share session");
-      this.core = new ShareSessionCore(persisted);
-    }
     if (!this.restored) {
-      this.restored = true;
-      const survivors: Array<{ id: string; user: string; email: string; hostToken: boolean }> =
-        [];
-      const seen = new Set<string>();
-      for (const ws of this.ctx.getWebSockets()) {
-        const attachment = this.attachment(ws);
-        if (!attachment || seen.has(attachment.connId)) {
-          ws.close(1011, "lost attachment");
-          continue;
-        }
-        seen.add(attachment.connId);
-        // Sockets accepted in this instance's lifetime are already registered.
-        if (this.sockets.has(attachment.connId)) continue;
-        try {
-          // Canonicalize legacy attachments and prove the full credit window
-          // remains serializable before restoring the socket into the core.
-          ws.serializeAttachment(serializeSocketAttachment(attachment));
-        } catch {
-          ws.close(DELIVERY_FAILURE_CLOSE_CODE, DELIVERY_FAILURE_CLOSE_REASON);
-          continue;
-        }
-        this.sockets.set(attachment.connId, ws);
-        this.attachments.set(attachment.connId, attachment);
-        survivors.push({
-          id: attachment.connId,
-          user: attachment.user,
-          email: attachment.email,
-          hostToken: attachment.host,
-        });
-      }
-      if (survivors.length > 0 || this.core.ended) {
-        // Rebuild membership immediately, but defer outbound restore effects.
-        // webSocketMessage may be the ACK that woke this instance and must
-        // release its persisted entry before new snapshot/resync reservations.
-        // Ended state also restores with no sockets so legacy tombstones repair
-        // their cleanup alarm on the next wake.
-        this.pendingRestoreEffects.push(...this.core.restore(survivors, Date.now()));
-      }
+      await this.ctx.blockConcurrencyWhile(async () => {
+        if (!this.restored) await this.restoreCore();
+      });
     }
     return this.core;
+  }
+
+  /** Rebuilds durable and per-socket state while the DO input gate is closed. */
+  private async restoreCore(): Promise<void> {
+    if (this.restored) return;
+    if (!this.core) {
+      const stored = await this.ctx.storage.get<unknown>(SESSION_KEY);
+      if (stored !== undefined) {
+        const persisted = restorePersistedSession(stored);
+        if (!persisted) throw new Error("invalid persisted share session");
+        this.core = new ShareSessionCore(persisted);
+      }
+    }
+    this.restored = true;
+    const survivors: Array<{ id: string; user: string; email: string; hostToken: boolean }> =
+      [];
+    let restoredOutstandingAckEntries = 0;
+    const seen = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = this.attachment(ws);
+      if (!attachment || seen.has(attachment.connId)) {
+        ws.close(1011, "lost attachment");
+        continue;
+      }
+      seen.add(attachment.connId);
+      // Sockets accepted in this instance's lifetime are already registered.
+      if (this.sockets.has(attachment.connId)) continue;
+      try {
+        // Canonicalize legacy attachments and prove the full credit window
+        // remains serializable before restoring the socket into the core.
+        ws.serializeAttachment(serializeSocketAttachment(attachment));
+      } catch {
+        ws.close(DELIVERY_FAILURE_CLOSE_CODE, DELIVERY_FAILURE_CLOSE_REASON);
+        continue;
+      }
+      this.sockets.set(attachment.connId, ws);
+      this.attachments.set(attachment.connId, attachment);
+      restoredOutstandingAckEntries += attachment.outstanding.length;
+      survivors.push({
+        id: attachment.connId,
+        user: attachment.user,
+        email: attachment.email,
+        hostToken: attachment.host,
+      });
+    }
+    if (survivors.length > 0) {
+      this.logLifecycle("hibernation_restore", {
+        survivorSocketCount: survivors.length,
+        outstandingAckEntryCount: restoredOutstandingAckEntries,
+      });
+    }
+    if (this.core && (survivors.length > 0 || this.core.ended)) {
+      // Rebuild membership immediately, but defer outbound restore effects.
+      // webSocketMessage may be the ACK that woke this instance and must
+      // release its persisted entry before new snapshot/resync reservations.
+      // Ended state also restores with no sockets so legacy tombstones repair
+      // their cleanup alarm on the next wake.
+      this.pendingRestoreEffects.push(
+        ...this.core.restore(survivors, Date.now()),
+      );
+    } else if (!this.core && survivors.length > 0) {
+      for (const survivor of survivors) {
+        const ws = this.sockets.get(survivor.id);
+        try {
+          ws?.close(1011, "session unavailable");
+        } catch {
+          // Already closed.
+        }
+        this.sockets.delete(survivor.id);
+        this.attachments.delete(survivor.id);
+        this.ingress.remove(survivor.id);
+      }
+    }
   }
 
   private attachment(ws: WebSocket): ShareSocketAttachment | null {
@@ -404,5 +464,14 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   ): void {
     // Deliberately omit payloads, share codes, connection ids, and identities.
     console.error(JSON.stringify({ scope: "share_delivery", event, ...details }));
+  }
+
+  private logLifecycle(
+    event: string,
+    details: Readonly<Record<string, number>>,
+  ): void {
+    // Only bounded aggregate counts are permitted here. Session codes,
+    // connection ids, identities, routing ids, and payloads are excluded.
+    console.info(JSON.stringify({ scope: "share_lifecycle", event, ...details }));
   }
 }

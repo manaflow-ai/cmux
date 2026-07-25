@@ -3572,7 +3572,7 @@
     "sharedBy": "dijeli {email}",
     "reconnecting": "ponovno povezivanje…",
     "hostDisconnected": "veza s domaćinom je prekinuta",
-    "roleEditor": "može uređivati",
+    "roleEditor": "može pisati u terminalu",
     "roleViewer": "samo pregled",
     "participants": "Učesnici",
     "hostBadge": "domaćin",

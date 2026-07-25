@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { privateSharePageMetadata } from "@/services/analytics/sharePrivacy";
 
+import "./terminal-xterm.css";
+
 // Share codes are invitation credentials. Keep them out of referrers and
 // search indexes even if a link is pasted onto a crawlable page.
 export const metadata: Metadata = privateSharePageMetadata;

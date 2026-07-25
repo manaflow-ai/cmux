@@ -3570,7 +3570,7 @@
     "sharedBy": "{email} tarafından paylaşıldı",
     "reconnecting": "yeniden bağlanılıyor…",
     "hostDisconnected": "oturum sahibinin bağlantısı kesildi",
-    "roleEditor": "düzenleyebilir",
+    "roleEditor": "terminallerde yazabilir",
     "roleViewer": "yalnızca görüntüleyebilir",
     "participants": "Katılımcılar",
     "hostBadge": "oturum sahibi",

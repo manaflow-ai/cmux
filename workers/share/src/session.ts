@@ -20,7 +20,11 @@ import type {
   WorkspaceLayout,
 } from "./protocol";
 import {
-  BINARY_KIND_GRID,
+  BINARY_KIND_BASELINE,
+  BINARY_KIND_INPUT,
+  BINARY_KIND_OUTPUT,
+  decodeTerminalFrame,
+  encodeForwardedInputFrame,
   isCurrentTerminalPane,
   isCursorPos,
   isIdentityEmail,
@@ -76,6 +80,8 @@ export const INPUT_RATE_LIMIT_PER_SOCKET = 60;
 export const INPUT_RATE_LIMIT_PER_ROOM = 240;
 export const SUB_RATE_LIMIT_PER_SOCKET = 64;
 export const SUB_RATE_LIMIT_PER_ROOM = 256;
+export const TERMINAL_RESYNC_RATE_LIMIT_PER_SOCKET = 2;
+export const TERMINAL_RESYNC_RATE_LIMIT_PER_ROOM = 8;
 export const APPLICATION_RATE_WINDOW_MS = 1_000;
 export const RATE_LIMIT_CLOSE_CODE = 4008;
 export const RATE_LIMIT_CLOSE_REASON = "rate_limited";
@@ -314,6 +320,9 @@ interface Conn {
   subWindowStartedAt: number;
   subEventsInWindow: number;
   subRateLimitNotified: boolean;
+  resyncWindowStartedAt: number;
+  resyncEventsInWindow: number;
+  resyncRateLimitNotified: boolean;
 }
 
 interface DirtyCursor {
@@ -339,6 +348,8 @@ export class ShareSessionCore {
   private inputRoomEventsInWindow = 0;
   private subRoomWindowStartedAt = Number.NEGATIVE_INFINITY;
   private subRoomEventsInWindow = 0;
+  private resyncRoomWindowStartedAt = Number.NEGATIVE_INFINITY;
+  private resyncRoomEventsInWindow = 0;
   private scheduledAlarmAt: number | null;
 
   constructor(persisted: PersistedSession) {
@@ -472,6 +483,9 @@ export class ShareSessionCore {
       subWindowStartedAt: now,
       subEventsInWindow: 0,
       subRateLimitNotified: false,
+      resyncWindowStartedAt: now,
+      resyncEventsInWindow: 0,
+      resyncRateLimitNotified: false,
     };
   }
 
@@ -508,6 +522,9 @@ export class ShareSessionCore {
       subWindowStartedAt: now,
       subEventsInWindow: 0,
       subRateLimitNotified: false,
+      resyncWindowStartedAt: now,
+      resyncEventsInWindow: 0,
+      resyncRateLimitNotified: false,
     });
     this.s.hostDisconnectedAt = null;
     effects.push(...this.reconcileAlarm(), { kind: "persist" });
@@ -559,6 +576,9 @@ export class ShareSessionCore {
       subWindowStartedAt: now,
       subEventsInWindow: 0,
       subRateLimitNotified: false,
+      resyncWindowStartedAt: now,
+      resyncEventsInWindow: 0,
+      resyncRateLimitNotified: false,
     };
     this.conns.set(id, conn);
     if (conn.active) {
@@ -797,7 +817,7 @@ export class ShareSessionCore {
     switch (msg.t) {
       case "hello": {
         if (msg.proto !== PROTO_VERSION) {
-          return [{ kind: "close", to: id, code: 4400, reason: "bad proto" }];
+          return [{ kind: "close", to: id, code: 4406, reason: "unsupported protocol" }];
         }
         const shared = parseSharedWorkspaces(msg.shared);
         const layouts = parseWorkspaceLayouts(msg.layouts);
@@ -861,7 +881,7 @@ export class ShareSessionCore {
     if (!conn || conn.isHost || this.s.ended) return [];
     if (msg.t === "hello") {
       if (msg.proto !== PROTO_VERSION) {
-        return [{ kind: "close", to: id, code: 4400, reason: "bad proto" }];
+        return [{ kind: "close", to: id, code: 4406, reason: "unsupported protocol" }];
       }
       return [];
     }
@@ -901,6 +921,48 @@ export class ShareSessionCore {
             kind: "send",
             to: hostConn.id,
             msg: { t: "guest-input", user: conn.user, ws: msg.ws, pane: msg.pane, data: msg.data },
+          },
+        ];
+      }
+      case "terminal-resync": {
+        const key = subKey(msg.ws, msg.pane);
+        if (
+          !conn.subs.has(key) ||
+          !this.isCurrentTerminalPane(msg.ws, msg.pane)
+        ) {
+          return [];
+        }
+        const hostConn = this.hostConn();
+        if (!hostConn) return [];
+        if (
+          !this.consumeSocketRate(
+            conn,
+            "resync",
+            TERMINAL_RESYNC_RATE_LIMIT_PER_SOCKET,
+            now,
+          )
+        ) {
+          return this.resyncRateLimitedOnce(conn);
+        }
+        if (
+          !this.consumeRoomRate(
+            "resync",
+            TERMINAL_RESYNC_RATE_LIMIT_PER_ROOM,
+            now,
+          )
+        ) {
+          return this.resyncRateLimitedOnce(conn);
+        }
+        return [
+          {
+            kind: "send",
+            to: hostConn.id,
+            msg: {
+              t: "guest-resync",
+              user: conn.user,
+              ws: msg.ws,
+              pane: msg.pane,
+            },
           },
         ];
       }
@@ -945,31 +1007,99 @@ export class ShareSessionCore {
     }
   }
 
-  /** Host terminal grid frame -> subscribed active guests. */
+  /** Route an already validated terminal frame through the authoritative
+   * session membership, role, layout, and exact-pane subscription state. */
   routeBinary(
     fromId: ConnId,
     ws: string,
     pane: string,
     data: Uint8Array,
-    kind: number = BINARY_KIND_GRID,
+    kind: number,
+    receivedAt: number = Date.now(),
   ): Effect[] {
     const conn = this.conns.get(fromId);
-    if (!conn?.isHost || this.s.ended) return [];
+    if (!conn || this.s.ended || data.byteLength >= MAX_BINARY_FRAME_BYTES) return [];
+
+    if (conn.isHost) {
+      if (
+        (kind !== BINARY_KIND_BASELINE && kind !== BINARY_KIND_OUTPUT) ||
+        !this.isCurrentTerminalPane(ws, pane)
+      ) {
+        return [];
+      }
+      const decoded = decodeTerminalFrame(data);
+      if (
+        !decoded ||
+        decoded.kind !== kind ||
+        decoded.ws !== ws ||
+        decoded.pane !== pane
+      ) {
+        return [];
+      }
+      const key = subKey(ws, pane);
+      const effects: Effect[] = [];
+      for (const candidate of this.conns.values()) {
+        if (
+          !candidate.isHost &&
+          candidate.active &&
+          candidate.subs.has(key)
+        ) {
+          effects.push({ kind: "sendBinary", to: candidate.id, data });
+        }
+      }
+      return effects;
+    }
+
     if (
-      kind !== BINARY_KIND_GRID ||
-      data.byteLength >= MAX_BINARY_FRAME_BYTES ||
-      !this.isCurrentTerminalPane(ws, pane)
+      !conn.active ||
+      kind !== BINARY_KIND_INPUT ||
+      this.roleOf(conn.user) !== "editor" ||
+      !this.isCurrentTerminalPane(ws, pane) ||
+      !conn.subs.has(subKey(ws, pane))
     ) {
       return [];
     }
-    const key = subKey(ws, pane);
-    const effects: Effect[] = [];
-    for (const c of this.conns.values()) {
-      if (!c.isHost && c.active && c.subs.has(key)) {
-        effects.push({ kind: "sendBinary", to: c.id, data });
-      }
+    const decoded = decodeTerminalFrame(data);
+    if (
+      !decoded ||
+      decoded.kind !== BINARY_KIND_INPUT ||
+      decoded.ws !== ws ||
+      decoded.pane !== pane
+    ) {
+      return [];
     }
-    return effects;
+    const hostConn = this.hostConn();
+    if (!hostConn) return [];
+    if (
+      !this.consumeSocketRate(
+        conn,
+        "input",
+        INPUT_RATE_LIMIT_PER_SOCKET,
+        receivedAt,
+      )
+    ) {
+      return [
+        {
+          kind: "close",
+          to: conn.id,
+          code: RATE_LIMIT_CLOSE_CODE,
+          reason: RATE_LIMIT_CLOSE_REASON,
+        },
+      ];
+    }
+    if (
+      !this.consumeRoomRate(
+        "input",
+        INPUT_RATE_LIMIT_PER_ROOM,
+        receivedAt,
+      )
+    ) {
+      return this.rateLimitedOnce(conn, "input");
+    }
+    const forwarded = encodeForwardedInputFrame(data, conn.user);
+    return forwarded
+      ? [{ kind: "sendBinary", to: hostConn.id, data: forwarded }]
+      : [];
   }
 
   // -------------------------------------------------------------------------
@@ -1260,7 +1390,7 @@ export class ShareSessionCore {
 
   private consumeSocketRate(
     conn: Conn,
-    kind: "chat" | "input" | "sub",
+    kind: "chat" | "input" | "sub" | "resync",
     limit: number,
     now: number,
   ): boolean {
@@ -1281,7 +1411,7 @@ export class ShareSessionCore {
   }
 
   private consumeRoomRate(
-    kind: "chat" | "input" | "sub",
+    kind: "chat" | "input" | "sub" | "resync",
     limit: number,
     now: number,
   ): boolean {
@@ -1311,6 +1441,22 @@ export class ShareSessionCore {
           t: "error",
           code: RATE_LIMIT_CLOSE_REASON,
           message: "rate limit exceeded",
+        },
+      },
+    ];
+  }
+
+  private resyncRateLimitedOnce(conn: Conn): Effect[] {
+    if (conn.resyncRateLimitNotified) return [];
+    conn.resyncRateLimitNotified = true;
+    return [
+      {
+        kind: "send",
+        to: conn.id,
+        msg: {
+          t: "error",
+          code: RATE_LIMIT_CLOSE_REASON,
+          message: "rate limit reached",
         },
       },
     ];

@@ -13,6 +13,9 @@ struct ShareSessionCreateResult: Decodable, Sendable {
     let expiresAt: Double
     let wsUrl: String
     let shareUrl: String
+    let protocolVersion: Int
+    let terminalTransportVersion: Int
+    let deploymentId: String
 }
 
 struct ShareTokenResult: Decodable, Sendable {
@@ -20,6 +23,9 @@ struct ShareTokenResult: Decodable, Sendable {
     /// Unix seconds.
     let expiresAt: Double
     let wsUrl: String
+    let protocolVersion: Int
+    let terminalTransportVersion: Int
+    let deploymentId: String
 }
 
 enum ShareSessionAPIError: Error, CustomStringConvertible, Sendable {
@@ -83,9 +89,14 @@ actor ShareSessionAPI: ShareSessionAPIProviding {
               WorkspaceShareGrantValidator.isValidToken(result.token),
               WorkspaceShareGrantValidator.isValidExpiration(result.expiresAt),
               WorkspaceShareGrantValidator.webSocketURL(from: result.wsUrl) != nil,
-              WorkspaceShareGrantValidator.sharePageURL(from: result.shareUrl) != nil else {
+              WorkspaceShareGrantValidator.sharePageURL(from: result.shareUrl) != nil,
+              Self.hasExpectedCompatibility(
+                  protocolVersion: result.protocolVersion,
+                  terminalTransportVersion: result.terminalTransportVersion,
+                  deploymentID: result.deploymentId
+              ) else {
             throw ShareSessionAPIError.malformedResponse(
-                "share grant fields failed validation"
+                "share grant fields or deployment compatibility failed validation"
             )
         }
         return result
@@ -108,9 +119,14 @@ actor ShareSessionAPI: ShareSessionAPIProviding {
         let result = try decode(ShareTokenResult.self, from: data)
         guard WorkspaceShareGrantValidator.isValidToken(result.token),
               WorkspaceShareGrantValidator.isValidExpiration(result.expiresAt),
-              WorkspaceShareGrantValidator.webSocketURL(from: result.wsUrl) != nil else {
+              WorkspaceShareGrantValidator.webSocketURL(from: result.wsUrl) != nil,
+              Self.hasExpectedCompatibility(
+                  protocolVersion: result.protocolVersion,
+                  terminalTransportVersion: result.terminalTransportVersion,
+                  deploymentID: result.deploymentId
+              ) else {
             throw ShareSessionAPIError.malformedResponse(
-                "share token fields failed validation"
+                "share token fields or deployment compatibility failed validation"
             )
         }
         return result
@@ -220,5 +236,21 @@ actor ShareSessionAPI: ShareSessionAPIProviding {
             return nil
         }
         return .seconds(seconds)
+    }
+
+    private static func hasExpectedCompatibility(
+        protocolVersion: Int,
+        terminalTransportVersion: Int,
+        deploymentID: String
+    ) -> Bool {
+        let deploymentBytes = deploymentID.utf8
+        return protocolVersion == ShareProtocolConstants.version
+            && terminalTransportVersion
+                == ShareProtocolConstants.terminalTransportVersion
+            && !deploymentBytes.isEmpty
+            && deploymentBytes.count <= ShareProtocolConstants.maximumIDBytes
+            && deploymentID.unicodeScalars.allSatisfy {
+                !CharacterSet.controlCharacters.contains($0)
+            }
     }
 }

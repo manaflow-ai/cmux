@@ -1,6 +1,8 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
+import type { ShareWorkerCompatibilityError } from "./compatibility";
+
 export type ShareRateLimitCheck = (
   id: string,
   options: { request: Request; rateLimitKey?: string },
@@ -115,6 +117,12 @@ export function shareErrorResponse(error: unknown): Response {
   if (tag === "ShareConfigurationError") {
     return jsonResponse(
       { error: (error as ShareConfigurationError).code },
+      503,
+    );
+  }
+  if (tag === "ShareWorkerCompatibilityError") {
+    return jsonResponse(
+      { error: (error as ShareWorkerCompatibilityError).code },
       503,
     );
   }

@@ -7,8 +7,8 @@ import {
   MAX_SOCKET_OUTSTANDING_BYTES,
 } from "../src/outbound";
 import {
-  BINARY_KIND_GRID,
-  encodeBinaryHeader,
+  BINARY_KIND_BASELINE,
+  BINARY_KIND_INPUT,
   MAX_BINARY_FRAME_BYTES,
   MAX_EMAIL_BYTES,
   MAX_ID_BYTES,
@@ -18,6 +18,7 @@ import {
   MAX_TITLE_BYTES,
   PROTO_VERSION,
 } from "../src/protocol";
+import { baselineFrame } from "./terminal-frame";
 import type { LayoutNode, ServerMessage } from "../src/protocol";
 import {
   CHAT_HISTORY_BYTE_LIMIT,
@@ -727,7 +728,7 @@ describe("cursors, chat, presence", () => {
 });
 
 describe("subscriptions and binary routing", () => {
-  it("sub/unsub report counts to the host and route grid frames", () => {
+  it("sub/unsub report counts to the host and route terminal baselines", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice", ALICE);
     approveGuest(core, "c-bob", BOB);
@@ -742,13 +743,18 @@ describe("subscriptions and binary routing", () => {
       pane: "surface:1",
       count: 1,
     });
-    const frame = encodeBinaryHeader(
-      BINARY_KIND_GRID,
+    const frame = baselineFrame(
       "workspace:1",
       "surface:1",
       new TextEncoder().encode("{}"),
     );
-    const routed = core.routeBinary("c-host", "workspace:1", "surface:1", frame);
+    const routed = core.routeBinary(
+      "c-host",
+      "workspace:1",
+      "surface:1",
+      frame,
+      BINARY_KIND_BASELINE,
+    );
     const targets = routed
       .filter((e): e is Extract<Effect, { kind: "sendBinary" }> => e.kind === "sendBinary")
       .map((e) => e.to);
@@ -806,7 +812,15 @@ describe("subscriptions and binary routing", () => {
       count: 0,
     });
     // A lagging host still emitting frames for the unshared workspace gets dropped.
-    expect(core.routeBinary("c-host", "workspace:1", "surface:1", new Uint8Array(8))).toEqual([]);
+    expect(
+      core.routeBinary(
+        "c-host",
+        "workspace:1",
+        "surface:1",
+        new Uint8Array(8),
+        BINARY_KIND_BASELINE,
+      ),
+    ).toEqual([]);
   });
 
   it("layout churn drops stale or non-terminal subscriptions and frames", () => {
@@ -830,7 +844,13 @@ describe("subscriptions and binary routing", () => {
       core.handleGuest("c-alice", { t: "sub", ws: "workspace:1", pane: "surface:1" }),
     ).toEqual([]);
     expect(
-      core.routeBinary("c-host", "workspace:1", "surface:1", new Uint8Array(8)),
+      core.routeBinary(
+        "c-host",
+        "workspace:1",
+        "surface:1",
+        new Uint8Array(8),
+        BINARY_KIND_BASELINE,
+      ),
     ).toEqual([]);
   });
 
@@ -862,10 +882,18 @@ describe("subscriptions and binary routing", () => {
   it("binary frames from guests are never routed", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice", ALICE);
-    expect(core.routeBinary("c-alice", "workspace:1", "surface:1", new Uint8Array(4))).toEqual([]);
+    expect(
+      core.routeBinary(
+        "c-alice",
+        "workspace:1",
+        "surface:1",
+        new Uint8Array(4),
+        BINARY_KIND_INPUT,
+      ),
+    ).toEqual([]);
   });
 
-  it("pixel-kind frames are outside v1", () => {
+  it("malformed output frames are never routed", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice", ALICE);
     core.handleGuest("c-alice", { t: "sub", ws: "workspace:1", pane: "surface:1" });

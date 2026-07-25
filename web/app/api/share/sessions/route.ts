@@ -17,6 +17,10 @@ import {
   type ShareRateLimitCheck,
 } from "../../../../services/share/http";
 import {
+  requireCompatibleShareWorker,
+  type ShareWorkerCompatibility,
+} from "../../../../services/share/compatibility";
+import {
   unauthorized,
   verifyRequest,
   type AuthedUser,
@@ -39,6 +43,7 @@ export interface ShareSessionCreateDeps {
   readonly signingKey: () => KeyObject | null;
   readonly nowSeconds: () => number;
   readonly generateCode: () => string;
+  readonly workerCompatibility: () => Promise<ShareWorkerCompatibility>;
   readonly checkRateLimit: ShareRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
   readonly isVercel: () => boolean;
@@ -49,6 +54,7 @@ const productionDeps: ShareSessionCreateDeps = {
   signingKey: shareSigningKey,
   nowSeconds: () => Math.floor(Date.now() / 1000),
   generateCode: generateShareCode,
+  workerCompatibility: requireCompatibleShareWorker,
   checkRateLimit,
   rateLimitRuleId: () => process.env.CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
@@ -81,6 +87,7 @@ export async function handleShareSessionCreate(
       isVercel,
       retryAfterSeconds: SHARE_SESSION_CREATE_RETRY_AFTER_SECONDS,
     }));
+    const compatibility = await deps.workerCompatibility();
     const code = deps.generateCode();
     const { token, expiresAt } = mintShareToken({
       sub: user.id,
@@ -97,6 +104,9 @@ export async function handleShareSessionCreate(
       expiresAt,
       wsUrl: shareSessionWsUrl(code),
       shareUrl: sharePageUrl(code),
+      protocolVersion: compatibility.protocolVersion,
+      terminalTransportVersion: compatibility.terminalTransportVersion,
+      deploymentId: compatibility.deploymentId,
     });
   } catch (error) {
     return shareErrorResponse(error);

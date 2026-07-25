@@ -243933,7 +243933,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editor"
+            "value": "Terminal input"
           }
         },
         "es": {
@@ -243957,7 +243957,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集者"
+            "value": "ターミナル入力"
           }
         },
         "km": {
@@ -244433,7 +244433,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow editing"
+            "value": "Allow terminal input"
           }
         },
         "es": {
@@ -244457,7 +244457,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集を許可"
+            "value": "ターミナル入力を許可"
           }
         },
         "km": {
@@ -244808,7 +244808,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approved as editor"
+            "value": "Terminal input approved"
           }
         },
         "es": {
@@ -244832,7 +244832,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集者として承認しました"
+            "value": "ターミナル入力を承認しました"
           }
         },
         "km": {

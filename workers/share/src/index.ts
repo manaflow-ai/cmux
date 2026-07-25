@@ -6,11 +6,15 @@
 import type { ShareWorkerEnv } from "./do";
 import { ShareSession } from "./do";
 import { verifyShareToken } from "./jwt";
-import { utf8ByteLength } from "./protocol";
+import {
+  PROTO_VERSION,
+  TERMINAL_TRANSPORT_VERSION,
+  utf8ByteLength,
+} from "./protocol";
 
 export { ShareSession };
 
-const WS_PATH = /^\/v1\/share\/sessions\/([A-Za-z0-9]{8,64})\/ws$/;
+const WS_PATH = /^\/v2\/share\/sessions\/([A-Za-z0-9]{8,64})\/ws$/;
 const MAX_BEARER_TOKEN_BYTES = 8 * 1024;
 
 function json(body: unknown, status = 200): Response {
@@ -25,7 +29,13 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/healthz") {
-      return json({ ok: true, service: "cmux-share" });
+      return json({
+        ok: true,
+        service: "cmux-share",
+        protocolVersion: PROTO_VERSION,
+        terminalTransportVersion: TERMINAL_TRANSPORT_VERSION,
+        deploymentId: env.WORKER_VERSION_METADATA.id,
+      });
     }
 
     const match = WS_PATH.exec(url.pathname);

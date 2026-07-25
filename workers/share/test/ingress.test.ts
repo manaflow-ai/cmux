@@ -10,12 +10,17 @@ import {
   validateBinaryIngress,
 } from "../src/ingress";
 import {
-  BINARY_KIND_GRID,
-  encodeBinaryHeader,
+  BINARY_KIND_BASELINE,
   MAX_BINARY_FRAME_BYTES,
   parseAckMessage,
   parseGuestMessage,
+  TERMINAL_FRAME_HEADER_BYTES,
 } from "../src/protocol";
+import {
+  baselineFrame,
+  exactBaselineFrame,
+  inputFrame,
+} from "./terminal-frame";
 
 const T0 = 1_700_000_000_000;
 
@@ -107,16 +112,14 @@ describe("guest application ingress budget", () => {
 
 describe("binary ingress decisions", () => {
   it("accepts host limit - 1 and closes exact/over with 1009", () => {
-    const fixedHeaderBytes = 3 + 1 + 1;
-    const accepted = encodeBinaryHeader(
-      BINARY_KIND_GRID,
+    const accepted = exactBaselineFrame(
       "w",
       "p",
-      new Uint8Array(MAX_BINARY_FRAME_BYTES - fixedHeaderBytes - 1),
+      MAX_BINARY_FRAME_BYTES - 1,
     );
     expect(validateBinaryIngress(true, accepted)).toMatchObject({
       ok: true,
-      header: { kind: BINARY_KIND_GRID, ws: "w", pane: "p" },
+      header: { kind: BINARY_KIND_BASELINE, ws: "w", pane: "p" },
     });
     expect(validateBinaryIngress(true, new Uint8Array(MAX_BINARY_FRAME_BYTES))).toEqual({
       ok: false,
@@ -130,23 +133,31 @@ describe("binary ingress decisions", () => {
     });
   });
 
-  it("rejects guest, truncated, invalid UTF-8, and unknown-kind frames with no header", () => {
-    const valid = encodeBinaryHeader(BINARY_KIND_GRID, "w", "p", new Uint8Array([1]));
+  it("admits only role-correct canonical frames and rejects malformed data", () => {
+    const valid = baselineFrame("w", "p", new Uint8Array([1]));
     expect(validateBinaryIngress(false, valid)).toEqual({
       ok: false,
       code: 4400,
-      reason: "guest binary not allowed",
+      reason: "terminal frame kind not allowed",
     });
+    expect(validateBinaryIngress(false, inputFrame("w", "p"))).toMatchObject({
+      ok: true,
+      header: { ws: "w", pane: "p" },
+    });
+    const invalidUtf8 = valid.slice();
+    invalidUtf8[TERMINAL_FRAME_HEADER_BYTES] = 0xff;
+    const unknownKind = valid.slice();
+    unknownKind[5] = 0x7f;
     for (const invalid of [
       valid.subarray(0, 2),
-      new Uint8Array([BINARY_KIND_GRID, 1, 0xff, 1, 0x70]),
-      encodeBinaryHeader(0x02, "w", "p", new Uint8Array([1])),
+      invalidUtf8,
+      unknownKind,
     ]) {
       const decision = validateBinaryIngress(true, invalid);
       expect(decision).toEqual({
         ok: false,
         code: 4400,
-        reason: "invalid binary message",
+        reason: "invalid terminal frame",
       });
       expect(decision).not.toHaveProperty("header");
     }

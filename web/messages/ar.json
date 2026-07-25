@@ -3569,7 +3569,7 @@
     "sharedBy": "مشاركة بواسطة {email}",
     "reconnecting": "جارٍ إعادة الاتصال…",
     "hostDisconnected": "انقطع اتصال المضيف",
-    "roleEditor": "يمكن التعديل",
+    "roleEditor": "يمكنه الكتابة في الطرفية",
     "roleViewer": "عرض فقط",
     "participants": "المشاركون",
     "hostBadge": "المضيف",

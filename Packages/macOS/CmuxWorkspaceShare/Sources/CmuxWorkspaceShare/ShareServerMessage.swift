@@ -21,6 +21,9 @@ public enum ShareServerMessage: Equatable, Sendable {
     /// Subscriber-count update for a terminal pane.
     case guestSub(ws: String, pane: String, count: Int)
 
+    /// An authenticated guest requests a fresh baseline for one terminal pane.
+    case guestResync(user: String, ws: String, pane: String)
+
     /// Requests a fresh hello and full terminal frames.
     case resync
 
@@ -90,6 +93,12 @@ extension ShareServerMessage: Decodable {
                 ws: try container.decode(String.self, forKey: .ws),
                 pane: try container.decode(String.self, forKey: .pane),
                 count: try container.decode(Int.self, forKey: .count)
+            )
+        case "guest-resync":
+            self = .guestResync(
+                user: try container.decode(String.self, forKey: .user),
+                ws: try container.decode(String.self, forKey: .ws),
+                pane: try container.decode(String.self, forKey: .pane)
             )
         case "resync":
             self = .resync

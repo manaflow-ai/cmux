@@ -2,7 +2,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["bun"]
+    "types": ["bun", "@cloudflare/workers-types/experimental"]
   },
   "include": ["test/**/*.ts", "src/protocol.ts", "src/session.ts", "src/jwt.ts"]
 }

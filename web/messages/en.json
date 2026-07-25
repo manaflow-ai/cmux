@@ -4771,7 +4771,7 @@
     "sharedBy": "shared by {email}",
     "reconnecting": "reconnecting…",
     "hostDisconnected": "host disconnected",
-    "roleEditor": "can edit",
+    "roleEditor": "can type in terminals",
     "roleViewer": "view only",
     "participants": "People",
     "hostBadge": "host",

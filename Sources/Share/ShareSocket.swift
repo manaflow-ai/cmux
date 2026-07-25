@@ -34,6 +34,7 @@ actor ShareSocket {
     enum Event: Sendable {
         case opened(connection: UInt64)
         case text(String, connection: UInt64, sequence: UInt64)
+        case binary(Data, connection: UInt64, sequence: UInt64)
         case connectionStateChanged(Bool)
         case stopped
     }
@@ -318,7 +319,8 @@ actor ShareSocket {
             return .backpressured
         }
         guard data.count < ShareProtocolConstants.binaryFrameByteLimit,
-              ShareBinaryFrame.decode(data) != nil else {
+              let frame = try? WorkspaceShareTerminalFrame.decode(data),
+              frame.kind == .baseline || frame.kind == .output else {
             shareSocketLogger.warning(
                 "Dropping an invalid or oversized binary share frame"
             )
@@ -810,7 +812,7 @@ actor ShareSocket {
                         return .webSocketClosed(code: 1_001, reason: nil)
                     }
                 case .data(let data):
-                    guard data.count < ShareProtocolConstants.binaryFrameByteLimit else {
+                    guard data.count < Self.maximumInboundBinaryFrameBytes else {
                         shareSocketLogger.warning(
                             "Closing a share socket after an oversized server binary frame"
                         )
@@ -820,10 +822,17 @@ actor ShareSocket {
                             reason: nil
                         )
                     }
-                    // Hosts do not consume server binary messages. Counting
-                    // this frame creates a sequence gap, so a following marker
-                    // cannot acknowledge an earlier accepted JSON payload.
-                    break
+                    guard enqueueEvent(.binary(
+                        data,
+                        connection: connection,
+                        sequence: sequence
+                    )) else {
+                        shareSocketLogger.error(
+                            "Closing a share socket whose event consumer fell behind"
+                        )
+                        task.cancel(with: .goingAway, reason: nil)
+                        return .webSocketClosed(code: 1_001, reason: nil)
+                    }
                 @unknown default:
                     break
                 }
@@ -928,6 +937,15 @@ actor ShareSocket {
         }
         return (.text(text), priority)
     }
+
+    /// The host only accepts a forwarded terminal-input frame from the relay.
+    /// Bound the event queue by that frame's maximum canonical size rather than
+    /// the much larger host-output frame limit.
+    private nonisolated static let maximumInboundBinaryFrameBytes =
+        WorkspaceShareTerminalFrame.headerByteCount
+        + (3 * ShareProtocolConstants.maximumIDBytes)
+        + ShareProtocolConstants.maximumTerminalInputBytes
+        + 1
 
     deinit {
         setConnectionAdmission(false)

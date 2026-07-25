@@ -16,6 +16,10 @@ import {
   type ShareRateLimitCheck,
 } from "../../../../../../services/share/http";
 import {
+  requireCompatibleShareWorker,
+  type ShareWorkerCompatibility,
+} from "../../../../../../services/share/compatibility";
+import {
   unauthorized,
   verifyRequest,
   type AuthedUser,
@@ -42,6 +46,7 @@ export interface ShareGuestTokenDeps {
   ) => Promise<AuthedUser | null>;
   readonly signingKey: () => KeyObject | null;
   readonly nowSeconds: () => number;
+  readonly workerCompatibility: () => Promise<ShareWorkerCompatibility>;
   readonly checkRateLimit: ShareRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
   readonly isVercel: () => boolean;
@@ -54,6 +59,7 @@ const productionDeps: ShareGuestTokenDeps = {
     verifyRequest(request, { allowCookie: false }),
   signingKey: shareSigningKey,
   nowSeconds: () => Math.floor(Date.now() / 1000),
+  workerCompatibility: requireCompatibleShareWorker,
   checkRateLimit,
   rateLimitRuleId: () => process.env.CMUX_SHARE_TOKEN_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
@@ -100,6 +106,7 @@ export async function handleShareGuestToken(
       isVercel,
       retryAfterSeconds: SHARE_TOKEN_RETRY_AFTER_SECONDS,
     }));
+    const compatibility = await deps.workerCompatibility();
     const { token, expiresAt } = mintShareToken({
       sub: user.id,
       email: user.primaryEmail ?? "",
@@ -112,6 +119,9 @@ export async function handleShareGuestToken(
       token,
       expiresAt,
       wsUrl: shareSessionWsUrl(code),
+      protocolVersion: compatibility.protocolVersion,
+      terminalTransportVersion: compatibility.terminalTransportVersion,
+      deploymentId: compatibility.deploymentId,
     });
   } catch (error) {
     return shareErrorResponse(error);

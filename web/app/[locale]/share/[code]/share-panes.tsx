@@ -1,8 +1,8 @@
 "use client";
 
-// Recursive split layout for the terminal-only viewer. Terminal canvases
-// paint imperatively from grid models; every other leaf stays present as a
-// stable, noninteractive placeholder so the host's split geometry is exact.
+// Recursive split layout for the terminal-only viewer. Terminal leaves bind
+// xterm directly to the sequenced PTY stream. Other leaves remain stable,
+// inert placeholders so the host's split geometry is preserved.
 
 import {
   createContext,
@@ -15,8 +15,7 @@ import { useTranslations } from "next-intl";
 
 import type { ShareClient } from "./share-connection";
 import type { LayoutNode } from "./share-protocol";
-import { paintGrid } from "./terminal-grid";
-import { keyEventToBytes } from "./terminal-keys";
+import { XtermPaneController } from "./xterm-pane";
 
 export interface PaneRectRegistry {
   register(paneKey: string, el: HTMLElement | null): void;
@@ -187,7 +186,7 @@ function PlaceholderPane({
 }
 
 /**
- * One terminal pane. The callback ref owns grid and resize subscriptions, so
+ * One terminal pane. The callback ref owns xterm and stream subscriptions, so
  * mounting/unmounting is the complete lifecycle without a component effect.
  */
 function TerminalPane({
@@ -209,45 +208,36 @@ function TerminalPane({
     (element: HTMLElement | null): void => registry?.register(paneKey, element),
     [paneKey, registry],
   );
-  const mountCanvas = useCallback(
-    (canvas: HTMLCanvasElement | null): void => {
+  const mountTerminal = useCallback(
+    (element: HTMLDivElement | null): void => {
       cleanupRef.current?.();
       cleanupRef.current = null;
-      if (!canvas) return;
-      const model = client.gridFor(ws, pane);
-      const paintNow = (): void => {
-        const box = canvas.parentElement;
-        if (!box) return;
-        const dpr = window.devicePixelRatio || 1;
-        const cssW = box.clientWidth;
-        const cssH = box.clientHeight;
-        if (cssW === 0 || cssH === 0) return;
-        if (
-          canvas.width !== Math.round(cssW * dpr) ||
-          canvas.height !== Math.round(cssH * dpr)
-        ) {
-          canvas.width = Math.round(cssW * dpr);
-          canvas.height = Math.round(cssH * dpr);
-        }
-        const context = canvas.getContext("2d");
-        if (context) paintGrid(context, model, cssW, cssH, dpr);
-      };
-      const scheduler = createAnimationFrameScheduler(
-        (callback) => window.requestAnimationFrame(() => callback()),
-        (id) => window.cancelAnimationFrame(id),
-        paintNow,
-      );
-      const unsubscribeGrid = client.subscribeGrid(ws, pane, scheduler.schedule);
-      const resizeObserver = new ResizeObserver(scheduler.schedule);
-      if (canvas.parentElement) resizeObserver.observe(canvas.parentElement);
-      scheduler.schedule();
+      if (!element) return;
+      let terminal: XtermPaneController;
+      try {
+        terminal = new XtermPaneController(element, {
+          onData: (data) => {
+            client.sendTerminalData(ws, pane, data);
+          },
+          onBinary: (data) => {
+            client.sendTerminalBinary(ws, pane, data);
+          },
+        });
+      } catch {
+        client.reportTerminalRuntimeFailure();
+        return;
+      }
+      terminal.setInputEnabled(canType);
+      const detachTerminal = client.attachTerminal(ws, pane, terminal);
+      const focusTerminal = (): void => terminal.focus();
+      element.addEventListener("pointerdown", focusTerminal);
       cleanupRef.current = () => {
-        unsubscribeGrid();
-        resizeObserver.disconnect();
-        scheduler.cancel();
+        element.removeEventListener("pointerdown", focusTerminal);
+        detachTerminal();
+        terminal.dispose();
       };
     },
-    [client, pane, ws],
+    [canType, client, pane, ws],
   );
 
   return (
@@ -258,28 +248,14 @@ function TerminalPane({
         canType ? "focus-within:ring-1 focus-within:ring-[#2d8cff]/60" : ""
       }`}
     >
-      <canvas ref={mountCanvas} className="absolute inset-0 h-full w-full" />
       <div
+        ref={mountTerminal}
         role={canType ? "textbox" : "presentation"}
         aria-label={pane}
         tabIndex={canType ? 0 : -1}
-        className={`absolute inset-0 outline-none ${canType ? "cursor-text" : "cursor-default"}`}
-        onKeyDown={(event) => {
-          if (!canType) return;
-          const bytes = keyEventToBytes(event);
-          if (bytes !== null) {
-            event.preventDefault();
-            client.sendInput(ws, pane, bytes);
-          }
-        }}
-        onPaste={(event) => {
-          if (!canType) return;
-          const text = event.clipboardData.getData("text");
-          if (text) {
-            event.preventDefault();
-            client.sendInput(ws, pane, text);
-          }
-        }}
+        className={`cmux-share-xterm-host absolute inset-0 outline-none ${
+          canType ? "cursor-text" : "cursor-default"
+        }`}
       />
     </div>
   );

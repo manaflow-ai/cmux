@@ -3571,7 +3571,7 @@
     "sharedBy": "由 {email} 共享",
     "reconnecting": "正在重新連線…",
     "hostDisconnected": "主持人已中斷連線",
-    "roleEditor": "可編輯",
+    "roleEditor": "可在終端機中輸入",
     "roleViewer": "僅能檢視",
     "participants": "參與者",
     "hostBadge": "主持人",

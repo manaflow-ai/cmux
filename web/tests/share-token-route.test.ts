@@ -10,6 +10,12 @@ import {
   type ShareSessionCreateDeps,
 } from "../app/api/share/sessions/route";
 import {
+  SHARE_PROTOCOL_VERSION,
+  SHARE_TERMINAL_TRANSPORT_VERSION,
+  ShareWorkerCompatibilityError,
+  type ShareWorkerCompatibility,
+} from "../services/share/compatibility";
+import {
   generateShareCode,
   isValidShareCode,
   mintShareToken,
@@ -21,6 +27,11 @@ import {
 import type { AuthedUser } from "../services/vms/auth";
 
 const NOW = 1_700_000_000;
+const WORKER_COMPATIBILITY: ShareWorkerCompatibility = {
+  protocolVersion: SHARE_PROTOCOL_VERSION,
+  terminalTransportVersion: SHARE_TERMINAL_TRANSPORT_VERSION,
+  deploymentId: "deployment-test-123",
+};
 
 const USER: AuthedUser = {
   id: "u-1",
@@ -59,6 +70,7 @@ function sessionCreateDeps(
     signingKey: () => keypair().privateKey,
     nowSeconds: () => NOW,
     generateCode: generateShareCode,
+    workerCompatibility: async () => WORKER_COMPATIBILITY,
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
@@ -74,6 +86,7 @@ function guestTokenDeps(
     verifyNativeRequest: async () => USER,
     signingKey: () => keypair().privateKey,
     nowSeconds: () => NOW,
+    workerCompatibility: async () => WORKER_COMPATIBILITY,
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
@@ -134,6 +147,10 @@ describe("mintShareToken", () => {
     expect(claims.email).toBe("user@example.com");
     expect(claims.code).toBe("code12345678");
     expect(claims.host).toBe(true);
+    expect(claims.protocolVersion).toBe(SHARE_PROTOCOL_VERSION);
+    expect(claims.terminalTransportVersion).toBe(
+      SHARE_TERMINAL_TRANSPORT_VERSION,
+    );
     expect(claims.exp).toBe(NOW + SHARE_TOKEN_TTL_SECONDS);
   });
 });
@@ -166,19 +183,74 @@ describe("POST /api/share/sessions", () => {
     expect(await res.json()).toEqual({ error: "share_not_configured" });
   });
 
-  test("mints a host grant with code, ws URL, and share URL", async () => {
+  test("mints an exact v2 host grant with Worker identity", async () => {
+    const previousWsBase = process.env.CMUX_SHARE_WS_BASE_URL;
+    const previousPageBase = process.env.CMUX_SHARE_PAGE_BASE_URL;
+    process.env.CMUX_SHARE_WS_BASE_URL = "https://share-test.example.com/";
+    process.env.CMUX_SHARE_PAGE_BASE_URL = "http://localhost:4582/";
+    try {
+      const res = await handleShareSessionCreate(
+        request(),
+        sessionCreateDeps({
+          generateCode: () => "fixedCode0123456789012",
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(typeof body.token).toBe("string");
+      expect(body).toEqual({
+        code: "fixedCode0123456789012",
+        token: body.token,
+        expiresAt: NOW + SHARE_TOKEN_TTL_SECONDS,
+        wsUrl:
+          "wss://share-test.example.com/v2/share/sessions/fixedCode0123456789012/ws",
+        shareUrl: "http://localhost:4582/share/fixedCode0123456789012",
+        protocolVersion: 2,
+        terminalTransportVersion: 1,
+        deploymentId: "deployment-test-123",
+      });
+      const claims = decodePayload(String(body.token ?? ""));
+      expect(claims).toMatchObject({
+        host: true,
+        create: true,
+        protocolVersion: 2,
+        terminalTransportVersion: 1,
+      });
+    } finally {
+      if (previousWsBase === undefined) {
+        delete process.env.CMUX_SHARE_WS_BASE_URL;
+      } else {
+        process.env.CMUX_SHARE_WS_BASE_URL = previousWsBase;
+      }
+      if (previousPageBase === undefined) {
+        delete process.env.CMUX_SHARE_PAGE_BASE_URL;
+      } else {
+        process.env.CMUX_SHARE_PAGE_BASE_URL = previousPageBase;
+      }
+    }
+  });
+
+  test("503s explicitly when the configured Worker is incompatible", async () => {
+    let grants = 0;
     const res = await handleShareSessionCreate(
       request(),
       sessionCreateDeps({
-        generateCode: () => "fixedCode0123456789012",
+        workerCompatibility: async () => {
+          throw new ShareWorkerCompatibilityError({
+            code: "share_worker_incompatible",
+          });
+        },
+        generateCode: () => {
+          grants += 1;
+          return "fixedCode0123456789012";
+        },
       }),
     );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, string>;
-    expect(body.code).toBe("fixedCode0123456789012");
-    expect(body.wsUrl).toContain("/v1/share/sessions/fixedCode0123456789012/ws");
-    expect(body.shareUrl).toContain("/share/fixedCode0123456789012");
-    expect(decodePayload(body.token ?? "").host).toBe(true);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: "share_worker_incompatible",
+    });
+    expect(grants).toBe(0);
   });
 
   test("checks request-IP and account budgets before minting", async () => {
@@ -343,22 +415,44 @@ describe("POST /api/share/sessions/[code]/token", () => {
     expect(res.status).toBe(401);
   });
 
-  test("mints a guest (host=false) token bound to the code", async () => {
-    const res = await handleShareGuestToken(
-      request(),
-      "code12345678",
-      guestTokenDeps({
-        verifyNativeRequest: async () => {
-          throw new Error("native auth must not be called for a guest");
-        },
-      }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, string>;
-    const claims = decodePayload(body.token ?? "");
-    expect(claims.host).toBe(false);
-    expect(claims.code).toBe("code12345678");
-    expect(body.wsUrl).toContain("/v1/share/sessions/code12345678/ws");
+  test("mints an exact v2 guest grant bound to the code and Worker", async () => {
+    const previousWsBase = process.env.CMUX_SHARE_WS_BASE_URL;
+    process.env.CMUX_SHARE_WS_BASE_URL = "ws://127.0.0.1:8787/";
+    try {
+      const res = await handleShareGuestToken(
+        request(),
+        "code12345678",
+        guestTokenDeps({
+          verifyNativeRequest: async () => {
+            throw new Error("native auth must not be called for a guest");
+          },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(typeof body.token).toBe("string");
+      expect(body).toEqual({
+        token: body.token,
+        expiresAt: NOW + SHARE_TOKEN_TTL_SECONDS,
+        wsUrl: "ws://127.0.0.1:8787/v2/share/sessions/code12345678/ws",
+        protocolVersion: 2,
+        terminalTransportVersion: 1,
+        deploymentId: "deployment-test-123",
+      });
+      const claims = decodePayload(String(body.token ?? ""));
+      expect(claims).toMatchObject({
+        host: false,
+        code: "code12345678",
+        protocolVersion: 2,
+        terminalTransportVersion: 1,
+      });
+    } finally {
+      if (previousWsBase === undefined) {
+        delete process.env.CMUX_SHARE_WS_BASE_URL;
+      } else {
+        process.env.CMUX_SHARE_WS_BASE_URL = previousWsBase;
+      }
+    }
   });
 
   test("requires native auth for host refresh and preserves the code claim", async () => {
@@ -458,6 +552,30 @@ describe("POST /api/share/sessions/[code]/token", () => {
     );
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "share_not_configured" });
+  });
+
+  test("503s explicitly when the configured Worker is unreachable", async () => {
+    let mints = 0;
+    const res = await handleShareGuestToken(
+      request(),
+      "code12345678",
+      guestTokenDeps({
+        workerCompatibility: async () => {
+          throw new ShareWorkerCompatibilityError({
+            code: "share_worker_unavailable",
+          });
+        },
+        nowSeconds: () => {
+          mints += 1;
+          return NOW;
+        },
+      }),
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: "share_worker_unavailable",
+    });
+    expect(mints).toBe(0);
   });
 
   test("checks request-IP and account+code budgets before minting", async () => {

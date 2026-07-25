@@ -7,7 +7,12 @@
 // specific share code via the `code` claim. The worker holds only the public
 // key, so it never talks to Stack or the web app on the hot path.
 
-import { isIdentityEmail, isProtocolId } from "./protocol";
+import {
+  isIdentityEmail,
+  isProtocolId,
+  PROTO_VERSION,
+  TERMINAL_TRANSPORT_VERSION,
+} from "./protocol";
 
 export interface ShareClaims {
   /** Stack user id. */
@@ -72,6 +77,8 @@ export function validateClaims(
 ): ShareClaims | null {
   if (payload.iss !== SHARE_JWT_ISSUER) return null;
   if (payload.aud !== SHARE_JWT_AUDIENCE) return null;
+  if (payload.protocolVersion !== PROTO_VERSION) return null;
+  if (payload.terminalTransportVersion !== TERMINAL_TRANSPORT_VERSION) return null;
   if (
     typeof payload.exp !== "number" ||
     !Number.isFinite(payload.exp) ||

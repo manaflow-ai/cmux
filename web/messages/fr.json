@@ -3574,7 +3574,7 @@
     "sharedBy": "partagé par {email}",
     "reconnecting": "reconnexion…",
     "hostDisconnected": "hôte déconnecté",
-    "roleEditor": "peut modifier",
+    "roleEditor": "peut saisir dans les terminaux",
     "roleViewer": "lecture seule",
     "participants": "Participants",
     "hostBadge": "hôte",

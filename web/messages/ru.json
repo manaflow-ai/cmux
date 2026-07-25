@@ -3572,7 +3572,7 @@
     "sharedBy": "общий доступ предоставлен пользователем {email}",
     "reconnecting": "повторное подключение…",
     "hostDisconnected": "хост отключён",
-    "roleEditor": "может редактировать",
+    "roleEditor": "может вводить в терминалах",
     "roleViewer": "только просмотр",
     "participants": "Участники",
     "hostBadge": "хост",

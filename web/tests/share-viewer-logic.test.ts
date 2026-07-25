@@ -312,7 +312,8 @@ describe("terminal-only split renderer", () => {
     expect(html).toContain('data-share-placeholder="other"');
     expect(html.match(/data-share-placeholder=/g)).toHaveLength(3);
     expect(html.match(/data-share-pane=/g)).toHaveLength(1);
-    expect(html.match(/<canvas/g)).toHaveLength(1);
+    expect(html.match(/cmux-share-xterm-host/g)).toHaveLength(1);
+    expect(html).not.toContain("<canvas");
     expect(html).not.toContain("<textarea");
     expect(html).not.toContain('role="application"');
   });

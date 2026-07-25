@@ -3572,7 +3572,7 @@
     "sharedBy": "geteilt von {email}",
     "reconnecting": "Verbindung wird wiederhergestellt…",
     "hostDisconnected": "Host nicht verbunden",
-    "roleEditor": "kann bearbeiten",
+    "roleEditor": "kann in Terminals tippen",
     "roleViewer": "nur ansehen",
     "participants": "Personen",
     "hostBadge": "Host",

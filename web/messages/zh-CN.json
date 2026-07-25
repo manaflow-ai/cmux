@@ -3572,7 +3572,7 @@
     "sharedBy": "由 {email} 共享",
     "reconnecting": "正在重新连接…",
     "hostDisconnected": "主持人已断开连接",
-    "roleEditor": "可编辑",
+    "roleEditor": "可在终端中输入",
     "roleViewer": "仅查看",
     "participants": "参与者",
     "hostBadge": "主持人",

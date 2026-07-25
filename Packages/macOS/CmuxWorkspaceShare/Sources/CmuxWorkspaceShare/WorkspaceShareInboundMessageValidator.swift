@@ -38,6 +38,8 @@ public struct WorkspaceShareInboundMessageValidator: Sendable {
             return isID(ws)
                 && isID(pane)
                 && (0...ShareProtocolConstants.maximumConnections).contains(count)
+        case .guestResync(let user, let ws, let pane):
+            return isID(user) && isID(ws) && isID(pane)
         case .resync:
             return true
         case .sessionEnded(let reason):

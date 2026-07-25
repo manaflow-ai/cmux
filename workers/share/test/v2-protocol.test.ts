@@ -12,7 +12,7 @@ import {
   type OutboundSocket,
 } from "../src/outbound";
 import {
-  decodeBinaryHeader,
+  decodeTerminalFrame as decodeWorkerTerminalFrame,
   MAX_BINARY_FRAME_BYTES,
   parseGuestMessage,
   PROTO_VERSION,
@@ -358,7 +358,7 @@ describe("terminal transport v1 framing", () => {
     for (const frame of [baselineFrame(), outputFrame(), inputFrame()]) {
       const expected = decodeTerminalFrame(frame);
       if (!expected) throw new Error("invalid test frame");
-      expect(decodeBinaryHeader(frame)).toMatchObject({
+      expect(decodeWorkerTerminalFrame(frame)).toMatchObject({
         kind: expected.kind,
         ws: WS,
         pane: PANE,

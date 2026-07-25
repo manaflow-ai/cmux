@@ -68,6 +68,20 @@ public protocol ControlDebugContext: AnyObject {
     /// `debug.pro_welcome_checklist.show`.
     func controlDebugShowProWelcomeChecklist()
 
+    /// Returns the active multiplayer-share state for `debug.share.state`.
+    func controlDebugShareState() -> JSONValue
+
+    /// Approves one pending multiplayer access request for
+    /// `debug.share.approve`.
+    func controlDebugShareApprove(user: String, role: String) -> Bool
+
+    /// Changes one connected multiplayer participant's role for
+    /// `debug.share.set_role`.
+    func controlDebugShareSetRole(user: String, role: String) -> Bool
+
+    /// Stops the active multiplayer session for `debug.share.stop`.
+    func controlDebugShareStop() -> Bool
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///

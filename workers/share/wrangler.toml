@@ -2,7 +2,7 @@
 # cmux workspace sharing — Cloudflare Worker + Durable Objects.
 #
 # One ShareSession Durable Object per share code fans a host Mac's workspace
-# streams (render-grid terminal frames, layout, cursors, chat) out to guest
+# streams (terminal bytes, layout, cursors, chat) out to guest
 # browsers at cmux.com/share/<code>, and relays guest input back to the host.
 # The DO stores session-lifetime state (participants, roles, chat), then keeps
 # a ten-minute ended-code tombstone before its cleanup alarm deletes storage.
@@ -18,6 +18,9 @@
 name = "cmux-share"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+
+[version_metadata]
+binding = "WORKER_VERSION_METADATA"
 
 [observability]
 enabled = true

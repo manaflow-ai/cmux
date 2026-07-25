@@ -2,20 +2,20 @@
 
 Terminal-only v1 shares the host's currently focused workspace at
 `https://cmux.com/share/<code>`. A session contains one workspace. The guest
-sees its live terminal output, split layout, cursors, and chat. An editor can
-also type into any terminal in that workspace.
+sees its live terminal output, split layout, cursors, and chat. A guest granted
+terminal input can also type into any terminal in that workspace.
 
 ## Session flow
 
 Cmd+Shift+P → **Share Workspace…** creates the session, copies its link, and
 opens session chat. A guest must sign in with Stack Auth before requesting
-access. The host sees the guest's email and chooses **Allow editing**,
-**View only**, or **Deny**. Approval lasts only for that session.
-
-Editors can send input to every current terminal leaf. Viewers cannot send
-terminal input. All participants can move colored cursors and exchange messages
-in session chat. Approved guests can also create cursor-anchored chat bubbles
-from the web viewer; the host sees them at their terminal anchors.
+access. The host sees the guest's email and chooses **Allow terminal input**,
+**View only**, or **Deny**. Approval lasts only for that session. Guests with
+terminal input access can send input to every current terminal leaf. Viewers
+cannot send terminal input. All participants can move colored cursors and
+exchange messages in session chat. Approved guests can also create
+cursor-anchored chat bubbles from the web viewer; the host sees them at their
+terminal anchors.
 
 Stopping sharing invalidates the link. A host disconnect starts a two-minute
 grace period for reconnection; the session ends if the host does not return.
@@ -43,11 +43,12 @@ Mac host ──WebSocket──▶ ShareSession DO (`workers/share/`) ◀──We
   through `web/services/share/token.ts`. Tokens are short-lived Ed25519 JWTs
   bound to a share code and verified Stack identity.
 - `web/app/[locale]/share/[code]/` contains the Stack-gated viewer, exact split
-  layout, terminal grids and input, placeholders, cursors, and chat.
+  layout, sequenced terminal byte streams and input, placeholders, cursors, and
+  chat.
 - `Sources/Share/` contains the host command, session controller, layout
-  serializer, terminal grid streaming, moderation, chat, cursor overlays, and
-  guest-input application. Shared native protocol and authorization types
-  live in `Packages/macOS/CmuxWorkspaceShare/`.
+  serializer, VT baseline synthesis, raw PTY output streaming, moderation,
+  chat, cursor overlays, and guest-input application. Shared native protocol
+  and authorization types live in `Packages/macOS/CmuxWorkspaceShare/`.
 
 ## Trust boundaries
 
@@ -101,7 +102,7 @@ Verb-specific budgets also apply:
 - Cursors: 30 source messages per socket, 240 source messages per room, and
   4,096 recipient deliveries per room
 - Chat: 2 messages per socket and 8 per room
-- Terminal input: 60 messages per editor and 240 per room
+- Terminal input: 60 messages per input-enabled guest and 240 per room
 - Subscription churn: 64 subscribe or unsubscribe messages per socket and 256
   per room
 

@@ -14,6 +14,12 @@ import {
   type KeyObject,
 } from "node:crypto";
 
+import {
+  SHARE_PROTOCOL_VERSION,
+  SHARE_TERMINAL_TRANSPORT_VERSION,
+  shareWorkerWebSocketBaseUrl,
+} from "./compatibility";
+
 export const SHARE_TOKEN_ISS = "cmux";
 export const SHARE_TOKEN_AUD = "cmux-share";
 export const SHARE_TOKEN_TTL_SECONDS = 300; // short-lived; clients refresh on reconnect
@@ -59,11 +65,7 @@ export function shareSigningKey(): KeyObject | null {
 
 /** WebSocket URL for a share session, host and guest alike. */
 export function shareSessionWsUrl(code: string): string {
-  const base = (process.env.CMUX_SHARE_WS_BASE_URL ?? "wss://share.cmux.dev").replace(
-    /\/$/,
-    "",
-  );
-  return `${base}/v1/share/sessions/${code}/ws`;
+  return `${shareWorkerWebSocketBaseUrl()}/v2/share/sessions/${code}/ws`;
 }
 
 /** Browser URL a host hands to guests. */
@@ -107,6 +109,8 @@ export function mintShareToken(params: {
     email,
     code,
     host,
+    protocolVersion: SHARE_PROTOCOL_VERSION,
+    terminalTransportVersion: SHARE_TERMINAL_TRANSPORT_VERSION,
     ...(create ? { create: true } : {}),
     iat: nowSeconds,
     exp: expiresAt,

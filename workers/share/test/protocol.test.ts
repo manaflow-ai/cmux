@@ -3,11 +3,12 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  BINARY_KIND_GRID,
-  decodeBinaryHeader,
+  BINARY_KIND_BASELINE,
+  BINARY_KIND_OUTPUT,
+  decodeTerminalFrame,
   decodeGuestMessage,
   decodeHostMessage,
-  encodeBinaryHeader,
+  encodeTerminalFrame,
   isIdentityEmail,
   isProtocolId,
   MAX_BINARY_FRAME_BYTES,
@@ -20,86 +21,85 @@ import {
   parseGuestMessage,
   parseHostMessage,
   parseWorkspaceLayout,
+  TERMINAL_FRAME_HEADER_BYTES,
 } from "../src/protocol";
+import { baselineFrame, exactBaselineFrame } from "./terminal-frame";
 
 function exactClientJson(bytes: number): string {
-  const empty = JSON.stringify({ t: "hello", proto: 1, pad: "" });
+  const empty = JSON.stringify({ t: "hello", proto: 2, pad: "" });
   return JSON.stringify({
     t: "hello",
-    proto: 1,
+    proto: 2,
     pad: "x".repeat(bytes - new TextEncoder().encode(empty).byteLength),
   });
 }
 
-describe("binary frame header", () => {
+describe("canonical terminal frame", () => {
   it("round-trips", () => {
-    const payload = new TextEncoder().encode('{"format":"cmux.render-grid.v1"}');
-    const frame = encodeBinaryHeader(BINARY_KIND_GRID, "workspace:12", "surface:7", payload);
-    const header = decodeBinaryHeader(frame);
+    const payload = new TextEncoder().encode("\u001b[2J\u001b[Hready");
+    const frame = baselineFrame("workspace:12", "surface:7", payload);
+    const header = decodeTerminalFrame(frame);
     expect(header).not.toBeNull();
-    expect(header?.kind).toBe(BINARY_KIND_GRID);
+    expect(header?.kind).toBe(BINARY_KIND_BASELINE);
     expect(header?.ws).toBe("workspace:12");
     expect(header?.pane).toBe("surface:7");
     expect(frame.subarray(header!.payloadOffset)).toEqual(payload);
   });
 
-  it("handles empty payloads and unicode ids", () => {
-    const frame = encodeBinaryHeader(2, "ws-日本", "p", new Uint8Array(0));
-    const header = decodeBinaryHeader(frame);
+  it("handles empty baselines and Unicode ids", () => {
+    const frame = baselineFrame("ws-日本", "p");
+    const header = decodeTerminalFrame(frame);
     expect(header?.ws).toBe("ws-日本");
     expect(header?.payloadOffset).toBe(frame.length);
   });
 
   it("rejects truncated buffers", () => {
-    const frame = encodeBinaryHeader(1, "workspace:1", "surface:1", new Uint8Array(8));
-    expect(decodeBinaryHeader(frame.subarray(0, 2))).toBeNull();
-    expect(decodeBinaryHeader(frame.subarray(0, 5))).toBeNull();
-    expect(decodeBinaryHeader(new Uint8Array(0))).toBeNull();
+    const frame = baselineFrame("workspace:1", "surface:1", new Uint8Array(8));
+    expect(decodeTerminalFrame(frame.subarray(0, 2))).toBeNull();
+    expect(decodeTerminalFrame(frame.subarray(0, 55))).toBeNull();
+    expect(decodeTerminalFrame(new Uint8Array(0))).toBeNull();
   });
 
   it("refuses oversize ids at encode time", () => {
     expect(() =>
-      encodeBinaryHeader(1, "w".repeat(300), "p", new Uint8Array(0)),
+      baselineFrame("w".repeat(300), "p"),
     ).toThrow();
   });
 
   it("rejects invalid UTF-8 ids and oversized frames", () => {
-    expect(decodeBinaryHeader(new Uint8Array([1, 1, 0xff, 1, 0x70]))).toBeNull();
-    expect(decodeBinaryHeader(new Uint8Array(MAX_BINARY_FRAME_BYTES))).toBeNull();
-    expect(decodeBinaryHeader(new Uint8Array(MAX_BINARY_FRAME_BYTES + 1))).toBeNull();
+    const invalidUTF8 = baselineFrame("w", "p");
+    invalidUTF8[TERMINAL_FRAME_HEADER_BYTES] = 0xff;
+    expect(decodeTerminalFrame(invalidUTF8)).toBeNull();
+    expect(decodeTerminalFrame(new Uint8Array(MAX_BINARY_FRAME_BYTES))).toBeNull();
+    expect(decodeTerminalFrame(new Uint8Array(MAX_BINARY_FRAME_BYTES + 1))).toBeNull();
   });
 
   it("accepts a complete frame at 1 MiB - 1 and rejects exact or over", () => {
-    const headerBytes = 3 + 1 + 1;
-    const accepted = encodeBinaryHeader(
-      BINARY_KIND_GRID,
+    const accepted = exactBaselineFrame(
       "w",
       "p",
-      new Uint8Array(MAX_BINARY_FRAME_BYTES - headerBytes - 1),
+      MAX_BINARY_FRAME_BYTES - 1,
     );
     expect(accepted.byteLength).toBe(MAX_BINARY_FRAME_BYTES - 1);
-    expect(decodeBinaryHeader(accepted)?.payloadOffset).toBe(headerBytes);
+    expect(decodeTerminalFrame(accepted)?.payloadOffset).toBe(
+      TERMINAL_FRAME_HEADER_BYTES + 2,
+    );
     expect(() =>
-      encodeBinaryHeader(
-        BINARY_KIND_GRID,
-        "w",
-        "p",
-        new Uint8Array(MAX_BINARY_FRAME_BYTES - headerBytes),
-      ),
-    ).toThrow("binary frame too large");
-    expect(decodeBinaryHeader(new Uint8Array(MAX_BINARY_FRAME_BYTES))).toBeNull();
-    expect(decodeBinaryHeader(new Uint8Array(MAX_BINARY_FRAME_BYTES + 1))).toBeNull();
+      exactBaselineFrame("w", "p", MAX_BINARY_FRAME_BYTES),
+    ).toThrow("terminal frame too large");
+    expect(decodeTerminalFrame(new Uint8Array(MAX_BINARY_FRAME_BYTES))).toBeNull();
+    expect(decodeTerminalFrame(new Uint8Array(MAX_BINARY_FRAME_BYTES + 1))).toBeNull();
   });
 
   it("fails closed for malformed declared lengths and deterministic fuzz", () => {
+    const malformedLength = baselineFrame("w", "p");
+    new DataView(malformedLength.buffer).setUint32(52, 1, false);
     for (const malformed of [
       new Uint8Array([1]),
-      new Uint8Array([1, 255, 0]),
-      new Uint8Array([1, 1, 0x77]),
-      new Uint8Array([1, 1, 0x77, 255]),
-      new Uint8Array([1, 2, 0x77, 0xff, 1, 0x70]),
+      new Uint8Array([0x43, 0x4d, 0x58]),
+      malformedLength,
     ]) {
-      expect(decodeBinaryHeader(malformed)).toBeNull();
+      expect(decodeTerminalFrame(malformed)).toBeNull();
     }
 
     let state = 0x5eed1234;
@@ -110,14 +110,31 @@ describe("binary frame header", () => {
         state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
         bytes[index] = state & 0xff;
       }
-      expect(() => decodeBinaryHeader(bytes)).not.toThrow();
-      const decoded = decodeBinaryHeader(bytes);
+      expect(() => decodeTerminalFrame(bytes)).not.toThrow();
+      const decoded = decodeTerminalFrame(bytes);
       if (decoded) {
         expect(decoded.payloadOffset).toBeLessThanOrEqual(bytes.length);
         expect(decoded.ws.length).toBeGreaterThan(0);
         expect(decoded.pane.length).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("rejects invalid output sequence semantics", () => {
+    expect(() =>
+      encodeTerminalFrame({
+        kind: BINARY_KIND_OUTPUT,
+        epoch: "12345678-1234-4567-89ab-123456789abc",
+        sequenceStart: 10n,
+        sequenceEnd: 12n,
+        rows: 0,
+        columns: 0,
+        ws: "w",
+        pane: "p",
+        user: "",
+        payload: new Uint8Array([1]),
+      }),
+    ).toThrow("invalid terminal frame semantics");
   });
 });
 
@@ -158,7 +175,7 @@ describe("runtime JSON envelopes", () => {
   it("accepts client JSON at 64 KiB - 1 and rejects exact or over", () => {
     expect(decodeGuestMessage(exactClientJson(MAX_JSON_FRAME_BYTES - 1))).toEqual({
       t: "hello",
-      proto: 1,
+      proto: 2,
     });
     expect(decodeGuestMessage(exactClientJson(MAX_JSON_FRAME_BYTES))).toBeNull();
     expect(decodeGuestMessage(exactClientJson(MAX_JSON_FRAME_BYTES + 1))).toBeNull();
@@ -224,7 +241,7 @@ describe("runtime JSON envelopes", () => {
     expect(
       parseHostMessage({
         t: "hello",
-        proto: 1,
+        proto: 2,
         shared: [
           { id: "workspace:1", title: "one" },
           { id: "workspace:2", title: "two" },
@@ -235,7 +252,7 @@ describe("runtime JSON envelopes", () => {
     expect(
       parseHostMessage({
         t: "hello",
-        proto: 1,
+        proto: 2,
         shared: [{ id: "workspace:1", title: "one" }],
         layouts: [{ ws: "workspace:2", tree: null }],
       }),
@@ -244,7 +261,7 @@ describe("runtime JSON envelopes", () => {
       decodeHostMessage(
         JSON.stringify({
           t: "hello",
-          proto: 1,
+          proto: 2,
           shared: [{ id: "workspace:1", title: "one" }],
           layouts: [{ ws: "workspace:1", tree: null }],
         }),

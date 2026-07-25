@@ -4681,7 +4681,7 @@
     "sharedBy": "{email} が共有中",
     "reconnecting": "再接続中…",
     "hostDisconnected": "ホストが切断されました",
-    "roleEditor": "編集可能",
+    "roleEditor": "ターミナルに入力可能",
     "roleViewer": "閲覧のみ",
     "participants": "参加者",
     "hostBadge": "ホスト",

@@ -4,9 +4,10 @@
 
 This Cloudflare Worker provides terminal-only multiplayer workspace sharing.
 One `ShareSession` Durable Object per share code relays an exact terminal split
-layout, render-grid frames, cursors, chat, and editor input. V1 shares at most
-one workspace. Browser, agent, and other leaves remain layout placeholders and
-cannot be subscribed to, streamed, or controlled.
+layout, synthesized VT baselines, raw PTY output, cursors, chat, and authorized
+terminal input. V1 shares at most one workspace. Browser, agent, and other
+leaves remain layout placeholders and cannot be subscribed to, streamed, or
+controlled.
 
 `PROTOCOL.md` is the wire specification. `web/services/share/token.ts` mints
 the 300-second Ed25519 JWTs this worker verifies.
@@ -35,7 +36,7 @@ socket state, never JSON supplied by a client.
 | Subscriptions per connection | 64 |
 | Client JSON frame | Less than 64 KiB UTF-8 |
 | Server JSON frame | Less than 1 MiB UTF-8 |
-| Complete binary grid frame | Less than 1 MiB |
+| Complete binary terminal frame | Less than 1 MiB |
 | Outstanding delivery credit | 128 entries and less than 2 MiB per socket |
 | Non-host application ingress | 120 messages and 512 KiB/socket/s |
 | Terminal input message | 16 KiB UTF-8 |
@@ -82,7 +83,7 @@ URLs. Runtime invariant logs contain event names and numeric metadata only.
 | Route | Purpose |
 | --- | --- |
 | `GET /healthz` | Unauthenticated liveness check |
-| `GET /v1/share/sessions/<code>/ws` | Authenticated host or guest WebSocket |
+| `GET /v2/share/sessions/<code>/ws` | Authenticated host or guest WebSocket |
 
 The WebSocket accepts `?token=` for browsers or `Authorization: Bearer` for
 native clients.

@@ -9,6 +9,9 @@ main = "src/index.ts"
 compatibility_date = "2026-05-01"
 workers_dev = true
 
+[version_metadata]
+binding = "WORKER_VERSION_METADATA"
+
 [observability]
 enabled = true
 

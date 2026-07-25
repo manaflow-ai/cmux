@@ -2,8 +2,10 @@
 // Bounded per-socket application ingress accounting for untrusted guests.
 
 import {
-  BINARY_KIND_GRID,
-  decodeBinaryHeader,
+  BINARY_KIND_BASELINE,
+  BINARY_KIND_INPUT,
+  BINARY_KIND_OUTPUT,
+  decodeTerminalFrame,
   type BinaryHeader,
   MAX_BINARY_FRAME_BYTES,
 } from "./protocol";
@@ -89,19 +91,25 @@ export type BinaryIngressDecision =
   | { ok: true; header: BinaryHeader }
   | { ok: false; code: 1009 | 4400; reason: string };
 
-/** Validate the complete host frame before the session core can fan out any
- * prefix. Guest binary and every non-v1/malformed header are protocol errors. */
+/** Validate the complete terminal frame before the session core can route any
+ * prefix. Sender role is checked only after structural and semantic parsing,
+ * so malformed input always has one deterministic failure reason. */
 export function validateBinaryIngress(
   isHost: boolean,
   bytes: Uint8Array,
 ): BinaryIngressDecision {
-  if (!isHost) return { ok: false, code: 4400, reason: "guest binary not allowed" };
   if (bytes.byteLength >= MAX_BINARY_FRAME_BYTES) {
     return { ok: false, code: 1009, reason: "binary message too large" };
   }
-  const header = decodeBinaryHeader(bytes);
-  if (!header || header.kind !== BINARY_KIND_GRID) {
-    return { ok: false, code: 4400, reason: "invalid binary message" };
+
+  const header = decodeTerminalFrame(bytes);
+  if (!header) {
+    return { ok: false, code: 4400, reason: "invalid terminal frame" };
   }
-  return { ok: true, header };
+  const allowed = isHost
+    ? header.kind === BINARY_KIND_BASELINE || header.kind === BINARY_KIND_OUTPUT
+    : header.kind === BINARY_KIND_INPUT;
+  return allowed
+    ? { ok: true, header }
+    : { ok: false, code: 4400, reason: "terminal frame kind not allowed" };
 }

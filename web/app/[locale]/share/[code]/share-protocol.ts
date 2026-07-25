@@ -1,9 +1,7 @@
 // Client mirror of the share wire protocol. Source of truth:
-// workers/share/src/protocol.ts (+ PROTOCOL.md). Grid frame shapes mirror the
-// Swift DTO `MobileTerminalRenderGridFrame` (cmux.render-grid.v1, snake_case
-// JSON) in Packages/Shared/CMUXMobileCore.
+// workers/share/src/protocol.ts (+ PROTOCOL.md).
 
-export const PROTO_VERSION = 1;
+export const PROTO_VERSION = 2;
 /** Server JSON frames must stay strictly below this encoded UTF-8 size. */
 export const MAX_SERVER_MESSAGE_BYTES = 1024 * 1024;
 /** Complete binary frames must stay strictly below this byte size. */
@@ -97,6 +95,7 @@ export type GuestMessage =
   | { t: "cursor"; pos: CursorPos | null }
   | { t: "chat"; text: string; bubble?: CursorPos }
   | { t: "input"; ws: string; pane: string; data: string }
+  | { t: "terminal-resync"; ws: string; pane: string }
   | { t: "sub"; ws: string; pane: string }
   | { t: "unsub"; ws: string; pane: string }
   | { t: "focus"; ws: string | null };

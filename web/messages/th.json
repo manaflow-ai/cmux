@@ -3577,7 +3577,7 @@
     "sharedBy": "แชร์โดย {email}",
     "reconnecting": "กำลังเชื่อมต่อใหม่…",
     "hostDisconnected": "โฮสต์ตัดการเชื่อมต่อแล้ว",
-    "roleEditor": "แก้ไขได้",
+    "roleEditor": "พิมพ์ในเทอร์มินัลได้",
     "roleViewer": "ดูได้อย่างเดียว",
     "participants": "ผู้เข้าร่วม",
     "hostBadge": "โฮสต์",

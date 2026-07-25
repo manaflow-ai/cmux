@@ -26,6 +26,8 @@ function claims(overrides: Record<string, unknown> = {}): Record<string, unknown
     email: "a@b.c",
     code: "code123",
     host: false,
+    protocolVersion: 2,
+    terminalTransportVersion: 1,
     exp: Math.floor(NOW / 1000) + 300,
     ...overrides,
   };
@@ -88,6 +90,13 @@ describe("claim validation (pure)", () => {
     ["C1 control in email", claims({ email: "a@example.com\u0085forged@example.com" })],
     ["C1 control in sub", claims({ sub: "u-1\u009fhidden" })],
     ["code mismatch", claims({ code: "other" })],
+    ["missing protocol version", claims({ protocolVersion: undefined })],
+    ["old protocol version", claims({ protocolVersion: 1 })],
+    [
+      "missing terminal transport version",
+      claims({ terminalTransportVersion: undefined }),
+    ],
+    ["new terminal transport version", claims({ terminalTransportVersion: 2 })],
   ])("rejects %s", (_label, payload) => {
     expect(validateClaims(payload, "code123", NOW)).toBeNull();
   });

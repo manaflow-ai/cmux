@@ -3569,7 +3569,7 @@
     "sharedBy": "delt af {email}",
     "reconnecting": "genopretter forbindelse…",
     "hostDisconnected": "værten har mistet forbindelsen",
-    "roleEditor": "kan redigere",
+    "roleEditor": "kan skrive i terminaler",
     "roleViewer": "kun visning",
     "participants": "Deltagere",
     "hostBadge": "vært",

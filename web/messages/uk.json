@@ -3654,7 +3654,7 @@
     "sharedBy": "поширено користувачем {email}",
     "reconnecting": "повторне підключення…",
     "hostDisconnected": "хост відключився",
-    "roleEditor": "може редагувати",
+    "roleEditor": "може вводити в терміналах",
     "roleViewer": "лише перегляд",
     "participants": "Учасники",
     "hostBadge": "хост",

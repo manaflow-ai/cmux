@@ -25,8 +25,7 @@ import {
   SLOW_CLIENT_CLOSE_REASON,
 } from "../src/outbound";
 import {
-  BINARY_KIND_GRID,
-  encodeBinaryHeader,
+  BINARY_KIND_BASELINE,
   MAX_BINARY_FRAME_BYTES,
   MAX_SERVER_JSON_FRAME_BYTES,
   PROTO_VERSION,
@@ -34,6 +33,7 @@ import {
 } from "../src/protocol";
 import type { Effect, PersistedSession } from "../src/session";
 import { MAX_GRANTS_PER_SESSION, ShareSessionCore } from "../src/session";
+import { baselineFrame, exactBaselineFrame } from "./terminal-frame";
 
 const T0 = 1_700_000_000_000;
 const HOST = { user: "u-host", email: "host@cmux.com", hostToken: true };
@@ -568,15 +568,12 @@ describe("outbound JSON and combined credit bounds", () => {
 });
 
 describe("slow-client isolation", () => {
-  it("fans out a real 1 MiB - 1 grid frame and releases its exact ACK credit", async () => {
+  it("fans out a real 1 MiB - 1 terminal frame and releases its exact ACK credit", async () => {
     const core = bootedCore();
-    const fixedHeaderBytes =
-      3 + encoder.encode("workspace:1").byteLength + encoder.encode("surface:1").byteLength;
-    const frame = encodeBinaryHeader(
-      BINARY_KIND_GRID,
+    const frame = exactBaselineFrame(
       "workspace:1",
       "surface:1",
-      new Uint8Array(MAX_BINARY_FRAME_BYTES - fixedHeaderBytes - 1),
+      MAX_BINARY_FRAME_BYTES - 1,
     );
     expect(frame.byteLength).toBe(MAX_BINARY_FRAME_BYTES - 1);
     const guestSocket = new FakeSocket();
@@ -586,7 +583,13 @@ describe("slow-client isolation", () => {
     const { runtime } = harness(core, sockets, attachments);
 
     await dispatchEffects(
-      core.routeBinary("c-host", "workspace:1", "surface:1", frame, BINARY_KIND_GRID),
+      core.routeBinary(
+        "c-host",
+        "workspace:1",
+        "surface:1",
+        frame,
+        BINARY_KIND_BASELINE,
+      ),
       runtime,
     );
 
@@ -599,7 +602,7 @@ describe("slow-client isolation", () => {
     expect(outstandingDeliveryBytes(guestCredit)).toBe(0);
   });
 
-  it("orders a maximum-participant snapshot before a near-limit healthy grid", async () => {
+  it("orders a maximum-participant snapshot before a near-limit terminal frame", async () => {
     const persisted = ShareSessionCore.create(
       "code-max",
       { user: HOST.user, email: HOST.email },
@@ -644,13 +647,10 @@ describe("slow-client isolation", () => {
       { t: "sub", ws: "workspace:1", pane: "surface:1" },
       T0,
     );
-    const fixedHeaderBytes =
-      3 + encoder.encode("workspace:1").byteLength + encoder.encode("surface:1").byteLength;
-    const frame = encodeBinaryHeader(
-      BINARY_KIND_GRID,
+    const frame = exactBaselineFrame(
       "workspace:1",
       "surface:1",
-      new Uint8Array(MAX_BINARY_FRAME_BYTES - fixedHeaderBytes - 1),
+      MAX_BINARY_FRAME_BYTES - 1,
     );
     const snapshotEffect = connectEffects.find(
       (effect): effect is Extract<Effect, { kind: "send" }> =>
@@ -667,10 +667,10 @@ describe("slow-client isolation", () => {
       "workspace:1",
       "surface:1",
       frame,
-      BINARY_KIND_GRID,
+      BINARY_KIND_BASELINE,
     )[0];
     if (!binaryEffect || binaryEffect.kind !== "sendBinary") {
-      throw new Error("missing near-limit grid fan-out");
+      throw new Error("missing near-limit terminal fan-out");
     }
 
     const socket = new FakeSocket();
@@ -694,11 +694,10 @@ describe("slow-client isolation", () => {
 
   it("disconnects one saturated guest, updates sub count, and keeps healthy fan-out", async () => {
     const core = bootedCore();
-    const frame = encodeBinaryHeader(
-      BINARY_KIND_GRID,
+    const frame = baselineFrame(
       "workspace:1",
       "surface:1",
-      encoder.encode('{"format":"cmux.render-grid.v1"}'),
+      encoder.encode("\u001b[2J\u001b[Hready"),
     );
     const host = new FakeSocket();
     const slow = new FakeSocket();
@@ -721,7 +720,13 @@ describe("slow-client isolation", () => {
     const { runtime } = harness(core, sockets, attachments);
 
     await dispatchEffects(
-      core.routeBinary("c-host", "workspace:1", "surface:1", frame, BINARY_KIND_GRID),
+      core.routeBinary(
+        "c-host",
+        "workspace:1",
+        "surface:1",
+        frame,
+        BINARY_KIND_BASELINE,
+      ),
       runtime,
     );
 

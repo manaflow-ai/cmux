@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// cmux share protocol v1. See PROTOCOL.md for the narrative spec.
+// cmux share control protocol v2 and terminal transport v1. See PROTOCOL.md.
 
-export const PROTO_VERSION = 1;
+export const PROTO_VERSION = 2;
+export const TERMINAL_TRANSPORT_VERSION = 1;
 
 /** Wire and state bounds. Keep these in the protocol layer so the DO,
  * deterministic core, and tests enforce the same limits. */
@@ -11,7 +12,7 @@ export const MAX_CLIENT_JSON_FRAME_BYTES = 64 * 1024;
 export const MAX_JSON_FRAME_BYTES = MAX_CLIENT_JSON_FRAME_BYTES;
 /** Server JSON at or above this UTF-8 size is an invariant violation. */
 export const MAX_SERVER_JSON_FRAME_BYTES = 1024 * 1024;
-/** Complete binary grid frame, including kind/id header. The bound is
+/** Complete binary terminal frame, including the CMXS header. The bound is
  * exclusive: byteLength at or above 1 MiB is rejected. */
 export const MAX_BINARY_FRAME_BYTES = 1024 * 1024;
 export const MAX_SHARED_WORKSPACES = 1;
@@ -100,7 +101,7 @@ export interface SharedWorkspace {
 }
 
 /** Pane-tree snapshot for one workspace, mirroring the host's split layout.
- * Non-terminal leaves remain visible placeholders in v1. */
+ * Non-terminal leaves remain visible placeholders in v2. */
 export type LayoutNode =
   | {
       kind: "split";
@@ -114,7 +115,7 @@ export type LayoutNode =
       kind: "pane";
       pane: string;
       content: "terminal" | "browser" | "agent" | "other";
-      /** Terminal geometry so the viewer can size its grid canvas. */
+      /** Authoritative terminal geometry retained by the xterm viewer. */
       cols?: number;
       rows?: number;
       title?: string;
@@ -133,6 +134,7 @@ export type GuestMessage =
   | { t: "cursor"; pos: CursorPos | null }
   | { t: "chat"; text: string; bubble?: CursorPos }
   | { t: "input"; ws: string; pane: string; data: string }
+  | { t: "terminal-resync"; ws: string; pane: string }
   | { t: "sub"; ws: string; pane: string }
   | { t: "unsub"; ws: string; pane: string }
   | { t: "focus"; ws: string | null };
@@ -195,7 +197,7 @@ export type ServerMessage =
   /**
    * The DO was rebuilt after hibernation/eviction and lost volatile state.
    * Guests re-send `focus` + `sub`s + cursor; the host re-sends `hello`
-   * (shared set + layouts) and full grid frames for subscribed panes.
+   * (shared set + layouts) and terminal baselines for subscribed panes.
    */
   | { t: "resync" }
   | {
@@ -205,6 +207,7 @@ export type ServerMessage =
   // Relayed to the host only. The user always comes from the verified socket
   // attachment, never a caller-supplied JSON field.
   | { t: "guest-input"; user: string; ws: string; pane: string; data: string }
+  | { t: "guest-resync"; user: string; ws: string; pane: string }
   | { t: "guest-sub"; ws: string; pane: string; count: number }
   | { t: "error"; code: string; message: string };
 
@@ -420,6 +423,10 @@ export function parseGuestMessage(value: unknown): GuestMessage | null {
         boundedString(obj.data, MAX_TERMINAL_INPUT_BYTES)
         ? { t: "input", ws: obj.ws, pane: obj.pane, data: obj.data }
         : null;
+    case "terminal-resync":
+      return isProtocolId(obj.ws) && isProtocolId(obj.pane)
+        ? { t: "terminal-resync", ws: obj.ws, pane: obj.pane }
+        : null;
     case "sub":
     case "unsub":
       return isProtocolId(obj.ws) && isProtocolId(obj.pane)
@@ -430,7 +437,7 @@ export function parseGuestMessage(value: unknown): GuestMessage | null {
         ? { t: "focus", ws: obj.ws as string | null }
         : null;
     default:
-      // Composer, follow, browser control, and other future verbs are not v1.
+      // Composer, follow, browser control, and other future verbs are not v2.
       return null;
   }
 }
@@ -512,63 +519,310 @@ export function decodeHostMessage(text: string): HostMessage | null {
 }
 
 // ---------------------------------------------------------------------------
-// Binary grid frames: [kindTag u8][wsLen u8][ws utf8][paneLen u8][pane utf8][payload]
+// Terminal transport v1. All integers are network byte order.
+//
+// [magic "CMXS" 4][version u8][kind u8][flags u16][epoch UUID 16]
+// [sequenceStart u64][sequenceEnd u64][rows u16][columns u16]
+// [wsLength u16][paneLength u16][userLength u16][reserved u16]
+// [payloadLength u32][ws UTF-8][pane UTF-8][user UTF-8][opaque payload]
 
-export const BINARY_KIND_GRID = 0x01;
+export const TERMINAL_FRAME_MAGIC = "CMXS";
+export const TERMINAL_FRAME_HEADER_BYTES = 56;
+export const BINARY_KIND_BASELINE = 0x01;
+export const BINARY_KIND_OUTPUT = 0x02;
+export const BINARY_KIND_INPUT = 0x03;
+export const BINARY_KIND_FORWARDED_INPUT = 0x04;
 
 export interface BinaryHeader {
   kind: number;
   ws: string;
   pane: string;
+  user: string;
+  version: number;
+  flags: number;
+  epoch: string;
+  sequenceStart: bigint;
+  sequenceEnd: bigint;
+  rows: number;
+  columns: number;
   /** Byte offset where the payload starts. */
   payloadOffset: number;
+  payloadLength: number;
 }
 
-export function encodeBinaryHeader(
+const terminalMagicBytes = encoder.encode(TERMINAL_FRAME_MAGIC);
+const zeroEpochBytes = new Uint8Array(16);
+
+function isZeroEpoch(bytes: Uint8Array): boolean {
+  return bytes.every((byte) => byte === 0);
+}
+
+function uuidString(bytes: Uint8Array): string {
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
+}
+
+function uuidBytes(uuid: string): Uint8Array | null {
+  const hex = uuid.replaceAll("-", "");
+  if (!/^[0-9a-f]{32}$/i.test(hex)) return null;
+  const bytes = new Uint8Array(16);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function isKnownTerminalKind(kind: number): boolean {
+  return (
+    kind === BINARY_KIND_BASELINE ||
+    kind === BINARY_KIND_OUTPUT ||
+    kind === BINARY_KIND_INPUT ||
+    kind === BINARY_KIND_FORWARDED_INPUT
+  );
+}
+
+function hasTerminalMagic(buf: Uint8Array): boolean {
+  return (
+    buf.length >= terminalMagicBytes.length &&
+    terminalMagicBytes.every((byte, index) => buf[index] === byte)
+  );
+}
+
+function validateTerminalSemantics(
   kind: number,
-  ws: string,
-  pane: string,
-  payload: Uint8Array,
-): Uint8Array {
-  if (!Number.isInteger(kind) || kind < 0 || kind > 255 || !isProtocolId(ws) || !isProtocolId(pane)) {
-    throw new Error("invalid binary frame header");
+  epochBytes: Uint8Array,
+  sequenceStart: bigint,
+  sequenceEnd: bigint,
+  rows: number,
+  columns: number,
+  user: string,
+  payloadLength: number,
+): boolean {
+  const zeroEpoch = isZeroEpoch(epochBytes);
+  switch (kind) {
+    case BINARY_KIND_BASELINE:
+      return (
+        !zeroEpoch &&
+        sequenceStart === sequenceEnd &&
+        rows > 0 &&
+        columns > 0 &&
+        user.length === 0
+      );
+    case BINARY_KIND_OUTPUT:
+      return (
+        !zeroEpoch &&
+        sequenceEnd === sequenceStart + BigInt(payloadLength) &&
+        (
+          (rows === 0 && columns === 0) ||
+          (rows > 0 && columns > 0)
+        ) &&
+        user.length === 0
+      );
+    case BINARY_KIND_INPUT:
+      return (
+        zeroEpoch &&
+        sequenceStart === 0n &&
+        sequenceEnd === 0n &&
+        rows === 0 &&
+        columns === 0 &&
+        user.length === 0 &&
+        payloadLength > 0 &&
+        payloadLength <= MAX_TERMINAL_INPUT_BYTES
+      );
+    case BINARY_KIND_FORWARDED_INPUT:
+      return (
+        zeroEpoch &&
+        sequenceStart === 0n &&
+        sequenceEnd === 0n &&
+        rows === 0 &&
+        columns === 0 &&
+        isProtocolId(user) &&
+        payloadLength > 0 &&
+        payloadLength <= MAX_TERMINAL_INPUT_BYTES
+      );
+    default:
+      return false;
   }
-  const wsB = encoder.encode(ws);
-  const paneB = encoder.encode(pane);
-  if (wsB.length > 255 || paneB.length > 255) {
-    throw new Error("ws/pane id too long for binary header");
+}
+
+export function decodeTerminalFrame(buf: Uint8Array): BinaryHeader | null {
+  if (
+    buf.length < TERMINAL_FRAME_HEADER_BYTES ||
+    buf.length >= MAX_BINARY_FRAME_BYTES ||
+    !hasTerminalMagic(buf)
+  ) {
+    return null;
   }
-  const length = 3 + wsB.length + paneB.length + payload.length;
-  if (length >= MAX_BINARY_FRAME_BYTES) throw new Error("binary frame too large");
+  try {
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const version = view.getUint8(4);
+    const kind = view.getUint8(5);
+    const flags = view.getUint16(6, false);
+    const epochBytes = buf.subarray(8, 24);
+    const sequenceStart = view.getBigUint64(24, false);
+    const sequenceEnd = view.getBigUint64(32, false);
+    const rows = view.getUint16(40, false);
+    const columns = view.getUint16(42, false);
+    const wsLength = view.getUint16(44, false);
+    const paneLength = view.getUint16(46, false);
+    const userLength = view.getUint16(48, false);
+    const reserved = view.getUint16(50, false);
+    const payloadLength = view.getUint32(52, false);
+    const payloadOffset =
+      TERMINAL_FRAME_HEADER_BYTES + wsLength + paneLength + userLength;
+    if (
+      version !== TERMINAL_TRANSPORT_VERSION ||
+      !isKnownTerminalKind(kind) ||
+      flags !== 0 ||
+      reserved !== 0 ||
+      payloadOffset > buf.length ||
+      payloadLength !== buf.length - payloadOffset
+    ) {
+      return null;
+    }
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
+    let offset = TERMINAL_FRAME_HEADER_BYTES;
+    const ws = decoder.decode(buf.subarray(offset, offset + wsLength));
+    offset += wsLength;
+    const pane = decoder.decode(buf.subarray(offset, offset + paneLength));
+    offset += paneLength;
+    const user = decoder.decode(buf.subarray(offset, offset + userLength));
+    if (
+      !isProtocolId(ws) ||
+      !isProtocolId(pane) ||
+      !validateTerminalSemantics(
+        kind,
+        epochBytes,
+        sequenceStart,
+        sequenceEnd,
+        rows,
+        columns,
+        user,
+        payloadLength,
+      )
+    ) {
+      return null;
+    }
+    return {
+      version,
+      kind,
+      flags,
+      epoch: uuidString(epochBytes),
+      sequenceStart,
+      sequenceEnd,
+      rows,
+      columns,
+      ws,
+      pane,
+      user,
+      payloadOffset,
+      payloadLength,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface TerminalFrameFields {
+  kind: number;
+  epoch: string;
+  sequenceStart: bigint;
+  sequenceEnd: bigint;
+  rows: number;
+  columns: number;
+  ws: string;
+  pane: string;
+  user: string;
+  payload: Uint8Array;
+}
+
+export function encodeTerminalFrame(fields: TerminalFrameFields): Uint8Array {
+  if (
+    !isKnownTerminalKind(fields.kind) ||
+    !isProtocolId(fields.ws) ||
+    !isProtocolId(fields.pane) ||
+    (fields.user.length > 0 && !isProtocolId(fields.user))
+  ) {
+    throw new Error("invalid terminal frame");
+  }
+  const epoch = uuidBytes(fields.epoch);
+  if (!epoch) throw new Error("invalid terminal frame epoch");
+  const ws = encoder.encode(fields.ws);
+  const pane = encoder.encode(fields.pane);
+  const user = encoder.encode(fields.user);
+  const length =
+    TERMINAL_FRAME_HEADER_BYTES +
+    ws.length +
+    pane.length +
+    user.length +
+    fields.payload.length;
+  if (length >= MAX_BINARY_FRAME_BYTES) throw new Error("terminal frame too large");
+  if (
+    !validateTerminalSemantics(
+      fields.kind,
+      epoch,
+      fields.sequenceStart,
+      fields.sequenceEnd,
+      fields.rows,
+      fields.columns,
+      fields.user,
+      fields.payload.length,
+    )
+  ) {
+    throw new Error("invalid terminal frame semantics");
+  }
   const out = new Uint8Array(length);
-  let o = 0;
-  out[o++] = kind;
-  out[o++] = wsB.length;
-  out.set(wsB, o);
-  o += wsB.length;
-  out[o++] = paneB.length;
-  out.set(paneB, o);
-  o += paneB.length;
-  out.set(payload, o);
+  const view = new DataView(out.buffer);
+  out.set(terminalMagicBytes, 0);
+  view.setUint8(4, TERMINAL_TRANSPORT_VERSION);
+  view.setUint8(5, fields.kind);
+  view.setUint16(6, 0, false);
+  out.set(epoch, 8);
+  view.setBigUint64(24, fields.sequenceStart, false);
+  view.setBigUint64(32, fields.sequenceEnd, false);
+  view.setUint16(40, fields.rows, false);
+  view.setUint16(42, fields.columns, false);
+  view.setUint16(44, ws.length, false);
+  view.setUint16(46, pane.length, false);
+  view.setUint16(48, user.length, false);
+  view.setUint16(50, 0, false);
+  view.setUint32(52, fields.payload.length, false);
+  let offset = TERMINAL_FRAME_HEADER_BYTES;
+  out.set(ws, offset);
+  offset += ws.length;
+  out.set(pane, offset);
+  offset += pane.length;
+  out.set(user, offset);
+  offset += user.length;
+  out.set(fields.payload, offset);
   return out;
 }
 
-export function decodeBinaryHeader(buf: Uint8Array): BinaryHeader | null {
-  if (buf.length < 3 || buf.length >= MAX_BINARY_FRAME_BYTES) return null;
-  const kind = buf[0] ?? 0;
-  const wsLen = buf[1] ?? 0;
-  const wsStart = 2;
-  const paneLenOffset = wsStart + wsLen;
-  if (paneLenOffset + 1 > buf.length) return null;
-  const paneLen = buf[paneLenOffset] ?? 0;
-  const paneStart = paneLenOffset + 1;
-  const payloadOffset = paneStart + paneLen;
-  if (payloadOffset > buf.length) return null;
+export function encodeForwardedInputFrame(
+  source: Uint8Array,
+  user: string,
+): Uint8Array | null {
+  const header = decodeTerminalFrame(source);
+  if (!header || header.kind !== BINARY_KIND_INPUT) return null;
   try {
-    const dec = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
-    const ws = dec.decode(buf.subarray(wsStart, wsStart + wsLen));
-    const pane = dec.decode(buf.subarray(paneStart, paneStart + paneLen));
-    return isProtocolId(ws) && isProtocolId(pane) ? { kind, ws, pane, payloadOffset } : null;
+    return encodeTerminalFrame({
+      kind: BINARY_KIND_FORWARDED_INPUT,
+      epoch: uuidString(zeroEpochBytes),
+      sequenceStart: 0n,
+      sequenceEnd: 0n,
+      rows: 0,
+      columns: 0,
+      ws: header.ws,
+      pane: header.pane,
+      user,
+      payload: source.slice(header.payloadOffset),
+    });
   } catch {
     return null;
   }
