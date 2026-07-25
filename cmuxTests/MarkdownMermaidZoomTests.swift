@@ -61,7 +61,13 @@ final class MarkdownMermaidZoomTests {
         let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
         let zoomedWidth = try #require(zoomed["width"])
         let zoomedProseHeight = try #require(zoomed["proseHeight"])
-        #expect(zoomedWidth > baselineWidth * 1.8)
+        // Rendered growth is CSS width times the viewport shrink factor: newer
+        // WebKit scales the whole viewport under pageZoom (CSS rects stay put,
+        // innerWidth shrinks by the zoom), older WebKit leaves innerWidth alone
+        // and the shell inflates the CSS rect instead. The product of the two
+        // is the on-screen size either way.
+        let zoomedDeviceScale = try #require(baseline["innerWidth"]) / #require(zoomed["innerWidth"])
+        #expect(zoomedWidth * zoomedDeviceScale > baselineWidth * 1.8)
         #expect(abs((zoomedWidth / baselineWidth) - (zoomedProseHeight / baselineProseHeight)) <= 0.25)
         let exported = try await exportedMermaidSnapshot(in: webView)
         #expect((exported["width"] ?? "missing") == "")
@@ -88,7 +94,8 @@ final class MarkdownMermaidZoomTests {
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let fittedZoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
         let fittedZoomedWidth = try #require(fittedZoomed["width"])
-        #expect(fittedZoomedWidth > fittedWidth * 1.8)
+        let fittedDeviceScale = try #require(fitted["innerWidth"]) / #require(fittedZoomed["innerWidth"])
+        #expect(fittedZoomedWidth * fittedDeviceScale > fittedWidth * 1.8)
         #expect((try #require(fittedZoomed["leftOffset"])) >= -1)
 
         let widerFrame = NSRect(x: 0, y: 0, width: 960, height: 480)
@@ -148,6 +155,7 @@ final class MarkdownMermaidZoomTests {
                 containerWidth: containerRect ? (containerRect.width || 0) : 0,
                 leftOffset: containerRect ? ((rect.left || 0) - (containerRect.left || 0)) : 0,
                 proseHeight: proseRect ? (proseRect.height || 0) : 0,
+                innerWidth: window.innerWidth || 0,
                 zoom: Number.isFinite(zoom) ? zoom : 1
               };
             })();
