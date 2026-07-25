@@ -69,6 +69,198 @@ final class DiffSidecarSynchronousTerminationHandle: @unchecked Sendable {
     }
 }
 
+/// Ordered, bounded writer for the sidecar's stdin pipe.
+///
+/// Pipe writes must never run on ``DiffSidecarProcessSupervisor``'s actor:
+/// a living child that stops draining stdin can fill the pipe and otherwise
+/// prevent that actor from running its timeout, cancellation, and shutdown
+/// paths. This writer uses a dedicated serial queue plus a nonblocking
+/// descriptor and a short poll deadline, preserving request order without
+/// pinning the supervisor.
+final class DiffSidecarFrameWriter: @unchecked Sendable {
+    enum WriterError: Error, Equatable {
+        case invalidRequest
+        case timedOut
+    }
+
+    private final class OperationState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Void, Error>?
+        private var terminalResult: Result<Void, Error>?
+        private var cancelled = false
+
+        func install(_ continuation: CheckedContinuation<Void, Error>) {
+            lock.lock()
+            if let terminalResult {
+                lock.unlock()
+                continuation.resume(with: terminalResult)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+
+        func finish(_ result: Result<Void, Error>) {
+            lock.lock()
+            guard terminalResult == nil else {
+                lock.unlock()
+                return
+            }
+            terminalResult = result
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(with: result)
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
+            finish(.failure(CancellationError()))
+        }
+
+        var isCancelled: Bool {
+            lock.lock()
+            let value = cancelled
+            lock.unlock()
+            return value
+        }
+    }
+
+    private static let maximumRequestBytes = 1024 * 1024
+    private let queue: DispatchQueue
+    private let fileDescriptor: Int32
+
+    init(handle: FileHandle, label: String = "com.cmux.diff-sidecar.stdin") throws {
+        let fileDescriptor = handle.fileDescriptor
+        let flags = Darwin.fcntl(fileDescriptor, F_GETFL)
+        guard flags >= 0,
+              Darwin.fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK) == 0,
+              Darwin.fcntl(fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            throw Self.currentPOSIXError()
+        }
+        self.fileDescriptor = fileDescriptor
+        self.queue = DispatchQueue(label: label, qos: .utility)
+    }
+
+    func write(frame: Data, timeout: TimeInterval) async throws {
+        guard !frame.isEmpty,
+              frame.count <= Self.maximumRequestBytes,
+              timeout > 0 else {
+            throw WriterError.invalidRequest
+        }
+        let framed: Data = {
+            var data = frame
+            data.append(UInt8(ascii: "\n"))
+            return data
+        }()
+        let operation = OperationState()
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                operation.install(continuation)
+                queue.async { [fileDescriptor] in
+                    do {
+                        try Self.writeFully(
+                            framed,
+                            to: fileDescriptor,
+                            timeout: timeout,
+                            operation: operation
+                        )
+                        operation.finish(.success(()))
+                    } catch {
+                        operation.finish(.failure(error))
+                    }
+                }
+            }
+        } onCancel: {
+            operation.cancel()
+        }
+    }
+
+    /// Waits until every previously submitted write has left the serial queue.
+    /// Call this only after the child has exited, so a pipe with backpressure is
+    /// guaranteed to wake with `EPIPE`.
+    func shutdown() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume()
+            }
+        }
+    }
+
+    private static func writeFully(
+        _ data: Data,
+        to fileDescriptor: Int32,
+        timeout: TimeInterval,
+        operation: OperationState
+    ) throws {
+        let timeoutNanoseconds = UInt64(min(timeout, Double(UInt64.max) / 1_000_000_000) * 1_000_000_000)
+        let started = DispatchTime.now().uptimeNanoseconds
+        let deadline = started.addingReportingOverflow(timeoutNanoseconds)
+        let deadlineNanoseconds = deadline.overflow ? UInt64.max : deadline.partialValue
+
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                throw WriterError.invalidRequest
+            }
+            var offset = 0
+            while offset < rawBuffer.count {
+                if operation.isCancelled {
+                    throw CancellationError()
+                }
+                let written = Darwin.write(
+                    fileDescriptor,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset
+                )
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written == 0 {
+                    throw POSIXError(.EPIPE)
+                }
+                if errno == EINTR {
+                    continue
+                }
+                guard errno == EAGAIN || errno == EWOULDBLOCK else {
+                    throw currentPOSIXError()
+                }
+
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < deadlineNanoseconds else {
+                    throw WriterError.timedOut
+                }
+                let remainingMilliseconds = max(
+                    1,
+                    Int(min((deadlineNanoseconds - now) / 1_000_000, 50))
+                )
+                var descriptor = pollfd(
+                    fd: fileDescriptor,
+                    events: Int16(POLLOUT),
+                    revents: 0
+                )
+                let pollResult = Darwin.poll(&descriptor, 1, Int32(remainingMilliseconds))
+                if pollResult < 0, errno != EINTR {
+                    throw currentPOSIXError()
+                }
+                if descriptor.revents & Int16(POLLNVAL) != 0 {
+                    throw POSIXError(.EBADF)
+                }
+                if descriptor.revents & Int16(POLLERR | POLLHUP) != 0 {
+                    throw POSIXError(.EPIPE)
+                }
+            }
+        }
+    }
+
+    private static func currentPOSIXError() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+}
+
 /// Reply-capable transport for the Rust diff sidecar. Requests share one
 /// app-scoped child over bounded stdin/stdout frames. The sidecar never opens a
 /// socket, and WebKit never receives filesystem paths or process access.
@@ -300,9 +492,13 @@ actor DiffSidecarProcessSupervisor {
     private static let processGroupReadyMarker = Data("cmux-diff-sidecar-process-group-ready\n".utf8)
     // Longer than the sidecar's 120-second branch regeneration limit.
     private static let requestTimeout: TimeInterval = 130
+    // A healthy sidecar continuously drains stdin; pipe backpressure for this
+    // long means the transport is wedged and should be restarted.
+    private static let writeTimeout: TimeInterval = 2
 
     private var process: Process?
     private var input: Pipe?
+    private var writer: DiffSidecarFrameWriter?
     private var output: Pipe?
     private var readiness: Pipe?
     private var startupTask: Task<Void, Error>?
@@ -379,6 +575,7 @@ actor DiffSidecarProcessSupervisor {
         }
         self.process = process
         self.input = input
+        self.writer = try DiffSidecarFrameWriter(handle: input.fileHandleForWriting)
         self.output = output
         self.readiness = readiness
 
@@ -446,7 +643,7 @@ actor DiffSidecarProcessSupervisor {
 
     private func enqueue(request: Data, requestID: String) async throws -> Data {
         guard pending[requestID] == nil else { throw SupervisorError.duplicateRequest }
-        guard let input, process?.isRunning == true else {
+        guard let writer, process?.isRunning == true else {
             throw SupervisorError.processExited(-1)
         }
         let requestGeneration = generation
@@ -464,12 +661,29 @@ actor DiffSidecarProcessSupervisor {
                 timeoutTask: timeoutTask,
                 generation: requestGeneration
             )
-            do {
-                try Self.write(frame: request, to: input.fileHandleForWriting)
-            } catch {
-                complete(requestID: requestID, result: .failure(error))
-                Task { await self.transportDidFail(generation: requestGeneration, error: error) }
+            Task { [weak self] in
+                await self?.writeRequest(
+                    request,
+                    requestID: requestID,
+                    generation: requestGeneration,
+                    writer: writer
+                )
             }
+        }
+    }
+
+    private func writeRequest(
+        _ request: Data,
+        requestID: String,
+        generation: UInt64,
+        writer: DiffSidecarFrameWriter
+    ) async {
+        do {
+            try await writer.write(frame: request, timeout: Self.writeTimeout)
+        } catch {
+            guard pending[requestID]?.generation == generation else { return }
+            complete(requestID: requestID, result: .failure(error))
+            await transportDidFail(generation: generation, error: error)
         }
     }
 
@@ -485,24 +699,37 @@ actor DiffSidecarProcessSupervisor {
     }
 
     private func cancel(requestID: String) {
-        guard pending[requestID] != nil else { return }
-        sendCancellation(requestID: requestID)
+        guard let request = pending[requestID] else { return }
         complete(requestID: requestID, result: .failure(CancellationError()))
+        Task { [weak self] in
+            await self?.sendCancellation(requestID: requestID, generation: request.generation)
+        }
     }
 
     private func requestDidTimeOut(requestID: String, generation: UInt64) {
         guard pending[requestID]?.generation == generation else { return }
-        sendCancellation(requestID: requestID)
         complete(requestID: requestID, result: .failure(SupervisorError.requestTimedOut))
+        // `complete` cancels the deadline task that called this method. Send the
+        // cancellation from a fresh task so that cancellation does not
+        // immediately abort the writer and restart an otherwise healthy child.
+        Task { [weak self] in
+            await self?.sendCancellation(requestID: requestID, generation: generation)
+        }
     }
 
-    private func sendCancellation(requestID: String) {
-        guard let input, process?.isRunning == true,
+    private func sendCancellation(requestID: String, generation: UInt64) async {
+        guard generation == self.generation,
+              let writer,
+              process?.isRunning == true,
               let frame = try? JSONSerialization.data(withJSONObject: [
                   "control": "cancel",
                   "requestId": requestID,
               ]) else { return }
-        try? Self.write(frame: frame, to: input.fileHandleForWriting)
+        do {
+            try await writer.write(frame: frame, timeout: Self.writeTimeout)
+        } catch {
+            await transportDidFail(generation: generation, error: error)
+        }
     }
 
     private func complete(requestID: String, result: Result<Data, Error>) {
@@ -536,9 +763,10 @@ actor DiffSidecarProcessSupervisor {
         outputContinuation = nil
         outputTask?.cancel()
         outputTask = nil
-        try? input?.fileHandleForWriting.close()
-        try? output?.fileHandleForReading.close()
-        try? readiness?.fileHandleForReading.close()
+        let inputToClose = input
+        let writerToDrain = writer
+        let outputToClose = output
+        let readinessToClose = readiness
         let processToReap = process
         if let processToReap {
             terminationHandle.clear(processID: processToReap.processIdentifier)
@@ -546,6 +774,7 @@ actor DiffSidecarProcessSupervisor {
         processToReap?.terminationHandler = nil
         process = nil
         input = nil
+        writer = nil
         output = nil
         readiness = nil
         let pendingRequests = Array(pending.values)
@@ -557,6 +786,10 @@ actor DiffSidecarProcessSupervisor {
         if let processToReap, processToReap.isRunning {
             await Self.terminateAndReap(processToReap)
         }
+        await writerToDrain?.shutdown()
+        try? inputToClose?.fileHandleForWriting.close()
+        try? outputToClose?.fileHandleForReading.close()
+        try? readinessToClose?.fileHandleForReading.close()
     }
 
     private nonisolated static func requestID(
@@ -570,15 +803,6 @@ actor DiffSidecarProcessSupervisor {
             throw SupervisorError.invalidRequest
         }
         return requestID
-    }
-
-    private nonisolated static func write(frame: Data, to handle: FileHandle) throws {
-        guard !frame.isEmpty, frame.count <= maximumRequestBytes else {
-            throw SupervisorError.invalidRequest
-        }
-        var framed = frame
-        framed.append(UInt8(ascii: "\n"))
-        try handle.write(contentsOf: framed)
     }
 
     nonisolated static func waitForProcessGroupReady(
