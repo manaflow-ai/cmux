@@ -282,12 +282,19 @@ extension MobileShellComposite {
         // Workspace state is keyed by PHYSICAL device id, so it is shared by
         // every app instance of a Mac. Prune it only when no visible sibling
         // instance remains; a per-instance hide leaves the sibling's state.
+        // Subscriptions, per-pairing workspace entries, and feed snapshots are
+        // keyed per pairing since the per-pairing re-key: tear down exactly the
+        // hidden pairings' entries, whether or not a sibling remains visible.
+        for pairingID in targetPairingIDs {
+            if let subscription = secondaryMacSubscriptions[pairingID] {
+                subscription.cancel()
+                secondaryMacSubscriptions[pairingID] = nil
+            }
+            workspacesByMac[pairingID] = nil
+            removeNotificationFeedSnapshot(macDeviceID: pairingID)
+        }
         let fullyHiddenPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
         for id in fullyHiddenPhysicalIDs {
-            if let subscription = secondaryMacSubscriptions[id] {
-                subscription.cancel()
-                secondaryMacSubscriptions[id] = nil
-            }
             pruneWorkspaceStateForHiddenMac(id)
             removeNotificationFeedSnapshot(macDeviceID: id)
         }

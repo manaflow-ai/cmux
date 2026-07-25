@@ -91,42 +91,75 @@ struct WorkspaceMacSelectionScope {
         return foregroundMachineIDs.isDisjoint(with: targetIDs)
     }
 
+    /// The selection's filter entries projected to bare device ids (entries may
+    /// be pairing ids since the tuple-aware filter).
+    private func selectedDeviceIDs(for id: String) -> Set<String> {
+        Set(aliasIndex.filterMachineIDs(for: id).map {
+            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
+        })
+    }
+
     func canCreateWorkspace(base canCreateWorkspace: Bool, switchPending: Bool = false) -> Bool {
         guard canCreateWorkspace else { return false }
         guard !switchPending else { return false }
         switch visibleSelection {
         case .machine(let id):
-            return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
+            // Creating requires the foreground connection to BE the selected
+            // pairing: same device, and for a tagged selection the same build.
+            guard !foregroundMachineIDs.isDisjoint(with: selectedDeviceIDs(for: id)) else {
+                return false
+            }
+            guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag,
+                  let activePairing = displayPairedMacs.first(where: \.isActive) else {
+                return true
+            }
+            return MobileMacInstanceTagAuthority.sameStoredAuthority(
+                activePairing.instanceTag, selectedTag
+            )
         case .all, .automatic:
             return true
         }
     }
 
     /// Whether content owned by `macDeviceID` belongs to the computer scope
-    /// shown by the shared title picker.
+    /// shown by the shared title picker. Device-level: sibling builds share it.
     func includes(macDeviceID: String) -> Bool {
         switch visibleSelection {
         case .machine(let id):
-            return aliasIndex.filterMachineIDs(for: id).contains(macDeviceID)
+            return selectedDeviceIDs(for: id).contains(macDeviceID)
         case .all, .automatic:
             return true
         }
     }
 
     /// Applies the shared computer selection to notification rows through the
-    /// same alias index used by workspace rows and the title picker.
+    /// same entry matching used by workspace rows: a tagged selection scopes to
+    /// that build's notifications, legacy untagged items stay visible.
     func notificationFeedItems(
         from items: [MobileNotificationFeedItem]
     ) -> [MobileNotificationFeedItem] {
-        items.filter { includes(macDeviceID: $0.macDeviceID) }
+        switch visibleSelection {
+        case .machine(let id):
+            let entries = aliasIndex.filterMachineIDs(for: id)
+            return items.filter { item in
+                entries.contains(where: { entry in
+                    MobileWorkspaceListFilter.machineEntryMatches(
+                        entry, deviceID: item.macDeviceID, rowTag: item.macInstanceTag
+                    )
+                })
+            }
+        case .all, .automatic:
+            return items
+        }
     }
 
-    /// Exact Mac identifiers represented by a machine selection. `nil` means
-    /// the global All Computers scope.
+    /// Exact Mac DEVICE identifiers represented by a machine selection. `nil`
+    /// means the global All Computers scope. Device-level by design: status
+    /// consumers reason about physical reachability.
     var selectedMachineIDs: Set<String>? {
         switch visibleSelection {
         case .machine(let id):
-            aliasIndex.filterMachineIDs(for: id)
+            selectedDeviceIDs(for: id)
         case .all, .automatic:
             nil
         }
@@ -135,7 +168,7 @@ struct WorkspaceMacSelectionScope {
     var canRenderGroupsForSelection: Bool {
         switch visibleSelection {
         case .machine(let id):
-            return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
+            return !foregroundMachineIDs.isDisjoint(with: selectedDeviceIDs(for: id))
         case .all, .automatic:
             return visibleRowsAreOnlyForegroundMac
         }

@@ -14,12 +14,12 @@ struct MobileShellNotificationFeedStateTests {
 
         #expect(store.applyNotificationFeedSnapshot(
             try response(revision: 2, id: "a-old", createdAt: 100),
-            macDeviceID: "mac-a",
+            ownerKey: "mac-a",
             displayName: "Studio"
         ))
         #expect(store.applyNotificationFeedSnapshot(
             try response(revision: 7, id: "b-new", createdAt: 200),
-            macDeviceID: "mac-b",
+            ownerKey: "mac-b",
             displayName: "Laptop"
         ))
         #expect(store.notificationFeedItems.map(\.notificationID) == ["b-new", "a-old"])
@@ -28,7 +28,7 @@ struct MobileShellNotificationFeedStateTests {
         store.notificationFeedKnownRevisionsByMac["mac-a"] = 4
         #expect(!store.applyNotificationFeedSnapshot(
             try response(revision: 3, id: "a-stale", createdAt: 300),
-            macDeviceID: "mac-a",
+            ownerKey: "mac-a",
             displayName: "Studio"
         ))
         #expect(store.notificationFeedRefreshPendingMacIDs.contains("mac-a"))
@@ -36,7 +36,7 @@ struct MobileShellNotificationFeedStateTests {
 
         #expect(store.applyNotificationFeedSnapshot(
             try response(revision: 4, id: "a-current", createdAt: 300),
-            macDeviceID: "mac-a",
+            ownerKey: "mac-a",
             displayName: "Studio"
         ))
         #expect(store.notificationFeedItems.map(\.notificationID) == ["a-current", "b-new"])
@@ -47,7 +47,7 @@ struct MobileShellNotificationFeedStateTests {
         let store = MobileShellComposite()
         _ = store.applyNotificationFeedSnapshot(
             try response(revision: 1, id: "private", createdAt: 100),
-            macDeviceID: "mac",
+            ownerKey: "mac",
             displayName: "Mac"
         )
         #expect(store.notificationFeedUnreadCount == 1)
@@ -65,13 +65,13 @@ struct MobileShellNotificationFeedStateTests {
         let store = MobileShellComposite()
         _ = store.applyNotificationFeedSnapshot(
             try response(revision: 2, id: "notification", createdAt: 100),
-            macDeviceID: "mac",
+            ownerKey: "mac",
             displayName: "Mac"
         )
         #expect(store.notificationFeedUnreadCount == 1)
 
         store.applyNotificationFeedReadStateMutation(
-            macDeviceID: "mac",
+            ownerKey: "mac",
             notificationIDs: ["notification"],
             isRead: true,
             revision: 5
@@ -83,7 +83,7 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedUnreadCount == 0)
 
         store.applyNotificationFeedReadStateMutation(
-            macDeviceID: "mac",
+            ownerKey: "mac",
             notificationIDs: ["notification"],
             isRead: false,
             revision: 6
@@ -115,12 +115,12 @@ struct MobileShellNotificationFeedStateTests {
         )
         _ = store.applyNotificationFeedSnapshot(
             try response(revision: 1, id: "foreground", createdAt: 200),
-            macDeviceID: "ticket-mac",
+            ownerKey: "ticket-mac",
             displayName: "Studio"
         )
         _ = store.applyNotificationFeedSnapshot(
             try response(revision: 1, id: "other", createdAt: 100),
-            macDeviceID: "other-mac",
+            ownerKey: "other-mac",
             displayName: "Other"
         )
 

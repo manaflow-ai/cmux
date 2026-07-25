@@ -103,9 +103,14 @@ extension MobileShellComposite {
     /// `workspaceAggregation` made internal) instead of
     /// `MobileShellComposite.swift` to respect that file's length budget.
     func updateStableMacColorSlots() {
+        // Color is per physical Mac: sibling builds share one slot, so feed the
+        // states' device ids, not the aggregate keys (pairing ids for
+        // secondaries since the per-pairing re-key).
         let updated = workspaceAggregation.machineColorIndex(
             existingAssignments: stableMacColorSlots,
-            adding: Array(workspacesByMac.keys.filter { !$0.isEmpty && $0 != Self.foregroundAnonymousKey })
+            adding: workspacesByMac.values.map(\.macDeviceID).filter {
+                !$0.isEmpty && $0 != Self.foregroundAnonymousKey
+            }
         )
         if updated != stableMacColorSlots {
             stableMacColorSlots = updated

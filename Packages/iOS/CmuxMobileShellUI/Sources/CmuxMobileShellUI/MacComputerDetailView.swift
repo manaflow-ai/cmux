@@ -72,7 +72,7 @@ struct MacComputerDetailView: View {
         return MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
     }
     private var workspaceCount: Int {
-        store.workspaceCount(for: macDeviceID)
+        store.workspaceCount(for: macDeviceID, instanceTag: instanceTag)
     }
     var body: some View {
         Form {

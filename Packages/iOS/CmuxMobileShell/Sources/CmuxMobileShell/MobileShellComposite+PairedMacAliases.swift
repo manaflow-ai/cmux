@@ -79,11 +79,16 @@ extension MobileShellComposite {
     }
 
     /// Workspace count across every stored id represented by a visible paired-Mac row.
-    public func workspaceCount(for macDeviceID: String) -> Int {
-        let aliases = Set(pairedMacAliasIDs(for: macDeviceID))
+    /// Workspace count for one pairing row. Tagged rows count only toward
+    /// their own build; rows with no tag (legacy hosts) count toward every
+    /// sibling because their build is unknowable.
+    public func workspaceCount(for macDeviceID: String, instanceTag: String? = nil) -> Int {
+        let aliases = Set(pairedMacAliasIDs(for: macDeviceID, instanceTag: instanceTag))
         return workspaces.filter { workspace in
-            guard let macDeviceID = workspace.macDeviceID else { return false }
-            return aliases.contains(macDeviceID)
+            guard let rowDeviceID = workspace.macDeviceID else { return false }
+            guard aliases.contains(rowDeviceID) else { return false }
+            guard let rowTag = workspace.macInstanceTag, let instanceTag else { return true }
+            return MobileMacInstanceTagAuthority.sameStoredAuthority(rowTag, instanceTag)
         }.count
     }
 

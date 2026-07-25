@@ -57,7 +57,10 @@ extension MacComputerSnapshot {
                     ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
-                workspaceCount: store.workspaceCount(for: mac.macDeviceID),
+                workspaceCount: store.workspaceCount(
+                    for: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                ),
                 aliasIDs: aliases
             )
         }

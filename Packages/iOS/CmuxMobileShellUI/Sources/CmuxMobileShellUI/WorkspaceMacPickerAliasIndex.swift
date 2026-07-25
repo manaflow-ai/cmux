@@ -50,11 +50,20 @@ struct WorkspaceMacPickerAliasIndex {
     }
 
     func filterMachineIDs(for id: String) -> Set<String> {
+        let identity = MobilePairedMac.pairingIdentity(from: id)
+        let deviceAliases: Set<String>
         if let aliases = deviceAliasesByEntryID[id] {
-            return aliases
+            deviceAliases = aliases
+        } else {
+            let representativeID = deviceRepresentativeID(for: id)
+            deviceAliases = deviceAliasesByEntryID[representativeID] ?? [identity.macDeviceID]
         }
-        let representativeID = deviceRepresentativeID(for: id)
-        return deviceAliasesByEntryID[representativeID]
-            ?? [MobilePairedMac.pairingIdentity(from: id).macDeviceID]
+        // A tagged selection filters to that build's rows: emit pairing-id
+        // entries per device alias (legacy nil-tag rows still match them in
+        // MobileWorkspaceListFilter). An untagged selection stays device-level.
+        guard let tag = identity.instanceTag, !tag.isEmpty else { return deviceAliases }
+        return Set(deviceAliases.map {
+            MobilePairedMac.pairingID(macDeviceID: $0, instanceTag: tag)
+        })
     }
 }

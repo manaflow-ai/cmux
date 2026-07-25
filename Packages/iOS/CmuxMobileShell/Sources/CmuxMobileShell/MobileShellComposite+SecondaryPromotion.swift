@@ -13,10 +13,22 @@ extension MobileShellComposite {
     /// reads retain the authority authenticated for that client.
     func promoteSecondaryToForeground(
         _ macID: String,
+        instanceTag: String? = nil,
         switchAttemptID: UUID
     ) async -> Bool {
+        // Resolve the exact pairing's subscription: the requested tag when given,
+        // else any live subscription for the device (legacy device-only callers).
+        guard let entry = secondaryMacSubscriptions.first(where: { _, candidate in
+            candidate.macDeviceID == macID && (
+                instanceTag == nil || MobileMacInstanceTagAuthority.sameStoredAuthority(
+                    candidate.authenticatedInstanceTag ?? candidate.storedInstanceTag,
+                    instanceTag
+                )
+            )
+        }) else { return false }
+        let ownerKey = entry.key
         guard runtime != nil,
-              let sub = secondaryMacSubscriptions[macID],
+              let sub = secondaryMacSubscriptions[ownerKey],
               let pairedMacStore,
               let scope = await currentScopeSnapshot(),
               let current = try? await pairedMacStore.loadAll(
@@ -31,8 +43,8 @@ extension MobileShellComposite {
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   current.instanceTag, sub.storedInstanceTag
               ) else {
-            secondaryMacSubscriptions[macID]?.cancel()
-            secondaryMacSubscriptions[macID] = nil
+            secondaryMacSubscriptions[ownerKey]?.cancel()
+            secondaryMacSubscriptions[ownerKey] = nil
             return false
         }
         guard let previews = await fetchSecondaryWorkspaces(
@@ -40,7 +52,7 @@ extension MobileShellComposite {
                   macDeviceID: macID,
                   instanceTag: sub.authenticatedInstanceTag ?? sub.storedInstanceTag
               ),
-              secondaryMacSubscriptions[macID] === sub,
+              secondaryMacSubscriptions[ownerKey] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID),
               let refreshed = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID, teamID: scope.teamID
@@ -51,15 +63,15 @@ extension MobileShellComposite {
                           sub.storedInstanceTag
                       )
               }),
-              secondaryMacSubscriptions[macID] === sub,
+              secondaryMacSubscriptions[ownerKey] === sub,
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   refreshed.instanceTag, sub.storedInstanceTag
               ),
               scope.generation == secondaryAggregationScopeGeneration,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            if secondaryMacSubscriptions[macID] === sub {
+            if secondaryMacSubscriptions[ownerKey] === sub {
                 sub.cancel()
-                secondaryMacSubscriptions[macID] = nil
+                secondaryMacSubscriptions[ownerKey] = nil
             }
             return false
         }
@@ -71,9 +83,10 @@ extension MobileShellComposite {
         connectionGeneration = generation
         cancelRemoteOperationTasks()
         let previousForegroundKey = foregroundMacKey
-        secondaryMacSubscriptions[macID] = nil
+        secondaryMacSubscriptions[ownerKey] = nil
         sub.detachKeepingClient()
-        let displayName = workspacesByMac[macID]?.displayName
+        let displayName = workspacesByMac[ownerKey]?.displayName
+        workspacesByMac[ownerKey] = nil
         activeTicket = sub.ticket
         activeRoute = sub.route
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
@@ -91,8 +104,9 @@ extension MobileShellComposite {
             statusMacAppVersion: nil,
             macDeviceID: macID
         )
-        workspacesByMac[macID] = MacWorkspaceState(
+        workspacesByMac[foregroundMacKey] = MacWorkspaceState(
             macDeviceID: macID,
+            instanceTag: activeMacInstanceTag,
             displayName: displayName,
             workspaces: previews,
             status: .connected,

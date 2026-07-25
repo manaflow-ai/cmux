@@ -35,9 +35,37 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         // A machine filter only matches rows whose owning Mac is in the set; a
         // row with an unknown machine (an older Mac that didn't report one) is
         // excluded while a machine filter is active, since it can't be confirmed
-        // to belong to a selected machine.
-        let machineOK = machines.isEmpty || (workspace.macDeviceID.map(machines.contains) ?? false)
+        // to belong to a selected machine. An entry may be a bare device id
+        // (matches every build on that device) or a pairing id
+        // (device + unit separator + tag: matches that build's rows, plus
+        // legacy rows with no tag, whose build is unknowable).
+        let machineOK = machines.isEmpty || (workspace.macDeviceID.map { deviceID in
+            machines.contains(where: { entry in
+                Self.machineEntryMatches(
+                    entry, deviceID: deviceID, rowTag: workspace.macInstanceTag
+                )
+            })
+        } ?? false)
         return readOK && machineOK
+    }
+
+    /// The pairing-id separator shared with `MobilePairedMac.pairingID`.
+    private static let pairingSeparator: Character = "\u{1F}"
+
+    public static func machineEntryMatches(
+        _ entry: String,
+        deviceID: String,
+        rowTag: String?
+    ) -> Bool {
+        let parts = entry.split(
+            separator: pairingSeparator, maxSplits: 1, omittingEmptySubsequences: false
+        )
+        guard let entryDevice = parts.first.map(String.init), entryDevice == deviceID else {
+            return false
+        }
+        guard parts.count == 2 else { return true }
+        guard let rowTag, !rowTag.isEmpty else { return true }
+        return String(parts[1]) == rowTag
     }
 
     /// Whether this filter actually narrows the list (drives the filled-vs-
