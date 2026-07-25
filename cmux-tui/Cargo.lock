@@ -542,6 +542,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pty"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "portable-pty",
+]
+
+[[package]]
 name = "cmux-relay"
 version = "0.1.0"
 dependencies = [
@@ -570,6 +579,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "diffy",
@@ -580,7 +590,6 @@ dependencies = [
  "http",
  "iroh",
  "libc",
- "portable-pty",
  "rcgen",
  "serde",
  "serde_json",
@@ -652,11 +661,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-pty",
  "cmux-tui-cdp",
  "getrandom 0.3.4",
  "ghostty-vt",
  "libc",
- "portable-pty",
  "regex",
  "serde",
  "serde_json",

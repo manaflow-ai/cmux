@@ -1,23 +1,20 @@
 use std::cell::Cell;
-use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
-use portable_pty::{Child, MasterPty, PtySize};
 
-pub(super) struct PtyPair {
-    pub(super) slave: File,
-    pub(super) master: Box<dyn MasterPty + Send>,
-}
+use super::{Child, MasterPty, PtyCommand, PtySize};
 
-pub(super) fn open(size: PtySize) -> anyhow::Result<PtyPair> {
+pub(crate) struct Slave(File);
+
+pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
     let mut master_fd = -1;
     let mut slave_fd = -1;
     let mut window_size = libc::winsize {
@@ -44,35 +41,31 @@ pub(super) fn open(size: PtySize) -> anyhow::Result<PtyPair> {
     set_cloexec(&master).context("failed to configure PTY master")?;
     set_cloexec(&slave).context("failed to configure PTY slave")?;
 
-    Ok(PtyPair {
-        slave,
-        master: Box::new(MacOsMasterPty { file: master, took_writer: Cell::new(false) }),
-    })
+    Ok((Box::new(MacOsMasterPty { file: master, took_writer: Cell::new(false) }), Slave(slave)))
 }
 
-pub(super) fn spawn_command(
-    slave: &File,
-    argv: &[String],
-    cwd: &Path,
-    environment: &BTreeMap<String, String>,
-    term: &str,
-    clean_environment: bool,
+pub(crate) fn spawn(
+    slave: &Slave,
+    command: PtyCommand,
 ) -> anyhow::Result<Box<dyn Child + Send + Sync>> {
-    let mut command = Command::new(&argv[0]);
-    command.args(&argv[1..]).current_dir(cwd);
-    if clean_environment {
-        command.env_clear();
+    let shell = resolved_shell(&command);
+    let mut process = Command::new(&command.program);
+    process.args(&command.args);
+    if let Some(cwd) = command.cwd.as_deref() {
+        process.current_dir(cwd);
     }
-    command.envs(environment);
-    command.env("SHELL", resolved_shell(environment, clean_environment));
-    command.env("TERM", term);
+    if command.clean_environment {
+        process.env_clear();
+    }
+    process.envs(&command.environment);
+    process.env("SHELL", shell);
 
-    command
-        .stdin(Stdio::from(slave.try_clone().context("failed to clone PTY slave for stdin")?))
-        .stdout(Stdio::from(slave.try_clone().context("failed to clone PTY slave for stdout")?))
-        .stderr(Stdio::from(slave.try_clone().context("failed to clone PTY slave for stderr")?));
+    process
+        .stdin(Stdio::from(slave.0.try_clone().context("failed to clone PTY slave for stdin")?))
+        .stdout(Stdio::from(slave.0.try_clone().context("failed to clone PTY slave for stdout")?))
+        .stderr(Stdio::from(slave.0.try_clone().context("failed to clone PTY slave for stderr")?));
     unsafe {
-        command.pre_exec(|| {
+        process.pre_exec(|| {
             for signal in [
                 libc::SIGCHLD,
                 libc::SIGHUP,
@@ -103,7 +96,7 @@ pub(super) fn spawn_command(
         });
     }
 
-    let child = command.spawn().context("failed to spawn PTY command")?;
+    let child = process.spawn().context("failed to spawn PTY command")?;
     Ok(Box::new(child))
 }
 
@@ -224,11 +217,12 @@ fn set_cloexec(file: &File) -> io::Result<()> {
     Ok(())
 }
 
-fn resolved_shell(environment: &BTreeMap<String, String>, clean_environment: bool) -> OsString {
-    let configured = environment
+fn resolved_shell(command: &PtyCommand) -> OsString {
+    let configured = command
+        .environment
         .get("SHELL")
         .map(OsString::from)
-        .or_else(|| (!clean_environment).then(|| std::env::var_os("SHELL")).flatten());
+        .or_else(|| (!command.clean_environment).then(|| std::env::var_os("SHELL")).flatten());
     if let Some(shell) = configured
         && is_executable(&shell)
     {

@@ -6,6 +6,9 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
+#[cfg(not(unix))]
+use cmux_pty::ChildKiller;
+use cmux_pty::{Child, MasterPty, PtyCommand, PtySize};
 use cmux_remote_protocol::{
     ByteString, OperationId, ProcessDescriptor, ProcessEnvironment, ProcessEvent, ProcessId,
     ProcessIo, ProcessIoKind, ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason,
@@ -14,11 +17,6 @@ use cmux_remote_protocol::{
     ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RpcError, RpcErrorDetails,
     RpcEvent, WorkspaceId, WorkspaceResponse,
 };
-#[cfg(not(unix))]
-use portable_pty::ChildKiller;
-#[cfg(not(target_os = "macos"))]
-use portable_pty::{CommandBuilder, native_pty_system};
-use portable_pty::{MasterPty, PtySize};
 use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use tokio::io::unix::AsyncFd;
@@ -30,8 +28,6 @@ use tokio::sync::{Mutex, Notify, RwLock, Semaphore, broadcast, watch};
 use tokio::task::JoinSet;
 
 use super::ClientScope;
-#[cfg(target_os = "macos")]
-use super::macos_pty;
 use super::path::WorkspaceRoot;
 
 const MAX_PROCESSES: usize = 64;
@@ -784,21 +780,21 @@ struct PendingProcessGuard {
 }
 
 struct PendingPtyChild {
-    child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
+    child: Option<Box<dyn Child + Send + Sync>>,
     pid: Option<u32>,
 }
 
 impl PendingPtyChild {
-    fn new(child: Box<dyn portable_pty::Child + Send + Sync>) -> Self {
+    fn new(child: Box<dyn Child + Send + Sync>) -> Self {
         let pid = child.process_id();
         Self { child: Some(child), pid }
     }
 
-    fn child_mut(&mut self) -> &mut (dyn portable_pty::Child + Send + Sync) {
+    fn child_mut(&mut self) -> &mut (dyn Child + Send + Sync) {
         self.child.as_deref_mut().expect("pending PTY child was already handed off")
     }
 
-    fn take(&mut self) -> Box<dyn portable_pty::Child + Send + Sync> {
+    fn take(&mut self) -> Box<dyn Child + Send + Sync> {
         self.child.take().expect("pending PTY child was already handed off")
     }
 }
@@ -1275,47 +1271,24 @@ impl ProcessManager {
         events.enable_terminal(cols, rows)?;
         let catalog = process_catalog_metadata(&argv, &cwd, ProcessIoKind::Pty);
         let size = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
-        #[cfg(target_os = "macos")]
-        let pair = macos_pty::open(size)
+        let pair = cmux_pty::open(size)
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
-        #[cfg(not(target_os = "macos"))]
-        let pair = native_pty_system()
-            .openpty(size)
-            .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
-        #[cfg(not(target_os = "macos"))]
-        let mut command = CommandBuilder::new(&argv[0]);
-        #[cfg(not(target_os = "macos"))]
+        let mut command = PtyCommand::new(&argv[0]);
         if environment == ProcessEnvironment::Clean {
             command.env_clear();
         }
-        #[cfg(not(target_os = "macos"))]
-        command.args(&argv[1..]);
-        #[cfg(not(target_os = "macos"))]
+        command.args(argv[1..].iter().cloned());
         command.cwd(&cwd);
-        #[cfg(not(target_os = "macos"))]
         for (key, value) in env {
             command.env(key, value);
         }
-        #[cfg(not(target_os = "macos"))]
         command.env("TERM", &term);
         #[cfg(unix)]
         let mut child_events =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
                 .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
-        #[cfg(target_os = "macos")]
-        let child = macos_pty::spawn_command(
-            &pair.slave,
-            &argv,
-            &cwd,
-            &env,
-            &term,
-            environment == ProcessEnvironment::Clean,
-        )
-        .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
-        #[cfg(not(target_os = "macos"))]
-        let child = pair
-            .slave
-            .spawn_command(command)
+        let cmux_pty::SpawnedPty { master, child } = pair
+            .spawn(command)
             .map_err(|error| RpcError::new("process-spawn-failed", error.to_string()))?;
         let mut pending_child = PendingPtyChild::new(child);
         let pid = pending_child.pid;
@@ -1324,7 +1297,6 @@ impl ProcessManager {
             .store(pid.and_then(|pid| usize::try_from(pid).ok()).unwrap_or(0), Ordering::Release);
         #[cfg(unix)]
         let mut pending = PendingProcessGuard::new(pid, true);
-        drop(pair.slave);
         #[cfg(test)]
         if *self.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
             == Some(PtySetupFailure::Reader)
@@ -1336,16 +1308,14 @@ impl ProcessManager {
         #[cfg(not(unix))]
         let mut pending = PendingProcessGuard::new(Some(killer.clone()));
         #[cfg(unix)]
-        let pty_io = AsyncPty::from_master(pair.master.as_ref())
+        let pty_io = AsyncPty::from_master(master.as_ref())
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
         #[cfg(not(unix))]
-        let mut reader = pair
-            .master
+        let mut reader = master
             .try_clone_reader()
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
         #[cfg(not(unix))]
-        let writer = pair
-            .master
+        let writer = master
             .take_writer()
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
         #[cfg(unix)]
@@ -1356,7 +1326,7 @@ impl ProcessManager {
         let input_writer = InputWriter::Pty(pty_io.clone());
         #[cfg(not(unix))]
         let input_writer = InputWriter::Pty(writer);
-        let master = Arc::new(StdMutex::new(Some(pair.master)));
+        let master = Arc::new(StdMutex::new(Some(master)));
         let (exit_tx, exit_rx) = watch::channel(None);
         let response_operation = operation.clone();
         let record = Arc::new(ProcessRecord {
@@ -2358,7 +2328,7 @@ async fn wait_and_reap_pipe_child(
 #[cfg(unix)]
 async fn wait_and_reap_pty_child(
     target: &ProcessTarget,
-    child: &mut dyn portable_pty::Child,
+    child: &mut dyn Child,
     child_events: &mut tokio::signal::unix::Signal,
 ) -> std::io::Result<ExitOutcome> {
     if let Some(native_child) = child.downcast_mut::<std::process::Child>() {
@@ -2500,7 +2470,7 @@ fn exit_outcome(status: std::process::ExitStatus) -> ExitOutcome {
     ExitOutcome { code: status.code(), signal: None }
 }
 
-fn portable_pty_exit_outcome(status: portable_pty::ExitStatus) -> ExitOutcome {
+fn portable_pty_exit_outcome(status: cmux_pty::ExitStatus) -> ExitOutcome {
     ExitOutcome { code: status.signal().is_none().then(|| status.exit_code() as i32), signal: None }
 }
 

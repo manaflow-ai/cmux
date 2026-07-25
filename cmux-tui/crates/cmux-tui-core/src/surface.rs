@@ -15,10 +15,10 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
+use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
 use ghostty_vt::{
     Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
 };
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -458,7 +458,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let pty = native_pty_system().openpty(PtySize {
+        let pty = cmux_pty::open(PtySize {
             rows: opts.rows,
             cols: opts.cols,
             pixel_width: 0,
@@ -470,8 +470,8 @@ impl Surface {
             .clone()
             .filter(|argv| !argv.is_empty())
             .unwrap_or_else(|| vec![platform::default_shell()]);
-        let mut cmd = CommandBuilder::new(&argv[0]);
-        cmd.args(&argv[1..]);
+        let mut cmd = PtyCommand::new(&argv[0]);
+        cmd.args(argv[1..].iter().cloned());
         cmd.env("TERM", &opts.term);
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
@@ -484,12 +484,11 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let mut child = pty.slave.spawn_command(cmd)?;
+        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(cmd)?;
         let pid = child.process_id();
-        drop(pty.slave);
         let killer = child.clone_killer();
-        let mut reader = pty.master.try_clone_reader()?;
-        let writer = pty.master.take_writer()?;
+        let mut reader = master.try_clone_reader()?;
+        let writer = master.take_writer()?;
 
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
@@ -535,7 +534,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(writer),
-            master: Mutex::new(pty.master),
+            master: Mutex::new(master),
             killer: Mutex::new(killer),
             pid,
             command: argv,
@@ -1545,8 +1544,10 @@ mod tests {
         let (result_tx, result_rx) = sync_channel(1);
         std::thread::spawn(move || {
             let mux = Mux::new_for_test("macos-pty-deadline", SurfaceOptions::default());
-            let mut options = SurfaceOptions::default();
-            options.command = Some(vec!["/bin/sh".into(), "-c".into(), "exit 0".into()]);
+            let options = SurfaceOptions {
+                command: Some(vec!["/bin/sh".into(), "-c".into(), "exit 0".into()]),
+                ..SurfaceOptions::default()
+            };
             let result = Surface::spawn(9_001, options, Arc::downgrade(&mux))
                 .map(drop)
                 .map_err(|error| error.to_string());
