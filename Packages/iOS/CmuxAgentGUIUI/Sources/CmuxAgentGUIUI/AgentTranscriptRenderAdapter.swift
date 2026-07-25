@@ -4,20 +4,6 @@ import CmuxAgentGUIProjection
 import CmuxAgentReplica
 import Foundation
 
-struct AgentTranscriptRenderRow: Identifiable, Equatable {
-    let id: String
-    let content: Content
-
-    enum Content: Equatable {
-        case message(ChatMessageRowSnapshot)
-        case activity(TranscriptActivityDetails)
-        case ask(PendingAsk)
-        case metadata(String)
-        case pendingTicket(SendTicket)
-        case empty(TranscriptSyncPresentation)
-    }
-}
-
 struct AgentTranscriptRenderAdapter {
     func rows(from projection: [TranscriptRow]) -> [AgentTranscriptRenderRow] {
         projection.compactMap(adapt)

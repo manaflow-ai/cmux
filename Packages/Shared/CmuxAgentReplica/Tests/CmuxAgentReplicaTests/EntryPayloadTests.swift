@@ -71,6 +71,36 @@ import Testing
         #expect(!payload.rawJSONTruncated)
     }
 
+    @Test func attachmentPayloadDecodesPreviewMetadataAliases() throws {
+        let data = Data("""
+        {
+          "kind": "attachment",
+          "type": "image",
+          "fileName": "preview.png",
+          "path": "/tmp/preview.png",
+          "media_type": "image/png",
+          "size": 456789,
+          "pixel_width": 1600,
+          "pixel_height": 900
+        }
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(EntryPayload.self, from: data)
+
+        guard case .attachment(let payload) = decoded else {
+            Issue.record("Expected attachment payload")
+            return
+        }
+        #expect(payload.kind == "image")
+        #expect(payload.summary == "preview.png")
+        #expect(payload.displayName == "preview.png")
+        #expect(payload.hostPath == "/tmp/preview.png")
+        #expect(payload.mimeType == "image/png")
+        #expect(payload.byteCount == 456_789)
+        #expect(payload.width == 1_600)
+        #expect(payload.height == 900)
+    }
+
     @Test func unknownSentinelRoundTripsWithoutRawJSONDrift() throws {
         let payload = EntryPayload.unknown(UnknownPayload(
             rawKind: "unknown",

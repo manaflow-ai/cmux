@@ -39,7 +39,12 @@ public struct TranscriptDemoScreen: View {
                     theme: theme,
                     density: density,
                     onOpenAsk: { _ in },
-                    onOpenActivity: { activityDetails = $0 },
+                    onOpenActivity: { rowID in
+                        activityDetails = AgentTranscriptRowSelectionResolver.activity(
+                            rowID: rowID,
+                            rows: model.renderedRows
+                        )
+                    },
                     onOpenFailedTicket: { _ in },
                     onRetrySync: {},
                     onShowTerminal: {},

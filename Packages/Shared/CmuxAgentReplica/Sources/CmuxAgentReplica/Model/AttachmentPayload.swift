@@ -33,6 +33,25 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         case height
     }
 
+    private enum AliasCodingKeys: String, CodingKey {
+        case kind
+        case type
+        case id
+        case fileName
+        case file_name
+        case name
+        case path
+        case file_path
+        case mediaType
+        case media_type
+        case byteCount
+        case size
+        case pixelWidth
+        case pixel_width
+        case pixelHeight
+        case pixel_height
+    }
+
     /// Creates an attachment payload.
     /// - Parameters:
     ///   - kind: The attachment kind identifier.
@@ -57,5 +76,64 @@ public struct AttachmentPayload: Codable, Hashable, Sendable {
         self.byteCount = byteCount
         self.width = width
         self.height = height
+    }
+
+    /// Decodes canonical payloads plus datasource aliases used by transcript
+    /// sources and artifact metadata APIs. Keeping this tolerant at the replica
+    /// boundary lets iOS reserve the correct preview geometry before loading
+    /// thumbnail bytes.
+    public init(from decoder: any Decoder) throws {
+        let canonical = try decoder.container(keyedBy: CodingKeys.self)
+        let aliases = try decoder.container(keyedBy: AliasCodingKeys.self)
+
+        let decodedDisplayName = try canonical.decodeIfPresent(String.self, forKey: .displayName)
+            ?? aliases.decodeIfPresent(String.self, forKey: .fileName)
+            ?? aliases.decodeIfPresent(String.self, forKey: .file_name)
+            ?? aliases.decodeIfPresent(String.self, forKey: .name)
+        let decodedHostPath = try canonical.decodeIfPresent(String.self, forKey: .hostPath)
+            ?? aliases.decodeIfPresent(String.self, forKey: .path)
+            ?? aliases.decodeIfPresent(String.self, forKey: .file_path)
+        let decodedKind = try canonical.decodeIfPresent(String.self, forKey: .kind)
+            ?? aliases.decodeIfPresent(String.self, forKey: .type)
+            ?? aliases.decodeIfPresent(String.self, forKey: .kind)
+            ?? "file"
+        let decodedSummary = try canonical.decodeIfPresent(String.self, forKey: .summary)
+            ?? decodedDisplayName
+            ?? decodedHostPath
+            ?? "\(decodedKind.capitalized) attachment"
+
+        kind = decodedKind
+        summary = decodedSummary
+        attachmentID = try canonical.decodeIfPresent(String.self, forKey: .attachmentID)
+            ?? aliases.decodeIfPresent(String.self, forKey: .id)
+        displayName = decodedDisplayName
+        hostPath = decodedHostPath
+        mimeType = try canonical.decodeIfPresent(String.self, forKey: .mimeType)
+            ?? aliases.decodeIfPresent(String.self, forKey: .mediaType)
+            ?? aliases.decodeIfPresent(String.self, forKey: .media_type)
+        byteCount = try canonical.decodeIfPresent(Int.self, forKey: .byteCount)
+            ?? aliases.decodeIfPresent(Int.self, forKey: .byteCount)
+            ?? aliases.decodeIfPresent(Int.self, forKey: .size)
+        width = try canonical.decodeIfPresent(Int.self, forKey: .width)
+            ?? aliases.decodeIfPresent(Int.self, forKey: .pixelWidth)
+            ?? aliases.decodeIfPresent(Int.self, forKey: .pixel_width)
+        height = try canonical.decodeIfPresent(Int.self, forKey: .height)
+            ?? aliases.decodeIfPresent(Int.self, forKey: .pixelHeight)
+            ?? aliases.decodeIfPresent(Int.self, forKey: .pixel_height)
+    }
+
+    /// Encodes the canonical replica payload. Aliases are read-only migration
+    /// support so the wire format stays deterministic.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(summary, forKey: .summary)
+        try container.encodeIfPresent(attachmentID, forKey: .attachmentID)
+        try container.encodeIfPresent(displayName, forKey: .displayName)
+        try container.encodeIfPresent(hostPath, forKey: .hostPath)
+        try container.encodeIfPresent(mimeType, forKey: .mimeType)
+        try container.encodeIfPresent(byteCount, forKey: .byteCount)
+        try container.encodeIfPresent(width, forKey: .width)
+        try container.encodeIfPresent(height, forKey: .height)
     }
 }

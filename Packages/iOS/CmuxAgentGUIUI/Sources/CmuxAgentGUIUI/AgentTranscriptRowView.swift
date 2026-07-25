@@ -8,9 +8,9 @@ struct AgentTranscriptRowView: View {
     let row: AgentTranscriptRenderRow
     let theme: AgentGUITheme
     let density: TranscriptDensity
-    let onOpenAsk: (PendingAsk) -> Void
-    let onOpenActivity: (TranscriptActivityDetails) -> Void
-    let onOpenFailedTicket: (SendTicket) -> Void
+    let onOpenAsk: (String) -> Void
+    let onOpenActivity: (String) -> Void
+    let onOpenFailedTicket: (String) -> Void
     let onRetrySync: () -> Void
     let onShowTerminal: () -> Void
     let onOpenArtifact: (String) -> Void
@@ -32,10 +32,10 @@ struct AgentTranscriptRowView: View {
                 details: details,
                 theme: theme,
                 density: density,
-                onOpen: { onOpenActivity(details) }
+                onOpen: { onOpenActivity(row.id) }
             )
         case .ask(let ask):
-            AgentAskSummaryRow(ask: ask, theme: theme, onOpen: { onOpenAsk(ask) })
+            AgentAskSummaryRow(ask: ask, theme: theme, onOpen: { onOpenAsk(row.id) })
         case .metadata(let text):
             Text(text)
                 .font(density.metadataFont)
@@ -48,7 +48,7 @@ struct AgentTranscriptRowView: View {
             AgentPendingTicketRow(
                 ticket: ticket,
                 theme: theme,
-                onOpenFailure: { onOpenFailedTicket(ticket) }
+                onOpenFailure: { onOpenFailedTicket(row.id) }
             )
         case .empty(let presentation):
             AgentTranscriptEmptyState(

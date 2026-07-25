@@ -107,9 +107,9 @@ public struct TranscriptLiveView: View {
                             row: row,
                             theme: theme,
                             density: density,
-                            onOpenAsk: openAsk,
-                            onOpenActivity: openActivity,
-                            onOpenFailedTicket: { selectedSheet = .failedTicket($0) },
+                            onOpenAsk: { openAsk(rowID: $0) },
+                            onOpenActivity: { openActivity(rowID: $0) },
+                            onOpenFailedTicket: { openFailedTicket(rowID: $0) },
                             onRetrySync: engine.retryNow,
                             onShowTerminal: onShowTerminal,
                             onOpenArtifact: {
@@ -419,11 +419,19 @@ public struct TranscriptLiveView: View {
         Task { try? await engine.interrupt(sessionID: sessionID, hard: hard) }
     }
 
-    private func openActivity(_ details: TranscriptActivityDetails) {
+    private func openActivity(rowID: String) {
+        guard let details = AgentTranscriptRowSelectionResolver.activity(
+            rowID: rowID,
+            rows: renderedRows
+        ) else { return }
         selectedSheet = .activity(details)
     }
 
-    private func openAsk(_ ask: PendingAsk) {
+    private func openAsk(rowID: String) {
+        guard let ask = AgentTranscriptRowSelectionResolver.ask(
+            rowID: rowID,
+            rows: renderedRows
+        ) else { return }
         let previousAskID: String? = if case .ask(let selectedAsk) = selectedSheet {
             selectedAsk.id
         } else {
@@ -433,6 +441,14 @@ public struct TranscriptLiveView: View {
             askError = nil
         }
         selectedSheet = .ask(ask)
+    }
+
+    private func openFailedTicket(rowID: String) {
+        guard let ticket = AgentTranscriptRowSelectionResolver.failedTicket(
+            rowID: rowID,
+            rows: renderedRows
+        ) else { return }
+        selectedSheet = .failedTicket(ticket)
     }
 
     private func showCodeBlock(messageID: String, segmentIndex: Int) {
