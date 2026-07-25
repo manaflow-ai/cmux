@@ -57,6 +57,96 @@ last resort) as the PRIMARY path, carrying all of Temper's hardening (F-T2/3/4) 
 This does NOT reintroduce the rotation footgun (still never write/refresh a token), but it DOES put
 credential-residency + anti-abuse + hostile-input on the main path. Fork surfaced to Nick.
 
+## 4c. ENDPOINT CONFIRMATION ROUND (2026-07-25, fresh tokens where available)
+
+| Provider | Token persists to disk? (R1) | Usage endpoint | Gauge feasible | Verdict |
+|---|---|---|---|---|
+| **Codex** | ✅ yes | `backend-api/codex/usage` | ✅ rolling window(s) + credits | **SHIP** |
+| **Gemini** | ✅ yes (token was fresh 2d later) | `v1internal:loadCodeAssist` → 200 | ⚠️ account is `standard-tier` **"Unlimited"** — no numeric quota | **label-only** (show tier, no gauge) |
+| **Grok** | ✅ yes (token fresh 2d later) | none found — proxy `/usage,/rate_limits,/me,/account` all 404; `grok.com/rest/rate-limits` 501 (maybe POST, needs web-session auth) | ❌ not with CLI token | **`.unsupported`** pending deeper discovery |
+| **Kimi** | ❓ (token expired 15min ago) | unknown | ❓ | **needs 1 CLI run** to refresh, then probe |
+| **Claude** | ❌ **NO** — keychain token 43 DAYS stale despite live session | endpoint likely exists but needs a live token; **no on-disk usage cache** (`policy-limits.json` is restriction policy, not quota) | ⚠️ blocked | **HARD** — headline provider, see below |
+
+**Key positive:** Codex/Gemini/Grok all persist refreshed tokens to disk → read-only piggyback
+works for them. **Claude is the lone exception** — Claude Code refreshes in-memory and never
+rewrites the keychain item, so read-only piggyback yields a 43-day-stale token. Claude's live
+"tokens left" therefore requires either (a) minting a fresh token from the keychain `refreshToken`
+(rotation-footgun risk — must NOT test unilaterally), or (b) reading `anthropic-ratelimit-unified-*`
+headers off a real `/v1/messages` call (needs a valid token AND burns quota). Both need a live token.
+
+**Net achievable gauge today = Codex only.** Gemini = "Unlimited" label; Grok/Kimi/Claude blocked
+or uncertain. This reshapes what "full 5" can mean — decision surfaced to Nick.
+
+### Deep-discovery closure (2026-07-25, per Nick "discovery first")
+- **Claude — DEAD END for live usage.** Keychain `refreshToken` is **empty** (only an expired
+  accessToken remains); live creds are held by Claude Code's daemon (`daemon-auth-status.json:
+  auth_required`, `authMethod: oauth_token`) / the ACL-locked "Claude Safe Storage" item. `claude
+  auth status --json` returns only `{loggedIn, authMethod, apiProvider}` — no token, no usage, and
+  does NOT refresh the keychain. The "use refresh_token" plan is **not executable**. Readable Claude
+  signals: static `subscriptionType` + `rateLimitTier` (plan/tier) + local transcript burn only.
+- **Grok — no usage route reachable with the CLI token.** Proxy paths 404; `grok.com/rest/rate-limits`
+  is Cloudflare-blocked (403 1010) to the CLI bearer (needs a browser/web session). `.unsupported`.
+- **Kimi — still pending** one `kimi info` run to refresh its token before it can be probed.
+
+**FINAL discovery verdict:** only **Codex** exposes a live "tokens-left" gauge. Realistic HUD shape
+= Codex gauge + universal local **burn** layer (transcript `message.usage`, zero-credential, works
+for every provider) + static plan/tier labels where readable (Claude Max, Gemini Unlimited).
+
+### 4d. CLAUDE SOLVED (2026-07-25) — supersedes the "Claude blocked" verdict
+Claude Code authenticates via the **`CLAUDE_CODE_OAUTH_TOKEN` env var** (a `claude setup-token`,
+long-lived ~1yr, **non-rotating** → zero risk), NOT the stale keychain. `claude auth status --text`
+reveals this. The token is `user:inference`-scoped, so `/api/oauth/usage` + `/api/oauth/profile`
+403 (need `user:profile`) — BUT the usage data rides on **response headers of a real `/v1/messages`
+call**, which only needs `user:inference`:
+
+```
+POST https://api.anthropic.com/v1/messages   (model: claude-haiku-4-5-20251001, max_tokens:1)
+  Authorization: Bearer $CLAUDE_CODE_OAUTH_TOKEN
+  anthropic-beta: oauth-2025-04-20
+→ 200, headers:
+  anthropic-ratelimit-unified-5h-utilization: 0.07   anthropic-ratelimit-unified-5h-reset: <epoch>
+  anthropic-ratelimit-unified-7d-utilization: 0.59   anthropic-ratelimit-unified-7d-reset: <epoch>
+  anthropic-ratelimit-unified-5h-status/7d-status: allowed
+  anthropic-ratelimit-unified-representative-claim: five_hour
+```
+So **Claude = full gauge (5h + weekly utilization + reset).** Cost: ~1 token/poll (a real inference
+call), so poll on-demand + cache only; the probe itself nudges utilization negligibly. `count_tokens`
+does NOT carry these headers — must be `/v1/messages`.
+
+**Updated scorecard: Claude ✅ + Codex ✅ (both full gauges), Gemini = Unlimited (no quota exists),
+Grok = unsupported via CLI token, Kimi = pending one `kimi info` refresh.**
+
+### 4e. GROK SOLVED (2026-07-25) — same inference-header pattern as Claude
+Grok's proxy gates inference on a **`x-grok-client-version`** header (426 without it; header name
+found via `strings ~/.grok/bin/grok`). With it, a minimal responses call returns usage in headers:
+
+```
+POST https://cli-chat-proxy.grok.com/v1/responses   {model:grok-4.5, input:"hi", max_output_tokens:1}
+  Authorization: Bearer <auth.json .key>
+  x-grok-client-version: 0.2.22        (also seen: x-grok-user-id, x-grok-client-identifier, x-grok-deployment-id)
+→ 200, headers:
+  x-ratelimit-limit-tokens: 53000000    x-ratelimit-remaining-tokens: 53000000
+  x-ratelimit-limit-requests: 8300      x-ratelimit-remaining-requests: 8300
+```
+So **Grok = gauge** (tokens + requests remaining/limit; no reset epoch in these headers → show % used,
+not countdown). Cost: 1 minimal inference call per poll → on-demand + cache.
+
+### THE REUSABLE KEY
+Usage lives in the **response headers of a real inference call**, not a dedicated usage endpoint,
+for Claude (`anthropic-ratelimit-unified-*`) and Grok (`x-ratelimit-*`). Codex has a real usage
+endpoint. Kimi almost certainly follows the inference-header pattern too (verify after `kimi info`).
+Design implication: adapters need an "inference-probe" mode (minimal call, read headers, discard body)
+in addition to the "usage-endpoint" mode — both are on-demand + cached (each probe costs ~1 token).
+
+### FINAL SCORECARD (2026-07-25)
+| Provider | Gauge | Source | Cost/poll |
+|---|---|---|---|
+| **Claude** | ✅ 5h + weekly % + reset | `/v1/messages` unified headers, `CLAUDE_CODE_OAUTH_TOKEN` | ~1 token |
+| **Codex** | ✅ window + credits | `backend-api/codex/usage` endpoint | free (throttled) |
+| **Grok** | ✅ tokens + requests remaining | `/v1/responses` `x-ratelimit-*` headers | ~1 token |
+| **Gemini** | — (Unlimited tier) | `loadCodeAssist` (label only) | free |
+| **Kimi** | ❓ pending refresh | likely inference headers | TBD |
+
 ## 5. Open research variables (carried into DESIGN as claims-to-falsify)
 - **R1 (load-bearing):** Does each CLI *persist* its refreshed token to a cmux-readable location
   (auth file / keychain), or keep it in memory only? Codex: yes (`last_refresh` in auth.json).

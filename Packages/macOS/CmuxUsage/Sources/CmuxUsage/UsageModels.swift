@@ -26,29 +26,41 @@ public enum UsageProvider: String, Sendable, CaseIterable, Hashable {
 public struct UsageWindow: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         /// A rolling window of `seconds` length (e.g. 18000 = 5h, 604800 = 7d).
+        /// Used by Codex (`limit_window_seconds`) and Claude (`5h`/`7d`).
         case rolling(seconds: Int)
-        /// A monetary/credit balance rather than a time window.
+        /// A monetary/credit balance rather than a time window (Codex credits).
         case credits
+        /// A remaining/limit quota with no time window or reset (Grok tokens/requests).
+        /// `unit` is a display hint like "tokens" or "requests".
+        case quota(unit: String)
     }
 
     public var kind: Kind
-    /// 0…100, `nil` when the provider only exposes a credit balance.
+    /// 0…100, `nil` when the provider only exposes a raw balance.
     public var usedPercent: Double?
     /// Absolute instant this window resets, if the provider reports one.
     public var resetAt: Date?
     /// Remaining credits for `.credits` windows, if reported.
     public var creditsRemaining: Double?
+    /// Remaining count for `.quota` windows (e.g. tokens/requests left).
+    public var remaining: Double?
+    /// Total limit for `.quota` windows.
+    public var limit: Double?
 
     public init(
         kind: Kind,
         usedPercent: Double? = nil,
         resetAt: Date? = nil,
-        creditsRemaining: Double? = nil
+        creditsRemaining: Double? = nil,
+        remaining: Double? = nil,
+        limit: Double? = nil
     ) {
         self.kind = kind
         self.usedPercent = usedPercent
         self.resetAt = resetAt
         self.creditsRemaining = creditsRemaining
+        self.remaining = remaining
+        self.limit = limit
     }
 }
 
