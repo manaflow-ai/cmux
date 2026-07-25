@@ -15710,15 +15710,14 @@ struct CMUXCLI {
                 localized: "cli.workspaceGroup.help.destructiveDelete",
                 defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
             )
+            let overview = String(
+                localized: "cli.workspaceGroup.help.overview",
+                defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
+            )
             return """
             Usage: cmux workspace-group <subcommand> [flags]
 
-            Manage collapsible workspace groups in the sidebar. Each group is
-            owned by an "anchor" workspace; the group header IS the anchor's
-            sidebar representation. Closing the anchor closes only that
-            workspace and promotes the group's next member to be the new
-            anchor, so the group and its other members stay intact. When the
-            anchor is the group's only workspace, the group is removed.
+            \(overview)
 
             Subcommands:
               list [--json]

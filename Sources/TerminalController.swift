@@ -4402,7 +4402,10 @@ class TerminalController {
             @MainActor
             func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
                 var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
+                // Drain non-anchor members before group anchors so a range close
+                // that targets a group promotes at most once per group instead of
+                // re-promoting and rescanning per member (see anchorLastCloseOrder).
+                for candidate in tabManager.anchorLastCloseOrder(workspaces) where candidate.id != workspace.id {
                     let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
                     guard existedBefore else { continue }
                     tabManager.closeWorkspace(candidate)

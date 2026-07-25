@@ -2342,24 +2342,29 @@ class TabManager: ObservableObject {
             }
         }
 
-        // Close non-anchor workspaces before group anchors (same ordering group
-        // deletion uses). Closing an anchor promotes the group's next member and
-        // renormalizes the whole tabs/groups collection; iterating in raw tabs
-        // order (anchor first) would re-promote and rescan once per targeted
-        // member, turning a k-member batch into O(k x totalTabs) main-actor work
-        // plus a burst of title/order invalidations. Draining members first
-        // leaves at most one promotion per group (or none, when the anchor was
-        // the group's last surviving workspace).
-        let anchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
-        let closeOrder = plan.workspaces.filter { !anchorIds.contains($0.id) }
-            + plan.workspaces.filter { anchorIds.contains($0.id) }
-        for workspace in closeOrder {
+        // Drain non-anchor members before group anchors (see anchorLastCloseOrder):
+        // closing a group's anchor is no longer destructive to the group (its next
+        // member is promoted to anchor), so batch close needs no special anchor
+        // confirmation or handling here.
+        for workspace in anchorLastCloseOrder(plan.workspaces) {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
-            // Closing a group's anchor is no longer destructive to the group
-            // (its next member is promoted to anchor), so batch close needs no
-            // special anchor confirmation or handling here.
             _ = closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
+    }
+
+    /// Reorders a batch of workspaces so group anchors close after their
+    /// non-anchor members. Closing an anchor promotes the group's next member
+    /// and renormalizes the whole tabs/groups collection; closing in raw tabs
+    /// order (anchor first) would re-promote and rescan once per targeted
+    /// member — O(k x totalTabs) main-actor work plus a burst of title/order
+    /// invalidations. Members-first bounds a batch to at most one promotion per
+    /// group (or none, when the anchor was the group's last surviving member).
+    /// Every batch-close entrypoint (menu, shortcut, socket) must route through
+    /// this ordering.
+    func anchorLastCloseOrder(_ workspaces: [Workspace]) -> [Workspace] {
+        let anchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
+        return workspaces.filter { !anchorIds.contains($0.id) }
+            + workspaces.filter { anchorIds.contains($0.id) }
     }
 
     func selectWorkspace(_ workspace: Workspace) {
