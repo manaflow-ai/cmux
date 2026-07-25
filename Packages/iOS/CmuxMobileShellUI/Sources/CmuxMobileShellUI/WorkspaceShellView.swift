@@ -231,7 +231,6 @@ struct WorkspaceShellView: View {
                         store: store,
                         items: presentation.notificationFeedItems,
                         status: presentation.notificationFeedStatus,
-                        searchText: notificationSearchText,
                         projection: notificationFeedProjection
                     )
                         .toolbar {
@@ -261,6 +260,12 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
                 updateRootToolbarMachineSnapshots(snapshots)
+            }
+            .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
+                notificationFeedProjection.update(items: items)
+            }
+            .onChange(of: notificationSearchText, initial: true) { _, searchText in
+                notificationFeedProjection.searchText = searchText
             }
             .sheet(isPresented: $showingRootSettings, onDismiss: {
                 settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)

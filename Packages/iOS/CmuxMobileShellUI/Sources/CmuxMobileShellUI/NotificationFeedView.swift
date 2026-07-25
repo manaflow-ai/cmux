@@ -15,10 +15,9 @@ struct NotificationFeedActions {
 /// Production notification-feed presentation. This view owns only UI projection
 /// state; rows receive immutable item snapshots plus ``NotificationFeedActions``.
 struct NotificationFeedView: View {
-    let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
-    let searchText: String
     let projection: NotificationFeedProjection
+    let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
 
     var body: some View {
@@ -56,13 +55,8 @@ struct NotificationFeedView: View {
                 }
             }
         }
-        .onChange(of: items, initial: true) { _, items in
-            projection.update(items: items)
-        }
-        .onChange(of: searchText, initial: true) { _, searchText in
-            projection.searchText = searchText
-        }
         .task {
+            guard refreshesOnAppear else { return }
             await actions.refresh()
         }
         .accessibilityIdentifier("MobileNotificationFeed")

@@ -47,8 +47,6 @@ final class NotificationFeedProjection {
     @ObservationIgnored private var referenceDate: Date
     @ObservationIgnored private var calendar: Calendar
     @ObservationIgnored private var sourceRevision = 0
-    @ObservationIgnored private var indexedSourceRevision: Int?
-    @ObservationIgnored private var indexedItems: [NotificationFeedIndexedItem] = []
     @ObservationIgnored private var rebuildRevision = 0
     @ObservationIgnored private var rebuildTask: Task<Void, Never>?
 
@@ -76,9 +74,9 @@ final class NotificationFeedProjection {
         await rebuildTask?.value
     }
 
-    /// Debounces query changes, reuses the index only for the same source
-    /// revision, and cancels superseded work. Results publish only while both
-    /// captured revisions still match the current projection.
+    /// Debounces query changes and cancels superseded work. Stale rows are
+    /// removed before the async rebuild starts, and results publish only while
+    /// both captured revisions still match the current projection.
     private func scheduleRebuild(debounce: Duration? = nil) {
         rebuildRevision &+= 1
         let requestedRebuildRevision = rebuildRevision
@@ -87,8 +85,10 @@ final class NotificationFeedProjection {
         let requestedFilter = filter
         let requestedReferenceDate = referenceDate
         let requestedCalendar = calendar
-        let cachedIndex = indexedSourceRevision == requestedSourceRevision ? indexedItems : nil
-        let requestedSourceItems = cachedIndex == nil ? sourceItems : []
+        let requestedSourceItems = sourceItems
+
+        sections = []
+        isSourceRebuilding = true
 
         rebuildTask?.cancel()
         rebuildTask = Task { [weak self] in
@@ -102,10 +102,8 @@ final class NotificationFeedProjection {
             guard !Task.isCancelled else { return }
 
             let worker = Task.detached(priority: .userInitiated) {
-                let items = cachedIndex ?? requestedSourceItems.map(NotificationFeedIndexedItem.init)
-                guard !Task.isCancelled else { return Optional<NotificationFeedProjectionOutput>.none }
                 return NotificationFeedProjection.build(
-                    indexedItems: items,
+                    items: requestedSourceItems,
                     filter: requestedFilter,
                     query: query,
                     referenceDate: requestedReferenceDate,
@@ -126,31 +124,31 @@ final class NotificationFeedProjection {
                 return
             }
 
-            self.indexedItems = output.indexedItems
-            self.indexedSourceRevision = requestedSourceRevision
             self.sections = output.sections
             self.isSourceRebuilding = false
         }
     }
 
+    nonisolated private static let maxSearchableCharactersPerItem = 8_192
+
     nonisolated private static func build(
-        indexedItems: [NotificationFeedIndexedItem],
+        items: [MobileNotificationFeedItem],
         filter: MobileNotificationFeedFilter,
         query: String,
         referenceDate: Date,
         calendar: Calendar
     ) -> NotificationFeedProjectionOutput? {
         var visibleItems: [MobileNotificationFeedItem] = []
-        visibleItems.reserveCapacity(indexedItems.count)
-        for indexedItem in indexedItems {
+        visibleItems.reserveCapacity(items.count)
+        for item in items {
             guard !Task.isCancelled else { return nil }
-            if filter == .unread, indexedItem.item.isRead {
+            if filter == .unread, item.isRead {
                 continue
             }
-            if !query.isEmpty, !indexedItem.searchCorpus.localizedStandardContains(query) {
+            if !query.isEmpty, !matchesSearchQuery(item: item, query: query) {
                 continue
             }
-            visibleItems.append(indexedItem.item)
+            visibleItems.append(item)
         }
         visibleItems.sort { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
@@ -180,32 +178,35 @@ final class NotificationFeedProjection {
             )
         }
         return NotificationFeedProjectionOutput(
-            indexedItems: indexedItems,
             sections: sections
         )
     }
-}
 
-private struct NotificationFeedIndexedItem: Sendable {
-    let item: MobileNotificationFeedItem
-    let searchCorpus: String
-
-    init(_ item: MobileNotificationFeedItem) {
-        self.item = item
-        self.searchCorpus = [
+    nonisolated private static func matchesSearchQuery(
+        item: MobileNotificationFeedItem,
+        query: String
+    ) -> Bool {
+        var remainingCharacters = maxSearchableCharactersPerItem
+        for field in [
             item.title,
             item.subtitle,
             item.body,
             item.workspaceTitle,
             item.surfaceTitle,
             item.macDisplayName,
-        ]
-        .compactMap(\.self)
-        .joined(separator: "\n")
+        ].compactMap(\.self) {
+            guard !Task.isCancelled else { return false }
+            guard remainingCharacters > 0 else { return false }
+            let limitedField = String(field.prefix(remainingCharacters))
+            if limitedField.localizedStandardContains(query) {
+                return true
+            }
+            remainingCharacters -= limitedField.count
+        }
+        return false
     }
 }
 
 private struct NotificationFeedProjectionOutput: Sendable {
-    let indexedItems: [NotificationFeedIndexedItem]
     let sections: [NotificationFeedDaySection]
 }

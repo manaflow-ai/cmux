@@ -44,6 +44,28 @@ import Testing
         #expect(projection.sourceUnreadCount == 1)
     }
 
+    @Test @MainActor func filterChangeRetiresPriorRowsBeforeAsyncRebuild() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        projection.update(items: [
+            item(id: "read", createdAt: try #require(isoDate("2026-07-15T17:30:00Z")), isRead: true),
+            item(id: "unread", createdAt: try #require(isoDate("2026-07-15T17:00:00Z")), isRead: false),
+        ], referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["read", "unread"])
+
+        projection.filter = .unread
+
+        #expect(projection.sections.isEmpty)
+        #expect(projection.isSourceRebuilding)
+
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["unread"])
+        #expect(!projection.isSourceRebuilding)
+    }
+
     @Test @MainActor func searchMatchesNotificationContentAndComposesWithUnreadFilter() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)
@@ -78,6 +100,38 @@ import Testing
         #expect(projection.sections.isEmpty)
         #expect(projection.sourceItemCount == 2)
         #expect(projection.sourceUnreadCount == 1)
+    }
+
+    @Test @MainActor func searchChangeRetiresPriorRowsBeforeAsyncRebuild() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        projection.update(items: [
+            item(
+                id: "approval",
+                createdAt: try #require(isoDate("2026-07-15T17:30:00Z")),
+                isRead: false,
+                title: "Codex needs approval"
+            ),
+            item(
+                id: "tests",
+                createdAt: try #require(isoDate("2026-07-15T17:00:00Z")),
+                isRead: false,
+                title: "Tests passed"
+            ),
+        ], referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["approval", "tests"])
+
+        projection.searchText = "tests"
+
+        #expect(projection.sections.isEmpty)
+        #expect(projection.isSourceRebuilding)
+
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["tests"])
+        #expect(!projection.isSourceRebuilding)
     }
 
     @Test @MainActor func rapidSearchPublishesOnlyTheLatestProjection() async throws {

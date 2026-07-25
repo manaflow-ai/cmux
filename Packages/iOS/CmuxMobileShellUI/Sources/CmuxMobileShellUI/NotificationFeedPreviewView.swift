@@ -9,13 +9,16 @@ public struct NotificationFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
     @State private var workspaceSearchText = ""
     @State private var notificationSearchText = ""
+    @State private var referenceDate: Date
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var macSelection: WorkspaceMacSelection = .all
 
     public init() {
-        _items = State(initialValue: Self.makeFixtureItems(referenceDate: .now))
+        let referenceDate = Date()
+        _referenceDate = State(initialValue: referenceDate)
+        _items = State(initialValue: Self.makeFixtureItems(referenceDate: referenceDate))
     }
 
     public var body: some View {
@@ -30,10 +33,9 @@ public struct NotificationFeedPreviewView: View {
             } notifications: {
                 NavigationStack(path: $notificationNavigationPath) {
                     NotificationFeedView(
-                        items: items,
                         status: .ready,
-                        searchText: notificationSearchText,
                         projection: projection,
+                        refreshesOnAppear: true,
                         actions: actions
                     )
                     .toolbar {
@@ -60,6 +62,12 @@ public struct NotificationFeedPreviewView: View {
                 }
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
+        }
+        .onChange(of: items, initial: true) { _, items in
+            projection.update(items: items, referenceDate: referenceDate)
+        }
+        .onChange(of: notificationSearchText, initial: true) { _, searchText in
+            projection.searchText = searchText
         }
     }
 

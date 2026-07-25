@@ -7,20 +7,20 @@ import SwiftUI
 /// This is the only notification-feed view that retains a store reference.
 struct NotificationFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
+    @Environment(\.mobilePrimarySearchDestination) private var isSearchDestination
     let items: [MobileNotificationFeedItem]
     let status: MobileNotificationFeedStatus
-    let searchText: String
     let projection: NotificationFeedProjection
 
     var body: some View {
         NotificationFeedView(
-            items: items,
             status: status,
-            searchText: searchText,
             projection: projection,
+            refreshesOnAppear: !isSearchDestination,
             actions: actions
         )
         .onDisappear {
+            guard !isSearchDestination else { return }
             store.cancelPendingNotificationFeedOpen()
         }
     }
