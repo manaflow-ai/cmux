@@ -308,6 +308,99 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(compact["cwd"] as? String == "/remote/worktree")
     }
 
+    @Test("Queue compaction preserves behavior-critical needs-input fields")
+    func queueCompactionPreservesNeedsInputClassification() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let socketPath = makeCodexHookSocketPath("large-needs-input")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: "surface-8535",
+            connectionLimit: 2
+        )
+        let oversizedOptions: [[String: Any]] = (0..<1_400).map { index in
+            ["label": "Option \(index) " + String(repeating: "x", count: 60)]
+        }
+        let oversizedPrompts: [[String: Any]] = (0..<1_400).map { index in
+            [
+                "prompt": "Prompt \(index) " + String(repeating: "y", count: 220),
+                "tool": "Bash",
+            ]
+        }
+        let cases: [(toolName: String, toolInput: [String: Any], summaryKey: String)] = [
+            (
+                "AskUserQuestion",
+                [
+                    "questions": [[
+                        "question": "Which release channel?",
+                        "header": "Channel",
+                        "options": oversizedOptions,
+                    ]],
+                ],
+                "questions"
+            ),
+            (
+                "ExitPlanMode",
+                [
+                    "plan": "# Plan\n1. Preserve needs-input routing.",
+                    "allowedPrompts": oversizedPrompts,
+                ],
+                "plan"
+            ),
+        ]
+
+        for testCase in cases {
+            let input: [String: Any] = [
+                "session_id": "needs-input-\(testCase.toolName)",
+                "cwd": "/remote/worktree",
+                "permission_mode": "bypassPermissions",
+                "hook_event_name": "PreToolUse",
+                "tool_name": testCase.toolName,
+                "tool_input": testCase.toolInput,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: input)
+            let rawPayload = try #require(String(data: data, encoding: .utf8))
+            #expect(rawPayload.utf8.count > 64 * 1_024)
+
+            let result = runCodexHookProcess(
+                executablePath: cliPath,
+                arguments: ["--socket", socketPath, "hooks", "enqueue", "claude", "pre-tool-use"],
+                environment: [
+                    "HOME": FileManager.default.temporaryDirectory.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CMUX_CLAUDE_PID": "8535",
+                    "CMUX_SURFACE_ID": "surface-8535",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: rawPayload,
+                timeout: 5
+            )
+
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            let request = try #require(capturedCommands.snapshot().compactMap(codexHookJSONObject).last {
+                $0["method"] as? String == "agent.hook.enqueue"
+            })
+            let params = try #require(request["params"] as? [String: Any])
+            let compactPayload = try #require(params["payload"] as? String)
+            #expect(compactPayload.utf8.count <= 64 * 1_024)
+            let compact = try #require(
+                JSONSerialization.jsonObject(with: Data(compactPayload.utf8)) as? [String: Any]
+            )
+            #expect(compact["tool_name"] as? String == testCase.toolName)
+            #expect(compact["permission_mode"] as? String == "bypassPermissions")
+            #expect(compact["hook_event_name"] as? String == "PreToolUse")
+            let compactToolInput = try #require(compact["tool_input"] as? [String: Any])
+            #expect(compactToolInput[testCase.summaryKey] != nil)
+        }
+    }
+
     @Test(
         "Pinned agent queue admission uses its explicit socket without ambient cmux target IDs",
         arguments: ["grok", "antigravity"]

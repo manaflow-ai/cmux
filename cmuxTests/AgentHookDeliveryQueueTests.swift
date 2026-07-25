@@ -271,6 +271,27 @@ struct AgentHookDeliveryQueueTests {
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
     }
 
+    @Test("Oversized optional launch metadata does not discard lifecycle routing")
+    func oversizedOptionalLaunchMetadataIsOmitted() throws {
+        let event = try #require(AgentHookDeliveryEvent(params: [
+            "agent": "claude",
+            "subcommand": "prompt-submit",
+            "payload": #"{"session_id":"large-launch"}"#,
+            "socket_path": "/tmp/cmux-test.sock",
+            "environment": [
+                "CMUX_SURFACE_ID": "surface-large-launch",
+                "CMUX_WORKSPACE_ID": "workspace-large-launch",
+                "CMUX_CLAUDE_PID": "8535",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": String(repeating: "a", count: 80 * 1_024),
+            ],
+        ]))
+
+        #expect(event.environment["CMUX_SURFACE_ID"] == "surface-large-launch")
+        #expect(event.environment["CMUX_WORKSPACE_ID"] == "workspace-large-launch")
+        #expect(event.environment["CMUX_CLAUDE_PID"] == "8535")
+        #expect(event.environment["CMUX_AGENT_LAUNCH_ARGV_B64"] == nil)
+    }
+
     private func makeEvent(
         agent: String = "claude",
         subcommand: String = "prompt-submit",
