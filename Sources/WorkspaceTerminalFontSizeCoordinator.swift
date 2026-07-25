@@ -1724,12 +1724,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             outcome = .alreadySatisfied
         }
         guard outcome.didSucceed else {
-            let reachedEnd =
-                requestRecord === obligation.throughRequest
-            obligation.nextRequest = requestRecord.next
-            if reachedEnd {
-                removeTransferObligation(obligation)
-            }
+            // Cancel this callback's obligation instead of letting a later
+            // request overtake the failed head. The resource ledger retains
+            // the request, so a later transfer callback retries from the
+            // earliest request that is still outstanding.
+            removeTransferObligation(obligation)
             return true
         }
         if case .windowDock = request.target {
