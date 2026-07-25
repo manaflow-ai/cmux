@@ -601,32 +601,39 @@ actor NotificationFeedHistoryPersistence {
     ) throws -> (snapshot: NotificationFeedHistorySnapshot, data: Data)? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        func encode(prefixCount: Int) throws -> (NotificationFeedHistorySnapshot, Data) {
-            let snapshot = NotificationFeedHistorySnapshot(
-                revision: revision,
-                notifications: Array(records.prefix(prefixCount)),
-                version: version
-            )
-            return (snapshot, try encoder.encode(snapshot))
-        }
+        let prefix = Data(#"{"notifications":["#.utf8)
+        let separator = Data(",".utf8)
+        let suffix = Data(#"],"revision":\#(revision),"version":\#(version)}"#.utf8)
+        var data = prefix
+        let reserveLimit = Int(min(maxBytes, UInt64(Int.max)))
+        data.reserveCapacity(min(
+            reserveLimit,
+            prefix.count + suffix.count + records.count * 512
+        ))
+        var retainedRecords: [NotificationFeedHistoryRecord] = []
+        retainedRecords.reserveCapacity(records.count)
 
-        let full = try encode(prefixCount: records.count)
-        guard UInt64(full.1.count) > maxBytes else { return full }
-
-        var lowerBound = 0
-        var upperBound = records.count
-        var best: (snapshot: NotificationFeedHistorySnapshot, data: Data)?
-        while lowerBound <= upperBound {
-            let candidateCount = (lowerBound + upperBound) / 2
-            let candidate = try encode(prefixCount: candidateCount)
-            if UInt64(candidate.1.count) <= maxBytes {
-                best = candidate
-                lowerBound = candidateCount + 1
-            } else {
-                upperBound = candidateCount - 1
+        for record in records {
+            let recordData = try encoder.encode(record)
+            let separatorByteCount = retainedRecords.isEmpty ? 0 : separator.count
+            let candidateByteCount = data.count + separatorByteCount + recordData.count + suffix.count
+            guard UInt64(candidateByteCount) <= maxBytes else { break }
+            if !retainedRecords.isEmpty {
+                data.append(separator)
             }
+            data.append(recordData)
+            retainedRecords.append(record)
         }
-        return best
+        data.append(suffix)
+        guard UInt64(data.count) <= maxBytes else { return nil }
+        return (
+            NotificationFeedHistorySnapshot(
+                revision: revision,
+                notifications: retainedRecords,
+                version: version
+            ),
+            data
+        )
     }
 
     private static func normalized(

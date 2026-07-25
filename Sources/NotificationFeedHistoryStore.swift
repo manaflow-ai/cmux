@@ -43,6 +43,7 @@ final class NotificationFeedHistoryStore {
 
     private(set) var loadingTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
+    private var pendingPersistenceSnapshot: NotificationFeedHistorySnapshot?
 
     init(
         fileURL: URL?,
@@ -255,9 +256,29 @@ final class NotificationFeedHistoryStore {
 
     private func schedulePersistence() {
         guard persistsToDisk, persistenceAllowsWrites else { return }
-        let persistedSnapshot = snapshot
-        persistenceTask = Task { [persistence] in
-            await persistence.persist(persistedSnapshot)
+        pendingPersistenceSnapshot = snapshot
+        guard persistenceTask == nil else { return }
+        persistenceTask = Task { [weak self, persistence] in
+            while !Task.isCancelled {
+                guard let snapshot = await self?.consumePendingPersistenceSnapshot() else {
+                    break
+                }
+                await persistence.persist(snapshot)
+            }
+            await self?.finishPersistenceTask()
+        }
+    }
+
+    private func consumePendingPersistenceSnapshot() -> NotificationFeedHistorySnapshot? {
+        let snapshot = pendingPersistenceSnapshot
+        pendingPersistenceSnapshot = nil
+        return snapshot
+    }
+
+    private func finishPersistenceTask() {
+        persistenceTask = nil
+        if pendingPersistenceSnapshot != nil {
+            schedulePersistence()
         }
     }
 
