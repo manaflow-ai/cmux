@@ -119,6 +119,50 @@ import Testing
         driver.stop()
     }
 
+    @Test func streamTickMutationRebuildsInput() async throws {
+        let transport = FixtureSyncTransport()
+        try await Self.installLiveSessionFixture(on: transport)
+        let engine = AgentSyncEngine(transport: transport)
+        var inputs: [TranscriptProjectionInput] = []
+        let driver = TranscriptProjectionDriver(engine: engine, sessionID: Self.sessionID) { input in
+            inputs.append(input)
+        }
+        driver.start()
+        engine.start()
+
+        #expect(await Self.waitUntil {
+            inputs.last?.entries.map(\.seq.rawValue) == [1]
+                && engine.connectivity.phase == .connected
+        })
+
+        let tick = try JSONEncoder().encode(GuiEventFrame(
+            epoch: Self.epoch,
+            sessionID: Self.sessionID,
+            payload: .streamTick(GuiStreamTickEvent(
+                journalID: Self.journalID,
+                afterSeq: EntrySeq(rawValue: 1),
+                textTail: "streaming tail",
+                revision: 1
+            ))
+        ))
+        await transport.injectFrame(
+            topic: GuiWireTopic.journal(sessionID: Self.sessionID),
+            payload: tick
+        )
+
+        let observed = await Self.waitUntil {
+            inputs.last?.streamingTail == TranscriptStreamingTail(
+                journalID: Self.journalID,
+                afterSeq: EntrySeq(rawValue: 1),
+                textTail: "streaming tail",
+                revision: 1
+            )
+        }
+        #expect(observed)
+        driver.stop()
+        engine.stop()
+    }
+
     @Test func sessionPhaseMutationRebuildsInput() async {
         let engine = AgentSyncEngine(transport: FixtureSyncTransport())
         engine.directory.apply(.sessionUpserted(Self.session(phase: .idle, version: 1)), origin: .live)
@@ -140,6 +184,42 @@ import Testing
 
     private static let sessionID = AgentSessionID(rawValue: "session-1")
     private static let journalID = JournalID(rawValue: "journal-1")
+    private static let macDeviceID = MacDeviceID(rawValue: "mac-1")
+    private static let epoch = ReplicaEpoch(rawValue: "epoch-1")
+
+    private static func installLiveSessionFixture(on transport: FixtureSyncTransport) async throws {
+        let epoch = Self.epoch
+        let macDeviceID = Self.macDeviceID
+        let session = Self.session(phase: .working, version: 1)
+        let page = GuiEntriesResult(
+            journalID: journalID,
+            entries: [Self.entry(seq: 1)],
+            windowStart: EntrySeq(rawValue: 1),
+            windowEnd: EntrySeq(rawValue: 1),
+            tailSeq: EntrySeq(rawValue: 1),
+            hasMoreBefore: false,
+            hasMoreAfter: false,
+            startCursor: nil,
+            endCursor: nil,
+            tailCursor: nil,
+            requiresPagingRestart: false
+        )
+        await transport.setHandler(method: GuiWireMethod.hello) { _ in
+            try JSONEncoder().encode(GuiHelloResult(
+                protocol: 1,
+                serverCaps: ["gui.v1.sessions", "gui.v1.journal"],
+                epoch: epoch,
+                macDeviceID: macDeviceID,
+                serverTimeMS: 1_000
+            ))
+        }
+        await transport.setHandler(method: GuiWireMethod.sessions) { _ in
+            try JSONEncoder().encode(GuiSessionsResult(epoch: epoch, sessions: [session]))
+        }
+        await transport.setHandler(method: GuiWireMethod.entries) { _ in
+            try JSONEncoder().encode(page)
+        }
+    }
 
     private static func entry(seq: Int) -> EntrySnapshot {
         EntrySnapshot(
@@ -157,7 +237,7 @@ import Testing
     private static func session(phase: SessionPhase, version: UInt64) -> AgentSessionSnapshot {
         AgentSessionSnapshot(
             id: sessionID,
-            macDeviceID: MacDeviceID(rawValue: "mac-1"),
+            macDeviceID: macDeviceID,
             kind: .codex,
             phase: phase,
             tier: .wrapped,

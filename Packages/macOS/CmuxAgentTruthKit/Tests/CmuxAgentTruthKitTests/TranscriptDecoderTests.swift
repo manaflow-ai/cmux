@@ -462,6 +462,33 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexViewImageToolMergesNestedPreviewMetadataBeforeFileLoads() throws {
+        let imagePath = "/tmp/cmux-codex-nested-preview.png"
+        let arguments = #"{"path":"\#(imagePath)","display_name":"nested-preview.png","metadata":{"content_type":"image/png","bytes":2048,"dimensions":{"image_width":640,"image_height":360},"preview":{"preview_aspect_ratio":"16:9"}}}"#
+        let callLine = #"{"type":"response_item","payload":{"type":"function_call","name":"view_image","call_id":"call_image","arguments":"\#(arguments.replacingOccurrences(of: "\"", with: "\\\""))"}}"#
+        let resultLine = #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_image","output":"queued preview"}}"#
+        var decoder = CodexTranscriptDecoder()
+
+        let call = decoder.feed([callLine], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+        let result = decoder.feed([resultLine], startingAt: 1, journalID: JournalID(rawValue: "journal"))
+
+        let running = try #require(toolRunPayload(in: call, seq: 0))
+        let completed = try #require(toolRunPayload(in: result, seq: 1))
+        #expect(running.previewAttachments?.count == 1)
+        #expect(completed.previewAttachments?.count == 1)
+        let attachment = try #require(completed.previewAttachments?.first)
+        #expect(attachment.kind == "image")
+        #expect(attachment.hostPath == imagePath)
+        #expect(attachment.displayName == "nested-preview.png")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 640)
+        #expect(attachment.height == 360)
+        #expect(attachment.aspectRatio == 16.0 / 9.0)
+        #expect(attachment.byteCount == 2_048)
+        #expect(attachment.authorRole == "agent")
+    }
+
+    @Test
     func claudeAttachmentRecordDerivesImageDimensionsFromFileHeader() throws {
         let imageURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-attachment-\(UUID().uuidString).png")

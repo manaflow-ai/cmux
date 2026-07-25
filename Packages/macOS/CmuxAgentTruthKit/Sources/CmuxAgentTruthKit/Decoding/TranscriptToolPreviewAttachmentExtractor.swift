@@ -79,15 +79,36 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         path: String,
         object: [String: JSONValue]
     ) -> PreviewAttachmentCandidate {
-        PreviewAttachmentCandidate(
+        let metadataObjects = previewMetadataObjects(from: object)
+        return PreviewAttachmentCandidate(
             hostPath: filePath(from: path),
-            displayName: string(in: object, keys: Self.displayNameKeys),
-            mimeType: string(in: object, keys: Self.mimeTypeKeys),
-            byteCount: int(in: object, keys: Self.byteCountKeys),
-            width: int(in: object, keys: Self.widthKeys),
-            height: int(in: object, keys: Self.heightKeys),
-            aspectRatio: aspectRatio(in: object)
+            displayName: string(in: metadataObjects, keys: Self.displayNameKeys),
+            mimeType: string(in: metadataObjects, keys: Self.mimeTypeKeys),
+            byteCount: int(in: metadataObjects, keys: Self.byteCountKeys),
+            width: int(in: metadataObjects, keys: Self.widthKeys),
+            height: int(in: metadataObjects, keys: Self.heightKeys),
+            aspectRatio: aspectRatio(in: metadataObjects)
         )
+    }
+
+    private func previewMetadataObjects(from object: [String: JSONValue]) -> [[String: JSONValue]] {
+        var objects = [object]
+        for key in Self.metadataContainerKeys {
+            guard let value = normalized(object[key]) else { continue }
+            objects.append(contentsOf: previewMetadataObjects(in: value))
+        }
+        return objects
+    }
+
+    private func previewMetadataObjects(in value: JSONValue) -> [[String: JSONValue]] {
+        switch value {
+        case .object(let object):
+            return previewMetadataObjects(from: object)
+        case .array(let values):
+            return values.flatMap { previewMetadataObjects(in: normalized($0) ?? $0) }
+        case .null, .bool, .number, .string:
+            return []
+        }
     }
 
     private func shouldPreview(path: String, toolName: String) -> Bool {
@@ -150,40 +171,46 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         return deduplicated
     }
 
-    private func string(in object: [String: JSONValue], keys: [String]) -> String? {
-        for key in keys {
-            if let value = object[key]?.string?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !value.isEmpty {
-                return value
+    private func string(in objects: [[String: JSONValue]], keys: [String]) -> String? {
+        for object in objects {
+            for key in keys {
+                if let value = object[key]?.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !value.isEmpty {
+                    return value
+                }
             }
         }
         return nil
     }
 
-    private func int(in object: [String: JSONValue], keys: [String]) -> Int? {
-        for key in keys {
-            if let value = object[key]?.int, value > 0 {
-                return value
-            }
-            if let string = object[key]?.string,
-               let value = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)),
-               value > 0 {
-                return value
+    private func int(in objects: [[String: JSONValue]], keys: [String]) -> Int? {
+        for object in objects {
+            for key in keys {
+                if let value = object[key]?.int, value > 0 {
+                    return value
+                }
+                if let string = object[key]?.string,
+                   let value = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)),
+                   value > 0 {
+                    return value
+                }
             }
         }
         return nil
     }
 
-    private func aspectRatio(in object: [String: JSONValue]) -> Double? {
-        for key in Self.aspectRatioKeys {
-            guard let value = object[key] else {
-                continue
-            }
-            if let ratio = normalizedAspectRatio(value.number) {
-                return ratio
-            }
-            if let ratio = value.string.flatMap(aspectRatioValue) {
-                return ratio
+    private func aspectRatio(in objects: [[String: JSONValue]]) -> Double? {
+        for object in objects {
+            for key in Self.aspectRatioKeys {
+                guard let value = object[key] else {
+                    continue
+                }
+                if let ratio = normalizedAspectRatio(value.number) {
+                    return ratio
+                }
+                if let ratio = value.string.flatMap(aspectRatioValue) {
+                    return ratio
+                }
             }
         }
         return nil
@@ -284,23 +311,38 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         "display_name",
         "fileName",
         "file_name",
+        "filename",
         "name",
     ]
 
     private static let mimeTypeKeys = [
+        "contentType",
+        "content_type",
         "mediaType",
         "media_type",
+        "mime",
         "mimeType",
         "mime_type",
     ]
 
     private static let byteCountKeys = [
+        "byteLength",
+        "byte_length",
+        "bytes",
         "byteCount",
         "byte_count",
+        "contentLength",
+        "content_length",
+        "fileSize",
+        "file_size",
         "size",
     ]
 
     private static let widthKeys = [
+        "imageWidth",
+        "image_width",
+        "naturalWidth",
+        "natural_width",
         "previewWidth",
         "preview_width",
         "pixelWidth",
@@ -310,6 +352,10 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
     ]
 
     private static let heightKeys = [
+        "imageHeight",
+        "image_height",
+        "naturalHeight",
+        "natural_height",
         "previewHeight",
         "preview_height",
         "pixelHeight",
@@ -344,5 +390,18 @@ struct TranscriptToolPreviewAttachmentExtractor: Sendable {
         "image",
         "input_image",
         "source",
+    ]
+
+    private static let metadataContainerKeys = [
+        "artifact",
+        "attachment",
+        "dimensions",
+        "file",
+        "image",
+        "image_metadata",
+        "metadata",
+        "meta",
+        "preview",
+        "preview_metadata",
     ]
 }
