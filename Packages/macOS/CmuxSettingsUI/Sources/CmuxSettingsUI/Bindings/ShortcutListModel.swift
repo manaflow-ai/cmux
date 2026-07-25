@@ -11,6 +11,7 @@ final class ShortcutListModel {
     // MARK: - Observed state
 
     private(set) var bindings: [String: StoredShortcut] = [:]
+    private(set) var managedBindingActionIDs: Set<String> = []
     private(set) var legacyBindings: [String: StoredShortcut]
     private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
     private(set) var whenOverrideRawStrings: [String: String] = [:]
@@ -33,7 +34,7 @@ final class ShortcutListModel {
     @ObservationIgnored private let catalog: SettingCatalog
     @ObservationIgnored private let errorLog: SettingsErrorLog
     @ObservationIgnored private let onShortcutsChanged: @MainActor () -> Void
-    @ObservationIgnored private let bindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
+    @ObservationIgnored private let bindingsDriver = SettingReadDriver<ShortcutBindingsSnapshot>()
     @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
 
@@ -61,7 +62,7 @@ final class ShortcutListModel {
     /// Starts observing the store's shortcut streams. Idempotent: ``SettingReadDriver``
     /// ignores subsequent calls after the first activation.
     func startObserving() {
-        let bindingsKey = catalog.shortcuts.bindings
+        let bindingsKey = catalog.shortcuts.bindingSnapshot
         let whenKey = catalog.shortcuts.when
         bindingsDriver.activate(
             { [jsonStore, bindingsKey] in jsonStore.values(for: bindingsKey) },
@@ -86,10 +87,12 @@ final class ShortcutListModel {
 
     private var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
 
-    private func ingestBindings(_ dictionary: [String: StoredShortcut]) {
+    private func ingestBindings(_ snapshot: ShortcutBindingsSnapshot) {
+        let dictionary = snapshot.bindings
         let changedActionIds = Set(bindings.keys).union(dictionary.keys)
             .filter { bindings[$0] != dictionary[$0] }
         bindings = dictionary
+        managedBindingActionIDs = snapshot.managedActionIDs
         pruneRestoreShortcuts()
         pruneConflictRejections(changedActionIds: Set(changedActionIds))
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
@@ -109,7 +112,14 @@ final class ShortcutListModel {
     /// The effective shortcut for `action`, using the runtime's JSON, legacy
     /// UserDefaults, then built-in precedence.
     func effective(for action: ShortcutAction) -> StoredShortcut? {
-        let candidate = latestBindings[action.rawValue] ?? legacyBindings[action.rawValue]
+        let actionID = action.rawValue
+        let candidate: StoredShortcut?
+        if pendingBindings != nil || !managedBindingActionIDs.contains(actionID) {
+            candidate = latestBindings[actionID] ?? legacyBindings[actionID]
+        } else {
+            candidate = bindings[actionID]
+            if candidate == nil, action == .showHideAllWindows { return nil }
+        }
         return action.effectivePersistedShortcut(candidate) { shortcut in
             guard action == .globalSearch,
                   let systemWideShortcut = effective(for: .showHideAllWindows) else {
