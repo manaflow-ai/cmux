@@ -17,6 +17,14 @@ extension KeyboardShortcutSettings {
             let defaultShortcut = action.defaultShortcut
             return defaultShortcut.isUnbound ? nil : defaultShortcut
         }
+        if CmuxSettings.ShortcutAction(rawValue: action.rawValue)?
+            .rejectsSystemDefinedMediaKey(
+                firstKey: shortcut.firstStroke.key,
+                secondKey: shortcut.secondStroke?.key
+            ) == true {
+            let defaultShortcut = action.defaultShortcut
+            return defaultShortcut.isUnbound ? nil : defaultShortcut
+        }
         return shortcut.isUnbound ? nil : shortcut
     }
 

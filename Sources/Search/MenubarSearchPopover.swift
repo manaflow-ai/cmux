@@ -251,10 +251,10 @@ private struct GlobalSearchPaletteView: View {
         case 53:
             coordinator.dismissPalette()
             return true
-        case 126:
+        case 126 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
             selectedIndex = max(0, selectedIndex - 1)
             return true
-        case 125:
+        case 125 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
             selectedIndex = min(max(results.count - 1, 0), selectedIndex + 1)
             return true
         case 36, 76:
@@ -288,11 +288,13 @@ private struct GlobalSearchPaletteView: View {
 
 struct GlobalSearchKeyEvent: Sendable {
     let keyCode: UInt16
+    let characters: String?
     let charactersIgnoringModifiers: String?
     private let modifierFlagsRawValue: UInt
 
     init(_ event: NSEvent) {
         keyCode = event.keyCode
+        characters = event.characters
         charactersIgnoringModifiers = event.charactersIgnoringModifiers
         modifierFlagsRawValue = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
@@ -301,27 +303,6 @@ struct GlobalSearchKeyEvent: Sendable {
 
     var modifierFlags: NSEvent.ModifierFlags {
         NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue)
-    }
-
-    var queryOwnsEditingShortcut: Bool {
-        let flags = modifierFlags
-        guard flags.contains(.command),
-              !flags.contains(.option),
-              !flags.contains(.control) else {
-            return false
-        }
-
-        if let characters = charactersIgnoringModifiers?.lowercased(),
-           ["a", "c", "v", "x", "z"].contains(characters) {
-            return true
-        }
-
-        switch keyCode {
-        case 51, 117, 123, 124:
-            return true
-        default:
-            return false
-        }
     }
 }
 
