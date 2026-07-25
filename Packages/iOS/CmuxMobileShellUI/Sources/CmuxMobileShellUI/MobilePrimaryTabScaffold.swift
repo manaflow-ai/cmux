@@ -13,20 +13,38 @@ enum MobilePrimaryTab: Hashable {
 ///
 /// New primary tabs must explicitly choose whether they introduce a search
 /// scope or preserve the most recent searchable destination.
-private enum MobilePrimarySearchScope: Equatable {
+enum MobilePrimarySearchScope: Equatable {
     case workspaces
     case notifications
 }
 
-private enum MobilePrimarySearchPhase: Equatable {
+enum MobilePrimarySearchPhase: Equatable {
     case inactive
     case active(MobilePrimarySearchScope)
     case deactivating(MobilePrimarySearchScope)
 }
 
-private struct MobilePrimaryPendingEmptyCommit: Equatable {
-    let scope: MobilePrimarySearchScope
-    let previousCommittedQuery: String
+enum MobilePrimarySearchCommitPolicy {
+    static func acceptsNativeEdit(
+        searchPhase: MobilePrimarySearchPhase,
+        isSearchPresented: Bool,
+        scope: MobilePrimarySearchScope,
+        value: String,
+        committedQuery: String,
+        suppressedEmptyCommitScope: MobilePrimarySearchScope?
+    ) -> Bool {
+        guard searchPhase == .active(scope), isSearchPresented else {
+            return false
+        }
+        guard
+            value.isEmpty,
+            !committedQuery.isEmpty,
+            suppressedEmptyCommitScope == scope
+        else {
+            return true
+        }
+        return false
+    }
 }
 
 private extension MobilePrimaryTab {
@@ -54,7 +72,7 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
     @State private var searchPhase: MobilePrimarySearchPhase = .inactive
     @State private var workspaceNativeSearchText = ""
     @State private var notificationNativeSearchText = ""
-    @State private var pendingEmptyCommit: MobilePrimaryPendingEmptyCommit?
+    @State private var suppressedEmptyCommitScope: MobilePrimarySearchScope?
     let notificationUnreadCount: Int
     let workspaces: Workspaces
     let notifications: Notifications
@@ -91,11 +109,15 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
                 isPresented: searchPresentation,
                 prompt: activeSearchPrompt
             )
+            .onSubmit(of: .search) {
+                suppressedEmptyCommitScope = searchScope
+            }
             .tabViewSearchActivation(.searchTabSelection)
             .accessibilityIdentifier("MobilePrimaryTabs")
             .onChange(of: selection, initial: true) { _, selection in
                 guard let scope = selection.searchScope else { return }
                 searchScope = scope
+                suppressedEmptyCommitScope = nil
                 syncNativeSearchText(fromCommittedQueryFor: scope)
             }
         } else {
@@ -128,10 +150,8 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
                 isSearchPresented = presented
                 if presented {
                     searchPhase = .active(searchScope)
-                    resolvePendingEmptyCommitIfNeeded(for: searchScope)
-                    if pendingEmptyCommit == nil {
-                        syncNativeSearchText(fromCommittedQueryFor: searchScope)
-                    }
+                    suppressedEmptyCommitScope = nil
+                    syncNativeSearchText(fromCommittedQueryFor: searchScope)
                 }
             }
         )
@@ -224,25 +244,29 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
     }
 
     private func commitNativeSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
-        setNativeSearchText(value, for: scope)
-        guard value.isEmpty, !committedSearchText(for: scope).isEmpty else {
-            pendingEmptyCommit = nil
-            setCommittedSearchText(value, for: scope)
+        let suppressedScope = suppressedEmptyCommitScope
+        if suppressedScope == scope {
+            suppressedEmptyCommitScope = nil
+        }
+        guard MobilePrimarySearchCommitPolicy.acceptsNativeEdit(
+            searchPhase: searchPhase,
+            isSearchPresented: isSearchPresented,
+            scope: scope,
+            value: value,
+            committedQuery: committedSearchText(for: scope),
+            suppressedEmptyCommitScope: suppressedScope
+        ) else {
+            syncNativeSearchText(fromCommittedQueryFor: scope)
             return
         }
-        pendingEmptyCommit = MobilePrimaryPendingEmptyCommit(
-            scope: scope,
-            previousCommittedQuery: committedSearchText(for: scope)
-        )
+        setNativeSearchText(value, for: scope)
+        setCommittedSearchText(value, for: scope)
     }
 
     private func updateSearchLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
         if isSearching {
             searchPhase = .active(scope)
-            resolvePendingEmptyCommitIfNeeded(for: scope)
-            if pendingEmptyCommit == nil {
-                syncNativeSearchText(fromCommittedQueryFor: scope)
-            }
+            syncNativeSearchText(fromCommittedQueryFor: scope)
         } else if searchPhase == .active(scope) {
             beginSearchDeactivation(for: scope)
         }
@@ -250,23 +274,8 @@ struct MobilePrimaryTabScaffold<Workspaces: View, Notifications: View>: View {
 
     private func beginSearchDeactivation(for scope: MobilePrimarySearchScope) {
         searchPhase = .deactivating(scope)
-        pendingEmptyCommit = nil
+        suppressedEmptyCommitScope = nil
         syncNativeSearchText(fromCommittedQueryFor: scope)
-    }
-
-    private func resolvePendingEmptyCommitIfNeeded(for scope: MobilePrimarySearchScope) {
-        guard
-            pendingEmptyCommit == MobilePrimaryPendingEmptyCommit(
-                scope: scope,
-                previousCommittedQuery: committedSearchText(for: scope)
-            ),
-            searchPhase == .active(scope),
-            nativeSearchText(for: scope).isEmpty
-        else {
-            return
-        }
-        pendingEmptyCommit = nil
-        setCommittedSearchText("", for: scope)
     }
 
     @TabContentBuilder<MobilePrimaryTab>
