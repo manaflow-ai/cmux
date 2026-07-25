@@ -227,6 +227,13 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
             dataSource?.apply(snapshot, animatingDifferences: false) { [weak self, weak tableView] in
                 guard let self, let tableView else { return }
                 tableView.layoutIfNeeded()
+                let invalidatedVisibleHeights = self.invalidateVisibleHeightsIfNeeded(
+                    reconfiguredIDs: reconfigurable,
+                    in: tableView
+                )
+                if invalidatedVisibleHeights {
+                    tableView.layoutIfNeeded()
+                }
                 if self.isFollowingTail, !tableView.isUserScrollMomentumActive {
                     self.scrollToTail(in: tableView, animated: false)
                 } else if self.isTailSettling, !tableView.isUserScrollMomentumActive {
@@ -248,6 +255,30 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
                 isApplyingUpdate = false
             }
             apply(command, in: tableView)
+        }
+
+        private func invalidateVisibleHeightsIfNeeded(
+            reconfiguredIDs: [Row.ID],
+            in tableView: UITableView
+        ) -> Bool {
+            guard !reconfiguredIDs.isEmpty,
+                  let visibleRows = tableView.indexPathsForVisibleRows,
+                  !visibleRows.isEmpty
+            else { return false }
+            let reconfiguredIDSet = Set(reconfiguredIDs)
+            let hasVisibleReconfiguredRow = visibleRows.contains { indexPath in
+                orderedIDs.indices.contains(indexPath.row)
+                    && reconfiguredIDSet.contains(orderedIDs[indexPath.row])
+            }
+            guard hasVisibleReconfiguredRow else { return false }
+
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+                tableView.layoutIfNeeded()
+            }
+            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
+            return true
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
