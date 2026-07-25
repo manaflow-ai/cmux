@@ -575,4 +575,53 @@ struct WorkspaceCoordinatorTests {
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
         #expect(memberIds.first == b.id)
     }
+
+    /// Closing a group's anchor must delete only that workspace and keep the
+    /// group intact by promoting the next member, instead of scattering the
+    /// remaining members out to the ungrouped root tier.
+    @Test
+    func anchorClosePromotesNextMemberAndKeepsGroup() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        model.tabs = [a]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let anchorId = model.workspaceGroups[0].anchorWorkspaceId
+        // createWorkspaceGroup mints a fresh synthetic anchor; `a` is a member.
+        #expect(anchorId != a.id)
+
+        // Simulate the close path: the anchor is removed from tabs, then the
+        // model's close-path group fixup runs.
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        // The group survives with `a` promoted to anchor; `a` stays grouped and
+        // is never released to root.
+        #expect(model.workspaceGroups.count == 1)
+        #expect(model.workspaceGroups.first?.id == groupId)
+        #expect(model.workspaceGroups.first?.anchorWorkspaceId == a.id)
+        #expect(a.groupId == groupId)
+    }
+
+    /// Closing the anchor of a group with no other members removes the now-empty
+    /// group (nothing left to promote).
+    @Test
+    func anchorCloseRemovesGroupWhenNoMembersRemain() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: []))
+        let anchorId = model.workspaceGroups[0].anchorWorkspaceId
+
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(model.tabs.map(\.id) == [outside.id])
+    }
 }

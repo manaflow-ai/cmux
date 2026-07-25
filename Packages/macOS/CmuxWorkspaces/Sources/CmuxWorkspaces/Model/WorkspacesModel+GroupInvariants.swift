@@ -193,4 +193,18 @@ extension WorkspacesModel {
         // they slide into the ungrouped tier at the bottom.
         normalizeWorkspaceGroupContiguity()
     }
+
+    /// Close-path group fixup for when `closedWorkspaceId` was a group anchor.
+    ///
+    /// Unlike `dissolveGroupsAnchoredBy` (used by the cross-window detach
+    /// path), closing a workspace must affect only that one workspace: the
+    /// group survives by promoting its earliest remaining member (in `tabs`
+    /// order) to be the new anchor, so the other members stay grouped instead
+    /// of scattering to the ungrouped root tier. A group with no members left
+    /// after the anchor's removal is dropped. Caller is responsible for having
+    /// already removed the closed workspace from `tabs`.
+    public func promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: UUID) {
+        // TODO(commit 2): promote the next member instead of dissolving.
+        dissolveGroupsAnchoredBy(closedWorkspaceId: closedWorkspaceId)
+    }
 }
