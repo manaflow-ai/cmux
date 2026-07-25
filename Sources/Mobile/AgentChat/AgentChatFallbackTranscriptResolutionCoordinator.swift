@@ -39,7 +39,9 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
         let resolver = resolver
         let deadline = ContinuousClock.now + timeout
         let task = Task<String?, Never> {
-            await resolver(record, deadline)
+            let path = await resolver(record, deadline)
+            guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+            return path
         }
         pendingResolutions[record.sessionID] = (id: id, task: task)
 
@@ -47,7 +49,6 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
         if pendingResolutions[record.sessionID]?.id == id {
             pendingResolutions.removeValue(forKey: record.sessionID)
         }
-        guard !task.isCancelled, ContinuousClock.now < deadline else { return nil }
         return path
     }
 

@@ -177,13 +177,11 @@ final class FeedCoordinator: @unchecked Sendable {
                             let acceptance = FeedCoordinator.shared.acceptOnMainActor(event)
                             if case .accepted(let event, _) = acceptance {
                                 onAcceptedOnMainActor(event)
+                                onAccepted(event)
                             }
                             return acceptance
                         }
                     }
-                }
-                if let acceptance, case .accepted(let event, _) = acceptance {
-                    onAccepted(event)
                 }
             }
             guard let acceptance else { return .unavailable }
@@ -257,12 +255,10 @@ final class FeedCoordinator: @unchecked Sendable {
                         #if DEBUG
                         FeedCoordinatorTestHooks.afterBlockingEventIngested?(acceptedEvent, requestId)
                         #endif
+                        onAccepted(acceptedEvent)
                         return FeedEventAcceptance.accepted(event: acceptedEvent, itemId: itemId)
                     }
                 }
-            }
-            if let acceptance, case .accepted(let event, _) = acceptance {
-                onAccepted(event)
             }
         }
         guard let acceptance else {
