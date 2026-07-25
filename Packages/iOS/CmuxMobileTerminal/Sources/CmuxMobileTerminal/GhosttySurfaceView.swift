@@ -396,6 +396,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the natural grid would be unchanged afterwards, nothing would ever
     /// re-report, and the letterbox gap above the terminal would be permanent.
     private var viewportReportID: UInt64 = 0
+    /// True from the moment a natural-grid report is handed to the delegate
+    /// until the daemon's round-trip resolves for the NEWEST report (echo
+    /// confirmed, or the bounded retries are exhausted). While set, the
+    /// stretch-to-fill auto-fit is deferred: `effectiveGrid` is about to be
+    /// superseded by the grant answering this report, and fitting the
+    /// rendered font against the outgoing value produces a transient zoom
+    /// that reverts one round-trip later.
+    private var awaitingViewportEcho = false
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -1160,7 +1168,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             chromeHidden: chromeHidden,
             chromeVisible: dockedToolbarShouldBeVisible && dockedToolbar?.isHidden == false,
             toolbarFrame: dockedToolbar?.frame,
-            toolbarPresentationFrame: dockedToolbar?.layer.presentation()?.frame
+            toolbarPresentationFrame: dockedToolbar?.layer.presentation()?.frame,
+            viewportNegotiationUnsettled: keyboardHeightAnimation != nil
+                || pendingViewportReport != nil
+                || awaitingViewportEcho
         ))
     }
 
@@ -2890,6 +2901,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
                     viewportReportID &+= 1
+                    awaitingViewportEcho = true
                     MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
                     delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
@@ -3135,7 +3147,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
     public func retryViewportReport() {
         guard viewportReportRetries < Self.maxViewportReportRetries,
-              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else {
+            // Round-trip permanently failed (or nothing to retry): release
+            // the deferred auto-fit so the rendered font converges on the
+            // best-known (stale) grant instead of staying parked until some
+            // future confirmation that may never come.
+            if awaitingViewportEcho {
+                awaitingViewportEcho = false
+                setNeedsGeometrySync(reassertNaturalSize: false)
+            }
+            return
+        }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
@@ -3186,6 +3208,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public func markViewportReportConfirmed() {
         viewportReportRetries = 0
+    }
+
+    /// Mark the round-trip for `reportID` as resolved. Only the NEWEST
+    /// report's confirmation releases the deferred stretch-to-fill auto-fit:
+    /// an out-of-order reply for an older report means the grant answering
+    /// the current capacity is still in flight.
+    public func markViewportReportConfirmed(reportID: UInt64) {
+        viewportReportRetries = 0
+        guard reportID == viewportReportID else { return }
+        if awaitingViewportEcho {
+            awaitingViewportEcho = false
+            // Run the auto-fit that was deferred while the round-trip was in
+            // flight. `applyViewSize` schedules a sync only when the echoed
+            // grid CHANGED, so an unchanged echo needs this explicit resync
+            // for the fit (and it re-reports nothing: reassert is false and
+            // the natural grid is unchanged).
+            setNeedsGeometrySync(reassertNaturalSize: false)
+        }
     }
 
     private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
@@ -3280,6 +3320,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
+        /// The font size the surface was rendering at when `cellPixelSize`
+        /// was measured. Capacity reports and the stretch-to-fill auto-fit
+        /// must normalize with THIS font, not the main-actor `liveFontSize`
+        /// read at apply time: a zoom queued between the measurement and the
+        /// apply makes the pair incoherent and the base-font normalization
+        /// off by the zoom ratio — the phone then reports a grid several
+        /// times too small (or too large) and the daemon grants a bogus
+        /// shared PTY size (the keyboard-transition font-oscillation bug).
+        let measuredFontSize: Float32
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
@@ -3315,6 +3364,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The main thread only applies the UIKit result. This is the single
         // off-main surface owner: main never calls a blocking libghostty API.
         let scale = preferredScreenScale
+        // The font the surface will measure with. Font pushes and geometry
+        // passes share the serial `outputQueue`, and `liveFontSize` is
+        // written on the main thread at the moment the font push is
+        // enqueued, so capturing it here (at this pass's enqueue) pairs it
+        // with exactly the cell size this pass measures.
+        let measuredFontSize = liveFontSize
         // Reserve, from the bottom up, the keyboard/safe-area inset (keyboard
         // height when up, else the bottom safe area so the always-visible toolbar
         // clears the home indicator), the open composer band, and the persistent
@@ -3395,7 +3450,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 cellPixelSize: cell,
                 naturalSize: natural,
                 sourceLayoutViewportHeight: snapshot.layoutViewportRect.height,
-                pinnedSize: pinnedSize
+                pinnedSize: pinnedSize,
+                measuredFontSize: measuredFontSize
             )
             Task { @MainActor in
                 guard let self else {
@@ -3495,19 +3551,47 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             containerPixelWidth: reportContainerWidth * scale,
             containerPixelHeight: containerH * scale,
             cellPixelWidth: result.cellPixelSize.width,
-            cellPixelHeight: result.cellPixelSize.height
+            cellPixelHeight: result.cellPixelSize.height,
+            measuredFontSize: result.measuredFontSize
         )
         // Stretch-to-fill: keep the RENDERED font tracking only real row
         // constraints. When the daemon grants the base-font natural grid back,
         // decay to the user's base font so the full-width grid can render
         // without horizontal overflow.
-        autoFitFontToEffectiveRows(
-            renderedRows: naturalSize.rows,
-            containerPixelWidth: reportContainerWidth * scale,
-            containerPixelHeight: containerH * scale,
-            cellPixelWidth: result.cellPixelSize.width,
-            cellPixelHeight: result.cellPixelSize.height
-        )
+        //
+        // Re-fit ONLY when the negotiation is settled: this pass's capacity
+        // matches the last report the daemon actually saw, no report is
+        // debouncing or awaiting its echo, and no keyboard transition is in
+        // flight. During a keyboard show/hide the container changes
+        // immediately while `effectiveGrid` is still the PREVIOUS grant (the
+        // phone itself caused the mismatch, and the corrected grant is one
+        // round-trip away) — fitting against that stale grant stretched the
+        // font toward filling the new container and then snapped back when
+        // the echo landed: the "text zooms in when the keyboard closes" bug.
+        // The settle paths (keyboard animation completion, report echo) each
+        // schedule another geometry sync, so exactly one fit runs on the
+        // settled grant.
+        if keyboardHeightAnimation == nil,
+           pendingViewportReport == nil,
+           !awaitingViewportEcho,
+           reportGrid == lastReportedSize {
+            autoFitFontToEffectiveRows(
+                renderedRows: naturalSize.rows,
+                containerPixelWidth: reportContainerWidth * scale,
+                containerPixelHeight: containerH * scale,
+                cellPixelWidth: result.cellPixelSize.width,
+                cellPixelHeight: result.cellPixelSize.height,
+                measuredFontSize: result.measuredFontSize
+            )
+        } else {
+            MobileDebugLog.anchormux(
+                "zoom.autofit.deferred kbAnim=\(keyboardHeightAnimation != nil ? 1 : 0) "
+                + "pendingReport=\(pendingViewportReport != nil ? 1 : 0) "
+                + "awaitingEcho=\(awaitingViewportEcho ? 1 : 0) "
+                + "reportGrid=\(reportGrid.columns)x\(reportGrid.rows) "
+                + "lastReported=\(lastReportedSize.map { "\($0.columns)x\($0.rows)" } ?? "nil")"
+            )
+        }
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
