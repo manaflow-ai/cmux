@@ -406,6 +406,10 @@ extension Workspace {
             } else if lastRememberedTerminalPanelForConfigInheritance() == nil {
                 clearTerminalFontSizeLineageForConfigInheritance()
             }
+        } else if lastRememberedTerminalPanelForConfigInheritance() == nil,
+                  lastRememberedTerminalFontSizeLineageForConfigInheritance()?
+                    .isExplicitOverride == false {
+            clearTerminalFontSizeLineageForConfigInheritance()
         }
         _dockSplit?.rememberTerminalFontSizeLineageForNewTerminals(
             fallback: lastRememberedTerminalFontSizeLineageForConfigInheritance()

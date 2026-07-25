@@ -266,6 +266,49 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         )
     }
 
+    @Test func liveAdjustmentKeepsMobileFitAtOrBelowDurableBase() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: 13,
+            fittedRuntimePointSize: 8
+        )
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(surface.adjustFontSize(byRuntimePoints: -6))
+        #expect(
+            try #require(surface.fontSizeLineageSnapshot())
+                == TerminalFontSizeLineage(
+                    basePoints: 7,
+                    isExplicitOverride: true
+                )
+        )
+        #expect(
+            surface.mobileViewportFontFitState
+                == MobileViewportFontFitState(
+                    baseRuntimePointSize: 7,
+                    fittedRuntimePointSize: 7
+                )
+        )
+    }
+
     @Test func liveResetPreservesTemporaryMobileFit() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(13, isExplicitOverride: true)

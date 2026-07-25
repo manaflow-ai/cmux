@@ -138,6 +138,13 @@ extension TerminalSurface {
 
         let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.adjust")
         let percent = globalFontMagnificationPercent()
+        if runtimeSurface != nil,
+           let mobileFitResult = adjustDurableMobileViewportFontSize(
+                applying: transform,
+                magnificationPercent: percent
+           ) {
+            return mobileFitResult
+        }
         let currentRuntimePoints: Float32
         if let runtimeSurface,
            let observedRuntimePoints =
@@ -219,6 +226,12 @@ extension TerminalSurface {
         )
 
         if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.reset") {
+            if let mobileFitResult = resetDurableMobileViewportFontSize(
+                to: targetRuntimePoints,
+                lineage: targetLineage
+            ) {
+                return mobileFitResult
+            }
             let nativeIsExplicitOverride =
                 ghostty_surface_font_size_adjusted(runtimeSurface)
             let observedRuntimePoints =
@@ -255,6 +268,89 @@ extension TerminalSurface {
             recordCurrentFontSizeLineage(targetLineage)
         }
         return !alreadyFollowsTarget
+    }
+
+    @MainActor
+    private func adjustDurableMobileViewportFontSize(
+        applying transform: TerminalFontSizeDeltaTransform,
+        magnificationPercent: Int
+    ) -> Bool? {
+        guard var nextFitState = mobileViewportFontFitState else {
+            return nil
+        }
+        let policy = TerminalFontSizePolicy()
+        let currentRuntimePoints = policy.clampedRuntimePoints(
+            nextFitState.baseRuntimePointSize
+        )
+        let targetRuntimePoints = transform.applying(
+            to: currentRuntimePoints
+        )
+        guard targetRuntimePoints != currentRuntimePoints else {
+            return false
+        }
+
+        let previousFittedRuntimePoints =
+            nextFitState.fittedRuntimePointSize
+        nextFitState.updateDurableBase(to: targetRuntimePoints)
+        didReceiveExplicitInput()
+        if nextFitState.fittedRuntimePointSize
+                != previousFittedRuntimePoints,
+           !performMobileViewportFontPointSizeAction(
+                nextFitState.fittedRuntimePointSize
+           ) {
+            return false
+        }
+
+        mobileViewportFontFitState = nextFitState
+        followsConfiguredFontSize = false
+        recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
+                    fromRuntimePoints: targetRuntimePoints,
+                    percent: magnificationPercent
+                ),
+                isExplicitOverride: true
+            )
+        )
+        return true
+    }
+
+    @MainActor
+    private func resetDurableMobileViewportFontSize(
+        to targetRuntimePoints: Float32,
+        lineage targetLineage: TerminalFontSizeLineage
+    ) -> Bool? {
+        guard var nextFitState = mobileViewportFontFitState else {
+            return nil
+        }
+        let previousFitState = nextFitState
+        nextFitState.updateDurableBase(to: targetRuntimePoints)
+        let alreadyFollowsTarget =
+            followsConfiguredFontSize
+            && (
+                lastKnownFontSizeLineage == nil
+                    || lastKnownFontSizeLineage == targetLineage
+            )
+        guard nextFitState != previousFitState
+                || !alreadyFollowsTarget else {
+            return false
+        }
+
+        didReceiveExplicitInput()
+        if nextFitState.fittedRuntimePointSize
+                != previousFitState.fittedRuntimePointSize,
+           !performMobileViewportFontPointSizeAction(
+                nextFitState.fittedRuntimePointSize
+           ) {
+            return false
+        }
+
+        mobileViewportFontFitState = nextFitState
+        followsConfiguredFontSize = true
+        if !alreadyFollowsTarget {
+            recordCurrentFontSizeLineage(targetLineage)
+        }
+        return true
     }
 
     /// Captures the current font size and its surface-local ownership state.

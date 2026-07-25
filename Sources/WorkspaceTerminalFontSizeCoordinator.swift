@@ -327,7 +327,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private var pendingEventBatch: PendingEventBatch?
     private var sealedRequests = PendingRequestQueue()
     private var activeRequest: ActiveRequest?
-    private var transferReconciledTokens: Set<UUID> = []
+    private var transferReconciledRequests: [UUID: PendingRequest] = [:]
     private let schedule: DrainScheduler
     private var cancelScheduledDrain: DrainCancellation?
 
@@ -1196,7 +1196,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         reconcileTransfer(
             terminalPanel,
             requests: outstandingWorkspaceRequests(for: workspace),
-            applyChanges: false
+            applyChanges: true
         )
     }
 
@@ -1240,7 +1240,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         reconcileTransfer(
             terminalPanel,
             requests: outstandingWindowDockRequests(for: dock),
-            applyChanges: false
+            applyChanges: true
         )
     }
 
@@ -1344,6 +1344,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
     ) {
         for entry in requests {
             if applyChanges,
+               !transferReconciliation(
+                    on: terminalPanel,
+                    covers: entry.request
+               ),
                !terminalPanel.surface.hasAppliedFontSizeChange(
                     token: entry.request.token
                ) {
@@ -1358,12 +1362,45 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 .markFontSizeChangeReconciledForTransfer(
                     token: entry.request.token
                 )
-            transferReconciledTokens.insert(entry.request.token)
+            transferReconciledRequests[entry.request.token] =
+                entry.request
         }
     }
 
+    private func transferReconciliation(
+        on terminalPanel: TerminalPanel,
+        covers request: PendingRequest
+    ) -> Bool {
+        for token in terminalPanel.surface
+            .fontSizeChangeTokensForInheritance() {
+            guard let reconciledRequest =
+                    transferReconciledRequests[token] else {
+                continue
+            }
+            if reconciledRequest.token == request.token {
+                return true
+            }
+            guard reconciledRequest.batchLineage
+                    === request.batchLineage else {
+                continue
+            }
+            // One shortcut event is recorded in both the selected workspace
+            // and Window Dock ledgers. Crossing that boundary must not replay
+            // the shared event, while separate workspace ledgers stay distinct.
+            switch (reconciledRequest.target, request.target) {
+            case (.windowDock, .workspace),
+                 (.workspace, .windowDock):
+                return true
+            default:
+                continue
+            }
+        }
+        return false
+    }
+
     private func clearTransferReconciliationMarks(token: UUID) {
-        guard transferReconciledTokens.remove(token) != nil else {
+        guard transferReconciledRequests.removeValue(forKey: token)
+                != nil else {
             return
         }
         TerminalSurface.clearFontSizeChangeReconciledForTransfer(
@@ -1372,7 +1409,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private func clearAllTransferReconciliationMarks() {
-        let tokens = Array(transferReconciledTokens)
+        let tokens = Array(transferReconciledRequests.keys)
         for token in tokens {
             clearTransferReconciliationMarks(token: token)
         }

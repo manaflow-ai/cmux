@@ -446,7 +446,7 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
+    func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
         let action = String(format: "set_font_size:%.3f", points)
         return performInternalBindingAction(action)
     }

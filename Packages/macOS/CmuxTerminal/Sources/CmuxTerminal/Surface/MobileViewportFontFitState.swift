@@ -11,4 +11,14 @@ struct MobileViewportFontFitState: Equatable {
         baseRuntimePointSize = runtimePointSize
         fittedRuntimePointSize = runtimePointSize
     }
+
+    mutating func updateDurableBase(to runtimePointSize: Float32) {
+        let wasTemporarilyFitted =
+            fittedRuntimePointSize < baseRuntimePointSize - 0.05
+        let nextFittedRuntimePointSize = wasTemporarilyFitted
+            ? min(fittedRuntimePointSize, runtimePointSize)
+            : runtimePointSize
+        baseRuntimePointSize = runtimePointSize
+        fittedRuntimePointSize = nextFittedRuntimePointSize
+    }
 }

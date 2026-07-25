@@ -1839,6 +1839,97 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testEnteringTerminalReconcilesEachOutstandingRequestToken() {
+        let manager = TabManager()
+        guard let sourceWorkspace = manager.selectedWorkspace,
+              let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a source workspace pane")
+            return
+        }
+        let destinationWorkspace = manager.addTab(select: false)
+        guard let destinationPane =
+                destinationWorkspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a destination workspace pane")
+            return
+        }
+
+        var movablePanels: [TerminalPanel] = []
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: sourceWorkspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            guard sourceWorkspace.attachDetachedSurface(
+                makeDormantTerminalTransfer(
+                    panel: panel,
+                    sourceWorkspaceId: sourceWorkspace.id
+                ),
+                inPane: sourcePane,
+                focus: false
+            ) != nil else {
+                XCTFail("Expected a movable source terminal")
+                return
+            }
+            movablePanels.append(panel)
+        }
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        defer { coordinator.cancelAll() }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: sourceWorkspace.id,
+            deferFlush: true
+        )
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: destinationWorkspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#endif
+
+        guard let movedPanel = movablePanels.first(where: {
+            $0.surface.fontSizeLineageSnapshot()?.basePoints == 20
+        }),
+        let detached = sourceWorkspace.detachSurface(
+            panelId: movedPanel.id
+        ),
+        destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected an unvisited source terminal to move")
+            return
+        }
+        XCTAssertEqual(
+            movedPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            18,
+            "Source reconciliation must not suppress a distinct destination request"
+        )
+
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            movedPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            18,
+            "Each outstanding request must apply exactly once"
+        )
+    }
+
     func testWindowDockFontSizeDrainAppliesToUnrelatedEnteringTerminal() {
         let manager = TabManager()
         guard let requestedWorkspace = manager.selectedWorkspace else {
@@ -2044,6 +2135,64 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             visitedDockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
             18,
             "A transfer marker must not suppress a later destination request"
+        )
+    }
+
+    func testPendingFontSizeEventDoesNotReplayOnMoveIntoWindowDock() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelID) else {
+            XCTFail("Expected a workspace terminal")
+            return
+        }
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        guard let dockPane =
+                windowDock.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a Window Dock pane")
+            return
+        }
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer { coordinator.cancelAll() }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+
+        guard let detached = workspace.detachSurface(panelId: panel.id),
+              windowDock.attachDetachedSurface(
+                detached,
+                inPane: dockPane,
+                focus: false
+              ) != nil else {
+            XCTFail("Expected the terminal to move into Window Dock")
+            return
+        }
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "One event shared by workspace and Window Dock must apply once"
+        )
+
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19
         )
     }
 
