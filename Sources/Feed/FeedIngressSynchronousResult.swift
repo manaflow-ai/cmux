@@ -3,9 +3,9 @@ import Foundation
 /// Transfers one synchronous scheduler result across the serial execution boundary.
 ///
 /// Safety: `state` is accessed only while holding `stateLock`. The semaphore bridges a
-/// synchronous socket worker onto the ordered delivery lane. A deadline may extend through
-/// completion work after a committed mutation, so callers never observe an acknowledgment
-/// before the delivery publishes its authoritative result.
+/// synchronous socket worker onto the ordered delivery lane. Publication may use the remainder
+/// of the caller's deadline after a committed mutation. At the deadline, the authoritative
+/// committed value wins so a stalled publisher cannot make socket ingress unbounded.
 final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
     private enum State {
         case pending
@@ -35,9 +35,9 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
     ///
     /// The operation must be a short, non-suspending mutation invoked only after
     /// all queue or actor hops. Holding the lock makes timeout and commit mutually
-    /// exclusive. The ordered delivery lane resolves the caller only after the
-    /// delivery closure returns, so publication after this mutation remains ordered
-    /// before acknowledgment.
+    /// exclusive. The ordered delivery lane normally resolves the caller only after
+    /// the delivery closure returns. If completion publication stalls through the
+    /// original caller deadline, the caller returns this committed value.
     func commit(_ operation: () -> Value) -> Value? {
         stateLock.lock()
         guard case .running = state else {
@@ -72,14 +72,10 @@ final class FeedIngressSynchronousResult<Value: Sendable>: @unchecked Sendable {
             return value
         }
         if case .committed = state {
-            stateLock.unlock()
-            // The authoritative mutation already happened before the deadline.
-            // Completion publication must therefore finish before its caller can
-            // observe that mutation as acknowledged.
-            semaphore.wait()
-            stateLock.lock()
             defer { stateLock.unlock() }
-            guard case .resolved(let value) = state else { return nil }
+            guard case .committed(let value) = state else { return nil }
+            // The authoritative mutation happened within the deadline. Return it
+            // even if its non-authoritative publication is still completing.
             return value
         }
         if waitResult == .timedOut {

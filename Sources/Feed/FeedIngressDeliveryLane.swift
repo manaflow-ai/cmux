@@ -40,7 +40,8 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     /// The delivery must call ``FeedIngressSynchronousResult/commit(_:)`` only
     /// at its short, non-suspending mutation boundary. The caller is resolved
     /// after the delivery returns so any subsequent publication stays ordered
-    /// before acknowledgment.
+    /// before acknowledgment in the ordinary case. A stalled publication gets only
+    /// the caller's original deadline so the socket worker still returns.
     func perform<Result: Sendable>(
         metadata: FeedIngressDeliveryMetadata,
         timeout: TimeInterval,

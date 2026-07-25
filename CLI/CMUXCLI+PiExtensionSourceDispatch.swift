@@ -27,7 +27,10 @@ class PiCmuxCommandDispatcher {
   private static readonly maxCompactedTerminalSummaries = 64;
   // Leave headroom for the feed.push envelope under the relay's 16 KiB frame limit.
   private static readonly maxFeedInputBytes = 12 * 1024;
-  private static readonly feedDrainDeadlineMs = 2500;
+  // The app may spend three seconds committing acknowledged Feed ingress and the
+  // CLI owns a four-second end-to-end deadline. Observe that outcome before the
+  // extension classifies a terminal delivery as failed.
+  private static readonly feedDrainDeadlineMs = 4500;
   private controlQueue: Promise<void> = Promise.resolve();
   private pendingFeedCommands = new Map<string, PiFeedCommand>();
   private pendingFeedKeysBySession = new Map<string | null, string[]>();
