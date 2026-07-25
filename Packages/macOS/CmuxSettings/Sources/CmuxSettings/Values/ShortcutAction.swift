@@ -266,7 +266,8 @@ extension ShortcutAction {
 
     /// Whether this action supports a two-stroke shortcut chord.
     public var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection
+        self != .showHideAllWindows
+            && self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
     }

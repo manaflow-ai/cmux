@@ -50,8 +50,7 @@ final class ShortcutListModel {
     ) {
         self.jsonStore = jsonStore
         self.userDefaultsStore = userDefaultsStore
-        self.legacyBindings = (userDefaultsStore?.initialLegacyShortcutBindings() ?? [:])
-            .removingBindingsRejectedByActionPolicy()
+        self.legacyBindings = userDefaultsStore?.initialLegacyShortcutBindings() ?? [:]
         self.catalog = catalog
         self.errorLog = errorLog
         self.onShortcutsChanged = onShortcutsChanged
@@ -88,7 +87,6 @@ final class ShortcutListModel {
     private var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
 
     private func ingestBindings(_ dictionary: [String: StoredShortcut]) {
-        let dictionary = dictionary.removingBindingsRejectedByActionPolicy()
         let changedActionIds = Set(bindings.keys).union(dictionary.keys)
             .filter { bindings[$0] != dictionary[$0] }
         bindings = dictionary
@@ -98,7 +96,6 @@ final class ShortcutListModel {
     }
 
     private func ingestLegacyBindings(_ dictionary: [String: StoredShortcut]) {
-        let dictionary = dictionary.removingBindingsRejectedByActionPolicy()
         let changedActionIds = Set(legacyBindings.keys).union(dictionary.keys)
             .filter { legacyBindings[$0] != dictionary[$0] }
         legacyBindings = dictionary
@@ -112,7 +109,19 @@ final class ShortcutListModel {
     /// The effective shortcut for `action`, using the runtime's JSON, legacy
     /// UserDefaults, then built-in precedence.
     func effective(for action: ShortcutAction) -> StoredShortcut? {
-        latestBindings[action.rawValue] ?? legacyBindings[action.rawValue] ?? action.defaultShortcut
+        let candidate = latestBindings[action.rawValue] ?? legacyBindings[action.rawValue]
+        return action.effectivePersistedShortcut(candidate) { shortcut in
+            guard action == .globalSearch,
+                  let systemWideShortcut = effective(for: .showHideAllWindows) else {
+                return false
+            }
+            return ShortcutBindingConflict(
+                proposed: shortcut,
+                proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
+                configured: systemWideShortcut,
+                configuredUsesNumberedDigitMatching: false
+            ).exists
+        }
     }
 
     /// Whether `action` is currently unbound but has a cached stroke available to

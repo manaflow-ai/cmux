@@ -32,21 +32,28 @@ extension KeyboardShortcutSettings {
         _ candidate: StoredShortcut?,
         for action: Action
     ) -> StoredShortcut? {
-        if let candidate {
-            if candidate.isUnbound {
-                return nil
-            }
-            if let normalized = normalizedEffectiveShortcut(candidate, for: action) {
-                return normalized
-            }
+        guard let settingsAction = CmuxSettings.ShortcutAction(rawValue: action.rawValue) else {
+            return nil
         }
 
-        let defaultShortcut = action.defaultShortcut
-        guard !defaultShortcut.isUnbound else { return nil }
-        return normalizedEffectiveShortcut(defaultShortcut, for: action)
+        return settingsAction.effectivePersistedShortcut(
+            candidate?.cmuxSettingsStoredShortcut,
+            normalizing: { shortcut in
+                normalizedExecutableShortcut(
+                    StoredShortcut(cmuxSettingsStoredShortcut: shortcut),
+                    for: action
+                )?.cmuxSettingsStoredShortcut
+            },
+            conflictsWithReservedShortcut: { shortcut in
+                conflictsWithConfiguredSystemWideHotkey(
+                    StoredShortcut(cmuxSettingsStoredShortcut: shortcut),
+                    action: action
+                )
+            }
+        ).map(StoredShortcut.init(cmuxSettingsStoredShortcut:))
     }
 
-    private static func normalizedEffectiveShortcut(
+    private static func normalizedExecutableShortcut(
         _ shortcut: StoredShortcut,
         for action: Action
     ) -> StoredShortcut? {
@@ -54,8 +61,7 @@ extension KeyboardShortcutSettings {
             .resolvedRecordedShortcutIgnoringConflicts(
                 shortcut,
                 checkingSystemWideConflicts: false
-            ),
-            !conflictsWithConfiguredSystemWideHotkey(normalized, action: action) else {
+            ) else {
             return nil
         }
         return normalized
@@ -98,6 +104,13 @@ extension SystemWideHotkeySettings {
 }
 
 private extension StoredShortcut {
+    init(cmuxSettingsStoredShortcut shortcut: CmuxSettings.StoredShortcut) {
+        self.init(
+            first: ShortcutStroke(cmuxSettingsShortcutStroke: shortcut.first),
+            second: shortcut.second.map(ShortcutStroke.init(cmuxSettingsShortcutStroke:))
+        )
+    }
+
     var cmuxSettingsStoredShortcut: CmuxSettings.StoredShortcut {
         CmuxSettings.StoredShortcut(
             first: firstStroke.cmuxSettingsShortcutStroke,
@@ -107,6 +120,17 @@ private extension StoredShortcut {
 }
 
 private extension ShortcutStroke {
+    init(cmuxSettingsShortcutStroke stroke: CmuxSettings.ShortcutStroke) {
+        self.init(
+            key: stroke.key,
+            command: stroke.command,
+            shift: stroke.shift,
+            option: stroke.option,
+            control: stroke.control,
+            keyCode: stroke.keyCode
+        )
+    }
+
     var cmuxSettingsShortcutStroke: CmuxSettings.ShortcutStroke {
         CmuxSettings.ShortcutStroke(
             key: key,

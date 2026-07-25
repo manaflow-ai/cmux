@@ -187,6 +187,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
         #expect(invalidShowHideChord.carbonHotKeyRegistration == nil)
         #expect(SystemWideHotkeySettings.shortcut() == invalidShowHideChord)
+        #expect(KeyboardShortcutSettings.shortcut(for: .showHideAllWindows) == .unbound)
         #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == globalSearchShortcut)
     }
 

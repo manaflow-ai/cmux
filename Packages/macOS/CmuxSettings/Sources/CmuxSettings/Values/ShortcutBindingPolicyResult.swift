@@ -48,4 +48,66 @@ public extension ShortcutAction {
 
         return .accepted
     }
+
+    /// Resolves a persisted candidate into the shortcut the action executes.
+    ///
+    /// Unsupported Show/Hide candidates fail closed because silently registering
+    /// its default would create an unexpected system-wide hotkey. Other actions
+    /// fall back to their valid built-in default.
+    ///
+    /// - Parameters:
+    ///   - candidate: The configured shortcut, or `nil` when no override exists.
+    ///   - conflictsWithReservedShortcut: Whether a normalized shortcut is reserved
+    ///     by a higher-priority system-wide binding.
+    /// - Returns: The executable shortcut, or `nil` when the action is unbound.
+    func effectivePersistedShortcut(
+        _ candidate: StoredShortcut?,
+        conflictsWithReservedShortcut: (StoredShortcut) -> Bool = { _ in false }
+    ) -> StoredShortcut? {
+        effectivePersistedShortcut(
+            candidate,
+            normalizing: { shortcut in
+                shortcutBindingPolicyResult(for: shortcut) == .accepted
+                    ? shortcut.canonicalized()
+                    : nil
+            },
+            conflictsWithReservedShortcut: conflictsWithReservedShortcut
+        )
+    }
+
+    /// Resolves a persisted candidate using the consumer's runtime normalizer.
+    ///
+    /// - Parameters:
+    ///   - candidate: The configured shortcut, or `nil` when no override exists.
+    ///   - normalizing: Returns the executable representation of a shortcut, or
+    ///     `nil` when the consumer cannot execute it.
+    ///   - conflictsWithReservedShortcut: Whether a normalized shortcut is reserved
+    ///     by a higher-priority system-wide binding.
+    /// - Returns: The executable shortcut, or `nil` when the action is unbound.
+    func effectivePersistedShortcut(
+        _ candidate: StoredShortcut?,
+        normalizing: (StoredShortcut) -> StoredShortcut?,
+        conflictsWithReservedShortcut: (StoredShortcut) -> Bool
+    ) -> StoredShortcut? {
+        if let candidate {
+            if candidate.isUnbound {
+                return nil
+            }
+            if let normalized = normalizing(candidate),
+               !conflictsWithReservedShortcut(normalized) {
+                return normalized
+            }
+            if self == .showHideAllWindows {
+                return nil
+            }
+        }
+
+        guard let defaultShortcut,
+              !defaultShortcut.isUnbound,
+              let normalizedDefault = normalizing(defaultShortcut),
+              !conflictsWithReservedShortcut(normalizedDefault) else {
+            return nil
+        }
+        return normalizedDefault
+    }
 }
