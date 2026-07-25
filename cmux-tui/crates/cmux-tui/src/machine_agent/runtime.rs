@@ -1104,6 +1104,32 @@ mod tests {
     }
 
     #[test]
+    fn cloud_reader_spawn_failure_closes_connection_and_notifies_coordinator() {
+        let (inputs_tx, _inputs_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        let (coordinator_tx, coordinator_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        let control = Arc::new(RecordingControl::default());
+        let erased_control: Arc<dyn ConnectionControl> = control.clone();
+
+        let error = spawn_cloud_reader_with(
+            7,
+            3,
+            Box::new(io::empty()),
+            erased_control,
+            inputs_tx,
+            coordinator_tx,
+            |_, _| Err(io::Error::other("thread quota exhausted")),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(control.0.load(Ordering::Acquire));
+        assert!(matches!(
+            coordinator_rx.recv_timeout(Duration::from_millis(100)),
+            Ok(CoordinatorEvent::Closed { worker_id: 7 })
+        ));
+    }
+
+    #[test]
     fn saturated_worker_command_queue_closes_connection_without_blocking() {
         let (commands, _inputs) = mpsc::sync_channel(1);
         commands.send(WorkerInput::Command(WorkerCommand::Stop)).unwrap();
