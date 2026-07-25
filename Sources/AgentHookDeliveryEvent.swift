@@ -26,6 +26,7 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     let socketPath: String
     let relayBacked: Bool
     let environment: [String: String]
+    private(set) var queueAdmissionInstant: ContinuousClock.Instant?
 
     /// Events for one socket and surface retain lifecycle order. The agent PID
     /// is the fallback identity when no surface is available.
@@ -87,6 +88,17 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         self.socketPath = socketPath
         self.relayBacked = params["relay_backed"] as? Bool ?? false
         self.environment = environment
+        self.queueAdmissionInstant = nil
+    }
+
+    /// Anchors the delivery deadline to queue admission instead of process
+    /// launch. Every earlier event in a lane then expires within one shared
+    /// bounded window, so a decision barrier cannot accumulate one complete
+    /// process timeout per buffered event.
+    func admittedToQueue(at instant: ContinuousClock.Instant) -> Self {
+        var admitted = self
+        admitted.queueAdmissionInstant = instant
+        return admitted
     }
 
     /// Resolves a direct hook's barrier onto the same lane as queued events.

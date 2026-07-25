@@ -476,12 +476,32 @@ struct AgentHookDeliveryQueueTests {
             environment["CMUX_AGENT_HOOK_STATE_DIR"]
         )
         let localHome = try #require(environment["HOME"])
+        let relayStateRoot = URL(fileURLWithPath: localHome, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("relay-hook-state", isDirectory: true)
+            .standardizedFileURL.path
         #expect(
-            URL(fileURLWithPath: relayStateDirectory).standardizedFileURL.path
-                != URL(fileURLWithPath: localHome, isDirectory: true)
-                    .appendingPathComponent(".cmuxterm", isDirectory: true)
-                    .standardizedFileURL.path,
+            URL(fileURLWithPath: relayStateDirectory)
+                .standardizedFileURL.path
+                .hasPrefix(relayStateRoot + "/"),
             "Relay replay must not share the host-local persistent hook store"
+        )
+
+        var secondRelayParams = params
+        secondRelayParams["environment"] = [
+            "CMUX_SURFACE_ID": "surface-b",
+        ]
+        let secondRelayEvent = try #require(AgentHookDeliveryEvent(
+            params: secondRelayParams,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        let secondRelayEnvironment = process.deliveryEnvironment(
+            event: secondRelayEvent,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(
+            secondRelayEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] != relayStateDirectory,
+            "Separate rewritten relay routes must not share persistent hook state"
         )
 
         var unsafeParams = params

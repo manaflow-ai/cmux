@@ -49,8 +49,11 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         let maximumAttempts = event.isBestEffortTelemetry ? 1 : 2
         let clock = ContinuousClock()
         // The complete retry sequence stays below the app's 18-second lane
-        // barrier; retries consume the same budget instead of resetting it.
-        let deliveryDeadline = clock.now.advanced(by: deliveryTimeout)
+        // barrier. The deadline begins at queue admission so same-lane backlog
+        // consumes one shared window instead of multiplying this timeout.
+        let deliveryDeadline = (
+            event.queueAdmissionInstant ?? clock.now
+        ).advanced(by: deliveryTimeout)
         for attempt in 1...maximumAttempts {
             let remainingDeliveryTime = clock.now.duration(to: deliveryDeadline)
             guard remainingDeliveryTime > terminationGrace else {
@@ -194,11 +197,56 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
         if event.relayBacked {
             environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] = "1"
+            environment["CMUX_AGENT_HOOK_STATE_DIR"] = relayStateDirectory(
+                event: event,
+                ambientEnvironment: ambientEnvironment
+            )
         } else {
             environment.removeValue(forKey: "CMUX_AGENT_HOOK_RELAY_ORIGIN")
         }
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "12"
         return environment
+    }
+
+    /// Remote hooks keep enough local state to order their own lifecycle, but
+    /// that state must never merge with host-local sessions that happen to use
+    /// the same agent session identifier. Scope it by app and rewritten local
+    /// route so separate remote workspaces cannot collide with each other.
+    private func relayStateDirectory(
+        event: AgentHookDeliveryEvent,
+        ambientEnvironment: [String: String]
+    ) -> String {
+        let homePath = ambientEnvironment["HOME"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let appScope = Self.safePathComponent(
+            ambientEnvironment["CMUX_BUNDLE_ID"]
+                ?? Bundle.main.bundleIdentifier
+                ?? "com.cmuxterm.app"
+        )
+        let routeScope = Self.safePathComponent(
+            event.environment["CMUX_WORKSPACE_ID"]
+                ?? event.environment["CMUX_SURFACE_ID"]
+                ?? "unrouted"
+        )
+        return URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("relay-hook-state", isDirectory: true)
+            .appendingPathComponent(appScope, isDirectory: true)
+            .appendingPathComponent(routeScope, isDirectory: true)
+            .path
+    }
+
+    private static func safePathComponent(_ rawValue: String) -> String {
+        let sanitized = rawValue.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+        let bounded = String(sanitized.prefix(128))
+        guard !bounded.isEmpty, bounded != ".", bounded != ".." else {
+            return "unknown"
+        }
+        return bounded
     }
 
     private func awaitCompletion(

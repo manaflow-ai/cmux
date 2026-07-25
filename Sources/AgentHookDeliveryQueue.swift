@@ -152,10 +152,11 @@ actor AgentHookDeliveryQueue {
     /// Synchronously transfers ownership to bounded ingress. The socket can
     /// acknowledge immediately after this returns true; false fails open.
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) -> Bool {
-        publish(
-            .event(event),
-            admissionClass: event.isBestEffortTelemetry ? .bestEffortTool : .lifecycle,
-            droppedDescription: "agent=\(event.agent) subcommand=\(event.subcommand)"
+        let admittedEvent = event.admittedToQueue(at: ContinuousClock().now)
+        return publish(
+            .event(admittedEvent),
+            admissionClass: admittedEvent.isBestEffortTelemetry ? .bestEffortTool : .lifecycle,
+            droppedDescription: "agent=\(admittedEvent.agent) subcommand=\(admittedEvent.subcommand)"
         )
     }
 
