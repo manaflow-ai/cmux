@@ -153,6 +153,58 @@ struct FilePreviewNativeRefreshStateTests {
         #expect(player.timeControlStatus == .paused)
     }
 
+    @Test("Unavailable media stops playback and recreates a fresh player")
+    func mediaUnavailableStopsPlaybackAndRecreatesPlayer() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-media-unavailable-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try writeSilentAudio(to: fileURL, durationSeconds: 30)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        #expect(panel.previewMode == .media)
+
+        let session = panel.nativeViewSessions.media
+        let view = session.view(
+            panel: panel,
+            revision: panel.previewRevision,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        let player = try #require(view.player)
+        let item = try #require(player.currentItem)
+        #expect(try await item.asset.load(.isPlayable))
+        player.playImmediately(atRate: 1)
+        #expect(player.rate != 0)
+
+        try FileManager.default.removeItem(at: fileURL)
+        await panel.reloadFromDisk().value
+
+        #expect(panel.isFileUnavailable)
+        #expect(player.rate == 0)
+        #expect(view.player == nil)
+
+        try writeSilentAudio(to: fileURL)
+        await panel.reloadFromDisk().value
+
+        #expect(!panel.isFileUnavailable)
+        let recreatedView = session.view(
+            panel: panel,
+            revision: panel.previewRevision,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        let recreatedPlayer = try #require(recreatedView.player)
+        #expect(recreatedPlayer !== player)
+        #expect(recreatedPlayer.currentItem != nil)
+    }
+
     @Test("Quick Look refresh keeps its preview item")
     func quickLookRefreshKeepsPreviewItem() throws {
         let fileURL = FileManager.default.temporaryDirectory
@@ -205,9 +257,12 @@ struct FilePreviewNativeRefreshStateTests {
         #expect(preview.displayState as AnyObject? === displayState)
     }
 
-    private func writeSilentAudio(to url: URL) throws {
+    private func writeSilentAudio(
+        to url: URL,
+        durationSeconds: Double = 1
+    ) throws {
         let sampleRate = 8_000.0
-        let frameCount = AVAudioFrameCount(sampleRate)
+        let frameCount = AVAudioFrameCount(sampleRate * durationSeconds)
         let format = try #require(
             AVAudioFormat(
                 standardFormatWithSampleRate: sampleRate,
