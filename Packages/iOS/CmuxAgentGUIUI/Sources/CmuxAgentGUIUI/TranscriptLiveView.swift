@@ -37,6 +37,7 @@ public struct TranscriptLiveView: View {
     @State private var contentCache = ChatContentCache()
     @State private var capabilityReport: GuiCapabilitiesResult?
     @State private var capabilityReportSessionVersion: UInt64?
+    @Environment(\.chatTranscriptOverlayGeometry) private var overlayGeometry
 
     private var driverKey: TranscriptLiveDriverKey {
         TranscriptLiveDriverKey(engine: engine, sessionID: sessionID)
@@ -124,7 +125,8 @@ public struct TranscriptLiveView: View {
                     if case .detached(_, _, let unseenCount) = followState {
                         ScrollToBottomPill(theme: theme, unreadCount: unseenCount, action: requestTail)
                             .padding(.trailing, 12)
-                            .padding(.bottom, 10)
+                            .padding(.bottom, scrollToBottomPillBottomPadding)
+                            .excludedFromKeyboardDismiss()
                     }
                 }
             }
@@ -206,6 +208,12 @@ public struct TranscriptLiveView: View {
             answeringAskID = nil
             askError = nil
         }
+    }
+
+    private var scrollToBottomPillBottomPadding: CGFloat {
+        AgentTranscriptScrollPillLayoutPolicy.bottomPadding(
+            composerBottomInset: overlayGeometry?.composerBottomInset ?? 0
+        )
     }
 
     private var session: AgentSessionSnapshot? {
