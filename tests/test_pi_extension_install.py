@@ -458,6 +458,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             "hooks pi session-start",
             "hooks pi prompt-submit",
             "hooks pi stop",
+            "hooks enqueue pi session-finalize",
             "hooks pi notification",
             "hooks feed --source pi --event PreToolUse",
             "hooks feed --source pi --event PostToolUse",
@@ -479,8 +480,8 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
-            "set", "get", "clear",
-            "set", "get", "clear",
+            "set", "get",
+            "set", "get",
             "set", "get",
             "set", "get",
             "set", "get",
@@ -490,6 +491,30 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
             return 1
         payloads = payloads_from_log(stdin_log)
+        finalizations = [
+            payload
+            for payload in payloads
+            if payload.get("hook_event_name") == "session-finalize"
+        ]
+        if [payload.get("session_id") for payload in finalizations] != [
+            "pi-session-test",
+            "pi-session-interrupted",
+        ]:
+            print(f"FAIL: Pi shutdown did not enqueue ordered finalization: {payloads!r}")
+            return 1
+        ordered_shutdown_hooks = [
+            line
+            for line in arg_lines
+            if "hooks enqueue pi stop" in line or "hooks enqueue pi session-finalize" in line
+        ]
+        if ordered_shutdown_hooks[:4] != [
+            "hooks enqueue pi stop",
+            "hooks enqueue pi session-finalize",
+            "hooks enqueue pi stop",
+            "hooks enqueue pi session-finalize",
+        ]:
+            print(f"FAIL: Pi shutdown hooks were not ordered stop then finalize: {ordered_shutdown_hooks!r}")
+            return 1
         for session_id in [
             "pi-session-test",
             "pi-session-notification-fails",

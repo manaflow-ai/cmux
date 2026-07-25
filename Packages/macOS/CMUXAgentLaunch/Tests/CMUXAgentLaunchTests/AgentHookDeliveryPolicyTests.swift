@@ -18,6 +18,7 @@ struct AgentHookDeliveryPolicyTests {
         #expect(!policy.supportsQueuedDelivery(agent: "future-agent", subcommand: "permission-request"))
         #expect(!policy.supportsQueuedDelivery(agent: "future-agent", subcommand: "pre-tool-use"))
         #expect(policy.supportsQueuedDelivery(agent: "claude", subcommand: "pre-tool-use"))
+        #expect(policy.supportsQueuedDelivery(agent: "codex", subcommand: "pre-tool-use"))
         #expect(policy.supportsQueuedDelivery(agent: "codex", subcommand: "post-tool-use"))
         #expect(!policy.supportsQueuedDelivery(agent: "claude", subcommand: "post-tool-use"))
         #expect(!policy.supportsQueuedDelivery(

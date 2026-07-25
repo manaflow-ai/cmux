@@ -2865,26 +2865,30 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testRemoteRelayForcesQueuedHookProvenanceWithoutIDAliases() throws {
-        let request: [String: Any] = [
-            "id": "relay-hook-provenance-request",
-            "method": "agent.hook.enqueue",
-            "params": [
-                "agent": "claude",
-                "subcommand": "prompt-submit",
-                "relay_backed": false,
-            ],
-        ]
-        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+        for method in ["agent.hook.enqueue", "agent.hook.barrier"] {
+            let request: [String: Any] = [
+                "id": "relay-hook-provenance-request",
+                "method": method,
+                "params": [
+                    "agent": "claude",
+                    "subcommand": "prompt-submit",
+                    "relay_backed": false,
+                ],
+            ]
+            let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
 
-        let rewrittenData = Workspace.rewriteRemoteRelayCommandLine(
-            requestData,
-            workspaceAliases: [:],
-            surfaceAliases: [:]
-        )
-        let rewritten = try XCTUnwrap(JSONSerialization.jsonObject(with: rewrittenData) as? [String: Any])
-        let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
+            let rewrittenData = Workspace.rewriteRemoteRelayCommandLine(
+                requestData,
+                workspaceAliases: [:],
+                surfaceAliases: [:]
+            )
+            let rewritten = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: rewrittenData) as? [String: Any]
+            )
+            let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
 
-        XCTAssertEqual(params["relay_backed"] as? Bool, true)
+            XCTAssertEqual(params["relay_backed"] as? Bool, true, method)
+        }
     }
 
     func testPersistentSSHPTYRestoreRewritesMovedSourceWorkspaceContextID() throws {

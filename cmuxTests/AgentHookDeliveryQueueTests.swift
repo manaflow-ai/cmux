@@ -208,8 +208,28 @@ struct AgentHookDeliveryQueueTests {
             payload: "stop",
             surfaceID: "surface-a"
         )
+        let codexPreToolUse = try makeEvent(
+            agent: "codex",
+            subcommand: "pre-tool-use",
+            payload: #"{"hook_event_name":"PreToolUse"}"#,
+            surfaceID: "surface-a"
+        )
+        let codexPostToolUse = try makeEvent(
+            agent: "codex",
+            subcommand: "post-tool-use",
+            payload: #"{"hook_event_name":"PostToolUse"}"#,
+            surfaceID: "surface-a"
+        )
         #expect(claudeFeed.deliveryArguments == ["hooks", "feed", "--source", "claude"])
         #expect(codexStop.deliveryArguments == ["hooks", "codex", "stop"])
+        #expect(codexPreToolUse.deliveryArguments == [
+            "hooks", "feed", "--source", "codex", "--event", "PreToolUse",
+        ])
+        #expect(codexPostToolUse.deliveryArguments == [
+            "hooks", "feed", "--source", "codex", "--event", "PostToolUse",
+        ])
+        #expect(codexPreToolUse.isBestEffortTelemetry)
+        #expect(codexPostToolUse.isBestEffortTelemetry)
         #expect(claudeFeed.orderingKey == codexStop.orderingKey)
 
         let unsupportedDecision = AgentHookDeliveryEvent(params: [

@@ -9,8 +9,8 @@ struct CLIRelayQueuedHookRegressionTests {
     private let replayWorkspaceID = "33333333-3333-3333-3333-333333333333"
     private let replaySurfaceID = "44444444-4444-4444-4444-444444444444"
 
-    @Test("Relay admission resolves a Grok hook's remote TTY before replay")
-    func relayAdmissionPreservesGrokRoutingIdentity() throws {
+    @Test("Relay admission carries portable TTY evidence in one RPC")
+    func relayAdmissionCarriesPortableTTYInOneRPC() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
         let relay = try RelayQueuedHookMockServer(
             ttyName: "8535",
@@ -38,11 +38,12 @@ struct CLIRelayQueuedHookRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let params = try admittedParams(from: relay)
         let environment = try #require(params["environment"] as? [String: Any])
-        #expect(environment["CMUX_WORKSPACE_ID"] as? String == remoteWorkspaceID)
-        #expect(environment["CMUX_SURFACE_ID"] as? String == remoteSurfaceID)
-        #expect(relay.requests().contains {
-            $0["method"] as? String == "debug.terminals"
-        })
+        #expect(params["caller_tty"] as? String == "8535")
+        #expect(environment["CMUX_WORKSPACE_ID"] == nil)
+        #expect(environment["CMUX_SURFACE_ID"] == nil)
+        #expect(relay.requests().compactMap { $0["method"] as? String } == [
+            "agent.hook.enqueue",
+        ])
     }
 
     @Test("Relay admission carries transcript-only Codex failures into local replay")

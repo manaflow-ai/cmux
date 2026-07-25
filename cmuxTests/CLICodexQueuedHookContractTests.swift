@@ -32,6 +32,7 @@ struct CLICodexQueuedHookContractTests {
             ("SessionStart", "session-start"),
             ("UserPromptSubmit", "prompt-submit"),
             ("Stop", "stop"),
+            ("PreToolUse", "pre-tool-use"),
             ("PostToolUse", "post-tool-use"),
         ] {
             let configuration = try injectedConfiguration(event: event, arguments: arguments)
@@ -43,12 +44,6 @@ struct CLICodexQueuedHookContractTests {
             #expect(!body.contains("sleep "))
             #expect(!body.contains(">/dev/null 2>&1 &"))
         }
-
-        let preToolConfiguration = try injectedConfiguration(event: "PreToolUse", arguments: arguments)
-        let preToolBody = try injectedCommandBody(configuration: preToolConfiguration)
-        #expect(preToolConfiguration.contains("timeout=120000"))
-        #expect(preToolBody.contains("hooks codex pre-tool-use"))
-        #expect(!preToolBody.contains("hooks enqueue"))
 
         let permissionConfiguration = try injectedConfiguration(event: "PermissionRequest", arguments: arguments)
         let permissionBody = try injectedCommandBody(configuration: permissionConfiguration)
@@ -92,21 +87,39 @@ struct CLICodexQueuedHookContractTests {
         ]
         let payload = #"{"session_id":"codex-hook-failure","tool_name":"Write"}"#
 
-        for event in ["PreToolUse", "PermissionRequest"] {
-            let configuration = try injectedConfiguration(event: event, arguments: arguments)
-            let command = try injectedCommand(configuration: configuration)
-            #expect(FileManager.default.isExecutableFile(atPath: command))
-            let result = runCodexHookProcess(
-                executablePath: command,
-                arguments: [],
-                environment: environment,
-                standardInput: payload,
-                timeout: 2
-            )
-            #expect(!result.timedOut, Comment(rawValue: result.stderr))
-            #expect(result.status != 0, "A direct \(event) hook must propagate its CLI failure")
-            #expect(result.stdout.isEmpty, "A direct \(event) hook must not synthesize a decision")
-        }
+        let permissionConfiguration = try injectedConfiguration(
+            event: "PermissionRequest",
+            arguments: arguments
+        )
+        let permissionCommand = try injectedCommand(configuration: permissionConfiguration)
+        #expect(FileManager.default.isExecutableFile(atPath: permissionCommand))
+        let permission = runCodexHookProcess(
+            executablePath: permissionCommand,
+            arguments: [],
+            environment: environment,
+            standardInput: payload,
+            timeout: 2
+        )
+        #expect(!permission.timedOut, Comment(rawValue: permission.stderr))
+        #expect(permission.status != 0, "A direct PermissionRequest hook must propagate its CLI failure")
+        #expect(permission.stdout.isEmpty, "A direct PermissionRequest hook must not synthesize a decision")
+
+        let preToolConfiguration = try injectedConfiguration(
+            event: "PreToolUse",
+            arguments: arguments
+        )
+        let preToolCommand = try injectedCommand(configuration: preToolConfiguration)
+        #expect(FileManager.default.isExecutableFile(atPath: preToolCommand))
+        let preTool = runCodexHookProcess(
+            executablePath: preToolCommand,
+            arguments: [],
+            environment: environment,
+            standardInput: payload,
+            timeout: 2
+        )
+        #expect(!preTool.timedOut, Comment(rawValue: preTool.stderr))
+        #expect(preTool.status == 0, Comment(rawValue: preTool.stderr))
+        #expect(preTool.stdout == "{}\n")
 
         let stopConfiguration = try injectedConfiguration(event: "Stop", arguments: arguments)
         let stopCommand = try injectedCommand(configuration: stopConfiguration)
