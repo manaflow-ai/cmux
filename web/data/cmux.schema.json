@@ -31,31 +31,37 @@
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
     },
     "tabBarActiveBackground": {
+      "descriptionKey": "schemaDescriptions.tabBarActiveBackground",
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "description": "Surface tab bar: background color for the selected tab. Unset keeps cmux's derived active-tab background."
     },
     "tabBarActiveForeground": {
+      "descriptionKey": "schemaDescriptions.tabBarActiveForeground",
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "description": "Surface tab bar: label color for the selected tab. Unset keeps the derived active-tab text color."
     },
     "tabBarInactiveBackground": {
+      "descriptionKey": "schemaDescriptions.tabBarInactiveBackground",
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "description": "Surface tab bar: background color for unselected tabs. Unset leaves unselected tabs transparent over the bar."
     },
     "tabBarInactiveForeground": {
+      "descriptionKey": "schemaDescriptions.tabBarInactiveForeground",
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "description": "Surface tab bar: label color for unselected tabs. Unset keeps the derived secondary text color."
     },
     "tabBarHoverBackground": {
+      "descriptionKey": "schemaDescriptions.tabBarHoverBackground",
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "description": "Surface tab bar: background color for a hovered, unselected tab. Unset keeps the derived hover tint."
     },
     "tabBarDividerColor": {
+      "descriptionKey": "schemaDescriptions.tabBarDividerColor",
       "oneOf": [
         { "$ref": "#/$defs/colorHexOrNull" },
         { "type": "string", "const": "none" }
@@ -64,22 +70,26 @@
       "description": "Surface tab bar: color of the thin dividers between tabs, as a 6-digit #RRGGBB hex or the literal \"none\" to hide them. Unset keeps the derived separator."
     },
     "tabBarActiveIndicatorColor": {
+      "descriptionKey": "schemaDescriptions.tabBarActiveIndicatorColor",
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "description": "Surface tab bar: color of the accent indicator line on the selected tab. Replaces the macOS system-accent indicator. Unset keeps the system-accent color."
     },
     "tabBarActiveIndicatorEdge": {
+      "descriptionKey": "schemaDescriptions.tabBarActiveIndicatorEdge",
       "type": ["string", "null"],
       "enum": ["top", "bottom", "none", null],
       "default": null,
       "description": "Surface tab bar: which edge carries the selected-tab accent indicator, or \"none\" to hide it. Unset keeps the historical top-edge indicator."
     },
     "tabBarFontFamily": {
+      "descriptionKey": "schemaDescriptions.tabBarFontFamily",
       "type": ["string", "null"],
       "default": null,
       "description": "Surface tab bar: font family for tab title labels. Unset keeps the system font."
     },
     "tabBarFontWeight": {
+      "descriptionKey": "schemaDescriptions.tabBarFontWeight",
       "type": ["string", "null"],
       "enum": ["ultraLight", "thin", "light", "regular", "medium", "semibold", "bold", "heavy", "black", null],
       "default": null,
