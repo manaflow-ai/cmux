@@ -10,23 +10,12 @@ import tempfile
 from pathlib import Path
 
 from node_runtime import ensure_node_on_path
+from test_claude_wrapper_hooks import generated_claude_hook_settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
-GENERATED_HOOK_SETTINGS = json.dumps(
-    {
-        "hooks": {
-            "SessionStart": [{"matcher": "", "hooks": []}],
-            "Stop": [
-                {"matcher": "", "hooks": []},
-                {"matcher": "", "hooks": []},
-                {"matcher": "", "hooks": []},
-            ],
-        }
-    },
-    separators=(",", ":"),
-)
+GENERATED_HOOK_SETTINGS = generated_claude_hook_settings()
 
 
 def write_executable(path: Path, contents: str) -> None:
