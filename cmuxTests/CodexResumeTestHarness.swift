@@ -125,6 +125,22 @@ enum CodexResumeTestHarness {
     )
   }
 
+  static func makeSiblingContext(
+    sharing context: Context,
+    name: String
+  ) throws -> Context {
+    let socketPath = makeSocketPath(String(name.prefix(6)))
+    Context(
+      cliPath: context.cliPath,
+      socketPath: socketPath,
+      listenerFD: try bindUnixSocket(at: socketPath),
+      state: MockSocketState(),
+      root: context.root,
+      workspaceId: context.workspaceId,
+      surfaceId: context.surfaceId
+    )
+  }
+
   static func launchEnvironment(context: Context, sessionId: String) -> [String: String] {
     _ = sessionId
     return agentLaunchEnvironment(
@@ -162,7 +178,11 @@ enum CodexResumeTestHarness {
     )
   }
 
-  static func startMockServer(context: Context, connectionLimit: Int) {
+  static func startMockServer(
+    context: Context,
+    connectionLimit: Int,
+    beforeResponse: (@Sendable (String) -> Void)? = nil
+  ) {
     DispatchQueue.global(qos: .userInitiated).async {
       var accepted = 0
       while accepted < connectionLimit {
@@ -204,6 +224,7 @@ enum CodexResumeTestHarness {
                 continue
               }
               context.state.append(line)
+              beforeResponse?(line)
               let response = mockResponse(line: line, context: context) + "\n"
               _ = response.withCString { pointer in
                 Darwin.write(clientFD, pointer, strlen(pointer))

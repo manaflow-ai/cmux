@@ -516,6 +516,39 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
                     logged_cmux_calls,
                 )
 
+    def test_attached_image_options_after_resume_do_not_emit_rebind(self) -> None:
+        for option in ("-iimage.png", "--image=image.png"):
+            with self.subTest(option=option):
+                args, logged_cmux_calls, result = self.run_wrapper(
+                    ["resume", option, SESSION_ID],
+                    resume_helper_mode="empty",
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    args,
+                    [
+                        "--enable",
+                        "hooks",
+                        "resume",
+                        option,
+                        SESSION_ID,
+                    ],
+                )
+                self.assertNotIn(
+                    '"cmux_resume_rebind":true',
+                    logged_cmux_calls,
+                )
+
+    def test_missing_effective_directory_fails_closed_before_codex_launch(self) -> None:
+        args, _, result = self.run_wrapper(
+            ["-C", "missing-project", "resume", SESSION_ID]
+        )
+
+        self.assertEqual(result.returncode, 127)
+        self.assertEqual(args, [])
+        self.assertIn("codex not found in a trusted install location", result.stderr)
+
     def test_fresh_launch_does_not_query_resume_trust(self) -> None:
         args, logged_cmux_calls, result = self.run_wrapper(["--yolo"])
 

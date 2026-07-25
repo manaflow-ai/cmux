@@ -167,6 +167,116 @@ struct CodexResumeProcessLeaseTests {
   }
 
   @Test
+  func testStalePromptCannotMutateAfterNewerResumeWins() async throws {
+    let context = try H.makeContext(name: "codex-atomic-lease")
+    let staleContext = try H.makeSiblingContext(
+      sharing: context,
+      name: "codex-stale-hook"
+    )
+    defer {
+      staleContext.cleanup()
+      context.cleanup()
+    }
+
+    let sessionId = "atomic-lease-session"
+    let olderPID = Int(Darwin.getpid())
+    let olderLease = UUID().uuidString
+    let newerLease = UUID().uuidString
+    let newerProcess = Process()
+    let newerProcessInput = Pipe()
+    newerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+    newerProcess.standardInput = newerProcessInput
+    try newerProcess.run()
+    defer {
+      try? newerProcessInput.fileHandleForWriting.close()
+      if newerProcess.isRunning {
+        newerProcess.terminate()
+      }
+      newerProcess.waitUntilExit()
+    }
+    let newerPID = Int(newerProcess.processIdentifier)
+    let gateOnce = DispatchSemaphore(value: 1)
+    let staleValidated = DispatchSemaphore(value: 0)
+    let releaseStale = DispatchSemaphore(value: 0)
+
+    H.startMockServer(context: context, connectionLimit: 64)
+    H.startMockServer(
+      context: staleContext,
+      connectionLimit: 32,
+      beforeResponse: { line in
+        guard H.jsonObject(line)?["method"] as? String == "system.top",
+          gateOnce.wait(timeout: .now()) == .success
+        else {
+          return
+        }
+        staleValidated.signal()
+        releaseStale.wait()
+      }
+    )
+
+    let olderEnvironment = H.launchEnvironment(
+      context: context,
+      sessionId: sessionId
+    ).merging(
+      [
+        "CMUX_CODEX_PID": String(olderPID),
+        "CMUX_CODEX_PROCESS_LEASE_ID": olderLease,
+      ], uniquingKeysWith: { _, new in new })
+    let initialStart = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+      extraEnvironment: olderEnvironment
+    )
+    codexExpectEqual(initialStart.status, 0, initialStart.stderr)
+
+    let stalePrompt = Task.detached {
+      H.runHook(
+        context: staleContext,
+        subcommand: "prompt-submit",
+        standardInput:
+          #"{"session_id":"\#(sessionId)","turn_id":"stale-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"late old hook"}"#,
+        extraEnvironment: olderEnvironment.merging(
+          ["CMUX_SOCKET_PATH": staleContext.socketPath],
+          uniquingKeysWith: { _, new in new })
+      )
+    }
+    let reachedGate = staleValidated.wait(timeout: .now() + 5) == .success
+    codexExpectTrue(
+      reachedGate,
+      "The stale hook must pause after its ownership preflight."
+    )
+
+    let newerStart = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: H.launchEnvironment(
+        context: context,
+        sessionId: sessionId
+      ).merging(
+        [
+          "CMUX_CODEX_PID": String(newerPID),
+          "CMUX_CODEX_PROCESS_LEASE_ID": newerLease,
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectEqual(newerStart.status, 0, newerStart.stderr)
+
+    releaseStale.signal()
+    let staleResult = await stalePrompt.value
+    codexExpectFalse(staleResult.timedOut, staleResult.stderr)
+    codexExpectEqual(staleResult.status, 0, staleResult.stderr)
+
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["pid"] as? Int, newerPID)
+    codexExpectEqual(record["processLeaseId"] as? String, newerLease)
+    codexExpectNil(record["activePromptTurnId"])
+    codexExpectNil(record["activePromptTurnIds"])
+  }
+
+  @Test
   func testDelayedOlderCodexResumeCannotReplaceNewerActiveProcess() throws {
     let context = try H.makeContext(name: "codex-delayed-resume-generation")
     defer { context.cleanup() }
