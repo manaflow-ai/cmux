@@ -286,6 +286,43 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads() == ["lifecycle-b", "lifecycle-a"])
     }
 
+    @Test("A decision barrier covers the complete same-lane delivery backlog")
+    func decisionBarrierCoversCompleteSameLaneBacklog() async throws {
+        let fixture = try AgentHookStalledProcessFixture()
+        defer { fixture.remove() }
+        let process = AgentHookDeliveryProcess(
+            executableURLProvider: { fixture.executableURL },
+            processTimeout: .seconds(5),
+            deliveryTimeout: .milliseconds(300),
+            terminationGrace: .milliseconds(20)
+        )
+        let queue = AgentHookDeliveryQueue(process: process)
+        let first = try makeEvent(payload: "first", surfaceID: "surface-backlog")
+        let second = try makeEvent(payload: "second", surfaceID: "surface-backlog")
+
+        #expect(queue.enqueue(first))
+        #expect(queue.enqueue(second))
+
+        let completedBeforeDecisionDeadline = await Task.detached {
+            queue.waitForPriorDeliveries(
+                orderingKey: first.orderingKey,
+                timeout: 0.45
+            )
+        }.value
+        #expect(
+            completedBeforeDecisionDeadline,
+            "Every event admitted before the decision must share one bounded lane-drain budget"
+        )
+
+        let eventuallyDrained = await Task.detached {
+            queue.waitForPriorDeliveries(
+                orderingKey: first.orderingKey,
+                timeout: 1
+            )
+        }.value
+        #expect(eventuallyDrained)
+    }
+
     @Test("Global delivery concurrency is capped and queued lanes progress when a slot frees")
     func globalConcurrencyLimitQueuesDistinctLanes() async throws {
         let payloads = (1...6).map { "event-\($0)" }
@@ -435,6 +472,17 @@ struct AgentHookDeliveryQueueTests {
         #expect(environment["CMUX_SURFACE_ID"] == "surface-a")
         #expect(environment["ANTHROPIC_BASE_URL"] == nil)
         #expect(environment["CMUX_CLAUDE_PID"] == nil)
+        let relayStateDirectory = try #require(
+            environment["CMUX_AGENT_HOOK_STATE_DIR"]
+        )
+        let localHome = try #require(environment["HOME"])
+        #expect(
+            URL(fileURLWithPath: relayStateDirectory).standardizedFileURL.path
+                != URL(fileURLWithPath: localHome, isDirectory: true)
+                    .appendingPathComponent(".cmuxterm", isDirectory: true)
+                    .standardizedFileURL.path,
+            "Relay replay must not share the host-local persistent hook store"
+        )
 
         var unsafeParams = params
         unsafeParams["environment"] = ["ANTHROPIC_API_KEY": "secret"]
@@ -612,6 +660,41 @@ private struct AgentHookDeliveryProcessFixture {
     func attemptCount() throws -> Int {
         let raw = try String(contentsOf: countURL, encoding: .utf8)
         return try #require(Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+}
+
+private struct AgentHookStalledProcessFixture {
+    let directoryURL: URL
+    let executableURL: URL
+
+    init() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-agent-hook-stalled-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        let executableURL = directoryURL.appendingPathComponent(
+            "stall",
+            isDirectory: false
+        )
+        try """
+        #!/bin/sh
+        exec /bin/sleep 5
+        """.write(to: executableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executableURL.path
+        )
+        self.directoryURL = directoryURL
+        self.executableURL = executableURL
     }
 
     func remove() {
