@@ -85,6 +85,87 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads() == [activePayload, latestPayload])
     }
 
+    @Test("Terminal lifecycle admission replaces stale actor-resident state")
+    func terminalLifecycleReplacesActorResidentState() async throws {
+        let activePayload = #"{"session_id":"session-a","state":"active"}"#
+        let stalePrompt = #"{"session_id":"session-a","state":"stale-prompt"}"#
+        let staleStop = #"{"session_id":"session-a","state":"stale-stop"}"#
+        let latestPayload = #"{"session_id":"session-a","state":"latest-ended"}"#
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 4,
+            maximumIngressEvents: 4
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-a"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: stalePrompt,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: staleStop,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: latestPayload,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 2)
+        #expect(await probe.completedPayloads() == [activePayload, latestPayload])
+    }
+
+    @Test("Terminal lifecycle has reserved execution capacity")
+    func terminalLifecycleHasReservedExecutionCapacity() async throws {
+        let ordinaryPayloads = (1...4).map { "ordinary-\($0)" }
+        let terminalPayload = "terminal"
+        let probe = AgentHookDeliveryTestProbe(
+            blockedPayloads: Set(ordinaryPayloads)
+        )
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 4,
+            maximumResidentEvents: 5,
+            maximumIngressEvents: 6
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        for (index, payload) in ordinaryPayloads.enumerated() {
+            #expect(queue.enqueue(try makeEvent(
+                subcommand: "prompt-submit",
+                payload: payload,
+                surfaceID: "surface-\(index)"
+            )))
+        }
+        try await probe.waitUntilStarted(count: 3)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: terminalPayload,
+            surfaceID: "surface-terminal"
+        )))
+
+        try await probe.waitUntilCompleted(count: 1)
+        #expect(await probe.completedPayloads() == [terminalPayload])
+        #expect(await probe.startedPayloads().contains(terminalPayload))
+
+        for payload in ordinaryPayloads {
+            await probe.release(payload: payload)
+        }
+        try await probe.waitUntilCompleted(count: ordinaryPayloads.count + 1)
+    }
+
     @Test("Terminal lifecycle saturation preserves side effects and finalization")
     func terminalLifecycleDoesNotReplaceProtectedWork() async throws {
         let activePayload = #"{"session_id":"session-a","state":"active"}"#
