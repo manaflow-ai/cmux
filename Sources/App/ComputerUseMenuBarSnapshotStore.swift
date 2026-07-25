@@ -71,6 +71,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor in
+                    #if DEBUG
+                    cmuxDebugLog(
+                        "computerUse.menu.indexChanged entries=\(self?.liveAgentIndex.index?.liveEntries().count ?? 0)"
+                    )
+                    #endif
                     self?.liveRowsNeedRebuild = true
                     self?.refresh()
                 }
@@ -92,6 +97,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         }
         liveAgentIndex.scheduleRefreshIfStale()
         liveRowsNeedRebuild = true
+        #if DEBUG
+        cmuxDebugLog(
+            "computerUse.menu.start show=\(showInMenuBar) enabled=\(featureEnabled()) entries=\(liveAgentIndex.index?.liveEntries().count ?? 0) refreshScheduled=\(liveAgentIndex.hasScheduledRefresh)"
+        )
+        #endif
         refresh()
     }
 
@@ -121,6 +131,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             featureEnabled: currentFeatureEnabled,
             showInMenuBar: currentShowInMenuBar
         ) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "computerUse.menu.hide reason=settings show=\(currentShowInMenuBar) enabled=\(currentFeatureEnabled)"
+            )
+            #endif
             hideSnapshot(
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled
@@ -132,12 +147,18 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             liveRowsNeedRebuild = false
         }
         guard !liveRows.isEmpty else {
+            #if DEBUG
+            cmuxDebugLog("computerUse.menu.hide reason=noLiveRows")
+            #endif
             hideSnapshot(
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled
             )
             return
         }
+        #if DEBUG
+        cmuxDebugLog("computerUse.menu.scan.schedule rows=\(liveRows.count)")
+        #endif
         startWatchingStateDirectory()
 
         refreshTask = Task { [weak self] in
@@ -187,11 +208,22 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                         now: Date()
                     ) { scope, state in
                         guard let roots = rootsByScopeID[scope.id] else {
+                            #if DEBUG
+                            cmuxDebugLog(
+                                "computerUse.menu.stateEligibility scope=\(scope.id) reason=noRoots"
+                            )
+                            #endif
                             return false
                         }
-                        return state.belongsToProcessTree(
+                        let eligible = state.belongsToProcessTree(
                             rootProcessIdentities: roots
                         )
+                        #if DEBUG
+                        cmuxDebugLog(
+                            "computerUse.menu.stateEligibility scope=\(scope.id) writer=\(state.writerPID) roots=\(roots.map(\.pid).sorted()) eligible=\(eligible)"
+                        )
+                        #endif
+                        return eligible
                     }
                     guard !Task.isCancelled else { return nil }
                     let projection = ComputerUseMenuBarScanResult(
@@ -226,6 +258,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                     proxySessionID: state.session
                 )
             }
+            #if DEBUG
+            cmuxDebugLog(
+                "computerUse.menu.scan.result recent=\(result.hasRecentStateFiles) active=\(result.activeRow != nil) targetPID=\(result.activeState?.targetPID ?? 0) rows=\(rows.count)"
+            )
+            #endif
             self.snapshot = ComputerUseMenuBarSnapshot(
                 rows: rows,
                 hasRecentStateFiles: result.hasRecentStateFiles,
@@ -253,7 +290,8 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     }
 
     private func rebuildLiveRows() {
-        liveRows = (liveAgentIndex.index?.liveEntries() ?? []).compactMap { pair in
+        let entries = liveAgentIndex.index?.liveEntries() ?? []
+        liveRows = entries.compactMap { pair in
             let snapshot = pair.entry.snapshot
             let workspaceName = workspaceTitle(pair.panelKey.workspaceId)
                 ?? String(
@@ -281,6 +319,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 proxySessionID: nil
             )
         }
+        #if DEBUG
+        cmuxDebugLog(
+            "computerUse.menu.liveRows entries=\(entries.count) rows=\(liveRows.count) roots=\(liveRows.flatMap { $0.rootProcessIdentities.map(\.pid) }.sorted())"
+        )
+        #endif
     }
 
     private func scheduleExpiryRefresh(lastActionAt: Date, generation: Int) {
