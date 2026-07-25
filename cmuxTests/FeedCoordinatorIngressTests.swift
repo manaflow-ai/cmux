@@ -120,6 +120,44 @@ extension FeedCoordinatorTests {
         #expect(deliveryFinished.wait(timeout: .now()) == .timedOut)
     }
 
+    @Test func committedDeliveryWaitsForCompletionPublicationPastDeadline() async {
+        let lane = FeedIngressDeliveryLane()
+        let mutationCommitted = DispatchSemaphore(value: 0)
+        let releasePublication = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
+        defer { releasePublication.signal() }
+
+        let metadata = FeedIngressDeliveryMetadata(
+            keys: [
+                FeedIngressDeliveryKey(
+                    source: "pi",
+                    sessionId: "pi-committed-publication-order"
+                )
+            ],
+            importance: .acknowledged
+        )
+        let resultTask = Task.detached {
+            let value = lane.perform(metadata: metadata, timeout: 0.05) { result in
+                _ = result.commit {
+                    mutationCommitted.signal()
+                    return true
+                }
+                releasePublication.wait()
+            }
+            callerReturned.signal()
+            return value
+        }
+
+        #expect(mutationCommitted.wait(timeout: .now() + 1) == .success)
+        #expect(
+            callerReturned.wait(timeout: .now() + 0.2) == .timedOut,
+            "a committed mutation must not acknowledge before publication completes"
+        )
+        releasePublication.signal()
+        #expect(callerReturned.wait(timeout: .now() + 1) == .success)
+        #expect(await resultTask.value == true)
+    }
+
     @Test func positiveTimeoutAcceptanceCallbackCompletesBeforeAcknowledgedCallerReturns() async {
         await MainActor.run {
             FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
