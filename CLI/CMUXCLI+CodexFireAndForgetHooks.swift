@@ -1,6 +1,8 @@
 import Foundation
 
 extension CMUXCLI {
+    private static let codexPersistentHookOptInFileName = ".cmux-persistent-hooks-opt-in"
+
     /// The per-invocation Codex hook events the wrapper injects, paired with the
     /// cmux subcommand they call and the codex hook timeout (ms). Lifecycle
     /// events are short; feed events (`PreToolUse`/`PermissionRequest`) are long
@@ -23,11 +25,16 @@ extension CMUXCLI {
     ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<ff>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
     /// where `<ff>` is `codexFireAndForgetAgentHookShellCommand(...)` so each
-    /// hook returns `{}` to codex instantly and backgrounds the real cmux call.
+    /// hook returns `{}` to codex instantly and queues the real cmux call behind
+    /// a per-session file lock.
     /// Requires no live socket: pure string construction from the agent def.
     func emitCodexWrapperInjectArgs() throws {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
+        }
+        if try prepareCodexWrapperHookOwnership(codexDef) {
+            writeCodexWrapperArguments(["--enable", "hooks"])
+            return
         }
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
@@ -69,12 +76,83 @@ extension CMUXCLI {
         // `while IFS= read -r -d '' arg` loop captures every element including
         // the final one — a separator-only stream drops the unterminated last
         // arg at EOF.
+        writeCodexWrapperArguments(args)
+    }
+
+    /// Returns true when the user explicitly selected persistent Codex hooks.
+    /// Otherwise, removes legacy cmux-owned global hooks before the wrapper
+    /// injects its invocation-scoped replacements. User-owned hooks survive the
+    /// existing uninstall transform unchanged.
+    private func prepareCodexWrapperHookOwnership(_ def: AgentHookDef) throws -> Bool {
+        if Self.codexPersistentHooksAreOptedIn(for: def) {
+            return true
+        }
+        Self.removeCodexPersistentHookOptIn(for: def)
+        if Self.codexPersistentHooksAreInstalled(for: def) {
+            try uninstallAgentHooks(def, quiet: true)
+        }
+        return false
+    }
+
+    private func writeCodexWrapperArguments(_ arguments: [String]) {
         var out = Data()
-        for arg in args {
-            out.append(Data(arg.utf8))
+        for argument in arguments {
+            out.append(Data(argument.utf8))
             out.append(0)
         }
         FileHandle.standardOutput.write(out)
+    }
+
+    static func recordCodexPersistentHookOptIn(for def: AgentHookDef) throws {
+        let markerURL = codexPersistentHookOptInURL(for: def)
+        try Data("1\n".utf8).write(to: markerURL, options: .atomic)
+    }
+
+    static func removeCodexPersistentHookOptIn(for def: AgentHookDef) {
+        try? FileManager.default.removeItem(at: codexPersistentHookOptInURL(for: def))
+    }
+
+    static func codexPersistentHooksAreOptedIn(for def: AgentHookDef) -> Bool {
+        let markerURL = codexPersistentHookOptInURL(for: def)
+        guard FileManager.default.fileExists(atPath: markerURL.path) else {
+            return false
+        }
+        guard codexPersistentHooksAreInstalled(for: def) else {
+            try? FileManager.default.removeItem(at: markerURL)
+            return false
+        }
+        return true
+    }
+
+    static func codexPersistentHooksAreInstalled(for def: AgentHookDef) -> Bool {
+        let hooksURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(def.configFile, isDirectory: false)
+        guard let data = try? Data(contentsOf: hooksURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"]
+        else {
+            return false
+        }
+        return codexHookValueContainsOwnedCommand(hooks, def: def)
+    }
+
+    private static func codexHookValueContainsOwnedCommand(_ value: Any, def: AgentHookDef) -> Bool {
+        if let array = value as? [Any] {
+            return array.contains { codexHookValueContainsOwnedCommand($0, def: def) }
+        }
+        if let object = value as? [String: Any] {
+            if let command = object["command"] as? String,
+               isCmuxOwnedHookCommand(command, for: def) {
+                return true
+            }
+            return object.values.contains { codexHookValueContainsOwnedCommand($0, def: def) }
+        }
+        return false
+    }
+
+    private static func codexPersistentHookOptInURL(for def: AgentHookDef) -> URL {
+        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(codexPersistentHookOptInFileName, isDirectory: false)
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.
@@ -122,12 +200,14 @@ extension CMUXCLI {
 
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( sleep 30; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
+        let runner = "payload=\"$1\"; queue_lock=\"$2\"; shift 2; /usr/bin/lockf -k -t 30 \"$queue_lock\" \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( sleep 30; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { echo '{}'; exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else echo '{}'; fi",
+            "case \"$agent_pid\" in *[!0-9]*) agent_pid=\"${PPID:-$$}\" ;; esac",
+            "queue_lock=\"${TMPDIR:-/tmp}/cmux-codex-hook-${agent_pid}.lock\"",
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { echo '{}'; exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$queue_lock\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$queue_lock\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else echo '{}'; fi",
         ].joined(separator: "; ")
     }
 }

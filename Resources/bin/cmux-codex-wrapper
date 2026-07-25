@@ -320,9 +320,10 @@ fi
 # command for each event. Fire-and-forget is critical: codex runs hooks
 # synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
 # <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
-# command captures codex's stdin payload to a temp file, nohup-backgrounds the
-# real cmux call with a 30s watchdog, and `echo '{}'` returns to codex instantly,
-# so detection still binds the real session id while codex never blocks.
+# command captures codex's stdin payload to a temp file, queues background
+# delivery behind a per-session file lock with a 30s watchdog, and `echo '{}'`
+# returns to codex instantly. Detection keeps the real session id and event
+# order while codex never blocks.
 #
 # Resolving the args via the CLI (instead of re-deriving fragile shell here)
 # avoids quoting bugs in the fire-and-forget command (it contains single quotes
