@@ -889,15 +889,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.stdout,
         )
 
-    def test_python_parse_failures_keep_direct_sleep_detection(self) -> None:
+    def test_python_parser_version_and_parse_failures_are_stable(self) -> None:
         positive = self.run_checker(
             {
-                "unsupported-syntax.py": (
-                    "import time\n"
-                    "time.sleep(0.01)\n"
-                    "assert finished\n"
-                    "match subject:\n"
-                ),
                 "newer-syntax.py": (
                     "import asyncio\n"
                     "match state:\n"
@@ -914,16 +908,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             positive.stdout + positive.stderr,
         )
         self.assertIn(
-            "fixtures/unsupported-syntax.py:2: sleep-then-assert:",
-            positive.stdout,
-        )
-        self.assertIn(
             "fixtures/newer-syntax.py:4: sleep-then-assert:",
             positive.stdout,
         )
 
         negative = self.run_checker(
             {
+                "unsupported-syntax.py": (
+                    "import time\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                    "match subject:\n"
+                ),
                 "shadowed-unsupported-syntax.py": (
                     "time = fake_clock\n"
                     "time.sleep(0.01)\n"

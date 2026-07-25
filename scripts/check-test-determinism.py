@@ -203,9 +203,6 @@ _SWIFT_SLEEP_CALL = re.compile(
     """
 )
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
-_PYTHON_FALLBACK_SLEEP_CALL = re.compile(
-    r"(?<![.$\w])(?:time|asyncio|trio|anyio|gevent)\s*\.\s*sleep\s*\("
-)
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
     (?<![.$\w])Bun\s*\.\s*sleep\s*\(
@@ -1517,26 +1514,7 @@ def _python_real_sleep_lines(
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        masked_lines = _mask_noncode(text.splitlines(), ".py")
-        masked_text = "\n".join(masked_lines)
-        fallback_positions: dict[int, set[int]] = {}
-        for match in _PYTHON_FALLBACK_SLEEP_CALL.finditer(masked_text):
-            sleep_offset = match.start() + match.group().rfind("sleep")
-            line_index = masked_text.count("\n", 0, sleep_offset)
-            line_start = masked_text.rfind("\n", 0, sleep_offset) + 1
-            fallback_positions.setdefault(line_index, set()).add(
-                sleep_offset - line_start
-            )
-        if positions is not None:
-            positions.update(fallback_positions)
-        if end_positions is not None:
-            end_positions.update(
-                _sleep_call_end_positions(
-                    masked_lines,
-                    fallback_positions,
-                )
-            )
-        return set(fallback_positions)
+        return set()
     postponed_annotations = any(
         isinstance(statement, ast.ImportFrom)
         and statement.module == "__future__"

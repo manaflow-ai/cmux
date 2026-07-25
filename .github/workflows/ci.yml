@@ -101,6 +101,15 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      # Keep the checker on the same interpreter that accepted the repository
+      # syntax above. The later Python 3.9 pin is scoped to nightly-prune
+      # compatibility and must not change determinism parsing semantics.
+      - name: Validate test determinism gate
+        run: |
+          python3 tests/test_check_test_determinism.py
+          python3 scripts/check-test-determinism.py --self-test
+          python3 scripts/check-test-determinism.py --strict
+
       - name: Validate TUI npm package artifact transfer
         run: python3 tests/test_tui_npm_package_artifact.py
 
@@ -251,12 +260,6 @@ jobs:
 
       - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
         run: python3 scripts/lint-feature-flags.py
-
-      - name: Validate test determinism gate
-        run: |
-          python3 tests/test_check_test_determinism.py
-          python3 scripts/check-test-determinism.py --self-test
-          python3 scripts/check-test-determinism.py --strict
 
   remote-daemon-tests:
     needs: changes
