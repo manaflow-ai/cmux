@@ -210,7 +210,8 @@ struct AgentTranscriptRenderAdapter {
                 hostPath: reference.hostPath,
                 mimeType: imageMIMEType(for: reference.hostPath),
                 pixelWidth: reference.pixelWidth,
-                pixelHeight: reference.pixelHeight
+                pixelHeight: reference.pixelHeight,
+                aspectRatio: reference.aspectRatio
             ))
         )
         return ChatMessageRowSnapshot(

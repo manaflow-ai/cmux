@@ -285,8 +285,9 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             hostPath: reference.hostPath,
             mimeType: mimeType,
             byteCount: metadata.byteCount,
-            width: metadata.width,
-            height: metadata.height,
+            width: reference.pixelWidth ?? metadata.width,
+            height: reference.pixelHeight ?? metadata.height,
+            aspectRatio: reference.aspectRatio,
             authorRole: normalizedAttachmentRole(role)
         )
     }
