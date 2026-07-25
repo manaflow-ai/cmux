@@ -13290,21 +13290,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
         )
-        let commandPaletteCanRouteUnarmedGlobalSearch =
-            commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
+        let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
+        let globalSearchIsVisible = GlobalSearchCoordinator.shared.isPaletteVisible()
         if matchesGlobalSearchShortcut,
            activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteCanRouteUnarmedGlobalSearch
-            || GlobalSearchCoordinator.shared.isPaletteVisible() {
+            || globalSearchIsVisible {
             // Armed chords own their suffix, while visible Search owns its popover.
             toggleGlobalSearchPalette()
             return true
         }
         if globalSearchShortcut.hasChord,
-           commandPaletteCanRouteUnarmedGlobalSearch || GlobalSearchCoordinator.shared.isPaletteVisible(),
            activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           globalSearchShortcutWhenClauseAllows(event: event),
-           armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
-            return true
+           commandPaletteCanRouteUnarmedGlobalSearch || globalSearchIsVisible {
+            if globalSearchIsVisible, GlobalSearchKeyEvent(event).queryOwnsEditingShortcut { return false }
+            if globalSearchShortcutWhenClauseAllows(event: event),
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) { return true }
         }
         if commandPaletteConsumesShortcut { return true }
         if commandPaletteEffectiveInTargetWindow,

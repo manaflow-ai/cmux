@@ -264,22 +264,8 @@ private struct GlobalSearchPaletteView: View {
             if flags.contains(.command),
                !flags.contains(.option),
                !flags.contains(.control) {
-                return !isTextEditingCommand(event) && !isSystemCommand(event)
+                return !event.queryOwnsEditingShortcut && !isSystemCommand(event)
             }
-            return false
-        }
-    }
-
-    private func isTextEditingCommand(_ event: GlobalSearchKeyEvent) -> Bool {
-        if let characters = event.charactersIgnoringModifiers?.lowercased(),
-           ["a", "c", "v", "x", "z"].contains(characters) {
-            return true
-        }
-
-        switch event.keyCode {
-        case 51, 117, 123, 124:
-            return true
-        default:
             return false
         }
     }
@@ -300,7 +286,7 @@ private struct GlobalSearchPaletteView: View {
     }
 }
 
-private struct GlobalSearchKeyEvent: Sendable {
+struct GlobalSearchKeyEvent: Sendable {
     let keyCode: UInt16
     let charactersIgnoringModifiers: String?
     private let modifierFlagsRawValue: UInt
@@ -315,6 +301,27 @@ private struct GlobalSearchKeyEvent: Sendable {
 
     var modifierFlags: NSEvent.ModifierFlags {
         NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue)
+    }
+
+    var queryOwnsEditingShortcut: Bool {
+        let flags = modifierFlags
+        guard flags.contains(.command),
+              !flags.contains(.option),
+              !flags.contains(.control) else {
+            return false
+        }
+
+        if let characters = charactersIgnoringModifiers?.lowercased(),
+           ["a", "c", "v", "x", "z"].contains(characters) {
+            return true
+        }
+
+        switch keyCode {
+        case 51, 117, 123, 124:
+            return true
+        default:
+            return false
+        }
     }
 }
 
