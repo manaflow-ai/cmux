@@ -1,5 +1,5 @@
 import Carbon
-import CmuxSettings
+import enum CmuxSettings.ShortcutAction
 import Foundation
 import Testing
 
@@ -61,7 +61,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
     @Test func sharedShortcutCatalogCoversEveryAppActionAndPreservesDefaults() {
         let appActionIDs = Set(KeyboardShortcutSettings.Action.allCases.map(\.rawValue))
-        let sharedActionIDs = Set(CmuxSettings.ShortcutAction.allCases.map(\.rawValue))
+        let sharedActionIDs = Set(ShortcutAction.allCases.map(\.rawValue))
 
         #expect(sharedActionIDs == appActionIDs)
         #expect(
