@@ -889,6 +889,35 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.stdout,
         )
 
+    def test_python_parse_failures_keep_direct_sleep_detection(self) -> None:
+        result = self.run_checker(
+            {
+                "unsupported-syntax.py": (
+                    "import time\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                    "match subject:\n"
+                ),
+                "newer-syntax.py": (
+                    "import asyncio\n"
+                    "match state:\n"
+                    "    case 'waiting':\n"
+                    "        await asyncio.sleep(0.01)\n"
+                    "        assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "fixtures/unsupported-syntax.py:2: sleep-then-assert:",
+            result.stdout,
+        )
+        self.assertIn(
+            "fixtures/newer-syntax.py:4: sleep-then-assert:",
+            result.stdout,
+        )
+
     def test_python_local_shadows_do_not_leak_to_later_scopes(self) -> None:
         fixtures = {
             "function-shadow.py": (
@@ -1466,6 +1495,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    .setTimeout(resolve, 1)\n"
                     "expect(finished).toBe(true)\n"
                 ),
+                "timeout-callback-assertion.ts": (
+                    "setTimeout(() => {\n"
+                    "    expect(finished).toBe(true)\n"
+                    "}, 1)\n"
+                ),
             }
         )
 
@@ -1478,6 +1512,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "control-regex-in-timeout.ts",
             "multiline-bun-member.ts",
             "multiline-global-timeout-member.ts",
+            "timeout-callback-assertion.ts",
         ):
             line = (
                 2
