@@ -74,6 +74,15 @@ public struct TranscriptProjector: Sendable {
         }
         Self.flush(&turn, input: input, latestTurnID: latestTurnID, rows: &chronological)
 
+        if let tail = input.streamingTail, !tail.textTail.isEmpty {
+            chronological.append(TranscriptRow(
+                rowID: .streaming(journalID: tail.journalID, afterSeq: tail.afterSeq),
+                rowKind: .streaming(textTail: tail.textTail),
+                isUnread: true,
+                turnID: latestTurnID,
+                endsTurn: true
+            ))
+        }
         for ask in input.asks where Self.isActive(ask.state) {
             chronological.append(TranscriptRow(
                 rowID: .pendingAsk(ask.id),
@@ -86,15 +95,6 @@ public struct TranscriptProjector: Sendable {
                 rowID: .pendingTicket(ticket.id),
                 rowKind: .pendingTicket(ticket),
                 isUnread: true
-            ))
-        }
-        if let tail = input.streamingTail, !tail.textTail.isEmpty {
-            chronological.append(TranscriptRow(
-                rowID: .streaming(journalID: tail.journalID, afterSeq: tail.afterSeq),
-                rowKind: .streaming(textTail: tail.textTail),
-                isUnread: true,
-                turnID: latestTurnID,
-                endsTurn: true
             ))
         }
 

@@ -306,7 +306,7 @@ struct TranscriptProjectorTests {
     }
 
     @Test
-    func pendingTicketsAndStreamingAreNewestRows() throws {
+    func pendingTicketsDoNotSplitCurrentStreamingAnswer() throws {
         let firstTicket = SendTicket(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
             sessionID: AgentSessionID(rawValue: "session"),
@@ -334,18 +334,22 @@ struct TranscriptProjectorTests {
             )
         )).rows
 
-        #expect(rows.last?.rowID == TranscriptRowID.streaming(
+        let streamingID = TranscriptRowID.streaming(
             journalID: Self.journal,
             afterSeq: EntrySeq(rawValue: 1)
-        ))
-        #expect(rows[1].rowID == TranscriptRowID.pendingTicket(firstTicket.id))
-        #expect(rows[2].rowID == TranscriptRowID.pendingTicket(secondTicket.id))
+        )
+        #expect(rows[1].rowID == streamingID)
+        #expect(rows[2].rowID == TranscriptRowID.pendingTicket(firstTicket.id))
+        #expect(rows[3].rowID == TranscriptRowID.pendingTicket(secondTicket.id))
         #expect(rows.filter { row in
             if case .streaming = row.rowKind {
                 return true
             }
             return false
         }.count == 1)
+        let streamingIndex = try #require(rows.firstIndex { $0.rowID == streamingID })
+        let firstTicketIndex = try #require(rows.firstIndex { $0.rowID == .pendingTicket(firstTicket.id) })
+        #expect(streamingIndex < firstTicketIndex)
         #expect(rows.contains {
             $0.rowID == TranscriptRowID.entry(journalID: Self.journal, seq: EntrySeq(rawValue: 1))
         })

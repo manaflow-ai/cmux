@@ -205,6 +205,38 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(abs(updatedTable.contentOffset.y - maximumOffset(in: updatedTable)) <= 1.5)
     }
 
+    @Test("tail command reaches the real last row in a ten-thousand-row window")
+    func tailCommandReachesRealLastRowInTenThousandRowWindow() async throws {
+        let state = TranscriptFollowStateBox(.detached(anchorID: 5_000, offset: 0, unseenCount: 0))
+        let wrappedTailText = Array(
+            repeating: "The final row is much taller than the estimated row height.",
+            count: 120
+        ).joined(separator: " ")
+        let rows = (0..<10_000).map {
+            TranscriptTestRow(
+                id: $0,
+                text: $0 == 9_999 ? wrappedTailText : "Compact response \($0)"
+            )
+        }
+        let harness = TranscriptTestHarness(
+            rows: rows,
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .tail, animated: false)
+        )
+        let mounted = mount(harness)
+        defer { mounted.window.isHidden = true }
+
+        await settle(mounted.host, passes: 64)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        let visibleRows = try #require(table.indexPathsForVisibleRows)
+        #expect(table.numberOfRows(inSection: 0) == 10_000)
+        #expect(visibleRows.contains(IndexPath(row: 9_999, section: 0)))
+        #expect(distanceFromTail(in: table) <= 1.5)
+        #expect(state.value == .followingTail)
+        #expect(table.visibleCells.count < 80)
+    }
+
     @Test("detached animated tail command converges after wrapped rows resolve")
     func detachedAnimatedTailCommandConvergesAfterWrappedRowsResolve() async throws {
         let state = TranscriptFollowStateBox(.detached(anchorID: 120, offset: 0, unseenCount: 0))
