@@ -1098,6 +1098,12 @@ mod tests {
         (endpoint, connection)
     }
 
+    #[test]
+    fn failed_iroh_dial_is_retryable_carrier_failure() {
+        let error = iroh_connect_error(secret(47).public());
+        assert!(error.is_retryable_carrier_failure(), "{error}");
+    }
+
     async fn wait_for_available_permits(semaphore: &Semaphore, expected: usize) {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
