@@ -158,6 +158,7 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
     @State private var pendingPrimarySearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var showingRootSettings = false
@@ -272,6 +273,11 @@ struct WorkspaceShellView: View {
                 guard !isPresented else { return }
                 consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
             }
+            .onChange(of: selectedPrimaryTab) { oldValue, newValue in
+                if oldValue == .search, newValue != .search {
+                    notificationSearchNavigationPath = []
+                }
+            }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
                 consumeDeeplinkNavigationRequestIfNeeded()
@@ -365,7 +371,7 @@ struct WorkspaceShellView: View {
     private func notificationSearchTabContent(
         presentation: WorkspaceShellRenderPresentation
     ) -> some View {
-        NavigationStack(path: $notificationNavigationPath) {
+        NavigationStack(path: $notificationSearchNavigationPath) {
             NotificationFeedStoreView(
                 store: store,
                 items: presentation.notificationFeedItems,
@@ -813,8 +819,8 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         if request.origin == .notificationFeed {
             if selectedPrimaryTab == .search {
-                if notificationNavigationPath.last != workspaceID {
-                    notificationNavigationPath = [workspaceID]
+                if notificationSearchNavigationPath.last != workspaceID {
+                    notificationSearchNavigationPath = [workspaceID]
                 }
             } else if primarySearchCoordinator.isPresented {
                 pendingPrimarySearchNotificationNavigationID = workspaceID
