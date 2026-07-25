@@ -16,8 +16,14 @@ struct XcodeProjectAdapterTests {
         let env = ProcessInfo.processInfo.environment
         if let override = env["CMUX_PROJECT_FIXTURE"] {
             let base = URL(fileURLWithPath: override)
-            self.workspaceURL = base.pathExtension.lowercased() == "xcworkspace" ? base : base.appendingPathComponent("cmux.xcworkspace")
-            self.projectURL = base.pathExtension.lowercased() == "xcodeproj" ? base : base.appendingPathComponent("cmux.xcodeproj")
+            // The override may name the directory, the workspace bundle, or the project
+            // bundle. Siblings are derived from the containing directory, or a workspace
+            // override would nest projectURL inside the .xcworkspace bundle (and the
+            // symmetric bug for a .xcodeproj override).
+            let ext = base.pathExtension.lowercased()
+            let root = ["xcworkspace", "xcodeproj"].contains(ext) ? base.deletingLastPathComponent() : base
+            self.workspaceURL = ext == "xcworkspace" ? base : root.appendingPathComponent("cmux.xcworkspace")
+            self.projectURL = ext == "xcodeproj" ? base : root.appendingPathComponent("cmux.xcodeproj")
         } else {
             let start = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent()
             guard let worktreeRoot = Self.worktreeRootContainingProject(startingAt: start) else {
