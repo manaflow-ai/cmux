@@ -130,7 +130,7 @@ enum CodexResumeTestHarness {
     name: String
   ) throws -> Context {
     let socketPath = makeSocketPath(String(name.prefix(6)))
-    Context(
+    return Context(
       cliPath: context.cliPath,
       socketPath: socketPath,
       listenerFD: try bindUnixSocket(at: socketPath),
