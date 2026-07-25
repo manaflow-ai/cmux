@@ -37,11 +37,12 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
     ///   - includeDirectories: Whether directories are eligible gallery rows.
     ///   - includeMissing: Whether references that fail stat remain as missing rows.
     /// - Returns: The number of rows the default gallery view renders.
-    /// Counting is stat-only: it shares `isEligible` with row building but
-    /// never constructs `ChatArtifactGalleryItem`s and never enumerates
-    /// directory children, so a count over a large session costs one stat per
-    /// reference. Ordering and provenance grouping cannot change a total, so
-    /// `orderedItems` is accepted for call-site symmetry but not required.
+    /// Counting is existence-only: one `fileExists` syscall per reference,
+    /// no `ChatArtifactGalleryItem` construction, no directory child
+    /// enumeration, and no `ArtifactByteReader.stat` (which can read file
+    /// bytes to classify extension-less files). Ordering and provenance
+    /// grouping cannot change a total, so `orderedItems` is accepted for
+    /// call-site symmetry but not required.
     public func defaultRowCount(
         _ items: [ChatArtifactIndexedReference],
         orderedItems: [ChatArtifactIndexedReference]? = nil,
@@ -57,18 +58,37 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
         }
     }
 
-    /// The single row-inclusion rule shared by page rows and count-only scans.
+    /// Cheap eligibility for count-only scans: same rule as page rows, fed
+    /// from a single existence syscall.
     public func isEligible(
         _ reference: ChatArtifactIndexedReference,
         includeDirectories: Bool,
         includeMissing: Bool
     ) -> Bool {
-        do {
-            let stat = try ArtifactByteReader().stat(path: reference.path)
-            return includeDirectories || !stat.isDirectory
-        } catch {
-            return includeMissing
-        }
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: reference.path,
+            isDirectory: &isDirectory
+        )
+        return Self.isRowIncluded(
+            exists: exists,
+            isDirectory: isDirectory.boolValue,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing
+        )
+    }
+
+    /// The single row-inclusion rule shared by page rows and count-only
+    /// scans. Both feed it their own filesystem observation; the decision
+    /// logic itself cannot drift.
+    static func isRowIncluded(
+        exists: Bool,
+        isDirectory: Bool,
+        includeDirectories: Bool,
+        includeMissing: Bool
+    ) -> Bool {
+        guard exists else { return includeMissing }
+        return includeDirectories || !isDirectory
     }
 
     func defaultCandidates(
@@ -92,17 +112,19 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
         includeDirectories: Bool,
         includeMissing: Bool
     ) -> ChatArtifactGalleryItem? {
-        // Inclusion is decided by the shared predicate so page rows and
-        // count-only scans cannot drift. Rows are page-bounded, so the second
-        // stat during item construction below is trivial.
-        guard isEligible(
-            reference,
-            includeDirectories: includeDirectories,
-            includeMissing: includeMissing
-        ) else { return nil }
+        // One stat outcome drives BOTH the inclusion decision and the row
+        // payload, so what renders cannot diverge from the shared rule and
+        // there is no second stat (and no window for the file to change
+        // between decision and construction).
         let reader = ArtifactByteReader()
         do {
             let stat = try reader.stat(path: reference.path)
+            guard Self.isRowIncluded(
+                exists: stat.exists,
+                isDirectory: stat.isDirectory,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            ) else { return nil }
             let children = stat.isDirectory ? directoryChildCount(path: reference.path) : nil
             return ChatArtifactGalleryItem(
                 path: reference.path,
@@ -116,6 +138,12 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
                 provenance: reference.provenance
             )
         } catch {
+            guard Self.isRowIncluded(
+                exists: false,
+                isDirectory: false,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            ) else { return nil }
             return ChatArtifactGalleryItem(
                 path: reference.path,
                 kind: reader.kind(path: reference.path, isDirectory: false),

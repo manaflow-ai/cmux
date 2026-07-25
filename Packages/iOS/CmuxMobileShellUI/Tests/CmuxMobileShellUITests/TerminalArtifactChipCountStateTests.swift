@@ -96,12 +96,15 @@ struct TerminalArtifactChipCountStateTests {
         ))
         #expect(state.complete(
             first,
-            galleryRowTotal: 0,
+            galleryRowTotal: 5,
             sessionTotal: 12,
             currentSurfaceGeneration: 7,
             freshestLocalCount: 3
-        ).outcome == .reported(.init(count: 0, surfaceGeneration: 7)))
+        ).outcome == .reported(.init(count: 5, surfaceGeneration: 7)))
 
+        // A positive gallery total holds across a failed refresh; a held
+        // ZERO yielding to local evidence is covered by
+        // failedScanDropsHeldZero.
         let second = try request(from: state.trigger(
             localCount: 9,
             surfaceGeneration: 8,
@@ -113,7 +116,7 @@ struct TerminalArtifactChipCountStateTests {
             sessionTotal: nil,
             currentSurfaceGeneration: 8,
             freshestLocalCount: 9
-        ).outcome == .reported(.init(count: 0, surfaceGeneration: 8)))
+        ).outcome == .reported(.init(count: 5, surfaceGeneration: 8)))
     }
 
     @Test("session-count triggers report the local count immediately and refine async")
