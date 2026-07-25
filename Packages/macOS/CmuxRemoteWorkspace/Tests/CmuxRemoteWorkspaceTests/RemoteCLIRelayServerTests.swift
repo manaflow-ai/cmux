@@ -163,6 +163,14 @@ private final class RelayTestClient: @unchecked Sendable {
 struct RemoteCLIRelayServerTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
 
+    @Test("local relay forwarding outlives the agent-hook barrier response budget")
+    func localForwardingTimeoutOutlivesAgentHookBarrier() {
+        #expect(
+            RemoteCLIRelayServer.Session.localSocketRoundTripTimeoutSeconds > 20,
+            "The CLI waits up to 20 seconds for agent.hook.barrier, so the local relay must remain open longer"
+        )
+    }
+
     @Test("an invalid relay token hex is rejected at init (code 7)")
     func invalidTokenRejected() {
         #expect(throws: (any Error).self) {
