@@ -45,6 +45,7 @@ use url::Url;
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
+const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn remote_runtime_worker_count() -> usize {
     thread::available_parallelism()
@@ -461,10 +462,11 @@ async fn run_client(
     ready: mpsc::SyncSender<Result<ClientReady, String>>,
 ) -> anyhow::Result<()> {
     let setup = async {
-        let (connection, route) = tokio::select! {
-            result = connect_first_available(&options, shutdown.clone()) => result?,
-            _ = wait_for_shutdown(&mut shutdown) => return Ok(()),
-        };
+        let (connection, route) = connect_first_available(&options, shutdown.clone()).await?;
+        if *shutdown.borrow() {
+            let _ = connection.close().await;
+            return Ok(());
+        }
         let local_socket = options
             .local_socket
             .clone()
@@ -703,15 +705,34 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         index: usize,
         request: ConnectRequest,
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
-        let group = self
-            .options
-            .providers
-            .connect(request, client_auth_kind(&self.options.auth))
-            .await
-            .map_err(|error| InitialRouteAttemptError::Route {
-                retryable: error.is_retryable_carrier_failure(),
-                error: error.into(),
-            })?;
+        let display_endpoint = sanitized_route(&request.endpoint);
+        let timeout = self.options.reconnect.attempt_timeout;
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut shutdown = self.shutdown.clone();
+        let group = tokio::select! {
+            result = tokio::time::timeout_at(
+                deadline,
+                self.options
+                    .providers
+                    .connect(request, client_auth_kind(&self.options.auth)),
+            ) => match result {
+                Ok(Ok(group)) => group,
+                Ok(Err(error)) => {
+                    return Err(InitialRouteAttemptError::Route {
+                        retryable: error.is_retryable_carrier_failure(),
+                        error: error.into(),
+                    });
+                }
+                Err(_) => {
+                    return Err(initial_route_timeout(&display_endpoint, timeout));
+                }
+            },
+            _ = wait_for_shutdown(&mut shutdown) => {
+                return Err(InitialRouteAttemptError::Fatal(anyhow!(
+                    "remote client startup was cancelled"
+                )));
+            }
+        };
         let route = group.description().to_string();
         let reconnect_groups: Arc<dyn ReconnectGroupSource> =
             Arc::new(RuntimeReconnectGroups::with_shutdown(
@@ -719,33 +740,64 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
                 index,
                 self.shutdown.clone(),
             ));
-        let connection = ClientConnection::connect_with_reconnect_groups(
-            group.clone(),
-            ClientConnectionConfig {
-                identity: self.options.identity.clone(),
-                expected_daemon: self.options.expected_daemon,
-                auth: self.options.auth.clone(),
-                device_name: self.options.device_name.clone(),
-                session: self.options.session,
-                lane_policy: self.options.lane_policy,
-                limits: SessionLimits::default(),
-                reconnect: self.options.reconnect,
+        let mut shutdown = self.shutdown.clone();
+        let connection = tokio::select! {
+            result = tokio::time::timeout_at(
+                deadline,
+                ClientConnection::connect_with_reconnect_groups(
+                    group.clone(),
+                    ClientConnectionConfig {
+                        identity: self.options.identity.clone(),
+                        expected_daemon: self.options.expected_daemon,
+                        auth: self.options.auth.clone(),
+                        device_name: self.options.device_name.clone(),
+                        session: self.options.session,
+                        lane_policy: self.options.lane_policy,
+                        limits: SessionLimits::default(),
+                        reconnect: self.options.reconnect,
+                    },
+                    Some(reconnect_groups),
+                ),
+            ) => match result {
+                Ok(connection) => connection,
+                Err(_) => {
+                    close_failed_initial_group(&group).await;
+                    return Err(initial_route_timeout(&display_endpoint, timeout));
+                }
             },
-            Some(reconnect_groups),
-        )
-        .await;
+            _ = wait_for_shutdown(&mut shutdown) => {
+                close_failed_initial_group(&group).await;
+                return Err(InitialRouteAttemptError::Fatal(anyhow!(
+                    "remote client startup was cancelled"
+                )));
+            }
+        };
         match connection {
             Ok(connection) => Ok((connection, route)),
             Err(error) if route_failure_allows_fallback(&error) => {
-                let _ = group.close().await;
+                close_failed_initial_group(&group).await;
                 Err(InitialRouteAttemptError::Route {
                     retryable: error.is_retryable_carrier_failure(),
                     error: error.into(),
                 })
             }
-            Err(error) => Err(InitialRouteAttemptError::Fatal(error.into())),
+            Err(error) => {
+                close_failed_initial_group(&group).await;
+                Err(InitialRouteAttemptError::Fatal(error.into()))
+            }
         }
     }
+}
+
+fn initial_route_timeout(endpoint: &str, timeout: Duration) -> InitialRouteAttemptError {
+    InitialRouteAttemptError::Route {
+        error: anyhow!("initial route {endpoint} timed out after {}ms", timeout.as_millis()),
+        retryable: true,
+    }
+}
+
+async fn close_failed_initial_group(group: &Arc<dyn LinkGroup>) {
+    let _ = tokio::time::timeout(INITIAL_GROUP_CLOSE_TIMEOUT, group.close()).await;
 }
 
 async fn bootstrap_initial_ssh_route(
