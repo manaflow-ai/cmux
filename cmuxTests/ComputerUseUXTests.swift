@@ -706,6 +706,10 @@ struct ComputerUseUXTests {
 
         #expect(paths.scope == "permission-owner-v2-b557c76d99865947")
         #expect(paths.daemonSocketURL.path == "/tmp/cmux-cua-501/\(paths.scope)/cua.sock")
+        #expect(
+            paths.codexDaemonSocketURL.path
+                == "/tmp/cmux-cua-501/\(paths.scope)/codex-cua.sock"
+        )
         #expect(paths.stateDirectoryURL.path.hasSuffix(
             "/Library/Application Support/cmux/computer-use/runtime/\(paths.scope)/state"
         ))
@@ -889,6 +893,7 @@ struct ComputerUseUXTests {
         // Darwin's `sockaddr_un.sun_path` holds at most 104 bytes including
         // the terminating NUL, so the filesystem path must stay below 104.
         #expect(paths.daemonSocketURL.path.utf8.count < 104)
+        #expect(paths.codexDaemonSocketURL.path.utf8.count < 104)
         #expect(paths.scope != sibling.scope)
     }
 
@@ -906,7 +911,9 @@ struct ComputerUseUXTests {
         #expect(slash.daemonSocketURL != questionMark.daemonSocketURL)
         #expect(slash.installedHelperAppURL != questionMark.installedHelperAppURL)
         #expect(slash.daemonSocketURL.path.utf8.count < 104)
+        #expect(slash.codexDaemonSocketURL.path.utf8.count < 104)
         #expect(questionMark.daemonSocketURL.path.utf8.count < 104)
+        #expect(questionMark.codexDaemonSocketURL.path.utf8.count < 104)
     }
 
     @Test func defaultRuntimeUsesDarwinPerUserTemporaryDirectory() {
@@ -1132,6 +1139,53 @@ struct ComputerUseUXTests {
             == "1700000000")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_MICROSECONDS"]
             == "123456")
+
+        let codexConfiguration = try #require(
+            ComputerUseHelperLaunchConfiguration(
+                paths: paths,
+                profile: .codexCompatibility,
+                rootProcessIdentity: rootIdentity
+            )
+        )
+        #expect(codexConfiguration.arguments == [
+            "serve",
+            "--socket",
+            paths.codexDaemonSocketURL.path,
+            "--codex-computer-use-compat",
+            "--no-permissions-gate",
+            "--cursor-shape",
+            "cmux",
+        ])
+        #expect(codexConfiguration.environment == configuration.environment)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func daemonReadinessUsesTheExactPIDFileSignal() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-readiness-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let pidFileURL = root.appendingPathComponent("cua.pid")
+        let readiness = ComputerUseDaemonReadiness(
+            pidFileURL: pidFileURL,
+            timeout: .seconds(2)
+        )
+        #expect(readiness.prepare())
+
+        let readyTask = Task {
+            await readiness.waitUntilReady {
+                (try? Data(contentsOf: pidFileURL)) == Data("42".utf8)
+            }
+        }
+        try Data("42".utf8).write(to: pidFileURL)
+
+        #expect(await readyTask.value)
     }
 
     @Test func menuBarRequiresAComputerUsePairedSession() {
