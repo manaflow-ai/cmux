@@ -7,17 +7,20 @@ extension GlobalSearchKeyEvent {
         let flags = modifierFlags
         let commandControlOption = flags.intersection([.command, .control, .option])
 
+        if isTextNavigationOrDeletionKey {
+            return true
+        }
         if commandControlOption == [.command] {
-            return isCommandEditingCharacter || isTextNavigationOrDeletionKey
+            return isCommandEditingCharacter
         }
         if commandControlOption == [.control] {
-            return isControlEditingCharacter || isTextNavigationOrDeletionKey
+            return isControlEditingCharacter
         }
         if commandControlOption == [.option] {
-            return isPrintableTextInput || isTextNavigationOrDeletionKey
+            return isPrintableTextInput
         }
         if commandControlOption.isEmpty {
-            return isPrintableTextInput || isTextNavigationOrDeletionKey
+            return isPrintableTextInput
         }
         return false
     }

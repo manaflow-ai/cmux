@@ -1246,11 +1246,12 @@ final class SystemWideHotkeyController {
             return
         }
 
-        guard let normalizedShortcut = Self.action.normalizedRecordedShortcut(shortcut),
-              let registration = normalizedShortcut.carbonHotKeyRegistration else {
+        guard let candidate = SystemWideHotkeySettings.registrationCandidate(for: shortcut),
+              let normalizedShortcut = Self.action.normalizedRecordedShortcut(candidate.shortcut) else {
             unregisterHotKey()
             return
         }
+        let registration = candidate.registration
 
         if registeredShortcut == normalizedShortcut,
            registeredHotKeyRegistration == registration,

@@ -67,11 +67,33 @@ extension KeyboardShortcutSettings {
     ) -> Bool {
         guard action == .globalSearch,
               let proposedPrefix = shortcut.firstStroke.carbonHotKeyRegistration,
-              let systemWideHotkey = SystemWideHotkeySettings.shortcut()
-                .firstStroke.carbonHotKeyRegistration else {
+              let systemWideHotkey = SystemWideHotkeySettings.registrationCandidate(
+                for: SystemWideHotkeySettings.shortcut()
+              )?.registration else {
             return false
         }
         return proposedPrefix == systemWideHotkey
+    }
+}
+
+extension SystemWideHotkeySettings {
+    /// Resolves a complete Show/Hide binding into the Carbon registration shape
+    /// shared by conflict arbitration and the actual system-wide registrar.
+    ///
+    /// App-shortcut conflicts are checked after Global Search has yielded to
+    /// this candidate, avoiding a recursive lookup between the two actions.
+    static func registrationCandidate(
+        for shortcut: StoredShortcut
+    ) -> (shortcut: StoredShortcut, registration: CarbonHotKeyRegistration)? {
+        guard case let .accepted(normalizedShortcut) = action
+            .resolvedRecordedShortcutIgnoringConflicts(
+                shortcut,
+                checkingSystemWideConflicts: false
+            ),
+            let registration = normalizedShortcut.carbonHotKeyRegistration else {
+            return nil
+        }
+        return (normalizedShortcut, registration)
     }
 }
 
