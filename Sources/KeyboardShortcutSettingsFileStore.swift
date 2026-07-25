@@ -491,28 +491,50 @@ final class CmuxSettingsFileStore {
             }
         }
 
+        // Enum/string keys: an explicit null clears the override (winning over a
+        // fallback file), a valid string is accepted, and any other present value
+        // is logged — consistent with the nullable-hex color paths above.
         let edgeKey = TabBarStyleSettings.activeIndicatorEdgeKey
-        if let raw = jsonString(root[edgeKey]) {
-            let normalized = raw.lowercased()
-            if ["top", "bottom", "none"].contains(normalized) {
-                snapshot.managedUserDefaults[edgeKey] = .string(normalized)
+        if root.keys.contains(edgeKey) {
+            if root[edgeKey] is NSNull {
+                snapshot.managedUserDefaults[edgeKey] = .nullableString(nil)
+            } else if let raw = jsonString(root[edgeKey]) {
+                let normalized = raw.lowercased()
+                if ["top", "bottom", "none"].contains(normalized) {
+                    snapshot.managedUserDefaults[edgeKey] = .string(normalized)
+                } else {
+                    logInvalid(edgeKey, sourcePath: sourcePath)
+                }
             } else {
                 logInvalid(edgeKey, sourcePath: sourcePath)
             }
         }
 
-        if let raw = jsonString(root[TabBarStyleSettings.fontFamilyKey]) {
-            snapshot.managedUserDefaults[TabBarStyleSettings.fontFamilyKey] = .string(raw)
+        let familyKey = TabBarStyleSettings.fontFamilyKey
+        if root.keys.contains(familyKey) {
+            if root[familyKey] is NSNull {
+                snapshot.managedUserDefaults[familyKey] = .nullableString(nil)
+            } else if let raw = jsonString(root[familyKey]) {
+                snapshot.managedUserDefaults[familyKey] = .string(raw)
+            } else {
+                logInvalid(familyKey, sourcePath: sourcePath)
+            }
         }
 
         let weightKey = TabBarStyleSettings.fontWeightKey
-        if let raw = jsonString(root[weightKey]) {
-            let accepted: Set<String> = [
-                "ultraLight", "thin", "light", "regular", "medium",
-                "semibold", "bold", "heavy", "black",
-            ]
-            if accepted.contains(raw) {
-                snapshot.managedUserDefaults[weightKey] = .string(raw)
+        if root.keys.contains(weightKey) {
+            if root[weightKey] is NSNull {
+                snapshot.managedUserDefaults[weightKey] = .nullableString(nil)
+            } else if let raw = jsonString(root[weightKey]) {
+                let accepted: Set<String> = [
+                    "ultraLight", "thin", "light", "regular", "medium",
+                    "semibold", "bold", "heavy", "black",
+                ]
+                if accepted.contains(raw) {
+                    snapshot.managedUserDefaults[weightKey] = .string(raw)
+                } else {
+                    logInvalid(weightKey, sourcePath: sourcePath)
+                }
             } else {
                 logInvalid(weightKey, sourcePath: sourcePath)
             }
