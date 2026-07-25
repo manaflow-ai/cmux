@@ -27989,7 +27989,13 @@ struct CMUXCLI {
         case "claude":
             commandRenderer = AgentResumeArgv.renderedPortableClaudeResumeShellCommand
         case "codex":
-            commandRenderer = AgentResumeArgv.renderedPortableCodexResumeShellCommand
+            commandRenderer = { parts, quote in
+                AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                    parts: parts,
+                    generatedSystemEnvPrefix: !environmentParts.isEmpty,
+                    quote: quote
+                )
+            }
         default:
             commandRenderer = { parts, quote in parts.map(quote).joined(separator: " ") }
         }
