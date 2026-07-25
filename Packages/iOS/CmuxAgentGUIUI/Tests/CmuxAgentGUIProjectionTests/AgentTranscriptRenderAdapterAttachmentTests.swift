@@ -42,5 +42,55 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
         #expect(attachment.pixelWidth == 1_600)
         #expect(attachment.pixelHeight == 900)
     }
+
+    @Test("image extension without MIME type still renders inline")
+    func imageExtensionWithoutMIMETypeStillRendersInline() throws {
+        let attachment = try Self.projectedAttachment(AttachmentPayload(
+            kind: "file",
+            summary: "Screenshot",
+            displayName: "screen.PNG",
+            hostPath: "/tmp/screen.PNG",
+            mimeType: nil
+        ))
+
+        #expect(attachment.media == .image)
+        #expect(attachment.displayName == "screen.PNG")
+        #expect(attachment.hostPath == "/tmp/screen.PNG")
+    }
+
+    @Test("image dimensions without MIME type still render inline")
+    func imageDimensionsWithoutMIMETypeStillRenderInline() throws {
+        let attachment = try Self.projectedAttachment(AttachmentPayload(
+            kind: "artifact",
+            summary: "Generated preview",
+            displayName: nil,
+            hostPath: "/tmp/generated-preview",
+            mimeType: nil,
+            width: 512,
+            height: 768
+        ))
+
+        #expect(attachment.media == .image)
+        #expect(attachment.pixelWidth == 512)
+        #expect(attachment.pixelHeight == 768)
+    }
+
+    private static func projectedAttachment(_ payload: AttachmentPayload) throws -> ChatAttachment {
+        let row = TranscriptRow(
+            rowID: .entry(journalID: JournalID(rawValue: "image-fallback"), seq: EntrySeq(rawValue: 1)),
+            rowKind: .attachment(payload)
+        )
+        let rendered = try #require(AgentTranscriptRenderAdapter().rows(from: [row]).first)
+        guard case .message(let snapshot) = rendered.content,
+              case .attachment(let attachment) = snapshot.message.kind else {
+            Issue.record("Expected the attachment row to render as a chat attachment")
+            throw AgentTranscriptRenderAdapterAttachmentTestError.expectedAttachment
+        }
+        return attachment
+    }
+}
+
+private enum AgentTranscriptRenderAdapterAttachmentTestError: Error {
+    case expectedAttachment
 }
 #endif

@@ -3,12 +3,11 @@ import CoreGraphics
 /// Stable inline-image geometry derived only from transcript metadata.
 ///
 /// Loading a thumbnail never changes the reserved footprint. Missing or
-/// invalid dimensions use a deterministic 4:3 fallback, while extreme aspect
-/// ratios are clamped to keep screenshots useful inside a transcript row.
+/// invalid dimensions use a deterministic 4:3 fallback. Extreme aspect ratios
+/// keep their source ratio and shrink one dimension to stay bounded.
 struct ChatAttachmentPreviewLayout: Equatable, Sendable {
     private static let fallbackAspectRatio: CGFloat = 4 / 3
-    private static let minimumAspectRatio: CGFloat = 0.8
-    private static let maximumAspectRatio: CGFloat = 2
+    private static let maximumHeightToWidthRatio: CGFloat = 1.25
 
     let aspectRatio: CGFloat
 
@@ -17,11 +16,7 @@ struct ChatAttachmentPreviewLayout: Equatable, Sendable {
            let pixelHeight,
            pixelWidth > 0,
            pixelHeight > 0 {
-            let sourceAspectRatio = CGFloat(pixelWidth) / CGFloat(pixelHeight)
-            aspectRatio = min(
-                Self.maximumAspectRatio,
-                max(Self.minimumAspectRatio, sourceAspectRatio)
-            )
+            aspectRatio = CGFloat(pixelWidth) / CGFloat(pixelHeight)
         } else {
             aspectRatio = Self.fallbackAspectRatio
         }
@@ -29,6 +24,11 @@ struct ChatAttachmentPreviewLayout: Equatable, Sendable {
 
     func size(maxWidth: CGFloat) -> CGSize {
         guard maxWidth.isFinite, maxWidth > 0 else { return .zero }
-        return CGSize(width: maxWidth, height: maxWidth / aspectRatio)
+        let idealHeight = maxWidth / aspectRatio
+        let maximumHeight = maxWidth * Self.maximumHeightToWidthRatio
+        if idealHeight <= maximumHeight {
+            return CGSize(width: maxWidth, height: idealHeight)
+        }
+        return CGSize(width: maximumHeight * aspectRatio, height: maximumHeight)
     }
 }

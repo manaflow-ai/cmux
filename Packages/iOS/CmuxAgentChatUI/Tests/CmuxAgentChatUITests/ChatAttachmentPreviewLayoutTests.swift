@@ -27,12 +27,12 @@ struct ChatAttachmentPreviewLayoutTests {
         #expect(negative.size(maxWidth: 320) == missing.size(maxWidth: 320))
     }
 
-    @Test("extreme aspect ratios remain useful without changing transcript width")
-    func extremeAspectRatiosAreClamped() {
+    @Test("extreme aspect ratios preserve source shape while staying bounded")
+    func extremeAspectRatiosPreserveSourceShapeWhileBounded() {
         let tall = ChatAttachmentPreviewLayout(pixelWidth: 1_000, pixelHeight: 5_000)
         let panorama = ChatAttachmentPreviewLayout(pixelWidth: 5_000, pixelHeight: 1_000)
 
-        #expect(tall.size(maxWidth: 320) == CGSize(width: 320, height: 400))
-        #expect(panorama.size(maxWidth: 320) == CGSize(width: 320, height: 160))
+        #expect(tall.size(maxWidth: 320) == CGSize(width: 80, height: 400))
+        #expect(panorama.size(maxWidth: 320) == CGSize(width: 320, height: 64))
     }
 }

@@ -116,6 +116,13 @@ struct AgentGUIJournalPipelineTests {
         #expect(emptyPage.windowStart == EntrySeq(rawValue: 0))
         #expect(emptyPage.windowEnd == EntrySeq(rawValue: 0))
         #expect(emptyPage.hasMoreBefore == false)
+        let emptyDiskPage = try #require(await pipeline.diskEntries(direction: .tail, limit: 10))
+        #expect(emptyDiskPage.entries.isEmpty)
+        #expect(emptyDiskPage.tailSeq == EntrySeq(rawValue: 0))
+        #expect(emptyDiskPage.startOffset == 0)
+        #expect(emptyDiskPage.endOffset == 0)
+        #expect(emptyDiskPage.hasMoreBefore == false)
+        #expect(emptyDiskPage.hasMoreAfter == false)
         guard case .reset(let pendingJournal, let tail)? = emptyEvents.first else {
             Issue.record("missing journal should establish an empty replica journal")
             return
@@ -148,6 +155,7 @@ struct AgentGUIJournalPipelineTests {
 
         #expect(pipeline.lastReadFailed)
         #expect(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10) == nil)
+        #expect(await pipeline.diskEntries(direction: .tail, limit: 10) == nil)
     }
 
     @Test func pairsToolResultsAsReplacementsAndResetsAfterRotation() async throws {

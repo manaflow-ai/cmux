@@ -90,7 +90,9 @@ final class AgentGUIJournalPipeline {
                 byteLimit: AgentGUIConstants.journalPageByteCap
             )
         }.value
-        guard rawPage.readSucceeded else { return nil }
+        guard rawPage.readSucceeded else {
+            return emptyPendingDiskPage(from: window)
+        }
         var contextLines: [AgentGUIJournalSourceLine]
         if rawPage.startOffset > 0 {
             let contextPage = await Task.detached(priority: .utility) {
@@ -214,6 +216,20 @@ final class AgentGUIJournalPipeline {
             tailSeq: window.tailSeq,
             hasMoreBefore: rawPage.hasMoreBefore || startOffset > 0,
             hasMoreAfter: endOffset < committedTailOffset
+        )
+    }
+
+    private func emptyPendingDiskPage(from window: AgentGUIJournalWindow) -> AgentGUIJournalDecodedPage? {
+        guard window.tailSeq.rawValue == 0 else { return nil }
+        return AgentGUIJournalDecodedPage(
+            journalID: window.journalID,
+            entries: [],
+            startOffset: 0,
+            endOffset: 0,
+            tailOffset: 0,
+            tailSeq: EntrySeq(rawValue: 0),
+            hasMoreBefore: false,
+            hasMoreAfter: false
         )
     }
 

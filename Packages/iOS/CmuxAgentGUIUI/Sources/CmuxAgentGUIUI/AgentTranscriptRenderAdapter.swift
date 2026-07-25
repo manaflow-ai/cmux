@@ -117,8 +117,7 @@ struct AgentTranscriptRenderAdapter {
         row: TranscriptRow,
         attachment: AttachmentPayload
     ) -> ChatMessageRowSnapshot {
-        let isImage = attachment.mimeType?.hasPrefix("image/") == true
-            || attachment.kind.lowercased().contains("image")
+        let isImage = isImageAttachment(attachment)
         let message = ChatMessage(
             id: row.rowID.description,
             seq: row.sourceEntry?.seq.rawValue ?? row.displayTick ?? 0,
@@ -141,6 +140,32 @@ struct AgentTranscriptRenderAdapter {
             groupPosition: .solo,
             showsTimestamp: row.sourceEntry?.timestampMilliseconds != nil
         )
+    }
+
+    private func isImageAttachment(_ attachment: AttachmentPayload) -> Bool {
+        if attachment.mimeType?.lowercased().hasPrefix("image/") == true {
+            return true
+        }
+        if attachment.kind.lowercased().contains("image") {
+            return true
+        }
+        if (attachment.width ?? 0) > 0, (attachment.height ?? 0) > 0 {
+            return true
+        }
+        if Self.hasImageExtension(attachment.displayName) || Self.hasImageExtension(attachment.hostPath) {
+            return true
+        }
+        return false
+    }
+
+    private static func hasImageExtension(_ value: String?) -> Bool {
+        guard let value, !value.isEmpty else { return false }
+        switch URL(fileURLWithPath: value).pathExtension.lowercased() {
+        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff", "webp":
+            return true
+        default:
+            return false
+        }
     }
 }
 #endif

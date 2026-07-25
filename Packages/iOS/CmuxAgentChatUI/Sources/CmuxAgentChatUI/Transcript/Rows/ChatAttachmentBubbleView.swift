@@ -89,7 +89,6 @@ public struct ChatAttachmentBubbleView: View {
                 imagePreview
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
             .accessibilityLabel(displayName)
             .accessibilityHint(openPreviewHint)
             .accessibilityIdentifier("ChatAttachmentImagePreview")
@@ -152,8 +151,7 @@ public struct ChatAttachmentBubbleView: View {
             theme.terminalCardFill
             imagePreviewContent
         }
-        .aspectRatio(previewLayout.aspectRatio, contentMode: .fit)
-        .frame(maxWidth: .infinity)
+        .frame(width: previewSize.width, height: previewSize.height)
         .clipShape(bubbleShape)
         .overlay {
             bubbleShape
@@ -221,6 +219,11 @@ public struct ChatAttachmentBubbleView: View {
             pixelWidth: attachment.pixelWidth,
             pixelHeight: attachment.pixelHeight
         )
+    }
+
+    private var previewSize: CGSize {
+        let resolvedMaxWidth = bubbleMaxWidth.isFinite && bubbleMaxWidth > 0 ? bubbleMaxWidth : 320
+        return previewLayout.size(maxWidth: resolvedMaxWidth)
     }
 
     private var hostPath: String? {
