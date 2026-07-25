@@ -6019,6 +6019,40 @@
         }
       }
     },
+    "mobile.settings.connectionFocused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focused"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
     "mobile.settings.notSignedIn": {
       "extractionState": "manual",
       "localizations": {
