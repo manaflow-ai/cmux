@@ -36,6 +36,13 @@ export const IROH_RETENTION_MAX_ROWS = 10_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
 export const IROH_ACCOUNT_CHALLENGE_LIMIT = 120;
 export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
+// A backstop on how many active (non-revoked) endpoint bindings one account may
+// accumulate. Under the unique(user, device, tag) slot key a normal user holds a
+// handful of bindings and a heavy multi-tag developer at most low hundreds, so
+// this only trips on a stuck registration loop or abuse. When a genuinely new
+// slot would push the count over the cap, the oldest-seen bindings are evicted
+// (LRU) rather than letting the row set grow without bound.
+export const IROH_ACTIVE_BINDING_SANITY_CAP = 512;
 
 export type IrohRetentionCategory =
   | "revokedHints"
@@ -311,13 +318,16 @@ function makeLiveRepository(): IrohRepositoryShape {
           .limit(1);
         if (endpointOwner) throw new IrohConflictError({ code: "endpoint_already_bound" });
 
-        if (existingSlot) {
+        // Same cryptographic endpoint on the slot: a heartbeat/refresh of the
+        // live incarnation. Update in place. The binding id is stable and no
+        // peer's admission view of this endpoint changes, so there is no ABA
+        // hazard and existing pair grants keep resolving against the same id.
+        if (existingSlot && existingSlot.endpointId === input.payload.endpointId) {
           const [updated] = await tx
             .update(irohEndpointBindings)
             .set({
               appInstanceId: input.payload.appInstanceId,
               platform: input.payload.platform,
-              endpointId: input.payload.endpointId,
               identityGeneration: input.payload.identityGeneration,
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
@@ -337,6 +347,37 @@ function makeLiveRepository(): IrohRepositoryShape {
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
           return { binding: updated, created: false };
+        }
+
+        // A NEW incarnation on an existing slot: the endpoint key rotated (a
+        // reinstall, a sign-out/in, or an explicit key rotation). Reusing the old
+        // binding id would let a peer host that already denied the OLD endpoint
+        // tuple permanently deny this row too — the ABA wedge that strands a
+        // computer behind its own past self, since a host's denial set is keyed
+        // on binding id, not endpoint id. So mint a NEW binding id: retire the
+        // old row and carry its live pair grants onto the new id, so existing
+        // pairings follow the device across the rotation instead of forcing a
+        // re-pair.
+        if (existingSlot) {
+          await tx
+            .update(irohEndpointBindings)
+            .set({
+              revokedAt: input.now,
+              revokedReason: "slot_reincarnated",
+              directPortV4: null,
+              directPortV6: null,
+              pathHints: [],
+              pathHintsNextExpiry: null,
+              updatedAt: input.now,
+            })
+            .where(eq(irohEndpointBindings.id, existingSlot.id));
+        } else {
+          // Only a genuinely new slot grows the account's active-binding count,
+          // so the sanity cap is enforced on this path alone.
+          await enforceActiveBindingSanityCap(tx, {
+            userId: input.userId,
+            now: input.now,
+          });
         }
 
         const [binding] = await tx
@@ -362,6 +403,27 @@ function makeLiveRepository(): IrohRepositoryShape {
           })
           .returning();
         if (!binding) throw new Error("binding insert returned no row");
+
+        if (existingSlot) {
+          // Carry live pairings to the new incarnation's id. Revoked grants stay
+          // pointing at the retired row (still present, only soft-revoked, so the
+          // foreign key holds).
+          await tx
+            .update(irohPairGrantIssuances)
+            .set({ initiatorBindingId: binding.id })
+            .where(and(
+              eq(irohPairGrantIssuances.initiatorBindingId, existingSlot.id),
+              isNull(irohPairGrantIssuances.revokedAt),
+            ));
+          await tx
+            .update(irohPairGrantIssuances)
+            .set({ acceptorBindingId: binding.id })
+            .where(and(
+              eq(irohPairGrantIssuances.acceptorBindingId, existingSlot.id),
+              isNull(irohPairGrantIssuances.revokedAt),
+            ));
+        }
+
         await tx
           .insert(irohAccountSecurityStates)
           .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
@@ -835,7 +897,10 @@ async function revokeActiveBindings(
     readonly userId: string;
     readonly bindingIds: readonly string[];
     readonly now: Date;
-    readonly reason: "user_requested" | "stale_development_binding";
+    readonly reason:
+      | "user_requested"
+      | "stale_development_binding"
+      | "active_binding_cap_evicted";
   },
 ): Promise<readonly string[]> {
   if (input.bindingIds.length === 0) return [];
@@ -884,6 +949,36 @@ async function revokeActiveBindings(
       },
     });
   return revokedIds;
+}
+
+// Evict the oldest-seen active bindings so that admitting one more stays within
+// IROH_ACTIVE_BINDING_SANITY_CAP. Called only on the genuinely-new-slot path, so
+// the "+1" accounts for the row about to be inserted. LRU by lastSeenAt: a stuck
+// client spamming fresh device/tag tuples sheds its own stale rows rather than
+// starving the account. No-op for every normal account, which sits far under the
+// cap.
+async function enforceActiveBindingSanityCap(
+  tx: CloudDbTransaction,
+  input: { readonly userId: string; readonly now: Date },
+): Promise<void> {
+  const active = await tx
+    .select({ id: irohEndpointBindings.id })
+    .from(irohEndpointBindings)
+    .where(and(
+      eq(irohEndpointBindings.userId, input.userId),
+      isNull(irohEndpointBindings.revokedAt),
+    ))
+    .orderBy(asc(irohEndpointBindings.lastSeenAt))
+    .for("update");
+  const overflow = active.length + 1 - IROH_ACTIVE_BINDING_SANITY_CAP;
+  if (overflow <= 0) return;
+  const evictable = active.slice(0, overflow).map((row) => row.id);
+  await revokeActiveBindings(tx, {
+    userId: input.userId,
+    bindingIds: evictable,
+    now: input.now,
+    reason: "active_binding_cap_evicted",
+  });
 }
 
 type RetentionBatchOperation = {

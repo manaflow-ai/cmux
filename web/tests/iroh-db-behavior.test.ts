@@ -9,6 +9,7 @@ import {
 } from "../services/account/deletionLock";
 import type { PairGrantPeer } from "../services/iroh/crypto";
 import {
+  IROH_ACTIVE_BINDING_SANITY_CAP,
   IROH_RETENTION_BATCH_SIZE,
   IrohRepository,
   IrohRepositoryLive,
@@ -810,7 +811,7 @@ describe("Iroh trust broker database behavior", () => {
     );
   });
 
-  dbTest("re-keys a reinstalled slot in place and frees its old endpoint", async () => {
+  dbTest("re-keys a reinstalled slot onto a fresh binding id and frees its old endpoint", async () => {
     const repo = requiredRepository();
     const userId = "user-slot-reinstall";
     const deviceId = randomUUID();
@@ -870,8 +871,10 @@ describe("Iroh trust broker database behavior", () => {
     expect(first.created).toBe(true);
 
     // Reinstall: fresh app instance, rotated endpoint, generation reset to 1.
-    // Newest-authenticated-wins is not generation-gated, so the lower generation
-    // still overwrites the slot in place instead of being rejected as stale.
+    // The rotated key is a new incarnation, so the slot is re-keyed onto a BRAND
+    // NEW binding id (never the retired one) to dodge the ABA wedge where a host
+    // that denied the old id would keep denying a resurrected same-id row. The
+    // old row is soft-revoked, not deleted, so pair grants can be carried across.
     const reinstallApp = randomUUID();
     const reinstalled = await register({
       appInstanceId: reinstallApp,
@@ -881,8 +884,8 @@ describe("Iroh trust broker database behavior", () => {
       suffix: "2",
       now: new Date(NOW.getTime() + 1_000),
     });
-    expect(reinstalled.created).toBe(false);
-    expect(reinstalled.binding.id).toBe(first.binding.id);
+    expect(reinstalled.created).toBe(true);
+    expect(reinstalled.binding.id).not.toBe(first.binding.id);
     expect(reinstalled.binding.endpointId).toBe(rotatedEndpoint);
     expect(reinstalled.binding.appInstanceId).toBe(reinstallApp);
     expect(reinstalled.binding.identityGeneration).toBe(1);
@@ -901,14 +904,22 @@ describe("Iroh trust broker database behavior", () => {
 
     const [state] = await requiredSql()<Array<{
       active: string;
+      slotBindingId: string;
       slotEndpoint: string;
+      oldRevokedReason: string | null;
       oldEndpointFree: boolean;
     }>>`
       select
         (select count(*)::text from iroh_endpoint_bindings
           where user_id = ${userId} and revoked_at is null) as active,
+        (select id from iroh_endpoint_bindings
+          where user_id = ${userId} and device_uuid = ${deviceId}
+            and tag = 'stable' and revoked_at is null) as "slotBindingId",
         (select endpoint_id from iroh_endpoint_bindings
-          where id = ${first.binding.id}) as "slotEndpoint",
+          where user_id = ${userId} and device_uuid = ${deviceId}
+            and tag = 'stable' and revoked_at is null) as "slotEndpoint",
+        (select revoked_reason from iroh_endpoint_bindings
+          where id = ${first.binding.id}) as "oldRevokedReason",
         not exists(
           select 1 from iroh_endpoint_bindings
           where endpoint_id = ${firstEndpoint} and revoked_at is null
@@ -916,9 +927,206 @@ describe("Iroh trust broker database behavior", () => {
     `;
     expect(state).toEqual({
       active: "2",
+      slotBindingId: reinstalled.binding.id,
       slotEndpoint: rotatedEndpoint,
+      oldRevokedReason: "slot_reincarnated",
       oldEndpointFree: true,
     });
+  });
+
+  dbTest("carries live pair grants from a retired incarnation onto the re-keyed binding", async () => {
+    const repo = requiredRepository();
+    const initiatorUser = "user-rekey-grant-initiator";
+    const deviceId = randomUUID();
+    const firstEndpoint = "60".repeat(32);
+    const rotatedEndpoint = "61".repeat(32);
+
+    const registerInitiator = async (input: {
+      endpointId: string;
+      suffix: string;
+      now: Date;
+    }) => {
+      const nonceHash = input.suffix.repeat(64);
+      const appInstanceId = randomUUID();
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId: initiatorUser,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId: input.endpointId,
+        identityGeneration: 1,
+        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now: input.now,
+        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
+      }));
+      return Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId: initiatorUser,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          tag: "stable",
+          platform: "ios",
+          endpointId: input.endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: [],
+          pathHints: [],
+        },
+        now: input.now,
+      }));
+    };
+
+    const initiator = await registerInitiator({ endpointId: firstEndpoint, suffix: "6", now: NOW });
+    const acceptorId = await insertBinding({
+      userId: initiatorUser,
+      deviceUuid: randomUUID(),
+      platform: "mac",
+      endpointId: "62".repeat(32),
+    });
+
+    const insertGrant = async (revokedAt: Date | null) => {
+      const [row] = await requiredSql()<Array<{ id: string }>>`
+        insert into iroh_pair_grant_issuances (
+          user_id, jti, initiator_binding_id, acceptor_binding_id, signing_key_id,
+          alpn, scope, issued_at, not_before, expires_at, revoked_at
+        ) values (
+          ${initiatorUser}, ${randomUUID()}, ${initiator.binding.id}, ${acceptorId}, 'current',
+          'cmux/mobile/1', 'cmux.mobile.attach',
+          ${NOW}, ${NOW}, ${new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1_000)}, ${revokedAt}
+        ) returning id::text
+      `;
+      if (!row) throw new Error("grant insert returned no row");
+      return row.id;
+    };
+
+    // A live pair grant anchored to the initiator's first incarnation, plus an
+    // already-revoked grant on the same id that must stay pointing at the retired
+    // row (only live grants follow the device across a re-key).
+    const liveGrantId = await insertGrant(null);
+    const staleGrantId = await insertGrant(NOW);
+
+    const reinstalled = await registerInitiator({
+      endpointId: rotatedEndpoint,
+      suffix: "7",
+      now: new Date(NOW.getTime() + 1_000),
+    });
+    expect(reinstalled.binding.id).not.toBe(initiator.binding.id);
+
+    const [grants] = await requiredSql()<Array<{
+      liveInitiator: string;
+      staleInitiator: string;
+    }>>`
+      select
+        (select initiator_binding_id::text from iroh_pair_grant_issuances
+          where id = ${liveGrantId}) as "liveInitiator",
+        (select initiator_binding_id::text from iroh_pair_grant_issuances
+          where id = ${staleGrantId}) as "staleInitiator"
+    `;
+    // Live grant follows the device onto the new id; the revoked grant stays on
+    // the retired incarnation.
+    expect(grants.liveInitiator).toBe(reinstalled.binding.id);
+    expect(grants.staleInitiator).toBe(initiator.binding.id);
+  });
+
+  dbTest("evicts the oldest-seen binding once a new slot would exceed the sanity cap", async () => {
+    const repo = requiredRepository();
+    const userId = "user-binding-cap";
+
+    // Seed one deterministically-oldest active binding, then fill up to CAP - 1
+    // active rows that are all more recently seen than it.
+    const oldestEndpoint = "0f4240".padStart(64, "0");
+    const [oldest] = await requiredSql()<Array<{ id: string }>>`
+      insert into iroh_endpoint_bindings (
+        user_id, device_uuid, app_instance_id, tag, platform, endpoint_id,
+        identity_generation, pairing_enabled, capabilities, path_hints, last_seen_at
+      ) values (
+        ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', 'ios', ${oldestEndpoint},
+        1, true, '[]'::jsonb, '[]'::jsonb, ${new Date(NOW.getTime() - 10 * 60 * 60 * 1_000)}
+      ) returning id::text
+    `;
+    if (!oldest) throw new Error("oldest binding insert returned no row");
+    await requiredSql()`
+      insert into iroh_endpoint_bindings (
+        user_id, device_uuid, app_instance_id, tag, platform, endpoint_id,
+        identity_generation, pairing_enabled, capabilities, path_hints, last_seen_at
+      )
+      select
+        ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', 'ios',
+        lpad(to_hex(gs), 64, '0'), 1, true, '[]'::jsonb, '[]'::jsonb,
+        ${new Date(NOW.getTime() - 60 * 60 * 1_000)}::timestamptz + (gs * interval '1 second')
+      from generate_series(1, ${IROH_ACTIVE_BINDING_SANITY_CAP - 2}) as gs
+    `;
+
+    const register = async (input: { endpointId: string; suffix: string; now: Date }) => {
+      const nonceHash = input.suffix.repeat(64);
+      const deviceId = randomUUID();
+      const appInstanceId = randomUUID();
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId: input.endpointId,
+        identityGeneration: 1,
+        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now: input.now,
+        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
+      }));
+      return Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          tag: "stable",
+          platform: "ios",
+          endpointId: input.endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: [],
+          pathHints: [],
+        },
+        now: input.now,
+      }));
+    };
+
+    const countActive = async () => {
+      const [row] = await requiredSql()<Array<{ total: string }>>`
+        select count(*)::text as total from iroh_endpoint_bindings
+        where user_id = ${userId} and revoked_at is null
+      `;
+      return Number(row?.total ?? "-1");
+    };
+
+    // Exactly at the cap: a new slot fills the last free space, nothing evicted.
+    const atCap = await register({ endpointId: "c1".repeat(32), suffix: "8", now: NOW });
+    expect(atCap.created).toBe(true);
+    expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
+
+    // Over the cap: the single oldest-seen row is evicted so the count holds.
+    const overCap = await register({
+      endpointId: "c2".repeat(32),
+      suffix: "9",
+      now: new Date(NOW.getTime() + 1_000),
+    });
+    expect(overCap.created).toBe(true);
+    expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
+
+    const [evicted] = await requiredSql()<Array<{
+      revokedReason: string | null;
+      revoked: boolean;
+    }>>`
+      select revoked_reason as "revokedReason", revoked_at is not null as revoked
+      from iroh_endpoint_bindings where id = ${oldest.id}
+    `;
+    expect(evicted).toEqual({ revokedReason: "active_binding_cap_evicted", revoked: true });
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {

@@ -244,13 +244,14 @@ describe("Iroh trust broker registration", () => {
     await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohConflictError");
   });
 
-  test("overwrites the slot in place when the endpoint or generation changes", async () => {
+  test("re-keys the slot onto a fresh binding id when the endpoint rotates", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
     const slotId = fixture.repository.bindings[0]!.id;
     // A rotated endpoint and a bumped generation reuse the same (user, device,
-    // tag) slot: newest-authenticated-wins overwrites it in place instead of
-    // demanding the operator revoke the previous binding first.
+    // tag) slot, but the new incarnation lands on a BRAND NEW binding id: the old
+    // row is soft-revoked ("slot_reincarnated") so a host that denied the old id
+    // can't strand the resurrected slot, and no operator revoke is demanded.
     const replacement = makeFixture({
       repository: fixture.repository,
       appInstanceId: fixture.appInstanceId,
@@ -258,10 +259,14 @@ describe("Iroh trust broker registration", () => {
       identityGeneration: 2,
     });
     await Effect.runPromise(replacement.broker.register(USER_A, await replacement.signedRegistration(), NOW));
-    expect(fixture.repository.bindings).toHaveLength(1);
-    expect(fixture.repository.bindings[0]!.id).toBe(slotId);
-    expect(fixture.repository.bindings[0]!.endpointId).toBe(replacement.endpointId);
-    expect(fixture.repository.bindings[0]!.identityGeneration).toBe(2);
+    const active = fixture.repository.bindings.filter((row) => !row.revokedAt);
+    expect(active).toHaveLength(1);
+    expect(active[0]!.id).not.toBe(slotId);
+    expect(active[0]!.endpointId).toBe(replacement.endpointId);
+    expect(active[0]!.identityGeneration).toBe(2);
+    const retired = fixture.repository.bindings.find((row) => row.id === slotId);
+    expect(retired?.revokedAt).toEqual(NOW);
+    expect(retired?.revokedReason).toBe("slot_reincarnated");
   });
 });
 
@@ -737,8 +742,7 @@ class MemoryRepository implements IrohRepositoryShape {
       directPorts?: TestDirectPorts;
     }).directPorts;
     // The slot is keyed on (user, device, tag). A reinstall, sign-out/in, or key
-    // rotation reuses it and the newest authenticated registration overwrites it
-    // in place, preserving the row id. There is no generation gate and no cap.
+    // rotation reuses that slot. There is no generation gate and no cap.
     const existing = this.bindings.find((row) =>
       row.userId === input.userId &&
       row.deviceUuid === input.payload.deviceId &&
@@ -752,11 +756,12 @@ class MemoryRepository implements IrohRepositoryShape {
       row !== existing)) {
       return Effect.fail(new IrohConflictError({ code: "endpoint_already_bound" }));
     }
-    if (existing) {
+    // Same cryptographic endpoint on the slot: a heartbeat/refresh of the live
+    // incarnation, updated in place so the binding id stays stable.
+    if (existing && existing.endpointId === input.payload.endpointId) {
       challenge.consumedAt = input.now;
       existing.appInstanceId = input.payload.appInstanceId;
       existing.platform = input.payload.platform;
-      existing.endpointId = input.payload.endpointId;
       existing.identityGeneration = input.payload.identityGeneration;
       existing.displayName = input.payload.displayName ?? null;
       existing.pairingEnabled = input.payload.pairingEnabled;
@@ -767,6 +772,19 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.lastSeenAt = input.now;
       existing.updatedAt = input.now;
       return Effect.succeed({ binding: existing, created: false });
+    }
+    // A rotated endpoint is a new incarnation: retire the old row (soft-revoke,
+    // never delete) and mint a fresh binding id so a peer host that denied the
+    // old id can't strand the resurrected slot. Live pair grants are carried onto
+    // the new id in the real repository; the route-layer tests here don't model
+    // that grant table.
+    if (existing) {
+      existing.revokedAt = input.now;
+      existing.revokedReason = "slot_reincarnated";
+      existing.directPortV4 = null;
+      existing.directPortV6 = null;
+      existing.pathHints = [];
+      existing.updatedAt = input.now;
     }
     const inserted = binding({
       userId: input.userId,
