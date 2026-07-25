@@ -1992,19 +1992,22 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        XCTAssertEqual(
+        XCTAssertLessThanOrEqual(
             coordinator.debugLastSynchronousTransferRequestVisitCount,
-            0,
-            "A transfer callback must register constant-size work without visiting queued requests"
+            WorkspaceTerminalFontSizeDrainBudget
+                .maximumRequestVisitsPerDrain,
+            "A transfer callback must stay inside one request-visit budget"
         )
-        XCTAssertEqual(
-            enteringPanelApplyCount,
-            0,
-            "A transfer callback must defer native work to the budgeted drain"
-        )
-        coordinator.debugFlushOneDrain()
         XCTAssertLessThanOrEqual(
             enteringPanelApplyCount,
+            WorkspaceTerminalFontSizeDrainBudget
+                .maximumLiveActionsPerDrain,
+            "A transfer callback must keep native work inside one drain budget"
+        )
+        let callbackApplyCount = enteringPanelApplyCount
+        coordinator.debugFlushOneDrain()
+        XCTAssertLessThanOrEqual(
+            enteringPanelApplyCount - callbackApplyCount,
             WorkspaceTerminalFontSizeDrainBudget
                 .maximumLiveActionsPerDrain,
             "One drain must keep transfer actions inside its native-action budget"

@@ -415,13 +415,14 @@ final class DockSplitStore: BonsplitDelegate {
     }
 #endif
 
+    @discardableResult
     func beginTerminalFontSizeChangeInheritance(
         token: UUID,
         change: WorkspaceTerminalFontSizeChange,
         configuredRuntimePoints: Float32,
         fallbackLineage: TerminalFontSizeLineage?,
         fallbackLineageAlreadyIncludesChange: Bool
-    ) {
+    ) -> TerminalFontSizeChangeInheritanceContext {
         let preferredSourcePanel = focusedPanelId.flatMap {
             panels[$0] as? TerminalPanel
         }
@@ -438,6 +439,7 @@ final class DockSplitStore: BonsplitDelegate {
         )
         activeTerminalFontSizeChangeInheritanceContext = context
         rememberDurableTerminalFontSizeLineage(context.fallbackLineage)
+        return context
     }
 
     func endTerminalFontSizeChangeInheritance(token: UUID) {

@@ -196,7 +196,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
         var magnificationPercent: Int?
         var didParticipateWindowDock = false
         var remainingRequestTokens: Set<UUID> = []
-        var transferReconciledRequestTokens: Set<UUID> = []
+        let windowDockTransferToken = UUID()
+        let workspaceTransferToken = UUID()
+    }
+
+    private enum RequestResourceKey: Hashable {
+        case workspace(UUID)
+        case windowDock(ObjectIdentifier)
     }
 
     private enum RequestTarget {
@@ -212,12 +218,117 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private struct PendingRequest {
         let token: UUID
+        let resourceKey: RequestResourceKey
         let target: RequestTarget
         let batchLineage: EventBatchLineage
         /// Ordered Dock changes through this workspace's most recent event.
         /// This is a constant-size value transform, not a panel snapshot.
         var windowDockPrefixChange: WorkspaceTerminalFontSizeChange?
         var change: WorkspaceTerminalFontSizeChange
+    }
+
+    private final class TransferRequestRecord {
+        let request: PendingRequest
+        let configuredRuntimePoints: Float32
+        weak var previous: TransferRequestRecord?
+        var next: TransferRequestRecord?
+
+        init(
+            request: PendingRequest,
+            configuredRuntimePoints: Float32
+        ) {
+            self.request = request
+            self.configuredRuntimePoints = configuredRuntimePoints
+        }
+    }
+
+    private final class TransferObligation {
+        weak var panel: TerminalPanel?
+        let panelId: UUID
+        weak var resourceState: TransferResourceState?
+        var nextRequest: TransferRequestRecord?
+        var throughRequest: TransferRequestRecord
+        weak var previousGlobal: TransferObligation?
+        var nextGlobal: TransferObligation?
+
+        init(
+            panel: TerminalPanel,
+            resourceState: TransferResourceState,
+            nextRequest: TransferRequestRecord,
+            throughRequest: TransferRequestRecord
+        ) {
+            self.panel = panel
+            panelId = panel.id
+            self.resourceState = resourceState
+            self.nextRequest = nextRequest
+            self.throughRequest = throughRequest
+        }
+    }
+
+    private final class TransferResourceState {
+        private(set) var outstandingRequestCount = 0
+        private(set) var firstRequest: TransferRequestRecord?
+        private(set) var lastRequest: TransferRequestRecord?
+        private var obligationsByPanelId: [UUID: TransferObligation] = [:]
+
+        func appendRequest(_ record: TransferRequestRecord) {
+            outstandingRequestCount += 1
+            record.previous = lastRequest
+            lastRequest?.next = record
+            if firstRequest == nil {
+                firstRequest = record
+            }
+            lastRequest = record
+        }
+
+        @discardableResult
+        func retireRequest(token: UUID) -> Bool {
+            precondition(outstandingRequestCount > 0)
+            guard let record = firstRequest else {
+                preconditionFailure("Missing transfer request record")
+            }
+            precondition(record.request.token == token)
+            firstRequest = record.next
+            firstRequest?.previous = nil
+            if lastRequest === record {
+                lastRequest = nil
+            }
+            record.next = nil
+            outstandingRequestCount -= 1
+            return outstandingRequestCount == 0
+        }
+
+        func register(
+            panel: TerminalPanel
+        ) -> (obligation: TransferObligation, isNew: Bool)? {
+            guard let firstRequest, let lastRequest else { return nil }
+            if let existing = obligationsByPanelId[panel.id] {
+                existing.throughRequest = lastRequest
+                return (existing, false)
+            }
+            let obligation = TransferObligation(
+                panel: panel,
+                resourceState: self,
+                nextRequest: firstRequest,
+                throughRequest: lastRequest
+            )
+            obligationsByPanelId[panel.id] = obligation
+            return (obligation, true)
+        }
+
+        func remove(_ obligation: TransferObligation) {
+            guard obligationsByPanelId.removeValue(
+                forKey: obligation.panelId
+            ) === obligation else {
+                return
+            }
+            obligation.resourceState = nil
+            obligation.nextRequest = nil
+        }
+
+        var obligations: Dictionary<UUID, TransferObligation>.Values {
+            obligationsByPanelId.values
+        }
     }
 
     private struct PendingEventBatch {
@@ -335,7 +446,16 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private var pendingEventBatch: PendingEventBatch?
     private var sealedRequests = PendingRequestQueue()
     private var activeRequest: ActiveRequest?
-    private var transferReconciledRequests: [UUID: PendingRequest] = [:]
+    private var transferResourceStates:
+        [RequestResourceKey: TransferResourceState] = [:]
+    private var firstTransferObligation: TransferObligation?
+    private var lastTransferObligation: TransferObligation?
+    private var windowDockResourceKeys:
+        [ObjectIdentifier: RequestResourceKey] = [:]
+    private var activeBatchLineages:
+        [ObjectIdentifier: EventBatchLineage] = [:]
+    private var activeTransferRequestTokens: Set<UUID> = []
+    private var isDraining = false
     private let schedule: DrainScheduler
     private let applyChange: ChangeApplier
     private var cancelScheduledDrain: DrainCancellation?
@@ -393,6 +513,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     func attachWindowDock(_ dock: DockSplitStore) {
         windowDockSlot.value = dock
+        windowDockResourceKeys[ObjectIdentifier(dock)] =
+            .windowDock(ObjectIdentifier(windowDockSlot))
         dock.terminalFontSizeChangeCoordinator =
             windowDockSlot.coordinator ?? self
         dock.terminalFontSizeOwningWorkspace = nil
@@ -805,6 +927,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
         slot.coordinator = self
         slot.value?.terminalFontSizeChangeCoordinator = self
         slot.value?.terminalFontSizeOwningWorkspace = nil
+        if let dock = slot.value {
+            windowDockResourceKeys[ObjectIdentifier(dock)] =
+                .windowDock(ObjectIdentifier(slot))
+        }
     }
 
     private func hasOutstandingWork(for workspace: Workspace) -> Bool {
@@ -991,6 +1117,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
             let lineage = EventBatchLineage()
             let windowDockRequest = PendingRequest(
                 token: UUID(),
+                resourceKey:
+                    .windowDock(ObjectIdentifier(windowDockSlot)),
                 target: .windowDock(
                     slot: windowDockSlot,
                     seedWorkspace: workspaceReference
@@ -1016,6 +1144,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             batch.workspaceOrder.append(workspaceId)
             batch.workspaceRequests[workspaceId] = PendingRequest(
                 token: UUID(),
+                resourceKey: .workspace(workspaceId),
                 target: .workspace(
                     id: workspaceId,
                     reference: workspaceReference
@@ -1052,6 +1181,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func sealPendingEventBatch() {
         guard let batch = pendingEventBatch else { return }
         pendingEventBatch = nil
+        registerOutstanding(batch.windowDockRequest)
         batch.lineage.remainingRequestTokens.insert(
             batch.windowDockRequest.token
         )
@@ -1060,8 +1190,54 @@ final class WorkspaceTerminalFontSizeCoordinator {
             guard let request = batch.workspaceRequests[workspaceId] else {
                 continue
             }
+            registerOutstanding(request)
             batch.lineage.remainingRequestTokens.insert(request.token)
             sealedRequests.append(request)
+        }
+    }
+
+    private func registerOutstanding(_ request: PendingRequest) {
+        let configuredRuntimePoints =
+            request.batchLineage.configuredRuntimePoints
+            ?? configuredRuntimePointsForTransfer(request)
+        if case .windowDock = request.target {
+            request.batchLineage.configuredRuntimePoints =
+                configuredRuntimePoints
+            request.batchLineage.magnificationPercent =
+                GlobalFontMagnification.storedPercent
+        }
+        let state =
+            transferResourceStates[request.resourceKey]
+            ?? TransferResourceState()
+        state.appendRequest(
+            TransferRequestRecord(
+                request: request,
+                configuredRuntimePoints: configuredRuntimePoints
+            )
+        )
+        transferResourceStates[request.resourceKey] = state
+        activeBatchLineages[
+            ObjectIdentifier(request.batchLineage)
+        ] = request.batchLineage
+        if case .windowDock(let slot, _) = request.target,
+           let dock = slot.value {
+            windowDockResourceKeys[ObjectIdentifier(dock)] =
+                request.resourceKey
+        }
+    }
+
+    private func configuredRuntimePointsForTransfer(
+        _ request: PendingRequest
+    ) -> Float32 {
+        switch request.target {
+        case .workspace(_, let reference):
+            return reference.value?
+                .configuredTerminalRuntimeFontSize()
+                ?? currentConfiguredTerminalRuntimeFontSize()
+        case .windowDock(_, let seedReference):
+            return seedReference?.value?
+                .configuredTerminalRuntimeFontSize()
+                ?? currentConfiguredTerminalRuntimeFontSize()
         }
     }
 
@@ -1135,7 +1311,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
             request.batchLineage.magnificationPercent =
                 GlobalFontMagnification.storedPercent
             let previousLineage = dockSlot.pendingLineage
-            let inheritanceContext = TerminalFontSizeChangeInheritanceContext(
+            let fallbackInheritanceContext =
+                TerminalFontSizeChangeInheritanceContext(
                 token: token,
                 change: request.change,
                 configuredRuntimePoints: configuredRuntimePoints,
@@ -1148,15 +1325,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     ?? seedWorkspace?
                         .lastRememberedTerminalFontSizeLineageForConfigInheritance()
             )
-            dockSlot.pendingInheritanceContext = inheritanceContext
             let requestWindowDock = resolvedWindowDock(for: request)
-            requestWindowDock?.beginTerminalFontSizeChangeInheritance(
-                token: token,
-                change: request.change,
-                configuredRuntimePoints: configuredRuntimePoints,
-                fallbackLineage: inheritanceContext.fallbackLineage,
-                fallbackLineageAlreadyIncludesChange: true
-            )
+            let inheritanceContext =
+                requestWindowDock?.beginTerminalFontSizeChangeInheritance(
+                    token: token,
+                    change: request.change,
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    fallbackLineage:
+                        fallbackInheritanceContext.fallbackLineage,
+                    fallbackLineageAlreadyIncludesChange: true
+                )
+                ?? fallbackInheritanceContext
+            dockSlot.pendingInheritanceContext = inheritanceContext
             activeRequest = ActiveRequest(
                 request: request,
                 inheritanceContext: inheritanceContext,
@@ -1201,10 +1381,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         sealPendingEventBatch()
-        reconcileTransfer(
+        registerTransfer(
             terminalPanel,
-            requests: outstandingWorkspaceRequests(for: workspace),
-            applyChanges: true
+            resourceKey: .workspace(workspace.id)
         )
     }
 
@@ -1216,10 +1395,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         sealPendingEventBatch()
-        reconcileTransfer(
+        registerTransfer(
             terminalPanel,
-            requests: outstandingWorkspaceRequests(for: workspace),
-            applyChanges: true
+            resourceKey: .workspace(workspace.id)
         )
     }
 
@@ -1234,15 +1412,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
             return
         }
-        guard dock === windowDock || hasOutstandingWork(for: dock) else {
+        sealPendingEventBatch()
+        guard let resourceKey =
+                windowDockResourceKeys[ObjectIdentifier(dock)] else {
             return
         }
-        sealPendingEventBatch()
-        reconcileTransfer(
-            terminalPanel,
-            requests: outstandingWindowDockRequests(for: dock),
-            applyChanges: true
-        )
+        registerTransfer(terminalPanel, resourceKey: resourceKey)
     }
 
     func terminalDidEnterDock(
@@ -1256,240 +1431,299 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
             return
         }
-        guard dock === windowDock || hasOutstandingWork(for: dock) else {
+        sealPendingEventBatch()
+        guard let resourceKey =
+                windowDockResourceKeys[ObjectIdentifier(dock)] else {
             return
         }
-        sealPendingEventBatch()
-        reconcileTransfer(
-            terminalPanel,
-            requests: outstandingWindowDockRequests(for: dock),
-            applyChanges: true
-        )
+        registerTransfer(terminalPanel, resourceKey: resourceKey)
     }
 
-    private func outstandingWorkspaceRequests(
-        for workspace: Workspace
-    ) -> [(request: PendingRequest, configuredRuntimePoints: Float32)] {
-        var requests: [
-            (request: PendingRequest, configuredRuntimePoints: Float32)
-        ] = []
-        if let activeRequest,
-           request(activeRequest.request, targets: workspace) {
-            requests.append(
-                (
-                    request: activeRequest.request,
-                    configuredRuntimePoints:
-                        activeRequest.configuredRuntimePoints
-                )
-            )
-        }
-        let configuredRuntimePoints =
-            workspace.configuredTerminalRuntimeFontSize()
-        for request in sealedRequests.elements
-        where self.request(request, targets: workspace) {
-            requests.append(
-                (
-                    request: request,
-                    configuredRuntimePoints: configuredRuntimePoints
-                )
-            )
-        }
-        if let request =
-                pendingEventBatch?.workspaceRequests[workspace.id],
-           self.request(request, targets: workspace) {
-            requests.append(
-                (
-                    request: request,
-                    configuredRuntimePoints: configuredRuntimePoints
-                )
-            )
-        }
-        return requests
-    }
-
-    private func outstandingWindowDockRequests(
-        for dock: DockSplitStore
-    )
-        -> [(request: PendingRequest, configuredRuntimePoints: Float32)] {
-        var requests: [
-            (request: PendingRequest, configuredRuntimePoints: Float32)
-        ] = []
-        if let activeRequest,
-           request(activeRequest.request, targets: dock) {
-            requests.append(
-                (
-                    request: activeRequest.request,
-                    configuredRuntimePoints:
-                        activeRequest.configuredRuntimePoints
-                )
-            )
-        }
-        for request in sealedRequests.elements {
-            guard self.request(request, targets: dock) else { continue }
-            requests.append(
-                (
-                    request: request,
-                    configuredRuntimePoints:
-                        configuredRuntimePoints(for: request)
-                )
-            )
-        }
-        if let request = pendingEventBatch?.windowDockRequest,
-           self.request(request, targets: dock) {
-            requests.append(
-                (
-                    request: request,
-                    configuredRuntimePoints:
-                        configuredRuntimePoints(for: request)
-                )
-            )
-        }
-        return requests
-    }
-
-    private func configuredRuntimePoints(
-        for request: PendingRequest
-    ) -> Float32 {
-        guard case .windowDock(_, let seedReference) = request.target,
-              let seedReference,
-              let workspace = seedReference.value else {
-            return currentConfiguredTerminalRuntimeFontSize()
-        }
-        return workspace.configuredTerminalRuntimeFontSize()
-    }
-
-    private func reconcileTransfer(
+    private func registerTransfer(
         _ terminalPanel: TerminalPanel,
-        requests: [
-            (request: PendingRequest, configuredRuntimePoints: Float32)
-        ],
-        applyChanges: Bool
+        resourceKey: RequestResourceKey
     ) {
 #if DEBUG
         debugLastSynchronousTransferRequestVisitCount = 0
 #endif
-        var combinedChange: WorkspaceTerminalFontSizeChange?
-        var combinedConfiguredRuntimePoints: Float32?
-        for entry in requests {
-#if DEBUG
-            debugLastSynchronousTransferRequestVisitCount += 1
-#endif
-            if applyChanges,
-               !transferReconciliation(
-                    on: terminalPanel,
-                    covers: entry.request
-               ),
-               !terminalPanel.surface.hasAppliedFontSizeChange(
-                    token: entry.request.token
-               ) {
-                if var existing = combinedChange {
-                    if case .resetThen = entry.request.change {
-                        // A later reset discards earlier work and owns the
-                        // configured fallback for the combined native action.
-                        combinedConfiguredRuntimePoints =
-                            entry.configuredRuntimePoints
-                    }
-                    append(entry.request.change, to: &existing)
-                    combinedChange = existing
-                } else {
-                    combinedChange = entry.request.change
-                    combinedConfiguredRuntimePoints =
-                        entry.configuredRuntimePoints
-                }
-            }
+        guard let state = transferResourceStates[resourceKey],
+              state.outstandingRequestCount > 0 else {
+            return
         }
-        if let combinedChange,
-           let combinedConfiguredRuntimePoints {
+        guard let registration = state.register(
+            panel: terminalPanel
+        ) else {
+            return
+        }
+        if registration.isNew {
+            appendTransferObligation(registration.obligation)
+        }
+        drainTransferObligationImmediately(registration.obligation)
+    }
+
+    private func appendTransferObligation(
+        _ obligation: TransferObligation
+    ) {
+        obligation.previousGlobal = lastTransferObligation
+        lastTransferObligation?.nextGlobal = obligation
+        if firstTransferObligation == nil {
+            firstTransferObligation = obligation
+        }
+        lastTransferObligation = obligation
+    }
+
+    private func removeTransferObligation(
+        _ obligation: TransferObligation
+    ) {
+        let previous = obligation.previousGlobal
+        let next = obligation.nextGlobal
+        previous?.nextGlobal = next
+        next?.previousGlobal = previous
+        if firstTransferObligation === obligation {
+            firstTransferObligation = next
+        }
+        if lastTransferObligation === obligation {
+            lastTransferObligation = previous
+        }
+        obligation.previousGlobal = nil
+        obligation.nextGlobal = nil
+        obligation.resourceState?.remove(obligation)
+    }
+
+    private func rotateTransferObligationToBack(
+        _ obligation: TransferObligation
+    ) {
+        guard obligation.resourceState != nil,
+              firstTransferObligation === obligation,
+              lastTransferObligation !== obligation else {
+            return
+        }
+        let next = obligation.nextGlobal
+        firstTransferObligation = next
+        next?.previousGlobal = nil
+        obligation.nextGlobal = nil
+        obligation.previousGlobal = lastTransferObligation
+        lastTransferObligation?.nextGlobal = obligation
+        lastTransferObligation = obligation
+    }
+
+    private func processOneTransferRequest(
+        for obligation: TransferObligation,
+        budget: inout WorkspaceTerminalFontSizeDrainBudget
+    ) -> Bool {
+        guard let requestRecord = obligation.nextRequest,
+              let terminalPanel = obligation.panel else {
+            removeTransferObligation(obligation)
+            return true
+        }
+        guard budget.reserveRequestVisit(),
+              budget.reservePanelVisit() else {
+            return false
+        }
+
+        let request = requestRecord.request
+        let alreadyIncludesChange = surfaceIncludesChange(
+            on: terminalPanel,
+            for: request
+        )
+        let panelHasLiveSurface =
+            terminalPanel.surface.hasLiveSurface
+            && terminalPanel.surface.surface != nil
+        if panelHasLiveSurface,
+           !alreadyIncludesChange,
+           !budget.reserveLiveActions(
+                request.change.nativeActionUpperBoundPerLiveSurface
+           ) {
+            return false
+        }
+
+        if !alreadyIncludesChange {
             _ = applyChange(
-                combinedChange,
+                request.change,
                 terminalPanel,
-                combinedConfiguredRuntimePoints
+                requestRecord.configuredRuntimePoints
             )
         }
-        for entry in requests {
+        recordTransferredChange(
+            on: terminalPanel,
+            for: request
+        )
+
+        let reachedEnd = requestRecord === obligation.throughRequest
+        obligation.nextRequest = requestRecord.next
+        if reachedEnd {
+            removeTransferObligation(obligation)
+        }
+        return true
+    }
+
+    private func drainTransferObligationImmediately(
+        _ obligation: TransferObligation
+    ) {
+        guard !isDraining else {
+            scheduleDrain(after: 0)
+            return
+        }
+        isDraining = true
+        defer { isDraining = false }
+
+        var budget = WorkspaceTerminalFontSizeDrainBudget()
+        while obligation.resourceState != nil,
+              processOneTransferRequest(
+                for: obligation,
+                budget: &budget
+              ) {}
 #if DEBUG
-            debugLastSynchronousTransferRequestVisitCount += 1
+        debugLastSynchronousTransferRequestVisitCount =
+            budget.requestVisitCount
 #endif
-            recordTransferReconciliation(
-                on: terminalPanel,
-                for: entry.request
-            )
+        if firstTransferObligation != nil {
+            scheduleDrain(after: 0)
         }
     }
 
-    private func recordTransferReconciliation(
+    private func processNextTransferObligation(
+        budget: inout WorkspaceTerminalFontSizeDrainBudget
+    ) -> Bool {
+        guard let obligation = firstTransferObligation else {
+            return false
+        }
+        guard processOneTransferRequest(
+            for: obligation,
+            budget: &budget
+        ) else {
+            return false
+        }
+        if obligation.resourceState != nil {
+            rotateTransferObligationToBack(obligation)
+        }
+        return true
+    }
+
+    private func requestTransferToken(
+        for request: PendingRequest
+    ) -> UUID {
+        switch request.target {
+        case .workspace:
+            return request.batchLineage.workspaceTransferToken
+        case .windowDock:
+            return request.batchLineage.windowDockTransferToken
+        }
+    }
+
+    private func counterpartTransferToken(
+        for request: PendingRequest
+    ) -> UUID {
+        switch request.target {
+        case .workspace:
+            return request.batchLineage.windowDockTransferToken
+        case .windowDock:
+            return request.batchLineage.workspaceTransferToken
+        }
+    }
+
+    private func surfaceIncludesChange(
+        on terminalPanel: TerminalPanel,
+        for request: PendingRequest
+    ) -> Bool {
+        terminalPanel.surface.hasAppliedFontSizeChange(
+            token: request.token
+        )
+            || terminalPanel.surface.hasAppliedFontSizeChange(
+                token: counterpartTransferToken(for: request)
+            )
+    }
+
+    private func recordAppliedChange(
+        on terminalPanel: TerminalPanel,
+        for request: PendingRequest
+    ) {
+        terminalPanel.surface.markFontSizeChangeApplied(
+            token: request.token
+        )
+        terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
+            token: requestTransferToken(for: request)
+        )
+    }
+
+    private func recordTransferredChange(
         on terminalPanel: TerminalPanel,
         for request: PendingRequest
     ) {
         terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
             token: request.token
         )
-        transferReconciledRequests[request.token] = request
-        request.batchLineage.transferReconciledRequestTokens.insert(
-            request.token
-        )
-    }
-
-    private func transferReconciliation(
-        on terminalPanel: TerminalPanel,
-        covers request: PendingRequest
-    ) -> Bool {
-        for token in terminalPanel.surface
-            .fontSizeChangeTokensForInheritance() {
-            guard let reconciledRequest =
-                    transferReconciledRequests[token] else {
-                continue
-            }
-            if reconciledRequest.token == request.token {
-                return true
-            }
-            guard reconciledRequest.batchLineage
-                    === request.batchLineage else {
-                continue
-            }
-            // One shortcut event is recorded in both the selected workspace
-            // and Window Dock ledgers. Crossing that boundary must not replay
-            // the shared event, while separate workspace ledgers stay distinct.
-            switch (reconciledRequest.target, request.target) {
-            case (.windowDock, .workspace),
-                 (.workspace, .windowDock):
-                return true
-            default:
-                continue
-            }
-        }
-        return false
-    }
-
-    private func clearTransferReconciliationMarks(token: UUID) {
-        guard transferReconciledRequests.removeValue(forKey: token)
-                != nil else {
-            return
-        }
-        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-            token: token
+        activeTransferRequestTokens.insert(request.token)
+        terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
+            token: requestTransferToken(for: request)
         )
     }
 
     private func clearAllTransferReconciliationMarks() {
-        let tokens = Array(transferReconciledRequests.keys)
-        for token in tokens {
-            clearTransferReconciliationMarks(token: token)
+        for lineage in activeBatchLineages.values {
+            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+                token: lineage.windowDockTransferToken
+            )
+            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+                token: lineage.workspaceTransferToken
+            )
         }
+        activeBatchLineages.removeAll(keepingCapacity: false)
+        while let obligation = firstTransferObligation {
+            removeTransferObligation(obligation)
+        }
+        for token in activeTransferRequestTokens {
+            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+                token: token
+            )
+        }
+        activeTransferRequestTokens.removeAll(keepingCapacity: false)
+        transferResourceStates.removeAll(keepingCapacity: false)
+        windowDockResourceKeys.removeAll(keepingCapacity: false)
     }
 
     private func retire(_ request: PendingRequest) {
+        if activeTransferRequestTokens.remove(request.token) != nil {
+            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+                token: request.token
+            )
+        }
+        if let resourceState =
+                transferResourceStates[request.resourceKey],
+           resourceState.retireRequest(token: request.token) {
+            for obligation in Array(resourceState.obligations) {
+                removeTransferObligation(obligation)
+            }
+            transferResourceStates.removeValue(
+                forKey: request.resourceKey
+            )
+            if case .windowDock(let slot, _) = request.target,
+               let dock = slot.value {
+                let dockIdentity = ObjectIdentifier(dock)
+                if windowDockResourceKeys[dockIdentity]
+                    == request.resourceKey {
+                    windowDockResourceKeys.removeValue(
+                        forKey: dockIdentity
+                    )
+                }
+            }
+        }
+
         let batchLineage = request.batchLineage
         guard batchLineage.remainingRequestTokens.remove(request.token)
                 != nil,
               batchLineage.remainingRequestTokens.isEmpty else {
             return
         }
-        let tokens = batchLineage.transferReconciledRequestTokens
-        batchLineage.transferReconciledRequestTokens.removeAll()
-        for token in tokens {
-            clearTransferReconciliationMarks(token: token)
-        }
+        activeBatchLineages.removeValue(
+            forKey: ObjectIdentifier(batchLineage)
+        )
+        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+            token: batchLineage.windowDockTransferToken
+        )
+        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
+            token: batchLineage.workspaceTransferToken
+        )
     }
 
     private func apply(
@@ -1501,23 +1735,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
             activeRequest.didVisitWindowDockTerminal = true
             activeRequest.windowDockSourceLineage.consider(terminalPanel)
         }
-        let alreadyIncludesChange =
-            terminalPanel.surface.hasAppliedFontSizeChange(
-                token: activeRequest.token
-            )
+        let alreadyIncludesChange = surfaceIncludesChange(
+            on: terminalPanel,
+            for: activeRequest.request
+        )
         if !alreadyIncludesChange {
             _ = applyChange(
                 activeRequest.request.change,
                 terminalPanel,
                 activeRequest.configuredRuntimePoints
             )
-            terminalPanel.surface.markFontSizeChangeApplied(
-                token: activeRequest.token
-            )
         }
-        // A sibling target can outlive this request, so preserve proof of the
-        // shared event until every request in the batch retires.
-        recordTransferReconciliation(
+        recordAppliedChange(
             on: terminalPanel,
             for: activeRequest.request
         )
@@ -1636,10 +1865,28 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private func drain(scheduleContinuation: Bool = true) {
+        guard !isDraining else {
+            if scheduleContinuation {
+                scheduleDrain(after: 0)
+            }
+            return
+        }
+        isDraining = true
+        defer { isDraining = false }
+
         var budget = WorkspaceTerminalFontSizeDrainBudget()
         var activeRequestHasBudgetReservation = false
 
         drainLoop: while true {
+            if firstTransferObligation != nil {
+                guard processNextTransferObligation(
+                    budget: &budget
+                ) else {
+                    break drainLoop
+                }
+                continue
+            }
+
             if activeRequest == nil {
                 while hasPendingRequests {
                     guard budget.reserveRequestVisit() else {
@@ -1707,10 +1954,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     activeRequest = current
                     continue
                 }
-                let alreadyIncludesChange =
-                    pendingCandidate.panel.surface.hasAppliedFontSizeChange(
-                        token: current.token
-                    )
+                let alreadyIncludesChange = surfaceIncludesChange(
+                    on: pendingCandidate.panel,
+                    for: current.request
+                )
                 let panelHasLiveSurface =
                     pendingCandidate.panel.surface.hasLiveSurface
                     && pendingCandidate.panel.surface.surface != nil
@@ -1754,10 +2001,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 continue
             }
 
-            let alreadyIncludesChange =
-                candidate.panel.surface.hasAppliedFontSizeChange(
-                    token: current.token
-                )
+            let alreadyIncludesChange = surfaceIncludesChange(
+                on: candidate.panel,
+                for: current.request
+            )
             let panelHasLiveSurface =
                 candidate.panel.surface.hasLiveSurface
                 && candidate.panel.surface.surface != nil

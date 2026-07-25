@@ -524,11 +524,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         preparePaneHost(self.paneHost)
         registry.register(self)
         self.paneHost.attachSurface(self)
-        let inheritedFontSizeChangeTokens =
-            transferReconciledFontSizeChangeTokens
-        for token in inheritedFontSizeChangeTokens {
-            markFontSizeChangeReconciledForTransfer(token: token)
-        }
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput

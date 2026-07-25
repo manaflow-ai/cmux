@@ -3,17 +3,8 @@ public import Foundation
 internal import GhosttyKit
 
 extension TerminalSurface {
-    private final class WeakFontSizeChangeSurface {
-        weak var value: TerminalSurface?
-
-        init(_ value: TerminalSurface) {
-            self.value = value
-        }
-    }
-
     @MainActor
-    private static var transferReconciledSurfacesByToken:
-        [UUID: [ObjectIdentifier: WeakFontSizeChangeSurface]] = [:]
+    private static var activeTransferReconciliationTokens: Set<UUID> = []
 
     @MainActor
     static var debugLastTransferTokenRetirementSurfaceVisitCount = 0
@@ -31,58 +22,43 @@ extension TerminalSurface {
     /// coalesced event batch finishes, so this set is bounded by in-flight work.
     @MainActor
     public func markFontSizeChangeReconciledForTransfer(token: UUID) {
+        Self.activeTransferReconciliationTokens.insert(token)
         transferReconciledFontSizeChangeTokens.insert(token)
-        var surfaces = Self.transferReconciledSurfacesByToken[token] ?? [:]
-        surfaces[ObjectIdentifier(self)] =
-            WeakFontSizeChangeSurface(self)
-        Self.transferReconciledSurfacesByToken[token] = surfaces
     }
 
     @MainActor
     public func clearFontSizeChangeReconciledForTransfer(token: UUID) {
         transferReconciledFontSizeChangeTokens.remove(token)
-        let identity = ObjectIdentifier(self)
-        guard var surfaces =
-                Self.transferReconciledSurfacesByToken[token] else {
-            return
-        }
-        surfaces.removeValue(forKey: identity)
-        Self.transferReconciledSurfacesByToken[token] =
-            surfaces.isEmpty ? nil : surfaces
     }
 
-    /// Clears one retired transfer token from every source and descendant that
-    /// inherited it while the request was in flight.
+    /// Invalidates one retired token in constant time. Surfaces and descendants
+    /// discard inactive entries lazily when they next export provenance.
     @MainActor
     public static func clearFontSizeChangeReconciledForTransfer(
         token: UUID
     ) {
         debugLastTransferTokenRetirementSurfaceVisitCount = 0
-        guard let surfaces =
-                transferReconciledSurfacesByToken.removeValue(
-                    forKey: token
-                ) else {
-            return
-        }
-        for surface in surfaces.values {
-            debugLastTransferTokenRetirementSurfaceVisitCount += 1
-            surface.value?
-                .transferReconciledFontSizeChangeTokens.remove(token)
-        }
+        activeTransferReconciliationTokens.remove(token)
     }
 
     /// Tokens whose changes are already represented by this surface's lineage
     /// and must be copied when it seeds a descendant.
     @MainActor
     public func fontSizeChangeTokensForInheritance() -> Set<UUID> {
-        transferReconciledFontSizeChangeTokens
+        transferReconciledFontSizeChangeTokens.intersection(
+            Self.activeTransferReconciliationTokens
+        )
     }
 
     /// Returns whether this surface's lineage already includes `token`.
     @MainActor
     public func hasAppliedFontSizeChange(token: UUID) -> Bool {
         lastAppliedFontSizeChangeToken == token
-            || transferReconciledFontSizeChangeTokens.contains(token)
+            || (
+                Self.activeTransferReconciliationTokens.contains(token)
+                    && transferReconciledFontSizeChangeTokens
+                        .contains(token)
+            )
     }
 
     /// Adjusts this terminal's runtime font size and records an explicit override.
@@ -445,7 +421,7 @@ extension TerminalSurface {
         var template = configTemplate ?? CmuxSurfaceConfigTemplate()
         template.fontSizeChangeToken = lastAppliedFontSizeChangeToken
         template.fontSizeChangeTokens =
-            transferReconciledFontSizeChangeTokens
+            fontSizeChangeTokensForInheritance()
         if followsConfiguredFontSize
             || (
                 lastKnownFontSizeLineage?.isExplicitOverride == false
