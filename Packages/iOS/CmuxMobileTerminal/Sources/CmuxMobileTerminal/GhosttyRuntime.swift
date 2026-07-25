@@ -263,6 +263,16 @@ public final class GhosttyRuntime {
             return true
         }
 
+        if action.tag == GHOSTTY_ACTION_RENDER {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface,
+                  let bridge = GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(surface)) else { return false }
+            Task { @MainActor [bridge] in
+                bridge.surfaceView?.drawForWakeup()
+            }
+            return true
+        }
+
         if action.tag == GHOSTTY_ACTION_SET_TITLE {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                   let surface = target.target.surface,
