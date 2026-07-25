@@ -530,6 +530,11 @@ import Testing
                 .contains { $0.hasPrefix("pane-seed-total-backpressure") },
             "the marker proves which branch released the bytes"
         )
+        #expect(
+            !fixture.connection.snapshot().recentEvents
+                .contains { $0.hasPrefix("pane-seed-backpressure") },
+            "a total-budget overflow recovers the pane once, not again under the per-pane marker"
+        )
     }
 
     @Test func connectionSeedCountersReleaseOnFinishPruneAndDisconnect() throws {

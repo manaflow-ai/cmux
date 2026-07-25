@@ -65,11 +65,14 @@ extension RemoteTmuxControlConnection {
     func absorbPaneOutputIntoPendingSeed(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty, pendingPaneSeeds[paneId]?.isEmpty == false else { return false }
         let nextCount = pendingPaneSeeds[paneId]![0].bufferedLiveByteCount + data.count
-        guard nextCount <= Self.maximumPendingPaneSeedLiveBytes,
-              reservePendingPaneSeedBytes(data.count, paneId: paneId) else {
+        guard nextCount <= Self.maximumPendingPaneSeedLiveBytes else {
             recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-backpressure")
             return true
         }
+        // On failure the reserve call has already recovered this pane under
+        // "pane-seed-total-backpressure"; recovering again here would enqueue a
+        // second clear-scrollback reseed for the same overflow.
+        guard reservePendingPaneSeedBytes(data.count, paneId: paneId) else { return true }
         pendingPaneSeeds[paneId]![0].bufferedLiveByteCount = nextCount
         if pendingPaneSeeds[paneId]![0].isCaptureInstalled {
             Self.appendCoalesced(data, to: &pendingPaneSeeds[paneId]![0].catchUpOutput)
