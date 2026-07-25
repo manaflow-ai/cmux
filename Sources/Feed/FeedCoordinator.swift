@@ -187,7 +187,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 for: [event],
                 timeout: waitTimeout
             ) { result in
-                _ = DispatchQueue.main.sync {
+                DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
                         guard let acceptance = result.commit({
                             guard ContinuousClock.now < deliveryDeadline else {
@@ -232,7 +232,7 @@ final class FeedCoordinator: @unchecked Sendable {
             for: [event],
             timeout: waitTimeout
         ) { result in
-            _ = DispatchQueue.main.sync {
+            DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     guard let acceptance = result.commit({
                         guard ContinuousClock.now < deliveryDeadline else {
