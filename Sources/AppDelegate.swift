@@ -3565,7 +3565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
             ClosedItemHistoryStore.shared.flushPendingSaves()
         }
-        context.sidebarState.isVisible = snapshot.sidebar.isVisible
+        context.sidebarState.setVisible(snapshot.sidebar.isVisible)
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
@@ -10770,7 +10770,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if startWithHiddenSidebar {
-                context.sidebarState.isVisible = false
+                context.sidebarState.setVisible(false)
             }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
@@ -12552,7 +12552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 var shortcutMs: Double = 0
                 CmuxTypingTiming.logEventDelay(path: "appMonitor", event: event)
                 let shortcutMonitorTraceEnabled =
-                    ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+                    Self.shortcutMonitorTraceEnvironmentEnabled
                     || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
                 if shortcutMonitorTraceEnabled {
                     let frType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -12932,23 +12932,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // charactersIgnoringModifiers returns non-ASCII characters that never match
         // Latin shortcut keys. Normalize via KeyboardLayout so downstream comparisons
         // (Cmd+1-9, Ctrl+1-9, omnibar N/P, command palette, etc.) work correctly.
-        let chars = KeyboardLayout.normalizedCharacters(for: event)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let hasControl = flags.contains(.control)
-        let hasCommand = flags.contains(.command)
-        let hasOption = flags.contains(.option)
-        let isControlOnly = hasControl && !hasCommand && !hasOption
-        let controlDChar = chars == "d" || event.characters == "\u{04}"
-        let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
-        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
         if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
+           pendingConfiguredShortcutChord.windowNumber == configuredShortcutChordWindowNumber(for: event) {
             activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
         } else {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
+
+        if let textBoxShortcutTabManager = terminalTextShortcutBypassTabManagerBeforeContextResolution(
+            event: event,
+            normalizedFlags: flags.subtracting([.numericPad, .function, .capsLock])
+        ) {
+            textBoxShortcutTabManager.clearFocusedTerminalTextBoxHideEscapeArm()
+            return false
+        }
+
+        let chars = KeyboardLayout.normalizedCharacters(for: event)
+        let hasControl = flags.contains(.control)
+        let hasCommand = flags.contains(.command)
+        let hasOption = flags.contains(.option)
+        let isControlOnly = hasControl && !hasCommand && !hasOption
+        let controlDChar = chars == "d" || event.characters == "\u{04}"
+        let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
