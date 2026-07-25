@@ -156,6 +156,27 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) != legacyShortcut)
     }
 
+    @Test func invalidManagedShowHideFailsClosed() throws {
+        let fixture = try makeSettingsFileStore(
+            """
+            {
+              "shortcuts": {
+                "bindings": {
+                  "showHideAllWindows": "j"
+                }
+              }
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+        KeyboardShortcutSettings.settingsFileStore = fixture.store
+
+        #expect(fixture.store.override(for: .showHideAllWindows) == nil)
+        #expect(fixture.store.isManagedByFile(.showHideAllWindows))
+        #expect(SystemWideHotkeySettings.shortcut() == .unbound)
+        #expect(KeyboardShortcutSettings.shortcut(for: .showHideAllWindows) == .unbound)
+    }
+
     @Test func invalidPrimaryGlobalSearchShadowsFallbackFileShortcut() throws {
         let fallbackShortcut = StoredShortcut(
             key: "j",

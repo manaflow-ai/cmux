@@ -6,6 +6,49 @@ import Testing
 
 @MainActor
 @Suite struct ShortcutListRestoreValidationTests {
+    @Test func restorePreservesSupportedLegacyBareSpaceBinding() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "shortcut-list-restore-bare-space-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = JSONConfigStore(fileURL: directory.appendingPathComponent("cmux.json"))
+        let catalog = SettingCatalog()
+        let shortcut = StoredShortcut(first: ShortcutStroke(key: "space"))
+        try await store.set(
+            [ShortcutAction.openSettings.rawValue: shortcut],
+            for: catalog.shortcuts.bindings
+        )
+        let model = ShortcutListModel(
+            jsonStore: store,
+            catalog: catalog,
+            errorLog: SettingsErrorLog()
+        )
+        model.startObserving()
+        await spin {
+            model.effective(for: .openSettings) == shortcut
+        }
+
+        await model.clearOrRestore(for: .openSettings)
+        await spin {
+            model.bindings[ShortcutAction.openSettings.rawValue]?.isUnbound == true
+        }
+        #expect(model.restoreShortcuts[ShortcutAction.openSettings.rawValue] == shortcut)
+
+        await model.clearOrRestore(for: .openSettings)
+
+        #expect(model.bindings[ShortcutAction.openSettings.rawValue] == shortcut)
+        #expect(model.effective(for: .openSettings) == shortcut)
+        #expect(model.restoreShortcuts[ShortcutAction.openSettings.rawValue] == nil)
+        #expect(!model.bareKeyRejections.contains(ShortcutAction.openSettings.rawValue))
+    }
+
     @Test func restoreRejectsNewShowHideConflictAndKeepsCandidate() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
