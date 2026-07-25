@@ -24,6 +24,7 @@ public struct CodexResumeTrustProbeCache: Sendable {
     // is immutable after construction. Cross-process mutation is serialized by
     // the kernel file lock rather than mutable FileManager state.
     private nonisolated(unsafe) let fileManager: FileManager
+    private let contentionObserver: (@Sendable () -> Void)?
 
     /// Creates a cache rooted in a cmux-owned state directory.
     ///
@@ -33,6 +34,17 @@ public struct CodexResumeTrustProbeCache: Sendable {
     public init(directory: URL, fileManager: FileManager) {
         self.directory = directory
         self.fileManager = fileManager
+        self.contentionObserver = nil
+    }
+
+    init(
+        directory: URL,
+        fileManager: FileManager,
+        contentionObserver: @escaping @Sendable () -> Void
+    ) {
+        self.directory = directory
+        self.fileManager = fileManager
+        self.contentionObserver = contentionObserver
     }
 
     /// Returns coalesced or freshly probed project decision paths.
@@ -78,6 +90,7 @@ public struct CodexResumeTrustProbeCache: Sendable {
                 return await probe()
             }
             if lockError == EWOULDBLOCK {
+                contentionObserver?()
                 let handoff = await waitForConcurrentHandoff(
                     at: cacheURL,
                     key: key
