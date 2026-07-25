@@ -582,6 +582,28 @@ mod tests {
     }
 
     #[test]
+    fn caps_lock_keeps_alt_active_when_text_matches_shift_xor_caps() {
+        for (modifiers, text) in
+            [(KeyModifiers::ALT, "T"), (KeyModifiers::ALT | KeyModifiers::SHIFT, "t")]
+        {
+            let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+                key_event: KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('t'),
+                    modifiers,
+                    KeyEventKind::Press,
+                    KeyEventState::CAPS_LOCK,
+                ),
+                shifted_key: Some('T'),
+                base_layout_key: Some('t'),
+                text: text.to_string(),
+            });
+
+            assert!(!input.has_consumed_alt(), "{modifiers:?} treated Alt as text-producing");
+            assert!(input.shortcut_keys().0.modifiers.contains(KeyModifiers::ALT));
+        }
+    }
+
+    #[test]
     fn option_generated_text_keeps_associated_text_in_kitty_mode() {
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
