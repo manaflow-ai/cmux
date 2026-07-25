@@ -23860,21 +23860,28 @@ struct CMUXCLI {
         telemetry: CLISocketSentryTelemetry,
         socketPassword: String? = nil
     ) throws {
+        let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
-        let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
-        let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
         let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
-        let relayOrigin = ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] == "1"
-        let hookAgentPID = relayOrigin
-            ? nil
-            : claudeAgentPID(from: ProcessInfo.processInfo.environment)
+        let relayOrigin = env[agentHookRelayOriginEnvironmentKey] == "1"
+        let routeWasSnapshotted =
+            env[Self.agentHookRouteSnapshotEnvironmentKey] == "1"
+        // Queued replay may run after the admitted process exits and its PID is
+        // recycled. The immutable surface snapshot remains valid across that
+        // delay; process/TTY identity does not.
+        let liveProcessIdentityAllowed = !relayOrigin && !routeWasSnapshotted
+        let hookAgentPID = liveProcessIdentityAllowed
+            ? claudeAgentPID(from: env)
+            : nil
         var callerTTYBindingCache: CallerTerminalBinding?
         var didResolveCallerTTYBinding = false
         func callerTTYBinding() -> CallerTerminalBinding? {
-            guard !relayOrigin else { return nil }
+            guard liveProcessIdentityAllowed else { return nil }
             if !didResolveCallerTTYBinding {
                 didResolveCallerTTYBinding = true
                 let ttyBinding = uniqueCallerTerminalBindingByTTY(
@@ -23902,7 +23909,10 @@ struct CMUXCLI {
             }
             return callerTTYBindingCache
         }
-        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting && !relayOrigin ? callerTTYBinding : nil
+        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? =
+            preferCallerTTYRouting && liveProcessIdentityAllowed
+                ? callerTTYBinding
+                : nil
         var hookRouting = ClaudeHookRoutingContext(
             workspaceArg: workspaceArg,
             surfaceArg: surfaceArg,
@@ -23911,14 +23921,14 @@ struct CMUXCLI {
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: hookAgentPID
         )
-        hookRouting.allowsPidProbe = !relayOrigin
+        hookRouting.allowsPidProbe = liveProcessIdentityAllowed
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let hookCwd = relayOrigin ? nil : parsedInput.cwd
         let hookTranscriptPath = relayOrigin ? nil : parsedInput.transcriptPath
         let sessionStore = ClaudeHookSessionStore()
         func localClaudePID(mapped: ClaudeHookSessionRecord?) -> Int? {
-            relayOrigin ? nil : (mapped?.pid ?? hookAgentPID)
+            liveProcessIdentityAllowed ? (mapped?.pid ?? hookAgentPID) : nil
         }
         // Record the hook-observed permission mode (shift+tab auto-accept, plan
         // mode, bypass toggle): it is runtime state that never appears in the
@@ -28162,7 +28172,9 @@ struct CMUXCLI {
     }
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "grok" else { return max(timeoutMs, 1) }
+        guard def.name == "codex" || def.name == "grok" else {
+            return max(timeoutMs, 1)
+        }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
@@ -30228,9 +30240,12 @@ export default CMUXSessionRestore;
                 client: client
             )
             : nil
-        let inferredPID = relayOrigin
-            ? nil
-            : (agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID())
+        // A queued route snapshot can outlive the process that supplied it.
+        // Never promote or persist that stale PID during asynchronous replay.
+        let liveProcessIdentityAllowed = !relayOrigin && !routeWasSnapshotted
+        let inferredPID = liveProcessIdentityAllowed
+            ? (agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID())
+            : nil
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag
             ?? snapshottedRoute?.workspaceId
@@ -30338,7 +30353,7 @@ export default CMUXSessionRestore;
                 ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let hookTranscriptPath = relayOrigin ? nil : input.transcriptPath
         func localAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
-            relayOrigin ? nil : (mapped?.pid ?? inferredPID)
+            liveProcessIdentityAllowed ? (mapped?.pid ?? inferredPID) : nil
         }
         func localTranscriptPath(mapped: ClaudeHookSessionRecord?) -> String? {
             relayOrigin ? nil : (hookTranscriptPath ?? mapped?.transcriptPath)
