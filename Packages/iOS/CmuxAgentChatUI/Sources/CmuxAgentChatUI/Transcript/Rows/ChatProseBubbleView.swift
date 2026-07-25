@@ -119,6 +119,7 @@ public struct ChatProseBubbleView: View, Equatable {
                     .font(.body)
                     .foregroundStyle(.white)
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(proseSegments) { segment in
@@ -249,12 +250,14 @@ public struct ChatProseBubbleView: View, Equatable {
                 .font(headingFont(level: level))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, block.index == 0 ? 0 : 2)
         case .paragraph:
             Text(inline)
                 .font(.body)
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         case .bullet(let indent):
             listRow(marker: "•", inline: inline, indent: indent)
         case .ordered(let marker, let indent):
@@ -268,6 +271,7 @@ public struct ChatProseBubbleView: View, Equatable {
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         case .rule:
             Rectangle()
@@ -290,6 +294,7 @@ public struct ChatProseBubbleView: View, Equatable {
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.leading, CGFloat(min(indent, 4)) * 14)
     }

@@ -59,6 +59,45 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(firstCell.frame.maxY <= secondCell.frame.minY + 0.5)
     }
 
+    @Test("real prose bubble rows report full multiline height to native sizing")
+    func realProseBubbleRowsReportFullMultilineHeight() async throws {
+        let firstText = Array(
+            repeating: "This actual agent bubble contains enough markdown prose to wrap across many physical lines.",
+            count: 42
+        ).joined(separator: " ")
+        let secondText = Array(
+            repeating: "The following user bubble also wraps and must start after the first bubble's painted pixels.",
+            count: 30
+        ).joined(separator: " ")
+        let rows = [
+            TranscriptTestRow(id: 0, snapshot: chatSnapshot(id: 0, role: .agent, text: firstText)),
+            TranscriptTestRow(id: 1, snapshot: chatSnapshot(id: 1, role: .user, text: secondText)),
+            TranscriptTestRow(id: 2, text: "Trailing row"),
+        ]
+        let mounted = mount(
+            TranscriptTestHarness(rows: rows),
+            size: CGSize(width: 390, height: 1_400)
+        )
+        defer { mounted.window.isHidden = true }
+
+        await settle(mounted.host, passes: 24)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        let firstRect = table.rectForRow(at: IndexPath(row: 0, section: 0))
+        let secondRect = table.rectForRow(at: IndexPath(row: 1, section: 0))
+        #expect(firstRect.height > 280)
+        #expect(secondRect.height > 180)
+        #expect(firstRect.maxY <= secondRect.minY + 0.5)
+        #expect(!firstRect.insetBy(dx: 0, dy: 0.5).intersects(secondRect.insetBy(dx: 0, dy: 0.5)))
+
+        let firstCell = try #require(table.cellForRow(at: IndexPath(row: 0, section: 0)))
+        let secondCell = try #require(table.cellForRow(at: IndexPath(row: 1, section: 0)))
+        let firstPaintedFrame = descendantFrameUnion(of: firstCell, in: table)
+        let secondPaintedFrame = descendantFrameUnion(of: secondCell, in: table)
+        #expect(firstPaintedFrame.maxY <= secondRect.minY + 0.5)
+        #expect(!firstPaintedFrame.insetBy(dx: 0, dy: 0.5).intersects(secondPaintedFrame.insetBy(dx: 0, dy: 0.5)))
+    }
+
     @Test("inline image preview reserves a full row without covering its neighbor")
     func inlineImagePreviewDoesNotOverlapFollowingRow() async throws {
         let rows = [
@@ -793,6 +832,20 @@ struct NativeConversationTranscriptUIKitTests {
         max(0, maximumOffset(in: table) - table.contentOffset.y)
     }
 
+    private func chatSnapshot(id: Int, role: ChatRole, text: String) -> ChatMessageRowSnapshot {
+        ChatMessageRowSnapshot(
+            message: ChatMessage(
+                id: "chat-\(id)",
+                seq: id,
+                role: role,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(id)),
+                kind: .prose(ChatProse(text: text))
+            ),
+            groupPosition: .solo,
+            showsTimestamp: false
+        )
+    }
+
     private func isDetached(_ state: ConversationFollowState<Int>) -> Bool {
         if case .detached = state { return true }
         return false
@@ -802,6 +855,7 @@ struct NativeConversationTranscriptUIKitTests {
 private struct TranscriptTestRow: Identifiable, Equatable, Sendable {
     enum Content: Equatable, Sendable {
         case text(String)
+        case message(ChatMessageRowSnapshot)
         case attachment(ChatAttachment)
         case stateProbe
     }
@@ -812,6 +866,11 @@ private struct TranscriptTestRow: Identifiable, Equatable, Sendable {
     init(id: Int, text: String) {
         self.id = id
         content = .text(text)
+    }
+
+    init(id: Int, snapshot: ChatMessageRowSnapshot) {
+        self.id = id
+        content = .message(snapshot)
     }
 
     init(id: Int, attachment: ChatAttachment) {
@@ -920,6 +979,13 @@ private struct TranscriptTestHarness: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
+            case .message(let snapshot):
+                ChatMessageRowView(
+                    snapshot: snapshot,
+                    actions: ChatRowActions()
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             case .attachment(let attachment):
                 ChatAttachmentBubbleView(
                     attachment: attachment,
