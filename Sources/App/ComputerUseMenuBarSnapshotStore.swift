@@ -90,6 +90,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 self?.refresh()
             }
         }
+        liveAgentIndex.scheduleRefreshIfStale()
         liveRowsNeedRebuild = true
         refresh()
     }

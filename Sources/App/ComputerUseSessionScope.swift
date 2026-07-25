@@ -14,11 +14,15 @@ struct ComputerUseSessionScope: Sendable {
         return UUID(uuidString: String(candidate.dropFirst("cmux-".count))) != nil
     }
 
+    /// Accepts the stable forced-proxy session or one of its managed child generations.
     static func isManagedProxySessionID(
         _ candidate: String,
         for driverSessionID: String
     ) -> Bool {
         guard isManagedDriverSessionID(driverSessionID) else { return false }
+        if candidate == driverSessionID {
+            return true
+        }
         let prefix = "\(driverSessionID)-mcp-"
         return candidate.hasPrefix(prefix) && candidate.count > prefix.count
     }
