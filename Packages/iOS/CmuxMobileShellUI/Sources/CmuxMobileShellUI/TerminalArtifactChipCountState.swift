@@ -122,21 +122,22 @@ struct TerminalArtifactChipCountState: Sendable {
             return .stale
         }
         inFlight = nil
+        if let sessionID, sessionID != lastSessionTotalSessionID {
+            // Session identity is generation-independent: any response naming
+            // a different session proves the binding changed, even when its
+            // count is stale for the current viewport (during streaming most
+            // responses are). Invalidate the old session's total here; totals
+            // themselves are cached only from accepted responses below.
+            lastSessionTotal = nil
+            lastSessionTotalSessionID = sessionID
+        }
 
         let outcome: CompletionOutcome
         if request.surfaceGeneration == currentSurfaceGeneration {
             // Cache only accepted, current-generation responses: a dropped
-            // response may belong to a superseded surface state (a generation
-            // bump can coincide with a new agent session binding), and its
-            // total must not seed provisional reports for the new one. The
-            // re-armed request re-fetches under the current generation.
-            if let sessionID, sessionID != lastSessionTotalSessionID {
-                // The surface is bound to a different session now; the held
-                // total belongs to the old one and must not keep the chip
-                // mounted for the new session while its index warms up.
-                lastSessionTotal = nil
-                lastSessionTotalSessionID = sessionID
-            }
+            // response's total may be stale for the superseded surface state
+            // and must not seed provisional reports. The re-armed request
+            // re-fetches under the current generation.
             if let sessionTotal {
                 lastSessionTotal = sessionTotal
                 lastSessionTotalSessionID = sessionID ?? lastSessionTotalSessionID

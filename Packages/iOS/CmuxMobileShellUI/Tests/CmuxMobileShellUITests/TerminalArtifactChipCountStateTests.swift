@@ -223,6 +223,50 @@ struct TerminalArtifactChipCountStateTests {
         ).outcome == .reported(.init(count: 2, surfaceGeneration: 7)))
     }
 
+    @Test("a dropped response naming a new session still invalidates the held total")
+    func droppedResponseWithNewSessionInvalidates() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        _ = state.complete(
+            first,
+            sessionTotal: 12,
+            sessionID: "session-a",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        )
+
+        // Session B starts streaming: its response arrives after the viewport
+        // generation advanced, so the count is dropped — but the session
+        // identity is generation-independent and must clear A's total.
+        let second = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 8,
+            supportsSessionCount: true
+        ))
+        let dropped = state.complete(
+            second,
+            sessionTotal: nil,
+            sessionID: "session-b",
+            currentSurfaceGeneration: 9,
+            freshestLocalCount: 2
+        )
+        #expect(dropped.outcome == .droppedForSurfaceGenerationMismatch)
+
+        guard case .provisionalReport(let provisional) = state.trigger(
+            localCount: 2,
+            surfaceGeneration: 9,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report while the re-arm is in flight")
+            throw UnexpectedAction()
+        }
+        #expect(provisional == .init(count: 2, surfaceGeneration: 9))
+    }
+
     @Test("a dropped response's total does not seed provisional reports")
     func droppedResponseDoesNotSeedProvisional() throws {
         var state = TerminalArtifactChipCountState()
