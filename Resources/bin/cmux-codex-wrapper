@@ -299,34 +299,31 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # the new live pid ($$, exported as CMUX_CODEX_PID above), so it fires the
 # session-start ITSELF. The handler binds surface/workspace/cwd from the cmux env
 # and pid from CMUX_CODEX_PID, re-binding the resumed session to its live pid and
-# flipping it back to idle/editable. Fire-and-forget (backgrounded + disowned) so
-# it never blocks the launch; best-effort so a failure can never break `codex`.
+# flipping it back to idle/editable. The short foreground call only admits the
+# event to cmux's ordered queue; best-effort failure can never break `codex`.
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
 if [[ -n "$cmux_codex_resume_sid" \
       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
     cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        ( printf '%s' "$cmux_codex_resume_payload" \
-            | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex session-start >/dev/null 2>&1 ) &
+        printf '%s' "$cmux_codex_resume_payload" \
+            | CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$CMUX_CODEX_HOOK_CMUX_BIN" \
+                --socket "$CMUX_SOCKET_PATH" hooks enqueue codex session-start >/dev/null 2>&1 || true
     else
-        ( printf '%s' "$cmux_codex_resume_payload" \
-            | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex session-start >/dev/null 2>&1 ) &
+        printf '%s' "$cmux_codex_resume_payload" \
+            | CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$CMUX_CODEX_HOOK_CMUX_BIN" \
+                hooks enqueue codex session-start >/dev/null 2>&1 || true
     fi
-    disown 2>/dev/null || true
 fi
 
 # Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
-# list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
-# command for each event. Fire-and-forget is critical: codex runs hooks
-# synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
-# <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
-# command captures codex's stdin payload to a temp file, nohup-backgrounds the
-# real cmux call with a 30s watchdog, and `echo '{}'` returns to codex instantly,
-# so detection still binds the real session id while codex never blocks.
+# list (NUL-separated). Non-decision commands perform a bounded foreground
+# admission to cmux's app-owned ordered queue, so Codex never waits for the
+# downstream app socket work. Decision commands remain synchronous so Codex can
+# consume their stdout and exit status.
 #
 # Resolving the args via the CLI (instead of re-deriving fragile shell here)
-# avoids quoting bugs in the fire-and-forget command (it contains single quotes
-# like `echo '{}'` and `sh -c '...'`). If the emit fails or yields nothing, we
+# avoids quoting bugs in the generated commands. If the emit fails or yields nothing, we
 # fall back to plain passthrough so installing the wrapper can never break codex.
 CMUX_INJECT_CLI="$CMUX_CODEX_HOOK_CMUX_BIN"
 cmux_codex_injected_args=()

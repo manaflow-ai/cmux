@@ -163,8 +163,8 @@ async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record
       resolve();
     };
     try {
-      const child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
-        env: invocation.env,
+      const child = spawn(invocation.cmux, ["hooks", "enqueue", "omp", subcommand], {
+        env: { ...invocation.env, CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
         stdio: ["pipe", "ignore", "ignore"],
         detached: true,
       });

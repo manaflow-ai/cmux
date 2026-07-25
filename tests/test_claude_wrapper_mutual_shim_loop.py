@@ -10,10 +10,12 @@ import tempfile
 from pathlib import Path
 
 from node_runtime import ensure_node_on_path
+from test_claude_wrapper_hooks import generated_claude_hook_settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+GENERATED_HOOK_SETTINGS = generated_claude_hook_settings()
 
 
 def write_executable(path: Path, contents: str) -> None:
@@ -683,6 +685,10 @@ fi
 if [[ "${1:-}" == "ping" ]]; then
   exit 0
 fi
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
+  exit 0
+fi
 exit 0
 """,
         )
@@ -713,6 +719,7 @@ done
                 "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
                 "CMUX_SURFACE_ID": "surface-interactive",
                 "CMUX_SOCKET_PATH": socket_path,
+                "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
             }
             result = subprocess.run(
                 [str(cmux_shim)],
@@ -777,6 +784,10 @@ fi
 if [[ "${1:-}" == "ping" ]]; then
   exit 0
 fi
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
+  exit 0
+fi
 exit 0
 """,
         )
@@ -818,6 +829,7 @@ done
                 "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
                 "CMUX_SURFACE_ID": "surface-spawn",
                 "CMUX_SOCKET_PATH": socket_path,
+                "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
             }
             result = subprocess.run(
                 [str(cmux_shim)],

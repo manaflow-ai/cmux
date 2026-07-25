@@ -330,10 +330,14 @@ function cmuxExecutable(): string {
 
 function runCmux(args: string[], cwd: string, input?: string): CommandResult {
   try {
+    const env = hookEnvironment(cwd, true);
+    if (args[0] === "hooks" && args[1] === "enqueue") {
+      env.CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC = "1";
+    }
     const result = spawnSync(cmuxExecutable(), args, {
       input,
       encoding: "utf8",
-      env: hookEnvironment(cwd, true),
+      env,
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
     });

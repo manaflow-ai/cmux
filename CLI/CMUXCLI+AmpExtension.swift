@@ -126,8 +126,8 @@ function sendHook(
   };
   const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
   try {
-    const child = spawn(cmux, ["hooks", "amp", subcommand], {
-      env: hookEnvironment(cwd),
+    const child = spawn(cmux, ["hooks", "enqueue", "amp", subcommand], {
+      env: { ...hookEnvironment(cwd), CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
       stdio: ["pipe", "ignore", "ignore"],
       detached: true,
     });

@@ -226,15 +226,18 @@ private func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
     return isCmuxCodexHookCommand(command, subcommand: event.cmuxSubcommand)
 }
 
-private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, timeoutMs: [Int])] = [
-    "SessionStart": ("session-start", [10000]),
-    "UserPromptSubmit": ("prompt-submit", [10000]),
-    "Stop": ("stop", [10000]),
-    "SessionStop": ("stop", [10000]),
-    "PreToolUse": ("pre-tool-use", [120000, 10000]),
-    "PostToolUse": ("post-tool-use", [10000]),
-    "PermissionRequest": ("notification", [120000]),
-    "Notification": ("notification", [10000]),
+private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, timeoutMs: Set<Int>)] = [
+    "SessionStart": ("session-start", AgentHookDeliveryPolicy.recognizedTimeoutMilliseconds),
+    "UserPromptSubmit": ("prompt-submit", AgentHookDeliveryPolicy.recognizedTimeoutMilliseconds),
+    "Stop": ("stop", AgentHookDeliveryPolicy.recognizedTimeoutMilliseconds),
+    "SessionStop": ("stop", AgentHookDeliveryPolicy.recognizedTimeoutMilliseconds),
+    "PreToolUse": (
+        "pre-tool-use",
+        AgentHookDeliveryPolicy.recognizedTimeoutMilliseconds.union([120_000])
+    ),
+    "PostToolUse": ("post-tool-use", AgentHookDeliveryPolicy.recognizedTimeoutMilliseconds),
+    "PermissionRequest": ("notification", [120_000]),
+    "Notification": ("notification", [10_000]),
 ]
 
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {
@@ -244,7 +247,9 @@ private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bo
         if normalized.contains("/.cmux/hooks/cmux-codex-hook-\(candidate).sh") {
             return true
         }
-        if command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
+        if command.contains("cmux-codex-hook"),
+           command.contains("hooks codex \(candidate)")
+            || command.contains("hooks enqueue codex \(candidate)") {
             return true
         }
     }

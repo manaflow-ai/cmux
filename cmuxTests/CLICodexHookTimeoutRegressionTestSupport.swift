@@ -7,6 +7,7 @@ struct InstalledHookEntry {
     let eventName: String
     let command: String
     let body: String
+    let timeout: Int?
 }
 
 struct CodexHookProcessRunResult {
@@ -42,7 +43,12 @@ func codexHookEntries(in codexHome: URL) throws -> [InstalledHookEntry] {
                 } else {
                     body = command
                 }
-                return InstalledHookEntry(eventName: eventName, command: command, body: body)
+                return InstalledHookEntry(
+                    eventName: eventName,
+                    command: command,
+                    body: body,
+                    timeout: hook["timeout"] as? Int
+                )
             }
     }
 }
@@ -68,6 +74,12 @@ final class CodexHookCapturedSocketCommands: @unchecked Sendable {
         lock.unlock()
         return value
     }
+}
+
+struct CodexHookMockProcessBinding: Sendable {
+    let processID: Int
+    let workspaceID: String
+    let surfaceID: String
 }
 
 func makeCodexHookSocketPath(_ name: String) -> String {
@@ -118,7 +130,9 @@ func startCodexHookMockSocketServerAccepting(
     listenerFD: Int32,
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
-    connectionLimit: Int
+    connectionLimit: Int,
+    responseDelays: [String: TimeInterval] = [:],
+    processBinding: CodexHookMockProcessBinding? = nil
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -136,7 +150,13 @@ func startCodexHookMockSocketServerAccepting(
             }
             accepted += 1
             DispatchQueue.global(qos: .userInitiated).async {
-                handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
+                handleCodexHookMockSocketClient(
+                    fd: clientFD,
+                    commands: commands,
+                    surfaceId: surfaceId,
+                    responseDelays: responseDelays,
+                    processBinding: processBinding
+                )
             }
         }
     }
@@ -145,7 +165,9 @@ func startCodexHookMockSocketServerAccepting(
 func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
-    surfaceId: String
+    surfaceId: String,
+    responseDelays: [String: TimeInterval] = [:],
+    processBinding: CodexHookMockProcessBinding? = nil
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -163,7 +185,16 @@ func handleCodexHookMockSocketClient(
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             commands.append(line)
-            let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
+            if let method = codexHookJSONObject(line)?["method"] as? String,
+               let delay = responseDelays[method],
+               delay > 0 {
+                _ = DispatchSemaphore(value: 0).wait(timeout: .now() + delay)
+            }
+            let response = codexHookMockSocketResponse(
+                for: line,
+                surfaceId: surfaceId,
+                processBinding: processBinding
+            ) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
@@ -171,7 +202,11 @@ func handleCodexHookMockSocketClient(
     }
 }
 
-func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
+func codexHookMockSocketResponse(
+    for line: String,
+    surfaceId: String,
+    processBinding: CodexHookMockProcessBinding? = nil
+) -> String {
     guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
         return "OK"
@@ -182,6 +217,33 @@ func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String 
             ok: true,
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
+    }
+    if payload["method"] as? String == "agent.resolve_delivery_target",
+       let processBinding {
+        let params = payload["params"] as? [String: Any]
+        if params?["pid"] as? Int == processBinding.processID {
+            return codexHookV2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "source": "pid",
+                    "workspace_id": processBinding.workspaceID,
+                    "surface_id": processBinding.surfaceID,
+                ]
+            )
+        }
+        if params?["surface_id"] as? String == processBinding.surfaceID {
+            return codexHookV2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "source": "surface",
+                    "workspace_id": processBinding.workspaceID,
+                    "surface_id": processBinding.surfaceID,
+                ]
+            )
+        }
+        return codexHookV2Response(id: id, ok: false)
     }
     return codexHookV2Response(id: id, ok: true, result: [:])
 }
@@ -207,18 +269,53 @@ func runCodexHookProcess(
     arguments: [String],
     environment: [String: String],
     standardInput: String? = nil,
+    fileBackedStandardInput: Bool = false,
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
     let process = Process()
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
-    let stdinPipe = standardInput == nil ? nil : Pipe()
+    let stdinPipe = standardInput == nil || fileBackedStandardInput ? nil : Pipe()
+    var standardInputURL: URL?
+    var standardInputHandle: FileHandle?
+    if let standardInput, fileBackedStandardInput {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-hook-input-\(UUID().uuidString).json",
+            isDirectory: false
+        )
+        do {
+            try Data(standardInput.utf8).write(to: url, options: .atomic)
+            standardInputURL = url
+            standardInputHandle = try FileHandle(forReadingFrom: url)
+        } catch {
+            return CodexHookProcessRunResult(
+                status: -1,
+                stdout: "",
+                stderr: String(describing: error),
+                timedOut: false
+            )
+        }
+    }
+    defer {
+        try? standardInputHandle?.close()
+        if let standardInputURL {
+            try? FileManager.default.removeItem(at: standardInputURL)
+        }
+    }
     process.executableURL = URL(fileURLWithPath: executablePath)
     process.arguments = arguments
     process.environment = environment
-    process.standardInput = stdinPipe ?? FileHandle.nullDevice
+    if let standardInputHandle {
+        process.standardInput = standardInputHandle
+    } else {
+        process.standardInput = stdinPipe ?? FileHandle.nullDevice
+    }
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
+    let exitSignal = DispatchSemaphore(value: 0)
+    process.terminationHandler = { _ in
+        exitSignal.signal()
+    }
 
     do {
         try process.run()
@@ -228,12 +325,6 @@ func runCodexHookProcess(
     if let standardInput, let stdinPipe {
         stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdinPipe.fileHandleForWriting.close()
-    }
-
-    let exitSignal = DispatchSemaphore(value: 0)
-    DispatchQueue.global(qos: .userInitiated).async {
-        process.waitUntilExit()
-        exitSignal.signal()
     }
 
     let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

@@ -16,12 +16,48 @@ extension RemoteCLIRelayServer {
     /// `@unchecked Sendable` because `@Sendable` Network/Task callbacks
     /// capture `self`; queue confinement is the safety argument.
     final class Session: @unchecked Sendable {
-        private enum Phase {
+        /// Longer than the CLI's 20-second `agent.hook.barrier` response
+        /// budget so remote decision hooks can observe completion of a
+        /// preceding bounded lifecycle delivery.
+        static let localSocketRoundTripTimeoutSeconds = 25
+
+        /// Returns the local socket response timeout required by one rewritten
+        /// relay request.
+        ///
+        /// Actionable Feed requests carry their remaining user-decision budget
+        /// on the wire. The relay must outlive that wait plus the CLI's five
+        /// seconds of response headroom; unrelated commands keep the shorter
+        /// bounded default.
+        static func localSocketRoundTripTimeoutSeconds(for request: Data) -> Int {
+            guard let object = try? JSONSerialization.jsonObject(with: request)
+                    as? [String: Any],
+                  object["method"] as? String == "feed.push",
+                  let params = object["params"] as? [String: Any],
+                  let waitTimeoutNumber = params["wait_timeout_seconds"] as? NSNumber
+            else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let waitTimeout = waitTimeoutNumber.doubleValue
+            guard waitTimeout.isFinite, waitTimeout > 0 else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let maximumFeedWaitSeconds = 120.0
+            let responseHeadroomSeconds = 5
+            return max(
+                localSocketRoundTripTimeoutSeconds,
+                Int(ceil(min(waitTimeout, maximumFeedWaitSeconds)))
+                    + responseHeadroomSeconds
+            )
+        }
+
+        private enum Phase: Equatable, Sendable {
             case awaitingAuth
             case awaitingCommand
             case forwarding
             case closed
         }
+
+        private static let handshakeTimeoutMilliseconds = 10_000
 
         private let connection: NWConnection
         private let localSocketPath: String
@@ -41,6 +77,8 @@ extension RemoteCLIRelayServer {
         private var challengeNonce = ""
         private var challengeSentAt = Date()
         private var isClosed = false
+        private var forwardingSocketDescriptor: Int32?
+        private var phaseTimeoutTask: Task<Void, Never>?
 
         init(
             connection: NWConnection,
@@ -63,6 +101,7 @@ extension RemoteCLIRelayServer {
         }
 
         func start() {
+            armPhaseTimeout(for: .awaitingAuth)
             connection.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 self.queue.async {
@@ -166,6 +205,7 @@ extension RemoteCLIRelayServer {
             }
 
             phase = .awaitingCommand
+            armPhaseTimeout(for: .awaitingCommand)
             sendJSONLine(["ok": true]) { [weak self] _ in
                 guard let self else { return }
                 self.queue.async {
@@ -180,13 +220,38 @@ extension RemoteCLIRelayServer {
                 return
             }
             phase = .forwarding
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
             let forwardedCommandLine = commandRewriter(commandLine)
-            DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
+            let socketDescriptor: Int32
+            do {
+                socketDescriptor = try Self.makeLocalSocketDescriptor()
+            } catch {
+                sendFailureAndClose()
+                return
+            }
+            forwardingSocketDescriptor = socketDescriptor
+            DispatchQueue.global(qos: .utility).async {
+                [self, localSocketPath, forwardedCommandLine, queue] in
                 let result = Result {
-                    try Self.roundTripUnixSocket(socketPath: localSocketPath, request: forwardedCommandLine)
+                    try Self.roundTripUnixSocket(
+                        socketDescriptor: socketDescriptor,
+                        socketPath: localSocketPath,
+                        request: forwardedCommandLine,
+                        shouldContinue: {
+                            queue.sync {
+                                !isClosed
+                                    && forwardingSocketDescriptor == socketDescriptor
+                            }
+                        }
+                    )
                 }
-                queue.async { [weak self] in
-                    guard let self else { return }
+                queue.async { [self] in
+                    if forwardingSocketDescriptor == socketDescriptor {
+                        forwardingSocketDescriptor = nil
+                    }
+                    Darwin.close(socketDescriptor)
+                    guard !isClosed else { return }
                     switch result {
                     case .success(let response):
                         self.connection.send(content: response, completion: .contentProcessed { [weak self] _ in
@@ -206,6 +271,8 @@ extension RemoteCLIRelayServer {
             let elapsed = Date().timeIntervalSince(challengeSentAt)
             let delay = max(0, minimumFailureDelay - elapsed)
             phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
             // Anti-timing-oracle minimum delay via the injected clock (legacy
             // used queue.asyncAfter); ceil keeps the floor a true minimum.
             let delayMilliseconds = Int((delay * 1000).rounded(.up))
@@ -221,6 +288,24 @@ extension RemoteCLIRelayServer {
                             self.close()
                         }
                     }
+                }
+            }
+        }
+
+        private func armPhaseTimeout(for expectedPhase: Phase) {
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = Task { [weak self, clock] in
+                guard (try? await clock.sleep(
+                    forMilliseconds: Self.handshakeTimeoutMilliseconds
+                )) != nil else {
+                    return
+                }
+                guard let self else { return }
+                self.queue.async {
+                    guard !self.isClosed, self.phase == expectedPhase else {
+                        return
+                    }
+                    self.close()
                 }
             }
         }
@@ -241,6 +326,13 @@ extension RemoteCLIRelayServer {
             guard !isClosed else { return }
             isClosed = true
             phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
+            if let forwardingSocketDescriptor {
+                // `shutdown` interrupts a blocking local read without racing
+                // descriptor reuse; the forwarding completion owns `close`.
+                _ = Darwin.shutdown(forwardingSocketDescriptor, SHUT_RDWR)
+            }
             connection.stateUpdateHandler = nil
             connection.cancel()
             onClose()
@@ -285,19 +377,40 @@ extension RemoteCLIRelayServer {
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
 
-        private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+        private static func makeLocalSocketDescriptor() throws -> Int32 {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else {
                 throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "failed to create local relay socket",
                 ])
             }
-            defer { Darwin.close(fd) }
+            return fd
+        }
 
-            var timeout = timeval(tv_sec: 15, tv_usec: 0)
-            withUnsafePointer(to: &timeout) { pointer in
-                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+        private static func roundTripUnixSocket(
+            socketDescriptor fd: Int32,
+            socketPath: String,
+            request: Data,
+            shouldContinue: () -> Bool
+        ) throws -> Data {
+            guard shouldContinue() else {
+                throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to read local cmux response",
+                ])
+            }
+            var sendTimeout = timeval(
+                tv_sec: localSocketRoundTripTimeoutSeconds,
+                tv_usec: 0
+            )
+            withUnsafePointer(to: &sendTimeout) { pointer in
                 _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            }
+            var receiveTimeout = timeval(
+                tv_sec: localSocketRoundTripTimeoutSeconds(for: request),
+                tv_usec: 0
+            )
+            withUnsafePointer(to: &receiveTimeout) { pointer in
+                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
             }
 
             var address = sockaddr_un()
@@ -325,6 +438,11 @@ extension RemoteCLIRelayServer {
             guard connectResult == 0 else {
                 throw NSError(domain: "cmux.remote.relay", code: 3, userInfo: [
                     NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
+                ])
+            }
+            guard shouldContinue() else {
+                throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to read local cmux response",
                 ])
             }
 
