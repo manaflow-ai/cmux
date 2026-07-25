@@ -392,9 +392,10 @@ cmux_codex_trusted_cmux_candidate() {
 resolve_hook_cmux_bin() {
     local self_dir bundled_cli
     bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
-    if [[ -n "$bundled_cli" && -x "$bundled_cli" ]]; then
-        printf '%s' "$bundled_cli"
-        return 0
+    if [[ -n "$bundled_cli" ]]; then
+        if cmux_codex_trusted_cmux_candidate "$bundled_cli" "$@"; then
+            return 0
+        fi
     fi
 
     self_dir="$(cd "$(dirname "$0")" && pwd)"
