@@ -1539,6 +1539,26 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_surface_spawn_returns_within_deadline() {
+        let (result_tx, result_rx) = sync_channel(1);
+        std::thread::spawn(move || {
+            let mux = Mux::new_for_test("macos-pty-deadline", SurfaceOptions::default());
+            let mut options = SurfaceOptions::default();
+            options.command = Some(vec!["/bin/sh".into(), "-c".into(), "exit 0".into()]);
+            let result = Surface::spawn(9_001, options, Arc::downgrade(&mux))
+                .map(drop)
+                .map_err(|error| error.to_string());
+            let _ = result_tx.send(result);
+        });
+
+        result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("macOS surface PTY spawn blocked past its five-second deadline")
+            .expect("macOS surface PTY spawn failed");
+    }
+
     #[test]
     fn attach_colors_preserve_same_valued_authored_palette_override() {
         let color = Rgb { r: 0x44, g: 0x55, b: 0x66 };
