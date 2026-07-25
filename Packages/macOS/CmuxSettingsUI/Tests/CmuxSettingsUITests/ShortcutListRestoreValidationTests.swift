@@ -42,6 +42,9 @@ import Testing
         #expect(model.restoreShortcuts[ShortcutAction.openSettings.rawValue] == shortcut)
 
         await model.clearOrRestore(for: .openSettings)
+        await spin {
+            model.bindings[ShortcutAction.openSettings.rawValue] == shortcut
+        }
 
         #expect(model.bindings[ShortcutAction.openSettings.rawValue] == shortcut)
         #expect(model.effective(for: .openSettings) == shortcut)

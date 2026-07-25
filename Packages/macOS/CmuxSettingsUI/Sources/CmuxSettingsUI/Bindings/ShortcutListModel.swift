@@ -271,9 +271,19 @@ final class ShortcutListModel {
     /// a non-digit stroke on a numbered action or a stroke that conflicts with
     /// another binding; a valid stroke is normalized, persisted, and clears the
     /// action's rejection/restore state.
-    func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
+    func assign(
+        stroke: ShortcutStroke,
+        to action: ShortcutAction,
+        preservingSupportedLegacyBareSpace: Bool = false
+    ) async {
         var stroke = stroke.canonicalized()
-        guard action.allowsBareFirstStroke || stroke.hasAnyModifier else {
+        let restoresSupportedLegacyBareSpace = preservingSupportedLegacyBareSpace
+            && action.shortcutBindingPolicyResult(
+                for: StoredShortcut(first: stroke)
+            ) == .accepted
+        guard action.allowsBareFirstStroke
+            || stroke.hasAnyModifier
+            || restoresSupportedLegacyBareSpace else {
             markBareKeyRejected(action)
             return
         }
@@ -366,7 +376,11 @@ final class ShortcutListModel {
         if shortcut.hasChord {
             await assignChord(shortcut, to: action)
         } else {
-            await assign(stroke: shortcut.first, to: action)
+            await assign(
+                stroke: shortcut.first,
+                to: action,
+                preservingSupportedLegacyBareSpace: true
+            )
         }
     }
 

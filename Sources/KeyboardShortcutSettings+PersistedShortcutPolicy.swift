@@ -30,8 +30,15 @@ extension KeyboardShortcutSettings {
     /// built-in default when the candidate cannot execute.
     static func effectivePersistedShortcut(
         _ candidate: StoredShortcut?,
-        for action: Action
+        for action: Action,
+        managedBySettingsFile: Bool = false
     ) -> StoredShortcut? {
+        if managedBySettingsFile,
+           candidate == nil,
+           action == .showHideAllWindows {
+            return nil
+        }
+
         guard let settingsAction = CmuxSettings.ShortcutAction(rawValue: action.rawValue) else {
             return nil
         }

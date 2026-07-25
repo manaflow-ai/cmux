@@ -11,7 +11,8 @@ extension KeyboardShortcutSettings {
         if settingsFileStore.isManagedByFile(action) {
             return effectivePersistedShortcut(
                 settingsFileStore.override(for: action),
-                for: action
+                for: action,
+                managedBySettingsFile: true
             )
         }
 
