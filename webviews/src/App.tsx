@@ -53,7 +53,16 @@ import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
-import { createDiffWorkerPoolOptions } from "./worker-pool";
+import { createDiffWorkerPoolRuntime, type DiffWorkerPoolRuntime } from "./worker-pool";
+import {
+  advanceWorkerRenderOptionsSyncState,
+  synchronizeWorkerRenderOptions,
+  type WorkerRenderOptionsSyncState,
+} from "./worker-render-options-sync";
+import {
+  initializeWorkerRenderer,
+  type WorkerRendererPhase,
+} from "./worker-renderer-lifecycle";
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -63,6 +72,7 @@ type ConfigProps = {
 type ActiveDiffSession = {
   capabilityToken: string;
   sessionId: string;
+  viewerInstanceId?: string;
 };
 
 const registeredCustomThemeNames = new Set<string>();
@@ -83,6 +93,7 @@ type AppState = {
   metrics: StreamMetrics | null;
   options: DiffViewerOptions;
   optionsOpen: boolean;
+  rendererPhase: WorkerRendererPhase;
   status: DiffViewerStatus;
   treeSource: FileTreeSource | null;
 };
@@ -103,6 +114,7 @@ type AppAction =
   | { type: "set-metrics"; metrics: StreamMetrics }
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
+  | { type: "set-renderer-phase"; phase: WorkerRendererPhase }
   | { type: "set-status"; status: DiffViewerStatus }
   | { type: "set-tree-source"; source: FileTreeSource }
   | { type: "upsert-comment"; comment: DiffCommentRecord };
@@ -112,6 +124,15 @@ const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
 type DiffViewerLayout = DiffViewerOptions["layout"];
+
+function registerDiffViewerThemes(appearance: ReturnType<typeof resolveDiffViewerAppearance>): void {
+  for (const theme of [appearance.themes.light, appearance.themes.dark]) {
+    if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
+      registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
+      registeredCustomThemeNames.add(theme.name);
+    }
+  }
+}
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
@@ -139,6 +160,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
       wordWrap: false,
     } as DiffViewerOptions,
     optionsOpen: false,
+    rendererPhase: "initializing",
     status: initialStatus,
     treeSource: null,
   };
@@ -240,6 +262,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, options: { ...state.options, [action.key]: action.value } };
   case "set-options-open":
     return { ...state, optionsOpen: action.open };
+  case "set-renderer-phase":
+    return { ...state, rendererPhase: action.phase };
   case "set-status":
     return { ...state, status: action.status };
   case "set-tree-source": {
@@ -275,10 +299,14 @@ export function App({ config, initialStatus }: ConfigProps) {
   );
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const transport = useDiffTransport(payload.transport);
+  const viewerInstanceID = useRef(makeViewerInstanceID()).current;
   const [activeSessionSource, setActiveSessionSource] = useState<DiffSource | null>(
     validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
   );
   const [resolvedSessionSource, setResolvedSessionSource] = useState<DiffSource | null>(activeSessionSource);
+  const [resolvedSessionRepoRoot, setResolvedSessionRepoRoot] = useState<string | null>(
+    diffSourceRepoRoot(activeSessionSource),
+  );
   const branchSourceByRepoRef = useRef(new Map<string, Extract<DiffSource, { kind: "branch" }>>());
   if (activeSessionSource?.kind === "branch" && !branchSourceByRepoRef.current.has(activeSessionSource.repoRoot)) {
     branchSourceByRepoRef.current.set(activeSessionSource.repoRoot, activeSessionSource);
@@ -292,10 +320,13 @@ export function App({ config, initialStatus }: ConfigProps) {
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
-  const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
+  const rendererExpected = !isStatusOnlyPayload(payload, transport, activeSessionSource);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
-  const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
+  const commentSource = resolvedSessionSource ?? activeSessionSource;
+  const commentRepoRoot = resolvedSessionRepoRoot
+    ?? diffSourceRepoRoot(commentSource)
+    ?? (commentSource?.kind === "agentTurn" ? null : payloadRepoRoot);
   const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
@@ -306,6 +337,9 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
+  const presentedStatus = state.items.length > 0 && state.rendererPhase === "initializing"
+    ? createDiffViewerStatus(label("loadingRenderer"), { loading: true })
+    : state.status;
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -318,6 +352,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       return closeDiffSession(transport, {
         sessionId: pendingSessionID,
         capabilityToken: payload.capabilityToken,
+        viewerInstanceId: viewerInstanceID,
       });
     }
     activeSessionRef.current = null;
@@ -331,15 +366,16 @@ export function App({ config, initialStatus }: ConfigProps) {
           activeSessionRef.current = activeSession;
         }
       });
-  }, [payload.capabilityToken, transport]);
-  const rememberResolvedSessionSource = useCallback((source: DiffSource) => {
+  }, [payload.capabilityToken, transport, viewerInstanceID]);
+  const rememberResolvedSessionSource = useCallback((source: DiffSource, repoRoot?: string) => {
     if (source.kind === "branch") {
       branchSourceByRepoRef.current.set(source.repoRoot, source);
     }
     setResolvedSessionSource(source);
+    setResolvedSessionRepoRoot(repoRoot ?? diffSourceRepoRoot(source));
   }, []);
 
-  usePageDataAttributes(state);
+  usePageDataAttributes(state, presentedStatus);
   usePendingReplacement(payload, label, dispatch, transport);
   useRenderDiff(
     config,
@@ -351,6 +387,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     activeSessionRef,
     closeActiveSession,
     activeSessionSource,
+    viewerInstanceID,
     rememberResolvedSessionSource,
   );
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
@@ -481,6 +518,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           setActivePatchURL(undefined);
           void closeActiveSession();
           setResolvedSessionSource(selectedSource);
+          setResolvedSessionRepoRoot(diffSourceRepoRoot(selectedSource));
           setActiveSessionSource(selectedSource);
         }}
         onReload={async () => {
@@ -491,48 +529,57 @@ export function App({ config, initialStatus }: ConfigProps) {
         dispatch={dispatch}
         state={state}
       />
-      <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
-        <FilesSidebarBackdrop
-          label={label}
-          onClose={() => closeFileSearch(dispatch)}
-          open={state.fileSearchOpen}
-        />
-        <FilesSidebar
-          commentEntries={commentEntries}
-          commentLabels={commentLabels}
-          hasDraft={state.draft != null}
-          label={label}
-          onSelectComment={selectCommentEntry}
-          onSelectItem={scrollToItem}
-          selectedPath={selectedTreePath}
-          dispatch={dispatch}
-          state={state}
-        />
-        <main id="viewer" aria-label={label("diffViewer")}>
-          {state.items.length > 0 ? (
-            <WorkerPoolContextProvider
-              poolOptions={workerPoolOptions}
-              highlighterOptions={highlighterOptions}
-            >
-              <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
-              <CodeView
-                ref={codeViewRef}
-                className="code-view-root"
-                containerRef={viewerContainerRef}
-                items={state.items}
-                onScroll={handleCodeViewScroll}
-                options={renderedCodeViewOptions}
-                renderHeaderMetadata={(item) => (
-                  <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
-                )}
-                renderAnnotation={(annotation, item) =>
-                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
-              />
-            </WorkerPoolContextProvider>
-          ) : null}
-        </main>
-        <LoadingLayer label={label} status={state.status} />
-      </section>
+      <DiffRendererProvider
+        dispatch={dispatch}
+        enabled={rendererExpected}
+        appearance={appearance}
+        highlighterOptions={highlighterOptions}
+        workerModuleURL={workerModuleURL}
+      >
+        <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
+          <FilesSidebarBackdrop
+            label={label}
+            onClose={() => closeFileSearch(dispatch)}
+            open={state.fileSearchOpen}
+          />
+          <FilesSidebar
+            commentEntries={commentEntries}
+            commentLabels={commentLabels}
+            hasDraft={state.draft != null}
+            label={label}
+            onSelectComment={selectCommentEntry}
+            onSelectItem={scrollToItem}
+            selectedPath={selectedTreePath}
+            dispatch={dispatch}
+            state={state}
+          />
+          <main id="viewer" aria-label={label("diffViewer")}>
+            {state.items.length > 0 && state.rendererPhase !== "initializing" ? (
+              <>
+                {state.rendererPhase === "ready" ? (
+                  <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
+                ) : null}
+                <CodeView
+                  key={state.rendererPhase}
+                  ref={codeViewRef}
+                  className="code-view-root"
+                  containerRef={viewerContainerRef}
+                  disableWorkerPool={state.rendererPhase === "failed"}
+                  items={state.items}
+                  onScroll={handleCodeViewScroll}
+                  options={renderedCodeViewOptions}
+                  renderHeaderMetadata={(item) => (
+                    <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                  )}
+                  renderAnnotation={(annotation, item) =>
+                    renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
+                />
+              </>
+            ) : null}
+          </main>
+          <LoadingLayer label={label} status={presentedStatus} />
+        </section>
+      </DiffRendererProvider>
       <textarea
         ref={copyFallbackRef}
         aria-hidden="true"
@@ -715,6 +762,48 @@ function WorkerRenderOptionsSync({
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
 }) {
   useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
+  return null;
+}
+
+function DiffRendererProvider({
+  appearance,
+  children,
+  dispatch,
+  enabled,
+  highlighterOptions,
+  workerModuleURL,
+}: {
+  appearance: ReturnType<typeof resolveDiffViewerAppearance>;
+  children: React.ReactNode;
+  dispatch: React.Dispatch<AppAction>;
+  enabled: boolean;
+  highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
+  workerModuleURL: URL;
+}) {
+  const [runtime] = useState<DiffWorkerPoolRuntime>(() => {
+    registerDiffViewerThemes(appearance);
+    return createDiffWorkerPoolRuntime(workerModuleURL);
+  });
+  if (!enabled) return children;
+  return (
+    <WorkerPoolContextProvider
+      poolOptions={runtime.poolOptions}
+      highlighterOptions={highlighterOptions}
+    >
+      <WorkerRendererLifecycle dispatch={dispatch} workerFailure={runtime.failure} />
+      {children}
+    </WorkerPoolContextProvider>
+  );
+}
+
+function WorkerRendererLifecycle({
+  dispatch,
+  workerFailure,
+}: {
+  dispatch: React.Dispatch<AppAction>;
+  workerFailure: Promise<unknown>;
+}) {
+  useWorkerRendererLifecycle(dispatch, workerFailure);
   return null;
 }
 
@@ -923,7 +1012,7 @@ function SourceControls({
       {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
           equivalent, so dropping it would strand multi-repo users). It shrinks
           and ellipsizes in place via field-sizing + the .toolbar-left clip. */}
-      {activeSessionSource?.kind !== "patch" ? (
+      {activeSessionSource?.kind !== "patch" && activeSessionSource?.kind !== "agentTurn" ? (
         <NavigationSelect
           ariaLabel={label("repoPath")}
           fallbackValue={payload.repoRoot ?? ""}
@@ -1504,28 +1593,70 @@ function useWorkerRenderOptionsSync(
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
 ): void {
   const workerPool = useWorkerPool();
-  const syncedOptions = useRef<ReturnType<typeof workerHighlighterOptions> | null>(null);
+  const syncState = useRef<WorkerRenderOptionsSyncState<
+    ReturnType<typeof workerHighlighterOptions>,
+    NonNullable<typeof workerPool>
+  > | null>(null);
   useEffect(() => {
-    if (!workerPool || sameWorkerHighlighterOptions(syncedOptions.current, highlighterOptions)) {
-      return;
-    }
+    if (!workerPool) return;
+    const transition = advanceWorkerRenderOptionsSyncState({
+      highlighterOptions,
+      previous: syncState.current,
+      sameOptions: sameWorkerHighlighterOptions,
+      workerPool,
+    });
+    syncState.current = transition.next;
+    // The provider constructs a new pool with these exact options. Calling
+    // setRenderOptions during that initialization races the CodeView's first
+    // queued render. Only synchronize later option changes.
+    if (!transition.shouldSynchronize) return;
     let active = true;
-    syncedOptions.current = highlighterOptions;
-    workerPool.setRenderOptions(highlighterOptions)
-      .then(() => {
+    synchronizeWorkerRenderOptions({
+      highlighterOptions,
+      render: () => {
         if (active) {
           codeViewRef.current?.getInstance()?.render(true);
         }
-      })
-      .catch((error: unknown) => console.warn("cmux diff worker render options update failed", error));
+      },
+      workerPool,
+    })
+      .catch((error: unknown) => {
+        console.warn("cmux diff worker render options update failed", error);
+      });
     return () => {
       active = false;
     };
   }, [codeViewRef, highlighterOptions, workerPool]);
 }
 
+function useWorkerRendererLifecycle(
+  dispatch: React.Dispatch<AppAction>,
+  workerFailure: Promise<unknown>,
+): void {
+  const workerPool = useWorkerPool();
+  useEffect(() => {
+    if (!workerPool) return;
+    let active = true;
+    let phase: WorkerRendererPhase = "initializing";
+    dispatch({ type: "set-renderer-phase", phase: "initializing" });
+    const updatePhase = (result: Awaited<ReturnType<typeof initializeWorkerRenderer>>) => {
+      if (!active || phase === result.phase) return;
+      phase = result.phase;
+      if (result.phase === "failed") {
+        console.warn("cmux diff worker renderer initialization failed; using main-thread fallback", result.error);
+      }
+      dispatch({ type: "set-renderer-phase", phase: result.phase });
+    };
+    void initializeWorkerRenderer(workerPool, workerFailure).then(updatePhase);
+    void workerFailure.then((error) => updatePhase({ phase: "failed", error }));
+    return () => {
+      active = false;
+    };
+  }, [dispatch, workerFailure, workerPool]);
+}
+
 function sameWorkerHighlighterOptions(
-  previous: ReturnType<typeof workerHighlighterOptions> | null,
+  previous: ReturnType<typeof workerHighlighterOptions>,
   next: ReturnType<typeof workerHighlighterOptions>,
 ): boolean {
   return previous?.lineDiffType === next.lineDiffType &&
@@ -1627,7 +1758,8 @@ function useRenderDiff(
   activeSessionRef: React.MutableRefObject<ActiveDiffSession | null>,
   closeActiveSession: () => Promise<void>,
   sessionSource: DiffSource | null,
-  onResolvedSessionSource: (source: DiffSource) => void,
+  viewerInstanceID: string,
+  onResolvedSessionSource: (source: DiffSource, repoRoot?: string) => void,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
@@ -1635,12 +1767,7 @@ function useRenderDiff(
     }
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
-    for (const theme of [appearance.themes.light, appearance.themes.dark]) {
-      if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
-        registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
-        registeredCustomThemeNames.add(theme.name);
-      }
-    }
+    registerDiffViewerThemes(appearance);
     let cancelled = false;
     const streamAbortController = new AbortController();
     const handlePageHide = () => {
@@ -1650,7 +1777,7 @@ function useRenderDiff(
     void (async () => {
       try {
         let patchURL = payload.patchURL as string | undefined;
-        const session = diffSessionRequest(payload, transport, sessionSource);
+        const session = diffSessionRequest(payload, transport, sessionSource, viewerInstanceID);
         if (session) {
           const result = await transport!.request({ method: "sessionOpen", params: session });
           if (result.type !== "sessionOpened") {
@@ -1659,13 +1786,14 @@ function useRenderDiff(
           const openedSession = {
             sessionId: result.value.sessionId,
             capabilityToken: String(payload.capabilityToken ?? ""),
+            viewerInstanceId: viewerInstanceID,
           };
           if (cancelled) {
             await closeDiffSession(transport!, openedSession);
             return;
           }
           activeSessionRef.current = openedSession;
-          onResolvedSessionSource(result.value.source);
+          onResolvedSessionSource(result.value.source, result.value.repoRoot);
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
@@ -1739,16 +1867,17 @@ function useRenderDiff(
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
-  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport, viewerInstanceID]);
 }
 
 function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
   return transport.request({ method: "sessionClose", params: session }).then(() => {}, () => {});
 }
 
-function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null): {
+function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null, viewerInstanceID?: string): {
   source: DiffSource;
   capabilityToken: string;
+  viewerInstanceId?: string;
 } | null {
   if (!transport || typeof payload?.capabilityToken !== "string") {
     return null;
@@ -1757,16 +1886,43 @@ function diffSessionRequest(payload: any, transport: DiffTransport | null, overr
   if (!validDiffSource(source)) {
     return null;
   }
-  return { source, capabilityToken: payload.capabilityToken };
+  return {
+    source,
+    capabilityToken: payload.capabilityToken,
+    ...(viewerInstanceID ? { viewerInstanceId: viewerInstanceID } : {}),
+  };
+}
+
+function makeViewerInstanceID(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
 }
 
 function validDiffSource(value: unknown): value is DiffSource {
   if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string") {
     return false;
   }
-  const source = value as { kind: string; repoRoot?: unknown; path?: unknown; baseRef?: unknown };
+  const source = value as {
+    kind: string;
+    repoRoot?: unknown;
+    path?: unknown;
+    baseRef?: unknown;
+    provider?: unknown;
+    sessionId?: unknown;
+  };
   if (source.kind === "patch") {
     return typeof source.path === "string";
+  }
+  if (source.kind === "agentTurn") {
+    return (source.provider === "codex" || source.provider === "claude" || source.provider === "openCode")
+      && typeof source.sessionId === "string"
+      && source.sessionId.length > 0;
   }
   if (source.kind === "unstaged" || source.kind === "staged") {
     return typeof source.repoRoot === "string";
@@ -1785,7 +1941,7 @@ function diffSourceRepoRoot(source: DiffSource | null): string | null {
 }
 
 function sourceSelectionWithActiveRepo(source: DiffSource, active: DiffSource | null): DiffSource {
-  if (source.kind === "patch") {
+  if (source.kind === "patch" || source.kind === "agentTurn") {
     return source;
   }
   const activeRepo = diffSourceRepoRoot(active);
@@ -1802,7 +1958,7 @@ function sourceSelectionWithActiveRepo(source: DiffSource, active: DiffSource | 
 
 function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | null): DiffSource {
   const repoRoot = diffSourceRepoRoot(source);
-  if (!repoRoot || !active || active.kind === "patch") {
+  if (!repoRoot || !active || active.kind === "patch" || active.kind === "agentTurn") {
     return source;
   }
   if (active.kind === "branch") {
@@ -1907,10 +2063,10 @@ function usePendingReplacement(
   }, [dispatch, label, payload, transport]);
 }
 
-function usePageDataAttributes(state: AppState) {
+function usePageDataAttributes(state: AppState, status: DiffViewerStatus) {
   useEffect(() => {
     document.body.dataset.filesHidden = state.filesVisible ? "false" : "true";
-    document.body.dataset.loading = state.status.loading ? "true" : "false";
+    document.body.dataset.loading = status.loading ? "true" : "false";
     document.documentElement.dataset.layout = state.options.layout;
     document.documentElement.dataset.wordWrap = String(state.options.wordWrap);
     document.documentElement.dataset.diffIndicators = state.options.diffIndicators;
@@ -1924,8 +2080,8 @@ function usePageDataAttributes(state: AppState) {
         document.body.dataset.streamElapsedMs = String(Math.round(state.metrics.completedAt - state.metrics.startedAt));
       }
     }
-    applyDiffViewerStatusToDocument(state.status);
-  }, [state]);
+    applyDiffViewerStatusToDocument(status);
+  }, [state, status]);
 }
 
 function useNativeViewerNavigation(

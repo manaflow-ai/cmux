@@ -17,10 +17,186 @@ fn rpc_uses_stdio_without_server_state() {
 }
 
 #[test]
+fn rpc_keeps_one_process_alive_for_multiple_requests() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-persistent-rpc-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).expect("create root");
+    #[cfg(unix)]
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start persistent sidecar");
+    let mut input = child.stdin.take().expect("sidecar stdin");
+    let output = child.stdout.take().expect("sidecar stdout");
+    let (response_sender, response_receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(output).lines().take(2) {
+            response_sender
+                .send(line.expect("read response line"))
+                .expect("send response line");
+        }
+    });
+
+    for id in ["first", "second"] {
+        writeln!(
+            input,
+            "{}",
+            serde_json::json!({
+                "id": id,
+                "version": 1,
+                "method": "protocolHandshake"
+            })
+        )
+        .expect("write request frame");
+        input.flush().expect("flush request frame");
+
+        let response = response_receiver.recv_timeout(std::time::Duration::from_secs(2));
+        let Ok(response) = response else {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            let _ = std::fs::remove_dir_all(&root);
+            panic!("sidecar did not reply before stdin closed: {response:?}");
+        };
+        let response: serde_json::Value = serde_json::from_str(&response).expect("decode response");
+        assert_eq!(response["id"], id);
+        assert_eq!(response["result"]["type"], "handshake");
+        assert!(child.try_wait().expect("inspect sidecar").is_none());
+    }
+
+    drop(input);
+    assert!(child.wait().expect("wait for sidecar").success());
+    reader.join().expect("join response reader");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rpc_process_exits_when_its_response_pipe_closes() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-closed-output-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).expect("create root");
+    #[cfg(unix)]
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start sidecar");
+    drop(child.stdout.take());
+    let mut stdin = child.stdin.take().expect("sidecar stdin");
+    stdin
+        .write_all(b"{\"id\":\"probe\",\"version\":1,\"method\":\"protocolHandshake\"}\n")
+        .expect("write request");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll sidecar") {
+            break Some(status);
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    if status.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(
+        status.is_some(),
+        "closed response pipe must terminate the RPC process"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn rpc_returns_typed_failure_for_malformed_request() {
     let output = run_stdio_rpc(br#"{"id": "unclosed"#);
     assert!(output.status.success());
     assert_rpc_failure(&output, "invalidRequest");
+}
+
+#[test]
+fn rpc_rejects_malformed_cancel_without_terminating_the_shared_process() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-malformed-cancel-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).expect("create root");
+    #[cfg(unix)]
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start persistent sidecar");
+    let mut input = child.stdin.take().expect("sidecar stdin");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({"id": "bad", "control": "cancel"})
+    )
+    .expect("write malformed cancel");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({
+            "id": "still-alive",
+            "version": 1,
+            "method": "protocolHandshake"
+        })
+    )
+    .expect("write follow-up request");
+    drop(input);
+
+    let output = child.wait_with_output().expect("wait for sidecar");
+    assert!(output.status.success());
+    let responses = BufReader::new(output.stdout.as_slice())
+        .lines()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read responses");
+    assert_eq!(responses.len(), 2, "{responses:?}");
+    let rejected: serde_json::Value =
+        serde_json::from_str(&responses[0]).expect("decode rejection");
+    assert_eq!(rejected["error"]["code"], "invalidRequest");
+    let follow_up: serde_json::Value =
+        serde_json::from_str(&responses[1]).expect("decode follow-up");
+    assert_eq!(follow_up["id"], "still-alive");
+    assert_eq!(follow_up["result"]["type"], "handshake");
+
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -88,7 +264,7 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
         .stdin
         .take()
         .expect("sidecar stdin")
-        .write_all(&request)
+        .write_all(&[request.as_slice(), b"\n"].concat())
         .expect("write request");
 
     let sidecar_pid =
@@ -104,6 +280,99 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
     let _ = child.wait().expect("reap sidecar");
     let _ = rustix::process::kill_process_group(sidecar_pid, rustix::process::Signal::KILL);
     assert_process_stopped(git_pid);
+    assert!(
+        std::fs::read_dir(&root)
+            .expect("read sidecar root")
+            .flatten()
+            .all(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                !(name.contains("diff-session-") && name.ends_with(".patch"))
+            })
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn rpc_cancel_frame_stops_only_the_matching_request() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-request-cancel-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let repo = create_large_changed_repo(&root);
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    let token = "0123456789abcdef";
+    write_cancellation_test_authorization(&root, &repo, token);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .arg("--process-group-ready")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start cancellable sidecar");
+    let mut ready = String::new();
+    BufReader::new(child.stderr.take().expect("sidecar stderr"))
+        .read_line(&mut ready)
+        .expect("read process-group readiness");
+    assert_eq!(ready, "cmux-diff-sidecar-process-group-ready\n");
+
+    let mut input = child.stdin.take().expect("sidecar stdin");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({
+            "id": "cancel-session",
+            "version": 1,
+            "method": "sessionOpen",
+            "params": {
+                "source": {"kind": "unstaged", "repoRoot": repo},
+                "capabilityToken": token
+            }
+        })
+    )
+    .expect("write cancellable request");
+    input.flush().expect("flush cancellable request");
+    let git_pid = wait_for_direct_child(child.id());
+
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({"control": "cancel", "requestId": "cancel-session"})
+    )
+    .expect("write cancel frame");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({
+            "id": "still-alive",
+            "version": 1,
+            "method": "protocolHandshake"
+        })
+    )
+    .expect("write follow-up request");
+    input.flush().expect("flush control frames");
+
+    let mut response = String::new();
+    BufReader::new(child.stdout.take().expect("sidecar stdout"))
+        .read_line(&mut response)
+        .expect("read follow-up response");
+    let response: serde_json::Value = serde_json::from_str(&response).expect("decode response");
+    assert_eq!(response["id"], "still-alive");
+    assert_eq!(response["result"]["type"], "handshake");
+    assert_process_stopped(git_pid);
+    assert!(child.try_wait().expect("inspect sidecar").is_none());
+
+    drop(input);
+    assert!(child.wait().expect("wait for sidecar").success());
     assert!(
         std::fs::read_dir(&root)
             .expect("read sidecar root")
@@ -223,7 +492,12 @@ fn run_stdio_rpc(input: &[u8]) -> Output {
 }
 
 fn run_stdio_rpc_in_root(input: &[u8], root: &Path) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+    run_stdio_rpc_in_root_with_home(input, root, None)
+}
+
+fn run_stdio_rpc_in_root_with_home(input: &[u8], root: &Path, home: Option<&Path>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"));
+    command
         .arg("rpc")
         .arg("--root")
         .arg(root)
@@ -231,9 +505,11 @@ fn run_stdio_rpc_in_root(input: &[u8], root: &Path) -> Output {
         .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .expect("start stdio sidecar");
+        .stderr(Stdio::inherit());
+    if let Some(home) = home {
+        command.env("HOME", home);
+    }
+    let mut child = command.spawn().expect("start stdio sidecar");
     child
         .stdin
         .take()
@@ -241,6 +517,323 @@ fn run_stdio_rpc_in_root(input: &[u8], root: &Path) -> Output {
         .write_all(input)
         .expect("write request");
     child.wait_with_output().expect("wait for sidecar")
+}
+
+#[test]
+fn rpc_resolves_agent_turn_from_provider_and_session_id() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-session-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let expected_repo = std::fs::canonicalize(root.join("repo")).expect("canonical repo");
+    let token = "0123456789abcdef";
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "agent-session",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "claude-session"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["result"]["type"], "sessionOpened", "{response}");
+    assert_eq!(
+        response["result"]["value"]["source"],
+        serde_json::json!({
+            "kind": "agentTurn",
+            "provider": "claude",
+            "sessionId": "claude-session"
+        })
+    );
+    assert_eq!(
+        response["result"]["value"]["repoRoot"],
+        expected_repo.to_string_lossy().as_ref()
+    );
+    let patch_id = response["result"]["value"]["patch"]["id"]
+        .as_str()
+        .expect("patch id");
+    let request_path = patch_id.split_once(token).expect("token in patch id").1;
+    let patch = std::fs::read_to_string(root.join(request_path.trim_start_matches('/')))
+        .expect("read trajectory patch");
+    assert!(patch.contains("diff --git a/story.txt b/story.txt"));
+    assert!(patch.contains("+after"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rpc_uses_authorized_hook_state_overrides_for_agent_turns() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-hook-override-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let custom_hook_dir = home.join("custom-hook-state");
+    std::fs::create_dir_all(&custom_hook_dir).expect("create custom hook directory");
+    std::fs::rename(
+        home.join(".cmuxterm/claude-hook-sessions.json"),
+        custom_hook_dir.join("claude-hook-sessions.json"),
+    )
+    .expect("move hook store to custom directory");
+    let authorization_path = root.join(".branch-session-agent-test.json");
+    let mut authorization: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&authorization_path).expect("read authorization"))
+            .expect("decode authorization");
+    authorization["allowedAgentTurns"][0]["hookStateDir"] =
+        serde_json::Value::String(custom_hook_dir.to_string_lossy().into_owned());
+    std::fs::write(
+        authorization_path,
+        serde_json::to_vec(&authorization).expect("encode authorization"),
+    )
+    .expect("write authorization override");
+    let token = "0123456789abcdef";
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "agent-session-custom-hooks",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "claude-session"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["result"]["type"], "sessionOpened", "{response}");
+    let patch_id = response["result"]["value"]["patch"]["id"]
+        .as_str()
+        .expect("patch id");
+    let request_path = patch_id.split_once(token).expect("token in patch id").1;
+    let patch = std::fs::read_to_string(root.join(request_path.trim_start_matches('/')))
+        .expect("read trajectory patch");
+    assert!(patch.contains("+after"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rpc_rejects_agent_turn_when_repo_scope_lacks_exact_agent_identity() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-scope-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let token = "0123456789abcdef";
+    let authorized_repo = root.join("repo");
+    std::fs::write(
+        root.join(".branch-session-agent-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "agent-test",
+            "allowedRepoRoots": [authorized_repo]
+        }))
+        .expect("encode restricted authorization"),
+    )
+    .expect("write repo-only authorization");
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "agent-session-outside-scope",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "claude-session"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["error"]["code"], "notAllowed", "{response}");
+    assert!(response["result"].is_null(), "{response}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rpc_rejects_unauthorized_unknown_agent_without_resolving_it() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-unknown-auth-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let token = "0123456789abcdef";
+    std::fs::write(
+        root.join(".branch-session-agent-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "agent-test",
+            "allowedRepoRoots": [root.join("repo")]
+        }))
+        .expect("encode repo-only authorization"),
+    )
+    .expect("write repo-only authorization");
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "unauthorized-unknown-agent",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "does-not-exist"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["error"]["code"], "notAllowed", "{response}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rpc_authorizes_agent_repository_before_parsing_its_transcript() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-preauthorization-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let token = "0123456789abcdef";
+    let unauthorized_repo = root.join("unauthorized-repo");
+    std::fs::create_dir_all(&unauthorized_repo).expect("create unauthorized repo");
+    std::fs::write(home.join("claude-session.jsonl"), b"malformed transcript\n")
+        .expect("corrupt out-of-scope transcript");
+    std::fs::write(
+        root.join(".branch-session-agent-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "agent-test",
+            "allowedRepoRoots": [unauthorized_repo]
+        }))
+        .expect("encode restricted authorization"),
+    )
+    .expect("restrict authorization");
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "agent-session-preauthorization",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "claude-session"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["error"]["code"], "notAllowed", "{response}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn prepare_agent_rpc_fixture(root: &Path) -> std::path::PathBuf {
+    let home = root.join("home");
+    let repo = root.join("repo");
+    std::fs::create_dir_all(home.join(".cmuxterm")).expect("create hook directory");
+    std::fs::create_dir_all(&repo).expect("create repo");
+    #[cfg(unix)]
+    std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    let transcript = home.join("claude-session.jsonl");
+    let lines = [
+        serde_json::json!({
+            "type": "user",
+            "promptId": "prompt-current",
+            "message": {"content": "change the story"}
+        }),
+        serde_json::json!({
+            "type": "user",
+            "promptId": "prompt-current",
+            "toolUseResult": {
+                "filePath": repo.join("story.txt"),
+                "structuredPatch": [{
+                    "oldStart": 1, "oldLines": 1,
+                    "newStart": 1, "newLines": 1,
+                    "lines": ["-before", "+after"]
+                }]
+            }
+        }),
+    ];
+    std::fs::write(
+        &transcript,
+        lines
+            .iter()
+            .map(serde_json::Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n",
+    )
+    .expect("write transcript");
+    std::fs::write(
+        home.join(".cmuxterm/claude-hook-sessions.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "version": 1,
+            "sessions": {"claude-session": {"cwd": repo, "transcriptPath": transcript}}
+        }))
+        .expect("encode hook store"),
+    )
+    .expect("write hook store");
+    let token = "0123456789abcdef";
+    std::fs::write(
+        root.join(format!(".manifest-{token}.json")),
+        serde_json::to_vec(&serde_json::json!({"token": token, "files": []}))
+            .expect("encode manifest"),
+    )
+    .expect("write manifest");
+    std::fs::write(
+        root.join(".branch-session-agent-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "agent-test",
+            "allowedRepoRoots": [],
+            "allowedAgentTurns": [{
+                "provider": "claude",
+                "sessionId": "claude-session"
+            }]
+        }))
+        .expect("encode authorization"),
+    )
+    .expect("write authorization");
+    home
 }
 
 fn assert_rpc_failure(output: &Output, code: &str) {

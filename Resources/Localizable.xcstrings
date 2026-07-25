@@ -32615,6 +32615,83 @@
         }
       }
     },
+    "cli.diff.error.agentSessionRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux diff --last-turn requires --agent and --session." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux diff --last-turn には --agent と --session が必要です。" } }
+      }
+    },
+    "cli.diff.error.inputRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "diff requires a patch file, piped stdin, or a source. Run 'cmux diff --help' for usage." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "diff にはパッチファイル、標準入力、またはソースが必要です。使用方法は 'cmux diff --help' を実行してください。" } }
+      }
+    },
+    "cli.diff.error.sidecarRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last-turn diffs require agent trajectory support." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最終ターンの差分にはエージェント軌跡のサポートが必要です。" } }
+      }
+    },
+    "cli.diff.error.targetExpectedURLRequiresSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--target-expected-url requires --target-surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--target-expected-url には --target-surface が必要です" } }
+      }
+    },
+    "cli.diff.error.targetOperationIDInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--target-operation-id must be a UUID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--target-operation-id には UUID を指定してください" } }
+      }
+    },
+    "cli.diff.error.targetOperationIDRequiresTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--target-operation-id requires --target-surface and --target-expected-url" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--target-operation-id には --target-surface と --target-expected-url が必要です" } }
+      }
+    },
+    "cli.diff.error.targetSurfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Target browser surface not found: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "対象のブラウザサーフェスが見つかりません: %@" } }
+      }
+    },
+    "cli.diff.error.unknownAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown diff agent '%@'. Expected codex, claude, or opencode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な差分エージェント '%@' です。codex、claude、または opencode を指定してください。" } }
+      }
+    },
+    "cli.diff.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "diff: unknown flag '%@'. Run 'cmux diff --help' for usage." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "diff: 不明なフラグ '%@' です。使用方法は 'cmux diff --help' を実行してください。" } }
+      }
+    },
+    "cli.diff.error.unknownSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown diff source '%@'. Expected unstaged, staged, branch, or last-turn." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な差分ソース '%@' です。unstaged、staged、branch、または last-turn を指定してください。" } }
+      }
+    },
+    "cli.diff.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux diff [patch-file|-] [options]\n\nRender a unified diff or patch in a cmux browser split.\nWith no patch file or source, cmux diff reads piped stdin.\n\nOptions:\n  --source <name>              Diff source: unstaged, staged, branch, last-turn\n  --unstaged                   Show unstaged git changes\n  --staged                     Show staged git changes\n  --branch                     Show current branch against merge base\n  --last-turn                  Show patches recorded in the agent's latest turn\n  --agent <name>               Agent provider: codex, claude, opencode\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)\n  --target-surface <id|ref|index>\n                               Populate an existing browser surface instead of opening a split\n  --session <id>               Agent session for --last-turn\n  --window <id|ref|index>      Target window\n  --cwd, --repo <path>         Git repository or worktree path for git sources\n  --base <ref>                 Base ref for --branch (default: origin/HEAD or main)\n  --focus <true|false>         Focus the diff browser split (default: false)\n  --no-focus                   Do not focus the opened diff browser split\n  --title <text>               Set the diff viewer title to the provided text\n  --layout <split|unified>     Diff layout (default: unified; configurable via diffViewer.defaultLayout in cmux.json)\n  --font-size <points>         Set diff font size (default: 10)\n\nExamples:\n  cmux diff changes.patch\n  git diff | cmux diff\n  cmux diff --unstaged\n  cmux diff --staged\n  cmux diff --branch\n  cmux diff --branch --base upstream/main --repo ../repo\n  cmux diff --last-turn --agent codex --session <id>\n  cmux diff pr.patch --layout unified --font-size 15 --focus true" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux diff [patch-file|-] [options]\n\n統合差分またはパッチを cmux のブラウザ分割に表示します。\nパッチファイルやソースを指定しない場合は標準入力を読み込みます。\n\nオプション:\n  --source <name>              差分ソース: unstaged, staged, branch, last-turn\n  --unstaged                   ステージ前の Git 変更を表示\n  --staged                     ステージ済みの Git 変更を表示\n  --branch                     現在のブランチをマージベースと比較\n  --last-turn                  エージェントの最新ターンで記録されたパッチを表示\n  --agent <name>               エージェント: codex, claude, opencode\n  --workspace <id|ref|index>   対象ワークスペース\n  --surface <id|ref|index>     分割元のサーフェス\n  --target-surface <id|ref|index>\n                               新規分割ではなく既存ブラウザサーフェスに表示\n  --session <id>               --last-turn のエージェントセッション\n  --window <id|ref|index>      対象ウィンドウ\n  --cwd, --repo <path>         Git ソースのリポジトリまたはワークツリーパス\n  --base <ref>                 --branch のベース参照\n  --focus <true|false>         差分ブラウザ分割にフォーカス\n  --no-focus                   開いた差分ブラウザ分割にフォーカスしない\n  --title <text>               差分ビューアのタイトル\n  --layout <split|unified>     差分レイアウト\n  --font-size <points>         差分のフォントサイズ\n\n例:\n  cmux diff changes.patch\n  git diff | cmux diff\n  cmux diff --unstaged\n  cmux diff --staged\n  cmux diff --branch\n  cmux diff --branch --base upstream/main --repo ../repo\n  cmux diff --last-turn --agent codex --session <id>\n  cmux diff pr.patch --layout unified --font-size 15 --focus true" } }
+      }
+    },
     "cli.claude-hook.error.invalidSurface": {
       "extractionState": "manual",
       "localizations": {

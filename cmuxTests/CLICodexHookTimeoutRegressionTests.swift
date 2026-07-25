@@ -129,6 +129,19 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(doneFile, containing: "done", timeout: 6))
     }
 
+    @Test func codexHooksPublishVisibleStateWithoutGitSnapshots() throws {
+        try assertCodexHookPublishesVisibleStateWithoutGitSnapshot(
+            subcommand: "session-start",
+            payload: #"{"session_id":"codex-session","cwd":"REPO_ROOT","hook_event_name":"SessionStart"}"#,
+            expectedCommandPrefix: "set_agent_pid "
+        )
+        try assertCodexHookPublishesVisibleStateWithoutGitSnapshot(
+            subcommand: "prompt-submit",
+            payload: #"{"session_id":"codex-session","turn_id":"turn-1","cwd":"REPO_ROOT","hook_event_name":"UserPromptSubmit","prompt":"work"}"#,
+            expectedCommandPrefix: "set_status codex Running "
+        )
+    }
+
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -657,6 +670,75 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "idle")
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
+    }
+
+    private func assertCodexHookPublishesVisibleStateWithoutGitSnapshot(
+        subcommand: String,
+        payload: String,
+        expectedCommandPrefix: String
+    ) throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-no-git-snapshot-\(subcommand)-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let fakeBin = root.appendingPathComponent("bin", isDirectory: true)
+        let fakeGit = fakeBin.appendingPathComponent("git", isDirectory: false)
+        let gitInvocation = root.appendingPathComponent("git-invoked", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("no-git-diff")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeGit, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" > \"$CMUX_TEST_GIT_INVOCATION\"",
+            "exit 99",
+        ])
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 24
+        )
+
+        let environment = [
+            "HOME": root.path,
+            "CODEX_HOME": codexHome.path,
+            "PATH": "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "TMPDIR": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CODEX_PID": "4242",
+            "CMUX_TEST_GIT_INVOCATION": gitInvocation.path,
+        ]
+        let run = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", subcommand],
+            environment: environment,
+            standardInput: payload.replacingOccurrences(of: "REPO_ROOT", with: root.path),
+            timeout: 5
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(commands.snapshot().contains { $0.hasPrefix(expectedCommandPrefix) })
+        #expect(
+            !FileManager.default.fileExists(atPath: gitInvocation.path),
+            "\(subcommand) must not create a Git snapshot"
+        )
     }
 
     private func bundledCLIPath() throws -> String {

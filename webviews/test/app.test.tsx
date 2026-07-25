@@ -10,7 +10,7 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "ShadowRoot", "HTMLElement", "HTMLButtonElement", "HTMLDivElement", "HTMLPreElement", "HTMLStyleElement", "HTMLTemplateElement", "SVGElement", "ResizeObserver", "Worker", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -146,7 +146,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           sourceOptions: [
             { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
             { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
-            { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+            { label: "Last turn", selected: false, sessionSource: { kind: "agentTurn", provider: "codex", sessionId: "codex-session" }, value: "last-turn" },
           ],
           repoOptions: [
             { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
@@ -201,7 +201,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
   await waitFor(() => fetched.length === 5);
   expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source)
-    .toEqual({ kind: "patch", path: "/last-turn.patch" });
+    .toEqual({ kind: "agentTurn", provider: "codex", sessionId: "codex-session" });
   const closeCountBeforePageHide = requests.filter((request) => request.method === "sessionClose").length;
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   await waitFor(() => requests.filter((request) => request.method === "sessionClose").length > closeCountBeforePageHide);
@@ -209,6 +209,66 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   root = null;
   expect(requests.filter((request) => request.method === "sessionClose").length)
     .toBeGreaterThan(closeCountBeforePageHide);
+});
+
+test("custom-scheme pending pages stream an agent trajectory session", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/last-turn.html");
+  const requests: any[] = [];
+  const commentRequests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: {
+                  id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch",
+                  mediaType: "text/x-diff",
+                  byteLength: 0,
+                  revision: 1,
+                },
+                source: request.params.source,
+                repoRoot: "/tmp/resolved-repo",
+              },
+            },
+            error: null,
+          };
+        },
+      },
+      cmuxDiffComments: {
+        async postMessage(request: any) {
+          commentRequests.push(request);
+          return { ok: true, value: { comments: [] } };
+        },
+      },
+    },
+  };
+
+  const source = { kind: "agentTurn", provider: "codex", sessionId: "codex-session" } as const;
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        pendingReplacement: true,
+        repoRoot: "/tmp/initial-repo",
+        sessionSource: source,
+        statusMessage: "Loading diff",
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await waitFor(() => requests.some((request) => request.method === "sessionOpen"));
+  expect(requests.find((request) => request.method === "sessionOpen").params.source).toEqual(source);
+  await waitFor(() => commentRequests.some((request) => request.params.repoRoot === "/tmp/resolved-repo"));
 });
 
 test("typed Rust empty diffs keep the localized source-specific message", async () => {
@@ -405,10 +465,15 @@ test("pagehide cancels a typed session while its initial open is pending", async
     />,
   );
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  const openRequest = requests.find((request) => request.method === "sessionOpen");
+  expect(openRequest).toBeDefined();
+  expect(openRequest.params.viewerInstanceId).toMatch(/^[0-9a-f-]{36}$/i);
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 1);
-  expect(requests.find((request) => request.method === "sessionClose").params.sessionId)
-    .toBe("00000000-0000-0000-0000-000000000000");
+  const closeRequest = requests.find((request) => request.method === "sessionClose");
+  expect(closeRequest).toBeDefined();
+  expect(closeRequest.params.sessionId).toBe("00000000-0000-0000-0000-000000000000");
+  expect(closeRequest.params.viewerInstanceId).toBe(openRequest.params.viewerInstanceId);
 });
 
 test("Last Turn reveals repo selection after switching to a typed git source", async () => {
@@ -444,9 +509,9 @@ test("Last Turn reveals repo selection after switching to a typed git source", a
     <App
       config={{ payload: {
         capabilityToken: "0123456789abcdef",
-        sessionSource: { kind: "patch", path: "/last-turn.patch" },
+        sessionSource: { kind: "agentTurn", provider: "codex", sessionId: "codex-session" },
         sourceOptions: [
-          { label: "Last turn", selected: true, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+          { label: "Last turn", selected: true, sessionSource: { kind: "agentTurn", provider: "codex", sessionId: "codex-session" }, value: "last-turn" },
           { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
         ],
         repoOptions: [
@@ -479,7 +544,16 @@ test("App still starts diff rendering when statusMessage is an empty string", as
   let fetchCount = 0;
   installDomGlobals(dom, () => {
     fetchCount += 1;
-    return new Response("", { status: 200 });
+    return new Response([
+      "diff --git a/story.txt b/story.txt",
+      "index 3367afd..f875bd7 100644",
+      "--- a/story.txt",
+      "+++ b/story.txt",
+      "@@ -1 +1 @@",
+      "-before",
+      "+after",
+      "",
+    ].join("\n"), { status: 200 });
   });
 
   renderApp(
@@ -495,8 +569,9 @@ test("App still starts diff rendering when statusMessage is an empty string", as
     />,
   );
 
-  await waitFor(() => fetchCount > 0);
+  await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "1");
   expect(fetchCount).toBe(1);
+  expect(dom.window.document.querySelector(".code-view-root")).toBeTruthy();
 });
 
 test("App reports copy failure without replacing the current status screen", async () => {
@@ -676,12 +751,61 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).navigator = nextDom.window.navigator;
   (globalThis as any).Element = nextDom.window.Element;
   (globalThis as any).Node = nextDom.window.Node;
+  (globalThis as any).ShadowRoot = nextDom.window.ShadowRoot;
   (globalThis as any).HTMLElement = nextDom.window.HTMLElement;
+  (globalThis as any).HTMLButtonElement = nextDom.window.HTMLButtonElement;
+  (globalThis as any).HTMLDivElement = nextDom.window.HTMLDivElement;
+  (globalThis as any).HTMLPreElement = nextDom.window.HTMLPreElement;
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
+  (globalThis as any).HTMLTemplateElement = nextDom.window.HTMLTemplateElement;
+  (globalThis as any).SVGElement = nextDom.window.SVGElement;
+  (globalThis as any).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  (globalThis as any).Worker = TestFailingWorker;
+  (nextDom.window as any).Worker = TestFailingWorker;
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).fetch = fetchImpl;
   (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0);
   (globalThis as any).cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+}
+
+class TestFailingWorker {
+  onerror: ((event: ErrorEvent) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onmessageerror: ((event: MessageEvent) => void) | null = null;
+  private errorScheduled = false;
+  private readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    const listeners = this.listeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+    if (type === "error" && !this.errorScheduled) {
+      this.errorScheduled = true;
+      queueMicrotask(() => {
+        const event = {
+          error: new Error("test worker unavailable"),
+          message: "test worker unavailable",
+          type: "error",
+        } as ErrorEvent;
+        this.onerror?.(event);
+        for (const candidate of this.listeners.get("error") ?? []) {
+          if (typeof candidate === "function") candidate(event);
+          else candidate.handleEvent(event);
+        }
+      });
+    }
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  postMessage(): void {}
+  terminate(): void {}
 }
 
 function renderApp(element: React.ReactNode): void {
