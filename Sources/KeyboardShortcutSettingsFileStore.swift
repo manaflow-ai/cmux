@@ -481,10 +481,11 @@ final class CmuxSettingsFileStore {
         }
 
         // The divider accepts the literal "none" (hide) in addition to a hex.
+        // Match the schema's lowercase const exactly (no case folding) so a value
+        // that parses at runtime can't fail schema/editor validation.
         let dividerKey = TabBarStyleSettings.dividerColorKey
         if root.keys.contains(dividerKey) {
-            if let raw = jsonString(root[dividerKey]),
-                raw.caseInsensitiveCompare("none") == .orderedSame {
+            if let raw = jsonString(root[dividerKey]), raw == "none" {
                 snapshot.managedUserDefaults[dividerKey] = .string("none")
             } else if let value = parseNullableHex(root[dividerKey], path: dividerKey, sourcePath: sourcePath) {
                 snapshot.managedUserDefaults[dividerKey] = .nullableString(value)
@@ -499,9 +500,9 @@ final class CmuxSettingsFileStore {
             if root[edgeKey] is NSNull {
                 snapshot.managedUserDefaults[edgeKey] = .nullableString(nil)
             } else if let raw = jsonString(root[edgeKey]) {
-                let normalized = raw.lowercased()
-                if ["top", "bottom", "none"].contains(normalized) {
-                    snapshot.managedUserDefaults[edgeKey] = .string(normalized)
+                // Accept only the schema's lowercase enum values verbatim.
+                if ["top", "bottom", "none"].contains(raw) {
+                    snapshot.managedUserDefaults[edgeKey] = .string(raw)
                 } else {
                     logInvalid(edgeKey, sourcePath: sourcePath)
                 }
