@@ -85,6 +85,8 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         private var pendingUpdate: (() -> Void)?
         private var lastRenderGeneration: Int?
         private var pendingSemanticScrollTarget: ConversationScrollTarget?
+        private var tailSettleGeneration = 0
+        private var tailSettlePassesRemaining = 0
 
         init(followState: Binding<ConversationFollowState<Row.ID>>) {
             self.followState = followState
@@ -247,6 +249,7 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             guard let tableView = scrollView as? UITableView else { return }
             pendingSemanticScrollTarget = nil
+            cancelTailSettle()
             let anchor = firstVisibleAnchor(in: tableView)
             followState.wrappedValue = .detached(
                 anchorID: anchor?.id,
@@ -403,12 +406,59 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         }
 
         private func scrollToTail(in tableView: UITableView, animated: Bool) {
+            guard !orderedIDs.isEmpty else { return }
+            tailSettleGeneration += 1
+            tailSettlePassesRemaining = 6
+            pendingSemanticScrollTarget = animated ? .tail : nil
+            settleTail(
+                in: tableView,
+                generation: tailSettleGeneration,
+                animated: animated,
+                shouldScheduleNextPass: true
+            )
+            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
+        }
+
+        private func cancelTailSettle() {
+            tailSettleGeneration += 1
+            tailSettlePassesRemaining = 0
+        }
+
+        private func settleTail(
+            in tableView: UITableView,
+            generation: Int,
+            animated: Bool,
+            shouldScheduleNextPass: Bool
+        ) {
+            guard generation == tailSettleGeneration,
+                  !orderedIDs.isEmpty
+            else { return }
             tableView.layoutIfNeeded()
+            let lastIndexPath = IndexPath(row: orderedIDs.count - 1, section: 0)
+            if tableView.numberOfRows(inSection: 0) > lastIndexPath.row {
+                tableView.scrollToRow(at: lastIndexPath, at: .bottom, animated: animated)
+                tableView.layoutIfNeeded()
+            }
             tableView.setContentOffset(
                 CGPoint(x: tableView.contentOffset.x, y: maxOffsetY(in: tableView)),
                 animated: animated
             )
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
+
+            guard shouldScheduleNextPass,
+                  tailSettlePassesRemaining > 0,
+                  distanceFromTail(in: tableView) > 1.5
+            else { return }
+            tailSettlePassesRemaining -= 1
+            DispatchQueue.main.async { [weak self, weak tableView] in
+                guard let self, let tableView else { return }
+                self.settleTail(
+                    in: tableView,
+                    generation: generation,
+                    animated: false,
+                    shouldScheduleNextPass: true
+                )
+            }
         }
 
         private func firstVisibleAnchor(in tableView: UITableView) -> Anchor? {
