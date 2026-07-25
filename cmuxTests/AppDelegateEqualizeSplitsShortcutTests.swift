@@ -909,6 +909,126 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testPendingWorkspaceTerminalFontSizeChangeBoundsAlternatingWorkspaceStorage() {
+        let manager = TabManager()
+        guard let firstWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        let secondWorkspace = manager.addTab(select: false)
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:)
+        )
+        defer { coordinator.cancelAll() }
+
+        for index in 0..<10_000 {
+            coordinator.enqueue(
+                .relative([index.isMultiple(of: 2) ? 1 : -1]),
+                workspaceId: index.isMultiple(of: 2)
+                    ? firstWorkspace.id
+                    : secondWorkspace.id,
+                deferFlush: true
+            )
+        }
+
+#if DEBUG
+        XCTAssertLessThanOrEqual(
+            coordinator.debugPendingRequestCount,
+            2,
+            "Alternating live workspace ids must coalesce by workspace instead of retaining every event"
+        )
+#else
+        XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+#endif
+        XCTAssertEqual(
+            scheduler.delays,
+            [0.05],
+            "One repeat-coalescing timer should cover the entire pending batch"
+        )
+    }
+
+    func testWorkspaceTerminalFontSizeDrainFollowsWorkspaceMovedToAnotherManager() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let workspace = sourceManager.selectedWorkspace else {
+            XCTFail("Expected a source workspace")
+            return
+        }
+
+        let testPanels = (1...20).map { suffix in
+            var configTemplate = CmuxSurfaceConfigTemplate()
+            configTemplate.fontSizeLineage = TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+            let panel = TerminalPanel(
+                id: UUID(
+                    uuidString: String(
+                        format: "00000000-0000-4000-8001-%012d",
+                        suffix
+                    )
+                )!,
+                workspaceId: workspace.id,
+                configTemplate: configTemplate,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+            return panel
+        }
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: sourceManager,
+            schedule: scheduler.schedule(delay:action:)
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+        return
+#endif
+
+        let adjustedBeforeMove = testPanels.count {
+            $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+        }
+        XCTAssertGreaterThan(adjustedBeforeMove, 0)
+        XCTAssertLessThan(
+            adjustedBeforeMove,
+            testPanels.count,
+            "The first bounded drain should leave terminals for a later turn"
+        )
+
+        guard let detachedWorkspace =
+                sourceManager.detachWorkspace(tabId: workspace.id) else {
+            XCTFail("Expected the source manager to detach the workspace")
+            return
+        }
+        XCTAssertTrue(detachedWorkspace === workspace)
+        destinationManager.attachWorkspace(
+            detachedWorkspace,
+            select: true
+        )
+
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+
+        XCTAssertTrue(
+            testPanels.allSatisfy {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+            },
+            "An in-flight request must follow the workspace object into its destination manager"
+        )
+    }
+
     func testClosingWindowCancelsPendingWorkspaceTerminalFontSizeChange() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
