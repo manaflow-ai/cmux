@@ -39,15 +39,17 @@ extension GlobalSearchShortcutBehaviorTests {
         let window = try makeMainWindow(appDelegate: appDelegate)
         defer { closeWindow(window, appDelegate: appDelegate) }
 
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(
-                key: "g",
-                command: true,
-                shift: false,
-                option: false,
-                control: false
-            ),
-            for: .globalSearch
+        let shortcut = StoredShortcut(
+            key: "j",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+        #expect(
+            KeyboardShortcutSettings.shortcut(for: .globalSearch) == shortcut,
+            "The monitor-chain fixture must install a valid, unclaimed Command shortcut"
         )
         appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
@@ -57,9 +59,9 @@ extension GlobalSearchShortcutBehaviorTests {
 
         NSApp.sendEvent(
             try makeKeyDownEvent(
-                key: "g",
+                key: "j",
                 modifiers: [.command],
-                keyCode: 5,
+                keyCode: 38,
                 windowNumber: popoverWindow.windowNumber
             )
         )
