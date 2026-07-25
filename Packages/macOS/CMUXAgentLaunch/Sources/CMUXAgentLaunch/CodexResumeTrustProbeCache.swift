@@ -6,11 +6,12 @@ import Foundation
 ///
 /// Restoring several panes launches one wrapper process per pane. Equivalent
 /// wrappers use one of 256 stable lock shards so only one process runs the
-/// heavyweight app-server probe; waiters wake on the owner's atomic handoff
-/// write and read that record. A process that acquires the lock
-/// without first observing contention always probes again, so explicit config
-/// changes are visible to the next invocation instead of being hidden by a
-/// time-based cache.
+/// heavyweight app-server probe. Waiters wake on either their matching atomic
+/// handoff or an explicit shard-release generation, so unrelated keys that
+/// share a shard can retry immediately. A process that acquires the lock without
+/// first observing contention always probes again, so explicit config changes
+/// are visible to the next invocation instead of being hidden by a time-based
+/// cache.
 public struct CodexResumeTrustProbeCache: Sendable {
     private static let cacheLifetime: TimeInterval = 5
     private static let maximumEntryCount = 64
@@ -74,6 +75,10 @@ public struct CodexResumeTrustProbeCache: Sendable {
             "lock-\(paddedShard)-of-\(Self.lockShardCount)",
             isDirectory: false
         )
+        let releaseURL = directory.appendingPathComponent(
+            "release-\(paddedShard)-of-\(Self.lockShardCount)",
+            isDirectory: false
+        )
         let lockFD = Darwin.open(
             lockURL.path,
             O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
@@ -84,6 +89,9 @@ public struct CodexResumeTrustProbeCache: Sendable {
         }
         defer { Darwin.close(lockFD) }
 
+        let clock = ContinuousClock()
+        let lockDeadline = clock.now.advanced(by: Self.lockWait)
+        var observedReleaseGeneration = shardReleaseGeneration(at: releaseURL)
         while flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
             let lockError = errno
             guard lockError == EWOULDBLOCK || lockError == EINTR else {
@@ -91,19 +99,33 @@ public struct CodexResumeTrustProbeCache: Sendable {
             }
             if lockError == EWOULDBLOCK {
                 contentionObserver?()
+                guard clock.now < lockDeadline else {
+                    return await probe()
+                }
                 let handoff = await waitForConcurrentHandoff(
                     at: cacheURL,
-                    key: key
+                    key: key,
+                    releaseURL: releaseURL,
+                    after: observedReleaseGeneration,
+                    clock: clock,
+                    deadline: lockDeadline
                 )
                 if handoff.found {
                     return handoff.value
+                }
+                if handoff.shardReleased {
+                    observedReleaseGeneration = handoff.releaseGeneration
+                    continue
                 }
                 // The owner may be suspended indefinitely. Run an independent,
                 // already-bounded app-server probe instead of blocking resume.
                 return await probe()
             }
         }
-        defer { _ = flock(lockFD, LOCK_UN) }
+        defer {
+            _ = flock(lockFD, LOCK_UN)
+            publishShardRelease(at: releaseURL)
+        }
 
         try? fileManager.removeItem(at: cacheURL)
         let result = await probe()
@@ -117,24 +139,47 @@ public struct CodexResumeTrustProbeCache: Sendable {
     /// so a suspended owner cannot hold restored sessions indefinitely.
     private func waitForConcurrentHandoff(
         at cacheURL: URL,
-        key: String
-    ) async -> (found: Bool, value: Set<String>?) {
+        key: String,
+        releaseURL: URL,
+        after observedReleaseGeneration: String?,
+        clock: ContinuousClock,
+        deadline: ContinuousClock.Instant
+    ) async -> (
+        found: Bool,
+        value: Set<String>?,
+        shardReleased: Bool,
+        releaseGeneration: String?
+    ) {
         guard let changes = directoryChangeEvents() else {
-            return (false, nil)
+            return (false, nil, false, observedReleaseGeneration)
         }
 
         let initial = lookup(at: cacheURL, key: key, now: Date())
         if initial.found {
-            return initial
+            return (true, initial.value, false, observedReleaseGeneration)
+        }
+        let initialGeneration = shardReleaseGeneration(at: releaseURL)
+        if initialGeneration != observedReleaseGeneration {
+            return (false, nil, true, initialGeneration)
         }
 
         return await withTaskGroup(
-            of: (found: Bool, value: Set<String>?).self
+            of: (
+                found: Bool,
+                value: Set<String>?,
+                shardReleased: Bool,
+                releaseGeneration: String?
+            ).self
         ) { group in
             group.addTask {
                 for await _ in changes {
                     guard !Task.isCancelled else {
-                        return (false, nil)
+                        return (
+                            false,
+                            nil,
+                            false,
+                            observedReleaseGeneration
+                        )
                     }
                     let handoff = lookup(
                         at: cacheURL,
@@ -142,23 +187,65 @@ public struct CodexResumeTrustProbeCache: Sendable {
                         now: Date()
                     )
                     if handoff.found {
-                        return handoff
+                        return (
+                            true,
+                            handoff.value,
+                            false,
+                            observedReleaseGeneration
+                        )
+                    }
+                    let releaseGeneration = shardReleaseGeneration(
+                        at: releaseURL
+                    )
+                    if releaseGeneration != observedReleaseGeneration {
+                        return (false, nil, true, releaseGeneration)
                     }
                 }
-                return (false, nil)
+                return (false, nil, false, observedReleaseGeneration)
             }
             group.addTask {
                 do {
-                    try await ContinuousClock().sleep(for: Self.lockWait)
+                    try await clock.sleep(until: deadline)
                 } catch {
-                    return (false, nil)
+                    return (false, nil, false, observedReleaseGeneration)
                 }
-                return (false, nil)
+                return (false, nil, false, observedReleaseGeneration)
             }
 
-            let result = await group.next() ?? (false, nil)
+            let result = await group.next()
+                ?? (false, nil, false, observedReleaseGeneration)
             group.cancelAll()
             return result
+        }
+    }
+
+    private func shardReleaseGeneration(at url: URL) -> String? {
+        guard let attributes = try? fileManager.attributesOfItem(
+            atPath: url.path
+        ),
+            let size = (attributes[.size] as? NSNumber)?.intValue,
+            size <= 128,
+            let generation = try? String(contentsOf: url, encoding: .utf8),
+            !generation.isEmpty,
+            generation.utf8.count <= 128 else {
+            return nil
+        }
+        return generation
+    }
+
+    private func publishShardRelease(at url: URL) {
+        do {
+            try UUID().uuidString.write(
+                to: url,
+                atomically: true,
+                encoding: .utf8
+            )
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: url.path
+            )
+        } catch {
+            try? fileManager.removeItem(at: url)
         }
     }
 
