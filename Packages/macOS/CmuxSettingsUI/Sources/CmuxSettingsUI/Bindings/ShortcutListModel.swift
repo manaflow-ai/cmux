@@ -50,7 +50,8 @@ final class ShortcutListModel {
     ) {
         self.jsonStore = jsonStore
         self.userDefaultsStore = userDefaultsStore
-        self.legacyBindings = userDefaultsStore?.initialLegacyShortcutBindings() ?? [:]
+        self.legacyBindings = (userDefaultsStore?.initialLegacyShortcutBindings() ?? [:])
+            .removingBindingsRejectedByActionPolicy()
         self.catalog = catalog
         self.errorLog = errorLog
         self.onShortcutsChanged = onShortcutsChanged
@@ -87,6 +88,7 @@ final class ShortcutListModel {
     private var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
 
     private func ingestBindings(_ dictionary: [String: StoredShortcut]) {
+        let dictionary = dictionary.removingBindingsRejectedByActionPolicy()
         let changedActionIds = Set(bindings.keys).union(dictionary.keys)
             .filter { bindings[$0] != dictionary[$0] }
         bindings = dictionary
@@ -96,6 +98,7 @@ final class ShortcutListModel {
     }
 
     private func ingestLegacyBindings(_ dictionary: [String: StoredShortcut]) {
+        let dictionary = dictionary.removingBindingsRejectedByActionPolicy()
         let changedActionIds = Set(legacyBindings.keys).union(dictionary.keys)
             .filter { legacyBindings[$0] != dictionary[$0] }
         legacyBindings = dictionary
@@ -207,12 +210,12 @@ final class ShortcutListModel {
             ) else { continue }
             let effective = effective(for: other)
             guard let effective, !effective.isUnbound else { continue }
-            if numberedAwareStrokesConflict(
-                stroke.first,
-                numbered: action.usesNumberedDigitMatching,
-                effective.first,
-                numbered: other.usesNumberedDigitMatching
-            ) {
+            if ShortcutBindingConflict(
+                proposed: stroke,
+                proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
+                configured: effective,
+                configuredUsesNumberedDigitMatching: other.usesNumberedDigitMatching
+            ).exists {
                 return other
             }
         }
@@ -281,7 +284,7 @@ final class ShortcutListModel {
             )
         }
         let proposed = StoredShortcut(first: stroke)
-        if rejectsSystemDefinedMediaKey(proposed, for: action) {
+        if action.rejectsSystemDefinedMediaKey(proposed) {
             markSystemReservedRejected(action)
             return
         }
@@ -322,7 +325,7 @@ final class ShortcutListModel {
             chordModeActions.remove(action.rawValue)
             return
         }
-        if rejectsSystemDefinedMediaKey(proposed, for: action) {
+        if action.rejectsSystemDefinedMediaKey(proposed) {
             markSystemReservedRejected(action)
             chordModeActions.remove(action.rawValue)
             return
@@ -351,6 +354,10 @@ final class ShortcutListModel {
 
     /// Persists `shortcut` for `action` and clears its rejection/restore state.
     func restoreBinding(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
+        guard !action.rejectsSystemDefinedMediaKey(shortcut) else {
+            markSystemReservedRejected(action)
+            return
+        }
         var updated = latestBindings
         updated[action.rawValue] = shortcut
         restoreShortcuts.removeValue(forKey: action.rawValue)

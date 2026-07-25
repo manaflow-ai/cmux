@@ -39,14 +39,4 @@ extension ShortcutListModel {
         }
         return nil
     }
-
-    /// Whether the foreground-only Global Search route cannot execute this recording.
-    func rejectsSystemDefinedMediaKey(
-        _ shortcut: StoredShortcut,
-        for action: ShortcutAction
-    ) -> Bool {
-        action == .globalSearch
-            && (shortcut.first.key.lowercased().hasPrefix("media.")
-                || shortcut.second?.key.lowercased().hasPrefix("media.") == true)
-    }
 }

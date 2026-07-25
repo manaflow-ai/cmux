@@ -726,7 +726,10 @@ enum KeyboardShortcutSettings {
                     checkingConflicts: checkingSystemWideConflicts
                 )
             case .globalSearch:
-                guard !Self.containsSystemDefinedMediaKey(shortcut) else {
+                guard !CmuxSettings.ShortcutAction.globalSearch.rejectsSystemDefinedMediaKey(
+                    firstKey: shortcut.firstStroke.key,
+                    secondKey: shortcut.secondStroke?.key
+                ) else {
                     return .rejected(.reservedBySystem)
                 }
                 return .accepted(shortcut)
@@ -735,11 +738,6 @@ enum KeyboardShortcutSettings {
             default:
                 return .accepted(shortcut)
             }
-        }
-
-        private static func containsSystemDefinedMediaKey(_ shortcut: StoredShortcut) -> Bool {
-            shortcut.firstStroke.key.lowercased().hasPrefix("media.")
-                || shortcut.secondStroke?.key.lowercased().hasPrefix("media.") == true
         }
 
         private func resolvedNumberedDigitShortcut(
