@@ -1170,6 +1170,119 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testForwardedWorkspaceFontSizeShortcutUsesDestinationWindowDock() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let workspace = sourceManager.selectedWorkspace else {
+            XCTFail("Expected a source workspace")
+            return
+        }
+
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            workspace.panels[panel.id] = panel
+        }
+
+        let sourceDock = sourceManager.makeWindowDockStore(
+            windowId: UUID()
+        )
+        let destinationDock = destinationManager.makeWindowDockStore(
+            windowId: UUID()
+        )
+        let sourceDockPanel = TerminalPanel(
+            workspaceId: sourceDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        sourceDockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 10,
+                isExplicitOverride: true
+            )
+        )
+        sourceDock.panels[sourceDockPanel.id] = sourceDockPanel
+        let destinationDockPanel = TerminalPanel(
+            workspaceId: destinationDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        destinationDockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        destinationDock.panels[destinationDockPanel.id] =
+            destinationDockPanel
+
+        let sourceScheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: sourceManager,
+            schedule: sourceScheduler.schedule(delay:action:)
+        )
+        let destinationScheduler =
+            ManualWorkspaceFontSizeDrainScheduler()
+        let destinationCoordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: destinationManager,
+            schedule: destinationScheduler.schedule(delay:action:)
+        )
+        sourceCoordinator.attachWindowDock(sourceDock)
+        destinationCoordinator.attachWindowDock(destinationDock)
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+            sourceDock.closeAllPanels()
+            destinationDock.closeAllPanels()
+        }
+
+        sourceCoordinator.enqueue(
+            .relative([1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        sourceCoordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        guard let detached =
+                sourceManager.detachWorkspace(tabId: workspace.id) else {
+            XCTFail("Expected the source manager to detach the workspace")
+            return
+        }
+        destinationManager.attachWorkspace(detached, select: true)
+
+        destinationCoordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        sourceCoordinator.debugDrainAll()
+        destinationCoordinator.debugDrainAll()
+#endif
+
+        XCTAssertEqual(
+            sourceDockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            11,
+            "The source shortcut must only adjust the source window Dock"
+        )
+        XCTAssertEqual(
+            destinationDockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "A forwarded destination shortcut must retain its destination Dock"
+        )
+    }
+
     func testWorkspaceTerminalFontSizeDrainReconcilesMovedOutTerminal() {
         let manager = TabManager()
         guard let sourceWorkspace = manager.selectedWorkspace,

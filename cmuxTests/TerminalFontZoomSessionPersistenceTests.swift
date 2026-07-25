@@ -553,6 +553,99 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("queued workspaces without a Dock keep independent lineage")
+    func queuedWorkspacesWithoutDockKeepIndependentLineage() throws {
+        let manager = TabManager()
+        let firstWorkspace = try #require(manager.selectedWorkspace)
+        let firstPanelID = try #require(firstWorkspace.focusedPanelId)
+        let firstPaneID = try #require(
+            firstWorkspace.bonsplitController.focusedPaneId
+        )
+        _ = try #require(
+            firstWorkspace.newBrowserSurface(
+                inPane: firstPaneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(firstWorkspace.closePanel(firstPanelID, force: true))
+        firstWorkspace.rememberTerminalFontSizeLineageForConfigInheritance(
+            TerminalFontSizeLineage(
+                basePoints: 8,
+                isExplicitOverride: true
+            )
+        )
+
+        let secondWorkspace = manager.addTab(select: false)
+        let secondPanelID = try #require(secondWorkspace.focusedPanelId)
+        let secondPaneID = try #require(
+            secondWorkspace.bonsplitController.focusedPaneId
+        )
+        _ = try #require(
+            secondWorkspace.newBrowserSurface(
+                inPane: secondPaneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(secondWorkspace.closePanel(secondPanelID, force: true))
+        secondWorkspace.rememberTerminalFontSizeLineageForConfigInheritance(
+            TerminalFontSizeLineage(
+                basePoints: 16,
+                isExplicitOverride: true
+            )
+        )
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager
+        )
+        defer { coordinator.cancelAll() }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: firstWorkspace.id,
+            deferFlush: true
+        )
+        coordinator.enqueue(
+            .relative([1]),
+            workspaceId: secondWorkspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+
+        let firstInheritedPanel = try #require(
+            firstWorkspace.newTerminalSurface(
+                inPane: firstPaneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        let secondInheritedPanel = try #require(
+            secondWorkspace.newTerminalSurface(
+                inPane: secondPaneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        #expect(
+            firstInheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 7,
+                    isExplicitOverride: true
+                )
+        )
+        #expect(
+            secondInheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(
+                    basePoints: 17,
+                    isExplicitOverride: true
+                )
+        )
+    }
+
     @Test("Dock terminal at the clamp bound still seeds first main terminal")
     func boundedWindowDockFontSizeAdjustmentSeedsFirstMainTerminal() throws {
         let workspace = Workspace()

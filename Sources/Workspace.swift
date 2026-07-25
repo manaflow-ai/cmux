@@ -6598,6 +6598,10 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritanceFontSizeLineage = lineage
     }
 
+    func clearTerminalFontSizeLineageForConfigInheritance() {
+        lastTerminalConfigInheritanceFontSizeLineage = nil
+    }
+
     func lastRememberedTerminalPanelForConfigInheritance() -> TerminalPanel? {
         guard let panelId = lastTerminalConfigInheritancePanelId else { return nil }
         return terminalPanel(for: panelId)

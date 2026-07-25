@@ -395,12 +395,17 @@ extension Workspace {
             participatingLineage: participatingLineage
         )
         if case .resetThen(let transform) = change {
-            rememberTerminalFontSizeLineageForConfigInheritance(
-                configuredTerminalFontSizeLineage(
-                    configuredRuntimePoints: configuredRuntimePoints,
-                    applying: transform
-                )
+            let resetLineage = configuredTerminalFontSizeLineage(
+                configuredRuntimePoints: configuredRuntimePoints,
+                applying: transform
             )
+            if resetLineage.isExplicitOverride {
+                rememberTerminalFontSizeLineageForConfigInheritance(
+                    resetLineage
+                )
+            } else if lastRememberedTerminalPanelForConfigInheritance() == nil {
+                clearTerminalFontSizeLineageForConfigInheritance()
+            }
         }
         _dockSplit?.rememberTerminalFontSizeLineageForNewTerminals(
             fallback: lastRememberedTerminalFontSizeLineageForConfigInheritance()

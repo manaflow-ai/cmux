@@ -38,8 +38,6 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
-    private var terminalFontSizeWorkspaceChangeSourcePanelId: UUID?
-    private var terminalFontSizeWorkspaceChangeSourcePanelCount = 0
     weak var terminalFontSizeChangeCoordinator:
         WorkspaceTerminalFontSizeCoordinator?
     weak var terminalFontSizeOwningWorkspace: Workspace?
@@ -468,43 +466,6 @@ final class DockSplitStore: BonsplitDelegate {
         if let lineage = focusedLineage ?? fallback ?? lastTerminalFontSizeLineage {
             rememberDurableTerminalFontSizeLineage(lineage)
         }
-    }
-
-    func terminalFontSizeLineageForWorkspaceChange()
-        -> TerminalFontSizeLineage? {
-        if terminalFontSizeWorkspaceChangeSourcePanelCount
-                == panels.count,
-           let sourcePanelId =
-                terminalFontSizeWorkspaceChangeSourcePanelId,
-           let sourcePanel = panels[sourcePanelId] as? TerminalPanel,
-           let lineage =
-                sourcePanel.surface.fontSizeLineageSnapshot() {
-            return lineage
-        }
-        var selected: (panelId: UUID, lineage: TerminalFontSizeLineage)?
-        for terminalPanel in panels.values.compactMap({
-            $0 as? TerminalPanel
-        }) {
-#if DEBUG
-            debugWorkspaceFontSizeLineageProbeCount += 1
-#endif
-            guard let lineage =
-                    terminalPanel.surface.fontSizeLineageSnapshot(),
-                  selected.map({
-                    terminalPanel.id.uuidString
-                        < $0.panelId.uuidString
-                  }) ?? true else {
-                continue
-            }
-            selected = (terminalPanel.id, lineage)
-        }
-        terminalFontSizeWorkspaceChangeSourcePanelId =
-            selected?.panelId
-        terminalFontSizeWorkspaceChangeSourcePanelCount = panels.count
-        if let lineage = selected?.lineage {
-            rememberDurableTerminalFontSizeLineage(lineage)
-        }
-        return selected?.lineage ?? lastTerminalFontSizeLineage
     }
 
     /// Concrete config-following values are valid only during an active
