@@ -290,7 +290,7 @@ struct AgentHookDeliveryQueueTests {
                 surfaceID: "surface-\(index)"
             )))
         }
-        try await probe.waitUntilStarted(count: 3)
+        try await probe.waitUntilStarted(count: 2)
 
         #expect(!queue.enqueue(try makeEvent(
             agent: "cursor",
@@ -303,7 +303,7 @@ struct AgentHookDeliveryQueueTests {
             payload: "lifecycle",
             surfaceID: "surface-4"
         )))
-        try await probe.waitUntilStarted(count: 4)
+        try await probe.waitUntilStarted(count: 3)
         #expect(await probe.startedPayloads().contains("lifecycle"))
 
         for payload in blockedTools {
@@ -400,7 +400,7 @@ struct AgentHookDeliveryQueueTests {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["lifecycle-a"])
         let barrierProbe = AgentHookDeliveryBarrierProbe()
         let queue = AgentHookDeliveryQueue(
-            maximumConcurrentDeliveries: 2,
+            maximumConcurrentDeliveries: 3,
             maximumResidentEvents: 4,
             maximumIngressEvents: 4
         ) { event in
@@ -484,7 +484,11 @@ struct AgentHookDeliveryQueueTests {
         }
 
         for (index, payload) in payloads.enumerated() {
-            #expect(queue.enqueue(try makeEvent(payload: payload, surfaceID: "surface-\(index)")))
+            #expect(queue.enqueue(try makeEvent(
+                subcommand: index == 3 ? "session-end" : "prompt-submit",
+                payload: payload,
+                surfaceID: "surface-\(index)"
+            )))
         }
         try await probe.waitUntilStarted(count: 4)
         #expect(await probe.startedPayloads().count == 4)

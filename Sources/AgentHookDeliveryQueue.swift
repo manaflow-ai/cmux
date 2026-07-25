@@ -20,6 +20,7 @@ actor AgentHookDeliveryQueue {
     private enum PendingItem: Sendable {
         case event(AgentHookDeliveryEvent)
         case barrier(orderingKey: String, signal: DispatchSemaphore)
+        case discarded(orderingKey: String)
 
         var orderingKey: String {
             switch self {
@@ -27,12 +28,9 @@ actor AgentHookDeliveryQueue {
                 return event.orderingKey
             case .barrier(let orderingKey, _):
                 return orderingKey
+            case .discarded(let orderingKey):
+                return orderingKey
             }
-        }
-
-        var isBarrier: Bool {
-            if case .barrier = self { return true }
-            return false
         }
 
         func canBeReplaced(by newerItem: Self) -> Bool {
@@ -47,6 +45,10 @@ actor AgentHookDeliveryQueue {
     private struct AdmissionRecord: Sendable {
         let item: PendingItem
         let admissionClass: AdmissionClass
+
+        var orderingKey: String {
+            item.orderingKey
+        }
     }
 
     nonisolated private let admissionSignalContinuation: AsyncStream<Void>.Continuation
@@ -69,9 +71,11 @@ actor AgentHookDeliveryQueue {
     private let capacityContinuation: AsyncStream<Void>.Continuation
     private let delivery: Delivery
     private let maximumConcurrentDeliveries: Int
-    private var pendingByOrderingKey: [String: [PendingItem]] = [:]
+    private let maximumOrdinaryConcurrentDeliveries: Int
+    private let maximumBestEffortConcurrentDeliveries: Int
+    private var pendingByOrderingKey: [String: [AdmissionRecord]] = [:]
     private var readyOrderingKeys: [String] = []
-    private var activeOrderingKeys: Set<String> = []
+    private var activeAdmissionClassByOrderingKey: [String: AdmissionClass] = [:]
 
     init(process: AgentHookDeliveryProcess = AgentHookDeliveryProcess()) {
         self.init { event in
@@ -83,7 +87,9 @@ actor AgentHookDeliveryQueue {
     /// eight actor-resident items, eight general event-ingress items, four
     /// terminal lifecycle items, and four barriers. General event ingress
     /// reserves one replaceable slot for high-volume tool and shell telemetry;
-    /// terminal transitions cannot be displaced by notifications or finalizers.
+    /// actor execution reserves one slot for terminal transitions and one
+    /// ordinary slot ahead of best-effort telemetry. Terminal transitions
+    /// cannot be displaced by notifications or finalizers.
     /// The event validator's payload and environment limits therefore also
     /// place a finite byte bound on the complete accepted backlog.
     init(
@@ -123,6 +129,14 @@ actor AgentHookDeliveryQueue {
         capacityContinuation = capacityPair.continuation
         self.delivery = delivery
         self.maximumConcurrentDeliveries = maximumConcurrentDeliveries
+        maximumOrdinaryConcurrentDeliveries = max(
+            1,
+            maximumConcurrentDeliveries - 1
+        )
+        maximumBestEffortConcurrentDeliveries = max(
+            1,
+            maximumOrdinaryConcurrentDeliveries - 1
+        )
 
         for _ in 0..<maximumResidentEvents {
             capacityPair.continuation.yield(())
@@ -215,8 +229,16 @@ actor AgentHookDeliveryQueue {
         let classCount = admissionRecords.lazy.filter {
             $0.admissionClass == admissionClass
         }.count
+        if admissionClass == .terminalLifecycle,
+           replacePublishedLifecycleState(
+               with: item,
+               terminalClassCount: classCount,
+               terminalCapacity: capacity
+           ) {
+            return true
+        }
         if classCount >= capacity {
-            guard admissionClass == .lifecycle || admissionClass == .terminalLifecycle,
+            guard admissionClass == .lifecycle,
                   let replacementIndex = lifecycleReplacementIndex(
                     replacedBy: item,
                     admissionClass: admissionClass
@@ -287,6 +309,57 @@ actor AgentHookDeliveryQueue {
         }
     }
 
+    /// Called only while `admissionPublicationLock` is held. Every superseded
+    /// ingress record keeps its signal as a bounded discard marker, while one
+    /// signal slot is reused for the newer terminal event. Appending the
+    /// terminal record after all older ingress preserves intervening side
+    /// effects such as notifications and finalizers.
+    private nonisolated func replacePublishedLifecycleState(
+        with terminalItem: PendingItem,
+        terminalClassCount: Int,
+        terminalCapacity: Int
+    ) -> Bool {
+        let replaceableIndices = admissionRecords.indices.filter {
+            admissionRecords[$0].item.canBeReplaced(by: terminalItem)
+        }
+        guard !replaceableIndices.isEmpty else { return false }
+
+        let replaceableTerminalIndex = replaceableIndices.last {
+            admissionRecords[$0].admissionClass == .terminalLifecycle
+        }
+        if terminalClassCount >= terminalCapacity,
+           replaceableTerminalIndex == nil {
+            return false
+        }
+        let reusedSignalIndex = replaceableTerminalIndex
+            ?? replaceableIndices[replaceableIndices.index(before: replaceableIndices.endIndex)]
+        let replaceableIndexSet = Set(replaceableIndices)
+        var updatedRecords: [AdmissionRecord] = []
+        updatedRecords.reserveCapacity(admissionRecords.count)
+        for index in admissionRecords.indices {
+            let record = admissionRecords[index]
+            guard replaceableIndexSet.contains(index) else {
+                updatedRecords.append(record)
+                continue
+            }
+            if index != reusedSignalIndex {
+                updatedRecords.append(AdmissionRecord(
+                    item: .discarded(orderingKey: record.orderingKey),
+                    admissionClass: record.admissionClass
+                ))
+            }
+        }
+        updatedRecords.append(AdmissionRecord(
+            item: terminalItem,
+            admissionClass: .terminalLifecycle
+        ))
+        admissionRecords = updatedRecords
+        agentHookDeliveryQueueLogger.info(
+            "Hook admission superseded \(replaceableIndices.count) stale lifecycle record(s)"
+        )
+        return true
+    }
+
     /// Called only while `admissionPublicationLock` is held.
     private nonisolated func rollbackOutstandingBestEffortReservation(
         admissionClass: AdmissionClass,
@@ -318,17 +391,37 @@ actor AgentHookDeliveryQueue {
         assert(removed != nil)
     }
 
-    private nonisolated func takeNextPublishedItem() -> PendingItem? {
+    private nonisolated func takeNextPublishedItem() -> AdmissionRecord? {
         admissionPublicationLock.lock()
         defer { admissionPublicationLock.unlock() }
         guard !admissionRecords.isEmpty else { return nil }
-        return admissionRecords.removeFirst().item
+        return admissionRecords.removeFirst()
     }
 
-    private func accept(_ item: PendingItem) {
-        let orderingKey = item.orderingKey
-        pendingByOrderingKey[orderingKey, default: []].append(item)
-        if !activeOrderingKeys.contains(orderingKey), !readyOrderingKeys.contains(orderingKey) {
+    private func accept(_ record: AdmissionRecord) {
+        if case .discarded = record.item {
+            capacityContinuation.yield(())
+            return
+        }
+
+        let orderingKey = record.orderingKey
+        if record.admissionClass == .terminalLifecycle {
+            var pending = pendingByOrderingKey[orderingKey] ?? []
+            let originalCount = pending.count
+            pending.removeAll {
+                $0.item.canBeReplaced(by: record.item)
+            }
+            let removedCount = originalCount - pending.count
+            pending.append(record)
+            pendingByOrderingKey[orderingKey] = pending
+            for _ in 0..<removedCount {
+                capacityContinuation.yield(())
+            }
+        } else {
+            pendingByOrderingKey[orderingKey, default: []].append(record)
+        }
+        if activeAdmissionClassByOrderingKey[orderingKey] == nil,
+           !readyOrderingKeys.contains(orderingKey) {
             readyOrderingKeys.append(orderingKey)
         }
         startReadyDeliveries()
@@ -337,8 +430,8 @@ actor AgentHookDeliveryQueue {
     private func startReadyDeliveries() {
         while let readyIndex = nextReadyOrderingKeyIndex() {
             let orderingKey = readyOrderingKeys.remove(at: readyIndex)
-            guard let item = takeNextItem(orderingKey: orderingKey) else { continue }
-            switch item {
+            guard let record = takeNextItem(orderingKey: orderingKey) else { continue }
+            switch record.item {
             case .barrier(_, let signal):
                 signal.signal()
                 capacityContinuation.yield(())
@@ -346,7 +439,8 @@ actor AgentHookDeliveryQueue {
                     readyOrderingKeys.append(orderingKey)
                 }
             case .event(let event):
-                activeOrderingKeys.insert(orderingKey)
+                activeAdmissionClassByOrderingKey[orderingKey] =
+                    record.admissionClass
                 let delivery = self.delivery
                 Task { [weak self] in
                     await delivery(event)
@@ -355,17 +449,52 @@ actor AgentHookDeliveryQueue {
                         completedBestEffortTelemetry: event.isBestEffortTelemetry
                     )
                 }
+            case .discarded:
+                assertionFailure("Discarded hook record reached delivery scheduling")
+                capacityContinuation.yield(())
             }
         }
     }
 
     private func nextReadyOrderingKeyIndex() -> Int? {
         guard !readyOrderingKeys.isEmpty else { return nil }
-        if activeOrderingKeys.count < maximumConcurrentDeliveries {
-            return readyOrderingKeys.startIndex
+        if let barrierIndex = readyOrderingKeys.firstIndex(where: {
+            pendingByOrderingKey[$0]?.first?.admissionClass == .barrier
+        }) {
+            return barrierIndex
+        }
+        guard activeAdmissionClassByOrderingKey.count
+                < maximumConcurrentDeliveries else {
+            return nil
+        }
+        if let terminalIndex = readyOrderingKeys.firstIndex(where: {
+            pendingByOrderingKey[$0]?.first?.admissionClass
+                == .terminalLifecycle
+        }) {
+            return terminalIndex
+        }
+
+        let activeOrdinaryCount = activeAdmissionClassByOrderingKey.values.lazy
+            .filter { $0 != .terminalLifecycle }
+            .count
+        guard activeOrdinaryCount < maximumOrdinaryConcurrentDeliveries else {
+            return nil
+        }
+        if let lifecycleIndex = readyOrderingKeys.firstIndex(where: {
+            pendingByOrderingKey[$0]?.first?.admissionClass == .lifecycle
+        }) {
+            return lifecycleIndex
+        }
+
+        let activeBestEffortCount = activeAdmissionClassByOrderingKey.values.lazy
+            .filter { $0 == .bestEffortTool }
+            .count
+        guard activeBestEffortCount < maximumBestEffortConcurrentDeliveries else {
+            return nil
         }
         return readyOrderingKeys.firstIndex { orderingKey in
-            pendingByOrderingKey[orderingKey]?.first?.isBarrier == true
+            pendingByOrderingKey[orderingKey]?.first?.admissionClass
+                == .bestEffortTool
         }
     }
 
@@ -373,7 +502,11 @@ actor AgentHookDeliveryQueue {
         orderingKey: String,
         completedBestEffortTelemetry: Bool
     ) {
-        guard activeOrderingKeys.remove(orderingKey) != nil else { return }
+        guard activeAdmissionClassByOrderingKey.removeValue(
+            forKey: orderingKey
+        ) != nil else {
+            return
+        }
         if completedBestEffortTelemetry {
             releaseOutstandingBestEffortReservation(orderingKey: orderingKey)
         }
@@ -385,7 +518,7 @@ actor AgentHookDeliveryQueue {
         startReadyDeliveries()
     }
 
-    private func takeNextItem(orderingKey: String) -> PendingItem? {
+    private func takeNextItem(orderingKey: String) -> AdmissionRecord? {
         guard var pending = pendingByOrderingKey[orderingKey], !pending.isEmpty else {
             pendingByOrderingKey.removeValue(forKey: orderingKey)
             return nil
