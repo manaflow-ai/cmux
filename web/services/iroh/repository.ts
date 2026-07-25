@@ -318,11 +318,22 @@ function makeLiveRepository(): IrohRepositoryShape {
           .limit(1);
         if (endpointOwner) throw new IrohConflictError({ code: "endpoint_already_bound" });
 
-        // Same cryptographic endpoint on the slot: a heartbeat/refresh of the
-        // live incarnation. Update in place. The binding id is stable and no
-        // peer's admission view of this endpoint changes, so there is no ABA
-        // hazard and existing pair grants keep resolving against the same id.
-        if (existingSlot && existingSlot.endpointId === input.payload.endpointId) {
+        // A heartbeat/refresh of the live incarnation: every field that a peer
+        // signs into a PairGrantPeer and exact-matches at admission is unchanged
+        // (endpoint id, platform, identity generation). Update in place. The
+        // binding id is stable and no peer's admission view of this endpoint
+        // changes, so there is no ABA hazard and existing pair grants keep
+        // resolving against the same id. If any signed field diverged, we must
+        // NOT overwrite it on the live id: a still-valid grant signed against the
+        // old field would then mismatch this current binding, and the host would
+        // record this id in its permanent denial set — the ABA wedge. Any such
+        // divergence falls through to the reincarnation path and mints a fresh id.
+        if (
+          existingSlot
+          && existingSlot.endpointId === input.payload.endpointId
+          && existingSlot.platform === input.payload.platform
+          && existingSlot.identityGeneration === input.payload.identityGeneration
+        ) {
           const [updated] = await tx
             .update(irohEndpointBindings)
             .set({
@@ -354,23 +365,22 @@ function makeLiveRepository(): IrohRepositoryShape {
         // binding id would let a peer host that already denied the OLD endpoint
         // tuple permanently deny this row too — the ABA wedge that strands a
         // computer behind its own past self, since a host's denial set is keyed
-        // on binding id, not endpoint id. So mint a NEW binding id: retire the
-        // old row and carry its live pair grants onto the new id, so existing
-        // pairings follow the device across the rotation instead of forcing a
-        // re-pair.
+        // on binding id, not endpoint id. So mint a NEW binding id and fully
+        // retire the old one through the shared revoke path: it marks the retired
+        // binding's pair grants revoked and rotates the account's LAN discovery
+        // generation so the displaced install can no longer derive rendezvous
+        // aliases. The rotation forces a re-pair regardless — the client's held
+        // grant JWS names the now-dead endpoint id and generation, so it can
+        // never be admitted against the new incarnation — which is why the old
+        // issuance rows are revoked (audit-accurate) rather than reassigned onto
+        // the new id.
         if (existingSlot) {
-          await tx
-            .update(irohEndpointBindings)
-            .set({
-              revokedAt: input.now,
-              revokedReason: "slot_reincarnated",
-              directPortV4: null,
-              directPortV6: null,
-              pathHints: [],
-              pathHintsNextExpiry: null,
-              updatedAt: input.now,
-            })
-            .where(eq(irohEndpointBindings.id, existingSlot.id));
+          await revokeActiveBindings(tx, {
+            userId: input.userId,
+            bindingIds: [existingSlot.id],
+            now: input.now,
+            reason: "slot_reincarnated",
+          });
         } else {
           // Only a genuinely new slot grows the account's active-binding count,
           // so the sanity cap is enforced on this path alone.
@@ -404,25 +414,12 @@ function makeLiveRepository(): IrohRepositoryShape {
           .returning();
         if (!binding) throw new Error("binding insert returned no row");
 
-        if (existingSlot) {
-          // Carry live pairings to the new incarnation's id. Revoked grants stay
-          // pointing at the retired row (still present, only soft-revoked, so the
-          // foreign key holds).
-          await tx
-            .update(irohPairGrantIssuances)
-            .set({ initiatorBindingId: binding.id })
-            .where(and(
-              eq(irohPairGrantIssuances.initiatorBindingId, existingSlot.id),
-              isNull(irohPairGrantIssuances.revokedAt),
-            ));
-          await tx
-            .update(irohPairGrantIssuances)
-            .set({ acceptorBindingId: binding.id })
-            .where(and(
-              eq(irohPairGrantIssuances.acceptorBindingId, existingSlot.id),
-              isNull(irohPairGrantIssuances.revokedAt),
-            ));
-        }
+        // No grant carry-over: iroh_pair_grant_issuances is an audit-only ledger
+        // of compact JWS tokens that were returned once and name the OLD binding
+        // id, endpoint, and generation. Reassigning the foreign key cannot rewrite
+        // a client's held token or carry authorization; it would only make the JTI
+        // audit point at a binding it was never signed for. The retired slot's live
+        // grants were already marked revoked by revokeActiveBindings above.
 
         await tx
           .insert(irohAccountSecurityStates)
@@ -900,7 +897,8 @@ async function revokeActiveBindings(
     readonly reason:
       | "user_requested"
       | "stale_development_binding"
-      | "active_binding_cap_evicted";
+      | "active_binding_cap_evicted"
+      | "slot_reincarnated";
   },
 ): Promise<readonly string[]> {
   if (input.bindingIds.length === 0) return [];
@@ -951,33 +949,30 @@ async function revokeActiveBindings(
   return revokedIds;
 }
 
-// Evict the oldest-seen active bindings so that admitting one more stays within
-// IROH_ACTIVE_BINDING_SANITY_CAP. Called only on the genuinely-new-slot path, so
-// the "+1" accounts for the row about to be inserted. LRU by lastSeenAt: a stuck
-// client spamming fresh device/tag tuples sheds its own stale rows rather than
-// starving the account. No-op for every normal account, which sits far under the
-// cap.
+// Reject a genuinely-new slot once the account already holds
+// IROH_ACTIVE_BINDING_SANITY_CAP active bindings. Called only on the
+// genuinely-new-slot path, so admitting one more would exceed the cap. Rejecting
+// (rather than evicting the oldest) is deliberate: a stuck client spamming fresh
+// device/tag tuples must not be able to make its own churn the newest rows and
+// shed the account's real, older hosts and phones. No normal account approaches
+// the cap; hitting it means something is wrong, and the fix is to revoke stale
+// bindings, not to let new registrations destroy existing ones.
 async function enforceActiveBindingSanityCap(
   tx: CloudDbTransaction,
   input: { readonly userId: string; readonly now: Date },
 ): Promise<void> {
-  const active = await tx
-    .select({ id: irohEndpointBindings.id })
+  const [row] = await tx
+    .select({ total: count() })
     .from(irohEndpointBindings)
     .where(and(
       eq(irohEndpointBindings.userId, input.userId),
       isNull(irohEndpointBindings.revokedAt),
-    ))
-    .orderBy(asc(irohEndpointBindings.lastSeenAt))
-    .for("update");
-  const overflow = active.length + 1 - IROH_ACTIVE_BINDING_SANITY_CAP;
-  if (overflow <= 0) return;
-  const evictable = active.slice(0, overflow).map((row) => row.id);
-  await revokeActiveBindings(tx, {
-    userId: input.userId,
-    bindingIds: evictable,
-    now: input.now,
-    reason: "active_binding_cap_evicted",
+    ));
+  const active = row?.total ?? 0;
+  if (active < IROH_ACTIVE_BINDING_SANITY_CAP) return;
+  throw new IrohQuotaExceededError({
+    code: "active_binding_limit",
+    retryAfterSeconds: 3600,
   });
 }
 

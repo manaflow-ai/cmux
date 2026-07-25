@@ -873,8 +873,9 @@ describe("Iroh trust broker database behavior", () => {
     // Reinstall: fresh app instance, rotated endpoint, generation reset to 1.
     // The rotated key is a new incarnation, so the slot is re-keyed onto a BRAND
     // NEW binding id (never the retired one) to dodge the ABA wedge where a host
-    // that denied the old id would keep denying a resurrected same-id row. The
-    // old row is soft-revoked, not deleted, so pair grants can be carried across.
+    // that denied the old id would keep denying a resurrected same-id row. The old
+    // row is soft-revoked, not deleted, and its live pair grants are revoked: the
+    // client's held grant JWS still names the dead endpoint, so it must re-pair.
     const reinstallApp = randomUUID();
     const reinstalled = await register({
       appInstanceId: reinstallApp,
@@ -934,7 +935,7 @@ describe("Iroh trust broker database behavior", () => {
     });
   });
 
-  dbTest("carries live pair grants from a retired incarnation onto the re-keyed binding", async () => {
+  dbTest("revokes a retired incarnation's pair grants instead of reassigning them", async () => {
     const repo = requiredRepository();
     const initiatorUser = "user-rekey-grant-initiator";
     const deviceId = randomUUID();
@@ -1004,8 +1005,10 @@ describe("Iroh trust broker database behavior", () => {
     };
 
     // A live pair grant anchored to the initiator's first incarnation, plus an
-    // already-revoked grant on the same id that must stay pointing at the retired
-    // row (only live grants follow the device across a re-key).
+    // already-revoked grant on the same id. iroh_pair_grant_issuances is an
+    // audit-only ledger of compact JWS tokens that were returned once and name the
+    // OLD binding id and endpoint; reassigning the foreign key could not rewrite a
+    // client's held token, so both grants must stay attached to the retired row.
     const liveGrantId = await insertGrant(null);
     const staleGrantId = await insertGrant(NOW);
 
@@ -1018,21 +1021,31 @@ describe("Iroh trust broker database behavior", () => {
 
     const [grants] = await requiredSql()<Array<{
       liveInitiator: string;
+      liveRevoked: boolean;
       staleInitiator: string;
+      staleRevoked: boolean;
     }>>`
       select
         (select initiator_binding_id::text from iroh_pair_grant_issuances
           where id = ${liveGrantId}) as "liveInitiator",
+        (select revoked_at is not null from iroh_pair_grant_issuances
+          where id = ${liveGrantId}) as "liveRevoked",
         (select initiator_binding_id::text from iroh_pair_grant_issuances
-          where id = ${staleGrantId}) as "staleInitiator"
+          where id = ${staleGrantId}) as "staleInitiator",
+        (select revoked_at is not null from iroh_pair_grant_issuances
+          where id = ${staleGrantId}) as "staleRevoked"
     `;
-    // Live grant follows the device onto the new id; the revoked grant stays on
-    // the retired incarnation.
-    expect(grants.liveInitiator).toBe(reinstalled.binding.id);
+    // Both grants stay attached to the retired incarnation (audit-accurate), and
+    // the previously-live grant is now revoked. Re-keying forces a re-pair because
+    // the held token names the dead endpoint, so no grant can carry authorization
+    // onto the new id.
+    expect(grants.liveInitiator).toBe(initiator.binding.id);
+    expect(grants.liveRevoked).toBe(true);
     expect(grants.staleInitiator).toBe(initiator.binding.id);
+    expect(grants.staleRevoked).toBe(true);
   });
 
-  dbTest("evicts the oldest-seen binding once a new slot would exceed the sanity cap", async () => {
+  dbTest("rejects a genuinely-new slot once the account is at the active-binding sanity cap", async () => {
     const repo = requiredRepository();
     const userId = "user-binding-cap";
 
@@ -1077,7 +1090,7 @@ describe("Iroh trust broker database behavior", () => {
         now: input.now,
         expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
       }));
-      return Effect.runPromise(repo.consumeChallengeAndRegister({
+      return Effect.runPromiseExit(repo.consumeChallengeAndRegister({
         userId,
         challengeId: challenge.id,
         nonceHash,
@@ -1105,28 +1118,35 @@ describe("Iroh trust broker database behavior", () => {
       return Number(row?.total ?? "-1");
     };
 
-    // Exactly at the cap: a new slot fills the last free space, nothing evicted.
+    // Exactly at the cap: a new slot fills the last free space and is admitted.
     const atCap = await register({ endpointId: "c1".repeat(32), suffix: "8", now: NOW });
-    expect(atCap.created).toBe(true);
+    expect(atCap._tag).toBe("Success");
     expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
 
-    // Over the cap: the single oldest-seen row is evicted so the count holds.
+    // Over the cap: a genuinely new slot is REJECTED rather than evicting an
+    // existing device, so a stuck client spamming fresh device/tag tuples cannot
+    // make its own churn the newest rows and shed the account's real, older hosts
+    // and phones. The active count holds and the oldest row stays live.
     const overCap = await register({
       endpointId: "c2".repeat(32),
       suffix: "9",
       now: new Date(NOW.getTime() + 1_000),
     });
-    expect(overCap.created).toBe(true);
+    expect(overCap._tag).toBe("Failure");
+    const causeError = overCap._tag === "Failure"
+      ? (overCap.cause as unknown as { error?: unknown }).error
+      : undefined;
+    expect(causeError).toMatchObject({
+      _tag: "IrohQuotaExceededError",
+      code: "active_binding_limit",
+    });
     expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
 
-    const [evicted] = await requiredSql()<Array<{
-      revokedReason: string | null;
-      revoked: boolean;
-    }>>`
-      select revoked_reason as "revokedReason", revoked_at is not null as revoked
+    const [oldestState] = await requiredSql()<Array<{ revoked: boolean }>>`
+      select revoked_at is not null as revoked
       from iroh_endpoint_bindings where id = ${oldest.id}
     `;
-    expect(evicted).toEqual({ revokedReason: "active_binding_cap_evicted", revoked: true });
+    expect(oldestState).toEqual({ revoked: false });
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {

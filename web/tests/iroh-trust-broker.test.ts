@@ -756,9 +756,15 @@ class MemoryRepository implements IrohRepositoryShape {
       row !== existing)) {
       return Effect.fail(new IrohConflictError({ code: "endpoint_already_bound" }));
     }
-    // Same cryptographic endpoint on the slot: a heartbeat/refresh of the live
-    // incarnation, updated in place so the binding id stays stable.
-    if (existing && existing.endpointId === input.payload.endpointId) {
+    // A heartbeat/refresh: every signed grant-identity field is unchanged
+    // (endpoint id, platform, identity generation), so update in place and keep
+    // the binding id stable. Any divergence falls through to reincarnation.
+    if (
+      existing &&
+      existing.endpointId === input.payload.endpointId &&
+      existing.platform === input.payload.platform &&
+      existing.identityGeneration === input.payload.identityGeneration
+    ) {
       challenge.consumedAt = input.now;
       existing.appInstanceId = input.payload.appInstanceId;
       existing.platform = input.payload.platform;
@@ -773,11 +779,12 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.updatedAt = input.now;
       return Effect.succeed({ binding: existing, created: false });
     }
-    // A rotated endpoint is a new incarnation: retire the old row (soft-revoke,
-    // never delete) and mint a fresh binding id so a peer host that denied the
-    // old id can't strand the resurrected slot. Live pair grants are carried onto
-    // the new id in the real repository; the route-layer tests here don't model
-    // that grant table.
+    // A new incarnation (rotated endpoint, or any changed signed identity field):
+    // retire the old row (soft-revoke, never delete) and mint a fresh binding id so
+    // a peer host that denied the old id can't strand the resurrected slot. In the
+    // real repository the retired row's live pair grants are revoked and the LAN
+    // discovery generation rotates; the route-layer tests here don't model the
+    // grant table but do mirror the generation bump.
     if (existing) {
       existing.revokedAt = input.now;
       existing.revokedReason = "slot_reincarnated";
@@ -785,6 +792,10 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.directPortV6 = null;
       existing.pathHints = [];
       existing.updatedAt = input.now;
+      this.lanGenerations.set(
+        input.userId,
+        (this.lanGenerations.get(input.userId) ?? 1) + 1,
+      );
     }
     const inserted = binding({
       userId: input.userId,
