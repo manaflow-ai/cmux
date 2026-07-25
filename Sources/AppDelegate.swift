@@ -13440,13 +13440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // one does not swallow its first stroke elsewhere (issue #5189).
                 KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
             }
-            let globalSearchChordShortcuts =
-                globalSearchShortcut.hasChord
-                && KeyboardShortcutSettings.effectiveWhenClause(for: globalSearchAction)
-                    .evaluate(shortcutContext)
-                ? [globalSearchShortcut]
-                : []
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions, shortcuts: globalSearchChordShortcuts) {
+            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
                 return true
             }
         }
@@ -13485,6 +13479,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                pageURL: shortcutEventBrowserPanel(event)?.webView.url
            ) {
             return false
+        }
+
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           globalSearchShortcut.hasChord,
+           shortcutWhenClauseAllows(action: globalSearchAction, event: event),
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
+            return true
         }
 
         if matchCachedGlobalSearchShortcut(event: event) {
