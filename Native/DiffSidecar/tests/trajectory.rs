@@ -609,6 +609,56 @@ fn codex_resolver_resolves_relative_apply_patch_paths_from_nested_cwd() {
 }
 
 #[test]
+fn codex_apply_patch_fallback_keeps_valid_sections_when_one_path_is_outside_repository() {
+    let fixture = FixtureRoot::new("codex-mixed-outside-repo");
+    prepare_common_directories(&fixture);
+    let transcript = fixture.home().join("codex-mixed-outside-repo.jsonl");
+    let input = format!(
+        "*** Begin Patch\n*** Add File: {}\n+outside\n*** Add File: inside.txt\n+inside\n*** End Patch",
+        fixture.path.join("outside.txt").display()
+    );
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call",
+                "name":"apply_patch",
+                "call_id":"patch",
+                "input":input
+            }}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call_output",
+                "call_id":"patch",
+                "output":"Success"
+            }}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &fixture.repo(),
+        Some(&transcript),
+    );
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect("keep the in-repository fallback section");
+
+    assert!(
+        resolved
+            .patch
+            .contains("diff --git a/inside.txt b/inside.txt")
+    );
+    assert!(resolved.patch.contains("+inside"));
+    assert!(!resolved.patch.contains("outside.txt"));
+    assert!(!resolved.patch.contains("+outside"));
+}
+
+#[test]
 fn codex_deletion_uses_recorded_content_when_unified_diff_is_absent() {
     let fixture = FixtureRoot::new("codex-delete-content");
     prepare_common_directories(&fixture);
