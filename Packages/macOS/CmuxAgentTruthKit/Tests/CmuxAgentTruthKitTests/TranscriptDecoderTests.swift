@@ -376,6 +376,27 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func claudeSVGAttachmentRecordCarriesPreviewMetadata() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-svg-\(UUID().uuidString).svg")
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270"></svg>"#
+        let data = Data(svg.utf8)
+        try data.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let line = #"{"type":"attachment","attachment":{"fileName":"preview.svg","path":"\#(imageURL.path)"}}"#
+        var decoder = ClaudeTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:attachment"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 0))
+        #expect(attachment.hostPath == imageURL.path)
+        #expect(attachment.mimeType == "image/svg+xml")
+        #expect(attachment.width == 480)
+        #expect(attachment.height == 270)
+        #expect(attachment.byteCount == data.count)
+    }
+
+    @Test
     func claudeMixedProseAndTwoToolCallsRemainIndependentThroughResults() throws {
         let callLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I will inspect both."},{"type":"tool_use","id":"tool_a","name":"Bash","input":{"command":"echo a"}},{"type":"tool_use","id":"tool_b","name":"WebSearch","input":{"query":"b"}}]}}"#
         let firstResultLine = #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_a","content":"result a","is_error":false}]}}"#
@@ -403,6 +424,30 @@ struct TranscriptDecoderTests {
         #expect(completedA.output == "result a")
         #expect(completedB.toolCallID == "tool_b")
         #expect(completedB.output == "result b")
+    }
+
+    @Test
+    func claudeToolResultImageContentEmitsPreviewAttachment() throws {
+        let callLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool_image","name":"Hook_Success","input":{"message":"created image"}}]}}"#
+        let resultLine = #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool_image","content":[{"type":"text","text":"created preview"},{"type":"image","file_name":"hook-success.png","source":{"type":"base64","media_type":"image/png","data":"\#(Self.png1x1Base64)"}}],"is_error":false}]}}"#
+        let journalID = JournalID(rawValue: "journal")
+        var decoder = ClaudeTranscriptDecoder()
+
+        let call = decoder.feed([callLine], startingAt: 0, journalID: journalID)
+        let result = decoder.feed([resultLine], startingAt: 10, journalID: journalID)
+
+        #expect(kindTable(call.entries) == ["0:toolRun"])
+        #expect(kindTable(result.entries) == ["10:toolRun", "11:attachment"])
+        #expect(toolRunPayload(in: result, seq: 10)?.toolName == "Hook_Success")
+        #expect(toolRunPayload(in: result, seq: 10)?.resultSummary == "created preview")
+        let attachment = try #require(attachmentPayload(in: result, seq: 11))
+        #expect(attachment.kind == "image")
+        #expect(attachment.displayName == "hook-success.png")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
+        #expect(result.embeddedImages.map(\.entrySeq) == [EntrySeq(rawValue: 11)])
     }
 
     @Test

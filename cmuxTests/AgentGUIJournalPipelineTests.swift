@@ -129,6 +129,48 @@ struct AgentGUIJournalPipelineTests {
         await AgentChatArtifactIndex.shared.removeSupplementalAttachments(sessionID: sessionID.rawValue)
     }
 
+    @Test func svgAttachmentIsEnrichedAndAuthorizedBeforePublish() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-svg-image-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("claude.jsonl")
+        let image = directory.appendingPathComponent("preview.svg")
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270"></svg>"#
+        let data = Data(svg.utf8)
+        try data.write(to: image)
+        let sessionID = AgentSessionID(rawValue: "session-svg-image-\(UUID().uuidString)")
+        let line = #"{"type":"attachment","attachment":{"fileName":"preview.svg","path":"\#(image.path)"}}"#
+        try write(lines: [line], to: transcript)
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: sessionID,
+            kind: .claude,
+            path: transcript.path
+        )
+
+        _ = await pipeline.ingestInitial()
+
+        let attachment = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10)?.entries.compactMap { entry -> AttachmentPayload? in
+            guard case .attachment(let payload) = entry.content.payload else { return nil }
+            return payload
+        }.first)
+        #expect(attachment.hostPath == image.path)
+        #expect(attachment.mimeType == "image/svg+xml")
+        #expect(attachment.byteCount == data.count)
+        #expect(attachment.width == 480)
+        #expect(attachment.height == 270)
+
+        let indexed = try await AgentChatArtifactIndex.shared.snapshot(
+            sessionID: sessionID.rawValue,
+            agentKind: .claude,
+            transcriptPath: transcript.path,
+            workingDirectory: directory.path
+        )
+        #expect(indexed.referencedPaths.contains(image.path))
+        await AgentChatArtifactIndex.shared.removeSupplementalAttachments(sessionID: sessionID.rawValue)
+    }
+
     @Test func missingJournalIsAnEmptyPageThenResetsWhenCreated() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-gui-missing-\(UUID().uuidString)", isDirectory: true)

@@ -85,34 +85,82 @@ actor AgentGUITranscriptImageStore {
             let url = URL(fileURLWithPath: image.path)
                 .resolvingSymlinksInPath()
                 .standardizedFileURL
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                  CGImageSourceGetStatus(source) == .statusComplete,
-                  let typeIdentifier = CGImageSourceGetType(source) as String?,
-                  let type = UTType(typeIdentifier),
-                  type.conforms(to: .image),
-                  declaredMIMEType(image.mimeType, matches: type),
-                  let mimeType = type.preferredMIMEType,
-                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
-                    as? [CFString: Any],
-                  let width = integer(properties[kCGImagePropertyPixelWidth]),
-                  let height = integer(properties[kCGImagePropertyPixelHeight]),
-                  width > 0,
-                  height > 0,
-                  width <= limits.maximumPixelDimension,
-                  height <= limits.maximumPixelDimension,
-                  width <= limits.maximumPixelCount / height,
-                  let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  let byteCount = (attributes[.size] as? NSNumber)?.intValue,
-                  byteCount >= 0 else { continue }
-            inspectedBySequence[image.entrySeq] = MaterializedImage(
-                path: url.path,
-                mimeType: mimeType,
-                byteCount: byteCount,
-                width: width,
-                height: height
-            )
+            guard let inspected = inspectImage(url: url, declaredMIMEType: image.mimeType) else { continue }
+            inspectedBySequence[image.entrySeq] = inspected
         }
         return inspectedBySequence
+    }
+
+    private func inspectImage(
+        url: URL,
+        declaredMIMEType: String?
+    ) -> MaterializedImage? {
+        let typeFromExtension = UTType(filenameExtension: url.pathExtension)
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+           CGImageSourceGetStatus(source) == .statusComplete,
+           let typeIdentifier = CGImageSourceGetType(source) as String?,
+           let type = UTType(typeIdentifier),
+           type.conforms(to: .image),
+           self.declaredMIMEType(declaredMIMEType, matches: type),
+           let mimeType = type.preferredMIMEType,
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any],
+           let width = integer(properties[kCGImagePropertyPixelWidth]),
+           let height = integer(properties[kCGImagePropertyPixelHeight]),
+           let materialized = materializedImage(
+            url: url,
+            mimeType: mimeType,
+            width: width,
+            height: height
+           ) {
+            return materialized
+        }
+
+        guard let typeFromExtension,
+              typeFromExtension.conforms(to: .image),
+              self.declaredMIMEType(declaredMIMEType, matches: typeFromExtension),
+              let mimeType = typeFromExtension.preferredMIMEType else {
+            return nil
+        }
+        let metadata = TranscriptImageMetadataProbe.metadata(
+            hostPath: url.path,
+            base64EncodedData: nil
+        )
+        guard let width = metadata.width,
+              let height = metadata.height else {
+            return nil
+        }
+        return materializedImage(
+            url: url,
+            mimeType: mimeType,
+            width: width,
+            height: height
+        )
+    }
+
+    private func materializedImage(
+        url: URL,
+        mimeType: String,
+        width: Int,
+        height: Int
+    ) -> MaterializedImage? {
+        guard width > 0,
+              height > 0,
+              width <= limits.maximumPixelDimension,
+              height <= limits.maximumPixelDimension,
+              width <= limits.maximumPixelCount / height,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let byteCount = (attributes[.size] as? NSNumber)?.intValue,
+              byteCount >= 0 else {
+            return nil
+        }
+        return MaterializedImage(
+            path: url.path,
+            mimeType: mimeType,
+            byteCount: byteCount,
+            width: width,
+            height: height
+        )
     }
 
     private func materialize(_ image: TranscriptEmbeddedImage) -> MaterializedImage? {

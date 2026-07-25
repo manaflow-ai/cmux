@@ -152,9 +152,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         }
         var decodedBlocks: [ClaudeDecodedBlock] = []
         for block in blocks {
-            if let decoded = decodeBlock(block, role: role, raw: raw, accumulator: &accumulator) {
-                decodedBlocks.append(decoded)
-            }
+            decodedBlocks.append(contentsOf: decodeBlock(block, role: role, raw: raw, accumulator: &accumulator))
         }
         guard !decodedBlocks.isEmpty else {
             return
@@ -178,10 +176,10 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         role: String,
         raw: String,
         accumulator: inout TranscriptDecodeAccumulator
-    ) -> ClaudeDecodedBlock? {
+    ) -> [ClaudeDecodedBlock] {
         guard let object = block.object, let type = object["type"]?.string else {
             accumulator.countUnknown("block")
-            return ClaudeDecodedBlock(summary: "Unknown Claude block", payload: .unknown(UnknownPayload(rawKind: "block", summary: "Unknown Claude block", rawJSON: raw)))
+            return [ClaudeDecodedBlock(summary: "Unknown Claude block", payload: .unknown(UnknownPayload(rawKind: "block", summary: "Unknown Claude block", rawJSON: raw)))]
         }
         switch type {
         case "text":
@@ -189,49 +187,57 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             let payload: EntryPayload = role == "user"
                 ? .userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: 0, hasImage: false))
                 : .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
-            return ClaudeDecodedBlock(summary: text, payload: payload)
+            return [ClaudeDecodedBlock(summary: text, payload: payload)]
         case "image":
-            let source = object["source"]?.object
-            let mimeType = source?["media_type"]?.string ?? object["media_type"]?.string
-            let base64EncodedData = source?["data"]?.string
-            let hostPath = source?["path"]?.string ?? object["path"]?.string
-            let metadata = TranscriptImageMetadataProbe.metadata(
-                hostPath: hostPath,
-                base64EncodedData: base64EncodedData
-            )
-            let attachment = AttachmentPayload(
-                kind: "image",
-                summary: "Image attachment",
-                attachmentID: object["id"]?.string,
-                displayName: object["file_name"]?.string ?? object["fileName"]?.string,
-                hostPath: hostPath,
-                mimeType: mimeType,
-                byteCount: metadata.byteCount ?? base64EncodedData.map(estimatedDecodedByteCount),
-                width: object["width"]?.int ?? metadata.width,
-                height: object["height"]?.int ?? metadata.height
-            )
-            return ClaudeDecodedBlock(
-                summary: "Image attachment",
-                payload: .attachment(attachment),
-                embeddedImage: base64EncodedData.map {
-                    TranscriptEmbeddedImageSource(
-                        mimeType: mimeType,
-                        base64EncodedData: $0
-                    )
-                }
-            )
+            return [decodeImageBlock(object)]
         case "thinking":
             let text = object["thinking"]?.string ?? object["text"]?.string ?? ""
             let bounded = textBudget.body(text)
-            return ClaudeDecodedBlock(summary: bounded, payload: .thought(ThoughtPayload(text: bounded)))
+            return [ClaudeDecodedBlock(summary: bounded, payload: .thought(ThoughtPayload(text: bounded)))]
         case "tool_use":
-            return decodeToolUse(object, raw: raw)
+            return [decodeToolUse(object, raw: raw)]
         case "tool_result":
             return decodeToolResult(object, accumulator: &accumulator)
         default:
             accumulator.countUnknown(type)
-            return ClaudeDecodedBlock(summary: "Unknown Claude block: \(type)", payload: .unknown(UnknownPayload(rawKind: type, summary: "Unknown Claude block: \(type)", rawJSON: raw)))
+            return [ClaudeDecodedBlock(summary: "Unknown Claude block: \(type)", payload: .unknown(UnknownPayload(rawKind: type, summary: "Unknown Claude block: \(type)", rawJSON: raw)))]
         }
+    }
+
+    private func decodeImageBlock(_ object: [String: JSONValue]) -> ClaudeDecodedBlock {
+        let source = object["source"]?.object
+        let hostPath = source?["path"]?.string ?? object["path"]?.string
+        let mimeType = source?["media_type"]?.string
+            ?? object["media_type"]?.string
+            ?? object["mime_type"]?.string
+            ?? hostPath.flatMap(imageMIMEType)
+        let base64EncodedData = source?["data"]?.string
+            ?? object["data"]?.string
+        let metadata = TranscriptImageMetadataProbe.metadata(
+            hostPath: hostPath,
+            base64EncodedData: base64EncodedData
+        )
+        let attachment = AttachmentPayload(
+            kind: "image",
+            summary: "Image attachment",
+            attachmentID: object["id"]?.string,
+            displayName: object["file_name"]?.string ?? object["fileName"]?.string ?? object["name"]?.string,
+            hostPath: hostPath,
+            mimeType: mimeType,
+            byteCount: metadata.byteCount ?? base64EncodedData.map(estimatedDecodedByteCount),
+            width: object["width"]?.int ?? metadata.width,
+            height: object["height"]?.int ?? metadata.height
+        )
+        return ClaudeDecodedBlock(
+            summary: "Image attachment",
+            payload: .attachment(attachment),
+            embeddedImage: base64EncodedData.map {
+                TranscriptEmbeddedImageSource(
+                    mimeType: mimeType,
+                    base64EncodedData: $0
+                )
+            }
+        )
     }
 
     private mutating func decodeToolUse(
@@ -251,9 +257,10 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
     private mutating func decodeToolResult(
         _ object: [String: JSONValue],
         accumulator: inout TranscriptDecodeAccumulator
-    ) -> ClaudeDecodedBlock {
+    ) -> [ClaudeDecodedBlock] {
         let id = object["tool_use_id"]?.string
         let fragments = textBudget.body(object["content"]?.textFragments().joined(separator: "\n") ?? "")
+        let attachments = toolResultAttachmentBlocks(in: object["content"])
         let exitCode = exitCode(in: object)
         let duration = durationSeconds(in: object)
         let reportedStatus = object["status"]?.string
@@ -272,7 +279,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
                 durationSeconds: duration,
                 status: "unpaired_result:\(reportedStatus)"
             ))
-            return ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)
+            return [ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)] + attachments
         }
         let payload = payloadByAddingResult(
             pending.payload,
@@ -281,7 +288,29 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             durationSeconds: duration,
             status: reportedStatus
         )
-        return ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)
+        return [ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)] + attachments
+    }
+
+    private func toolResultAttachmentBlocks(in content: JSONValue?) -> [ClaudeDecodedBlock] {
+        guard let values = content?.array else { return [] }
+        return values.compactMap { value in
+            guard let object = value.object,
+                  let type = object["type"]?.string else {
+                return nil
+            }
+            switch type {
+            case "image":
+                return decodeImageBlock(object)
+            case "attachment":
+                let attachmentObject = object["attachment"]?.object ?? object
+                return ClaudeDecodedBlock(
+                    summary: "Attachment",
+                    payload: .attachment(attachmentPayload(in: attachmentObject))
+                )
+            default:
+                return nil
+            }
+        }
     }
 
     private func payloadForToolUse(name: String, input: JSONValue?, toolCallID: String?) -> EntryPayload {
@@ -478,7 +507,10 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         let kind = object["type"]?.string ?? object["kind"]?.string ?? "file"
         let displayName = object["fileName"]?.string ?? object["file_name"]?.string ?? object["name"]?.string
         let hostPath = object["path"]?.string ?? object["file_path"]?.string
-        let mimeType = object["mediaType"]?.string ?? object["media_type"]?.string ?? object["mime_type"]?.string
+        let mimeType = object["mediaType"]?.string
+            ?? object["media_type"]?.string
+            ?? object["mime_type"]?.string
+            ?? hostPath.flatMap(imageMIMEType)
         let metadata = shouldProbeImageMetadata(kind: kind, mimeType: mimeType, hostPath: hostPath)
             ? TranscriptImageMetadataProbe.metadata(hostPath: hostPath, base64EncodedData: nil)
             : TranscriptImageMetadataProbeResult(byteCount: nil, width: nil, height: nil)
@@ -506,10 +538,25 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             return false
         }
         switch URL(fileURLWithPath: hostPath).pathExtension.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp":
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg":
             return true
         default:
             return false
+        }
+    }
+
+    private func imageMIMEType(for path: String) -> String? {
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "png": "image/png"
+        case "jpg", "jpeg": "image/jpeg"
+        case "gif": "image/gif"
+        case "webp": "image/webp"
+        case "heic": "image/heic"
+        case "heif": "image/heif"
+        case "tif", "tiff": "image/tiff"
+        case "bmp": "image/bmp"
+        case "svg": "image/svg+xml"
+        default: nil
         }
     }
 

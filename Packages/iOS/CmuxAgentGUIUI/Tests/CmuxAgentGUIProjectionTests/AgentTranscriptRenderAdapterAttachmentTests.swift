@@ -75,6 +75,28 @@ struct AgentTranscriptRenderAdapterAttachmentTests {
         #expect(attachment.pixelHeight == 768)
     }
 
+    @Test("SVG artifact paths render as inline image previews")
+    func svgArtifactPathsRenderAsInlineImagePreviews() throws {
+        let attachment = try Self.projectedAttachment(AttachmentPayload(
+            kind: "file",
+            summary: "Vector preview",
+            displayName: "diagram.svg",
+            hostPath: "/tmp/diagram.svg",
+            mimeType: "image/svg+xml",
+            byteCount: 1_024,
+            width: 480,
+            height: 270
+        ))
+
+        #expect(attachment.media == .image)
+        #expect(attachment.displayName == "diagram.svg")
+        #expect(attachment.hostPath == "/tmp/diagram.svg")
+        #expect(attachment.mimeType == "image/svg+xml")
+        #expect(attachment.byteCount == 1_024)
+        #expect(attachment.pixelWidth == 480)
+        #expect(attachment.pixelHeight == 270)
+    }
+
     private static func projectedAttachment(_ payload: AttachmentPayload) throws -> ChatAttachment {
         let row = TranscriptRow(
             rowID: .entry(journalID: JournalID(rawValue: "image-fallback"), seq: EntrySeq(rawValue: 1)),

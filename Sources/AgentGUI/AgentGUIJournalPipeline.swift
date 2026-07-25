@@ -454,7 +454,7 @@ final class AgentGUIJournalPipeline {
     private static func hasImageExtension(_ value: String?) -> Bool {
         guard let value, !value.isEmpty else { return false }
         switch URL(fileURLWithPath: value).pathExtension.lowercased() {
-        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff", "webp":
+        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp":
             return true
         default:
             return false

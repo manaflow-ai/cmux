@@ -228,6 +228,21 @@ struct ArtifactByteReaderTests {
         }
     }
 
+    @Test("SVG stat includes declared pixel dimensions")
+    func svgStatIncludesDeclaredPixelDimensions() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("preview.svg")
+            try Data(#"<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270"></svg>"#.utf8).write(to: file)
+
+            let stat = try ArtifactByteReader().stat(path: file.path)
+
+            #expect(stat.kind == .image)
+            #expect(stat.mimeType == "image/svg+xml")
+            #expect(stat.pixelWidth == 480)
+            #expect(stat.pixelHeight == 270)
+        }
+    }
+
     private func withTemporaryDirectory(
         _ operation: (URL) throws -> Void
     ) throws {
