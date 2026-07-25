@@ -3481,8 +3481,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         surfaceConfig.io_write_userdata = bridgePointer
+        // Literal closure, not a method reference: newer Swift toolchains
+        // reject forming a C function pointer from a static-method reference.
         guard let createdSurface = ghostty_surface_new_with_owned_userdata(
-            app, &surfaceConfig, GhosttySurfaceBridge.releaseRetainedOpaque
+            app, &surfaceConfig, { userdata in
+                GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
+            }
         ) else {
             retainedBridge.release()
             return nil
