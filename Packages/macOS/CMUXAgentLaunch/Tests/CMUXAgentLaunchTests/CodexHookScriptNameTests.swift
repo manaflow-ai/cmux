@@ -5,21 +5,22 @@ import Testing
 struct CodexHookScriptNameTests {
     @Test("Content-addressed names round trip")
     func contentAddressedNamesRoundTrip() throws {
-        let name = CodexHookScriptName(
+        let name = try #require(CodexHookScriptName(
             contents: "#!/bin/sh\ncat >/dev/null\n",
             subcommand: "stop"
-        )
+        ))
+        let contentID = try #require(name.contentID)
 
-        #expect(name.contentID.count == 16)
-        #expect(name.filename == "cmux-codex-hook-\(name.contentID)-stop.sh")
+        #expect(contentID.count == 16)
+        #expect(name.filename == "cmux-codex-hook-\(contentID)-stop.sh")
         #expect(try #require(CodexHookScriptName(filename: name.filename)) == name)
     }
 
     @Test("Content and subcommand determine the filename")
-    func contentAndSubcommandDetermineFilename() {
-        let first = CodexHookScriptName(contents: "first", subcommand: "feed/Post Tool")
-        let same = CodexHookScriptName(contents: "first", subcommand: "feed/Post Tool")
-        let changed = CodexHookScriptName(contents: "second", subcommand: "feed/Post Tool")
+    func contentAndSubcommandDetermineFilename() throws {
+        let first = try #require(CodexHookScriptName(contents: "first", subcommand: "feed/Post Tool"))
+        let same = try #require(CodexHookScriptName(contents: "first", subcommand: "feed/Post Tool"))
+        let changed = try #require(CodexHookScriptName(contents: "second", subcommand: "feed/Post Tool"))
 
         #expect(first == same)
         #expect(first != changed)

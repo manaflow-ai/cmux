@@ -438,9 +438,7 @@ extension CMUXCLI {
         guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
         let url = URL(fileURLWithPath: command, isDirectory: false)
         let name = url.lastPathComponent
-        let isGeneratedName = CodexHookScriptName(filename: name) != nil
-            || (name.hasPrefix("cmux-codex-hook-") && name.hasSuffix(".sh"))
-        return isGeneratedName
+        return CodexHookScriptName(filename: name) != nil
             && url.deletingLastPathComponent().standardizedFileURL
                 == hooksDirectory.standardizedFileURL
     }

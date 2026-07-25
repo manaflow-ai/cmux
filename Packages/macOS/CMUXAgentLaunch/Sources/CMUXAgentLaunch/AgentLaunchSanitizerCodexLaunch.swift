@@ -242,9 +242,6 @@ private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bo
     let scriptFilename = cmuxCodexHookScriptFilename(from: normalized)
     let subcommands = [subcommand] + (codexWrapperInjectedHookSubcommandAliases[subcommand] ?? [])
     for candidate in subcommands {
-        if scriptFilename == "cmux-codex-hook-\(candidate).sh" {
-            return true
-        }
         if let scriptFilename,
            CodexHookScriptName(filename: scriptFilename)?.subcommand == candidate {
             return true

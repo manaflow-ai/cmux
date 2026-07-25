@@ -102,7 +102,12 @@ extension CMUXCLI {
     /// invocations, so the file is only rewritten when missing or changed.
     static func writeCodexHookScript(subcommand: String, body: String, in dir: URL) -> String? {
         let contents = "#!/bin/sh\n\(body)\n"
-        let scriptName = CodexHookScriptName(contents: contents, subcommand: subcommand)
+        guard let scriptName = CodexHookScriptName(
+            contents: contents,
+            subcommand: subcommand
+        ) else {
+            return nil
+        }
         // Keep generated scripts immutable. Older cmux processes may still write
         // the legacy path while newer Codex sessions reference this content ID.
         let url = dir.appendingPathComponent(
