@@ -23,6 +23,39 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips the legacy saved-layout Codex hook block")
+    func stripsLegacySavedLayoutCodexHookBlock() {
+        let arguments = ["codex"] + hookArguments(
+            events: legacySavedLayoutHookEvents
+        ) { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("Strips the legacy alias Codex hook block")
+    func stripsLegacyAliasCodexHookBlock() {
+        let arguments = ["codex"] + hookArguments(
+            events: legacyAliasHookEvents,
+            joined: true
+        ) { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
     @Test("Strips inline cmux Codex hook snippets")
     func stripsInlineCmuxCodexHookSnippets() {
         let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
@@ -505,10 +538,22 @@ struct CodexHookInjectionStrippingTests {
         joined: Bool = false,
         command: (String) -> String
     ) -> [String] {
+        hookArguments(
+            events: codexWrapperHookEvents,
+            joined: joined,
+            command: command
+        )
+    }
+
+    private func hookArguments(
+        events: [(agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)],
+        joined: Bool = false,
+        command: (String) -> String
+    ) -> [String] {
         var arguments = joined
             ? ["--enable=hooks", "--dangerously-bypass-hook-trust"]
             : ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
-        for (index, event) in codexWrapperHookEvents.enumerated() {
+        for (index, event) in events.enumerated() {
             let value = "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''\(command(event.cmuxSubcommand))''',timeout=\(event.timeoutMs)}]}]"
             let option = index.isMultiple(of: 2) ? "-c" : "--config"
             if joined {
@@ -530,6 +575,29 @@ struct CodexHookInjectionStrippingTests {
             ("PreToolUse", "pre-tool-use", 120000),
             ("PostToolUse", "post-tool-use", 10000),
             ("PermissionRequest", "notification", 120000),
+        ]
+    }
+
+    private var legacySavedLayoutHookEvents: [
+        (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
+    ] {
+        [
+            ("SessionStart", "session-start", 10000),
+            ("UserPromptSubmit", "prompt-submit", 10000),
+            ("PreToolUse", "pre-tool-use", 10000),
+            ("PostToolUse", "post-tool-use", 10000),
+            ("Notification", "notification", 10000),
+            ("Stop", "stop", 10000),
+        ]
+    }
+
+    private var legacyAliasHookEvents: [
+        (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
+    ] {
+        [
+            ("SessionStart", "session-start", 10000),
+            ("SessionStop", "stop", 10000),
+            ("Notification", "notification", 10000),
         ]
     }
 
