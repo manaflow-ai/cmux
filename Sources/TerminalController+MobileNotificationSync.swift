@@ -95,50 +95,63 @@ extension TerminalController {
         items: [MobileNotificationFeedWireItem]
     ) -> [MobileNotificationFeedWireItem] {
         guard !Task.isCancelled else { return [] }
-        guard !items.isEmpty,
-              !mobileNotificationFeedResponseFits(
-                  responseID: responseID,
-                  revision: revision,
-                  items: items
-              ) else {
+        guard !items.isEmpty else {
             return items
         }
 
-        var lowerBound = 0
-        var upperBound = items.count
-        var best: [MobileNotificationFeedWireItem] = []
-        while lowerBound <= upperBound {
-            guard !Task.isCancelled else { return best }
-            let candidateCount = (lowerBound + upperBound) / 2
-            let candidate = Array(items.prefix(candidateCount))
-            if mobileNotificationFeedResponseFits(
-                responseID: responseID,
-                revision: revision,
-                items: candidate
-            ) {
-                best = candidate
-                lowerBound = candidateCount + 1
-            } else {
-                upperBound = candidateCount - 1
-            }
+        let emptyResponseByteCount = mobileNotificationFeedEmptyResponseByteCount(
+            responseID: responseID,
+            revision: revision
+        )
+        guard emptyResponseByteCount <= mobileNotificationFeedResponseByteLimit else {
+            return []
         }
-        return best
+
+        var responseByteCount = emptyResponseByteCount - 2
+        var fittedCount = 0
+        for item in items {
+            guard !Task.isCancelled else {
+                return Array(items.prefix(fittedCount))
+            }
+            let rowByteCount = mobileNotificationFeedRowByteCount(item)
+            let separatorByteCount = fittedCount == 0 ? 0 : 1
+            let remainingByteCount = mobileNotificationFeedResponseByteLimit
+                - responseByteCount
+                - separatorByteCount
+            guard rowByteCount <= remainingByteCount else {
+                break
+            }
+            responseByteCount += separatorByteCount + rowByteCount
+            fittedCount += 1
+        }
+        guard fittedCount < items.count else { return items }
+        return Array(items.prefix(fittedCount))
     }
 
-    private nonisolated static func mobileNotificationFeedResponseFits(
+    private nonisolated static func mobileNotificationFeedEmptyResponseByteCount(
         responseID: String?,
-        revision: Int,
-        items: [MobileNotificationFeedWireItem]
-    ) -> Bool {
+        revision: Int
+    ) -> Int {
         let payload: [String: Any] = [
             "revision": revision,
-            "notifications": items.map(\.foundationPayload),
+            "notifications": [],
         ]
         let encoded = MobileHostRPCEnvelope.encodeResponse(
             id: responseID,
             result: .ok(payload)
         )
-        return encoded.count <= mobileNotificationFeedResponseByteLimit
+        return encoded.count
+    }
+
+    private nonisolated static func mobileNotificationFeedRowByteCount(
+        _ item: MobileNotificationFeedWireItem
+    ) -> Int {
+        let payload = item.foundationPayload
+        guard JSONSerialization.isValidJSONObject(payload),
+              let encoded = try? JSONSerialization.data(withJSONObject: payload) else {
+            return Int.max
+        }
+        return encoded.count
     }
 
     /// Marks the supplied feed records read and mirrors matching active
