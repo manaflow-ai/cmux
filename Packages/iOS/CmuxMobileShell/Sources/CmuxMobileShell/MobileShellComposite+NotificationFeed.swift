@@ -335,6 +335,37 @@ extension MobileShellComposite {
         notificationFeedItems = notificationFeedAggregation.items(from: projected)
     }
 
+    /// Enforces the phone-wide source retention budget, not just the final
+    /// rendered feed budget. Offline Mac snapshots remain eligible when their
+    /// rows are still among the newest retained notification identities.
+    private func enforceNotificationFeedSourceRetention() {
+        let retainedItemCount = MobileNotificationFeedAggregation.maxItemCount
+        let currentItemCount = notificationFeedSnapshotsByMac.values.reduce(0) { count, snapshot in
+            count + snapshot.items.count
+        }
+        guard currentItemCount > retainedItemCount else { return }
+
+        guard retainedItemCount > 0 else {
+            for macDeviceID in Array(notificationFeedSnapshotsByMac.keys) {
+                notificationFeedSnapshotsByMac[macDeviceID]?.items.removeAll(keepingCapacity: false)
+            }
+            return
+        }
+
+        let retainedIDs = Set(notificationFeedAggregation.items(
+            from: notificationFeedSnapshotsByMac.values.map { snapshot in
+                MobileNotificationFeedSourceSnapshot(items: snapshot.items)
+            }
+        ).map(\.id))
+        for macDeviceID in Array(notificationFeedSnapshotsByMac.keys) {
+            guard var snapshot = notificationFeedSnapshotsByMac[macDeviceID] else { continue }
+            let retainedItems = snapshot.items.filter { retainedIDs.contains($0.id) }
+            guard retainedItems.count != snapshot.items.count else { continue }
+            snapshot.items = retainedItems
+            notificationFeedSnapshotsByMac[macDeviceID] = snapshot
+        }
+    }
+
     /// Resolves the foreground Mac id for event routing without exposing RPC state to UI.
     func normalizedForegroundNotificationFeedMacIDForEvent() -> String? {
         normalizedForegroundNotificationFeedMacID()
@@ -433,6 +464,7 @@ extension MobileShellComposite {
             revision: response.revision,
             items: items
         )
+        enforceNotificationFeedSourceRetention()
         notificationFeedKnownRevisionsByMac[macDeviceID] = response.revision
         notificationFeedSuccessfulMacIDs.insert(macDeviceID)
         recomputeNotificationFeedItems()

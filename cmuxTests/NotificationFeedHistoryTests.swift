@@ -541,6 +541,20 @@ struct NotificationFeedHistoryTests {
         #expect(try Data(contentsOf: fileURL) == data)
     }
 
+    @Test func oversizedCurrentSnapshotScannerCapsEscapedTopLevelKeyBytes() throws {
+        var scanner = NotificationFeedHistoryPersistence.OversizedCurrentSnapshotRecordScanner(
+            maxRecordBytes: 1_024
+        )
+        let keepScanning: (Data) throws -> Bool = { _ in true }
+
+        #expect(try scanner.consume(Data("{\"".utf8), onRecord: keepScanning))
+        #expect(try scanner.consume(
+            Data(String(repeating: "\\\"", count: 512).utf8),
+            onRecord: keepScanning
+        ))
+        #expect(scanner.topLevelKeyBufferByteCountForTesting == 0)
+    }
+
     @Test func oversizedHistoryMetadataIntegerOverflowFailsClosed() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-overflow-\(UUID().uuidString)", isDirectory: true)

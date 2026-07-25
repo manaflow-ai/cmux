@@ -191,6 +191,29 @@ import Testing
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["latest"])
     }
 
+    @Test @MainActor func searchTextIsBoundedByScalarsAndBytesBeforeRebuild() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        projection.update(items: [
+            item(
+                id: "target",
+                createdAt: try #require(isoDate("2026-07-15T17:30:00Z")),
+                isRead: false,
+                title: "Target"
+            ),
+        ], referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+
+        projection.searchText = "target" + String(repeating: "\u{0301}", count: 10_000)
+
+        #expect(projection.searchText.unicodeScalars.count <= NotificationFeedProjection.maxSearchQueryUnicodeScalars)
+        #expect(projection.searchText.utf8.count <= NotificationFeedProjection.maxSearchQueryUTF8Bytes)
+        await projection.waitForPendingRebuild()
+        #expect(!projection.isSourceRebuilding)
+    }
+
     @Test @MainActor func sourceUpdateCapsInputBeforeSearchWork() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)

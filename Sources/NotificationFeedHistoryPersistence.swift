@@ -510,7 +510,7 @@ actor NotificationFeedHistoryPersistence {
         return fitted.snapshot
     }
 
-    private struct OversizedCurrentSnapshotRecordScanner {
+    struct OversizedCurrentSnapshotRecordScanner {
         let maxRecordBytes: Int
         private var depth = 0
         private var isInString = false
@@ -533,6 +533,10 @@ actor NotificationFeedHistoryPersistence {
 
         init(maxRecordBytes: Int) {
             self.maxRecordBytes = max(0, maxRecordBytes)
+        }
+
+        var topLevelKeyBufferByteCountForTesting: Int {
+            keyBytes.count
         }
 
         mutating func consume(
@@ -560,7 +564,7 @@ actor NotificationFeedHistoryPersistence {
                 if isEscapingString {
                     isEscapingString = false
                     if isCapturingKey {
-                        keyBytes.append(byte)
+                        appendKeyByte(byte)
                     }
                     return true
                 }
