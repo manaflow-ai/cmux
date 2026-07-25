@@ -10,12 +10,18 @@ import Foundation
 final class AgentChatTranscriptService {
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
+    typealias FallbackTranscriptPathResolver = @Sendable (
+        AgentChatSessionRecord,
+        ContinuousClock.Instant
+    ) async -> String?
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
+    private let fallbackTranscriptPathResolver: FallbackTranscriptPathResolver
+    private let fallbackResolutionTimeout: Duration
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
@@ -46,12 +52,20 @@ final class AgentChatTranscriptService {
         emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
         },
-        now: @escaping () -> Date = { Date() }
+        now: @escaping () -> Date = { Date() },
+        fallbackTranscriptPathResolver: FallbackTranscriptPathResolver? = nil,
+        fallbackResolutionTimeout: Duration = .seconds(3)
     ) {
         self.registry = registry
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
+        self.fallbackTranscriptPathResolver = fallbackTranscriptPathResolver ?? { record, _ in
+            await Task.detached(priority: .userInitiated) {
+                resolver.transcriptPath(for: record)
+            }.value
+        }
+        self.fallbackResolutionTimeout = fallbackResolutionTimeout
         self.now = now
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
@@ -322,9 +336,8 @@ final class AgentChatTranscriptService {
             if let initialPath {
                 fallbackPath = initialPath
             } else {
-                fallbackPath = await Task.detached(priority: .userInitiated) {
-                    resolver.transcriptPath(for: record)
-                }.value
+                let deadline = ContinuousClock.now + fallbackResolutionTimeout
+                fallbackPath = await fallbackTranscriptPathResolver(record, deadline)
             }
             guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
             failedResolutions.remove(sessionID)

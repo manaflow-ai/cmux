@@ -72,6 +72,64 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     }
 
     @MainActor
+    @Test func concurrentCodexHistoryRequestsShareOneFallbackResolution() async throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let sessionID = UUID().uuidString.lowercased()
+        let transcriptURL = home
+            .appendingPathComponent(".codex/sessions/2026/07/24", isDirectory: true)
+            .appendingPathComponent("rollout-2026-07-24T00-00-00-\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let probe = AgentChatConcurrentFallbackResolutionProbe(path: transcriptURL.path)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            fallbackTranscriptPathResolver: { record, deadline in
+                await probe.resolve(record: record, deadline: deadline)
+            }
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            transcriptPath: nil,
+            cwd: "/Users/example/project",
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 301)
+        ))
+
+        let pageAvailability = await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    await service.history(
+                        sessionID: sessionID,
+                        beforeSeq: nil,
+                        limit: 50
+                    ) != nil
+                }
+            }
+            var results: [Bool] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        #expect(pageAvailability.count == 16)
+        #expect(pageAvailability.allSatisfy { $0 })
+        #expect(await probe.callCount() == 1)
+    }
+
+    @MainActor
     @Test func onlyHookEventsProvideAuthoritativeAgentLifecycleState() throws {
         let registry = AgentChatSessionRegistry()
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
@@ -385,5 +443,30 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+private actor AgentChatConcurrentFallbackResolutionProbe {
+    private let path: String
+    private var calls = 0
+
+    init(path: String) {
+        self.path = path
+    }
+
+    func resolve(
+        record _: AgentChatSessionRecord,
+        deadline: ContinuousClock.Instant
+    ) async -> String? {
+        calls += 1
+        for _ in 0..<100 {
+            guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+            await Task.yield()
+        }
+        return path
+    }
+
+    func callCount() -> Int {
+        calls
     }
 }
