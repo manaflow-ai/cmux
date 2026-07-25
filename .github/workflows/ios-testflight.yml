@@ -244,8 +244,8 @@ jobs:
       # provisioning profile step can use it). The manual demo variant ships the
       # same main head as a separate app so demos are isolated from the internal
       # firehose (and its per-app upload limit).
-      IOS_BETA_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
-      IOS_BETA_DISPLAY_NAME: ${{ github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
+      IOS_BETA_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+      IOS_BETA_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -402,7 +402,7 @@ jobs:
           echo "Installed $PROFILE_TYPE provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
 
       - name: Use DEMO-badged app icon
-        if: github.event.inputs.variant == 'demo'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo'
         run: |
           set -euo pipefail
           # Swap the AppIcon PNGs in the CI checkout instead of overriding
@@ -440,10 +440,10 @@ jobs:
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
           # Display name for automatic internal builds (auto-synced to internal group).
           # The demo variant ships as "cmux DEMO" / dev.cmux.app.demo instead.
-          IOS_BETA_DISPLAY_NAME: ${{ github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
+          IOS_BETA_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
           # Internal builds use separate bundle ID (dev.cmux.app.internal) so internal
           # and external can coexist on same device.
-          IOS_BETA_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+          IOS_BETA_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
           INPUT_VARIANT: ${{ github.event.inputs.variant }}
         run: |
           set -euo pipefail
@@ -499,27 +499,24 @@ jobs:
         env:
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || github.event.inputs.build_number || 'unknown' }}
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
-          INPUT_VARIANT: ${{ github.event.inputs.variant }}
-          UPLOAD_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+          UPLOAD_BUNDLE_ID: ${{ github.event.inputs.marketing_version_override != '' && 'dev.cmux.app.beta' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+          UPLOAD_DISPLAY_NAME: ${{ github.event.inputs.marketing_version_override != '' && 'cmux BETA' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
+          UPLOAD_AUDIENCE: ${{ github.event.inputs.marketing_version_override != '' && 'external TestFlight testers' || 'internal TestFlight group' }}
+          UPLOAD_REVIEW_NOTE: ${{ github.event.inputs.marketing_version_override != '' && 'Beta App Review may be required' || 'no beta review needed' }}
         run: |
           {
             echo "### iOS TestFlight upload"
             echo
+            echo "- lane: \`beta\` (bundle id \`${UPLOAD_BUNDLE_ID}\`, ${UPLOAD_AUDIENCE})"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
-              echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`, external TestFlight)"
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
-              echo "- audience: Founder's Edition and cmux Pro external groups"
-            elif [ "${INPUT_VARIANT:-internal}" = "demo" ]; then
-              echo "- lane: \`beta\` (bundle id \`${UPLOAD_BUNDLE_ID}\`, internal TestFlight)"
-              echo "- marketing version: checked-in beta marketing version"
-              echo "- audience: cmux DEMO internal TestFlight group; no beta review needed"
+              echo "- external groups: Founder's Edition and cmux Pro"
             else
-              echo "- lane: \`beta\` (bundle id \`dev.cmux.app.internal\`, internal TestFlight)"
               echo "- marketing version: checked-in beta marketing version"
-              echo "- audience: internal TestFlight group (cmux INTERNAL); no beta review needed"
             fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
+            echo "- audience: ${UPLOAD_AUDIENCE} (${UPLOAD_DISPLAY_NAME}) on the ${UPLOAD_BUNDLE_ID} app; ${UPLOAD_REVIEW_NOTE}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata
@@ -571,8 +568,8 @@ jobs:
       # repo variables were wired in.
       # The demo variant assigns to the "cmux DEMO" internal group on the
       # dev.cmux.app.demo app record instead.
-      CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ github.event.inputs.variant == 'demo' && 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' || vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
-      ASSIGN_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+      CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' || vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}
+      ASSIGN_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
     steps:
       - name: Checkout
