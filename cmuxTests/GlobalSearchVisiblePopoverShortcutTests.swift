@@ -154,6 +154,44 @@ final class GlobalSearchVisiblePopoverShortcutTests {
 #endif
     }
 
+    @Test func visibleGlobalSearchQueryOwnsSingleStrokeEditingShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeHarness(appDelegate: appDelegate)
+        defer { closeHarness(harness, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "c",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        let copyEvent = try makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: harness.auxiliaryWindow.windowNumber
+        )
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: copyEvent),
+            "The visible Search query must own a single-stroke Cmd-C binding"
+        )
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "Copying from the Search query must not close Global Search"
+        )
+#else
+        Issue.record("Global Search visible-popover routing requires a DEBUG build")
+#endif
+    }
+
     @Test func markedTextOwnsInputWhileGlobalSearchIsVisible() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
