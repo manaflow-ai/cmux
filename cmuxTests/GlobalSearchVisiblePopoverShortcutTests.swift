@@ -106,6 +106,54 @@ final class GlobalSearchVisiblePopoverShortcutTests {
 #endif
     }
 
+    @Test func visibleGlobalSearchQueryOwnsOverlappingChordPrefix() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeHarness(appDelegate: appDelegate)
+        defer { closeHarness(harness, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "c",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                chordKey: "g",
+                chordCommand: true
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        let prefixEvent = try makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: harness.auxiliaryWindow.windowNumber
+        )
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+            "The visible Search query must own Cmd-C before an unarmed Global Search chord"
+        )
+
+        let suffixEvent = try makeKeyDownEvent(
+            key: "g",
+            modifiers: [.command],
+            keyCode: 5,
+            windowNumber: harness.auxiliaryWindow.windowNumber
+        )
+        _ = appDelegate.debugHandleCustomShortcut(event: suffixEvent)
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "A Search query editing command must not leave a Global Search chord armed"
+        )
+#else
+        Issue.record("Global Search visible-popover routing requires a DEBUG build")
+#endif
+    }
+
     @Test func markedTextOwnsInputWhileGlobalSearchIsVisible() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
