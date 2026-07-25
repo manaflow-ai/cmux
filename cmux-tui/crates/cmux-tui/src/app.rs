@@ -14832,6 +14832,31 @@ mod tests {
     }
 
     #[test]
+    fn pending_graphics_deletion_blocks_pointer_through_presented_rect() {
+        let mux = Mux::new("graphics-deletion-pointer-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.last_graphics_snapshot.push(GraphicIdentity {
+            session_generation: app.session_generation,
+            surface: 11,
+            rect: Rect { x: 2, y: 2, width: 8, height: 4 },
+            seq: 13,
+        });
+        app.pending_graphics_submission = Some(7);
+        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        let covered = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        assert!(
+            app.pointer_route_is_stale_for_mouse(&covered),
+            "the old browser image still owns this cell until deletion is presented"
+        );
+    }
+
+    #[test]
     fn newer_browser_render_keeps_an_older_presentation_acknowledgment_stale() {
         let mux = Mux::new("graphics-presentation-order-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));

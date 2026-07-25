@@ -3465,6 +3465,13 @@ mod tests {
             "ordinary repaint frames must preserve pointer capture"
         );
 
+        let reconfigure = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        browser.confirm_reconfigure(reconfigure);
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "geometry changes must preserve capture so the page receives its release"
+        );
+
         browser.invalidate_pointer_frame();
         assert!(
             browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_none(),
@@ -3644,7 +3651,7 @@ mod tests {
     }
 
     #[test]
-    fn full_command_queue_does_not_discard_a_pointer_release() {
+    fn full_command_queue_retains_pointer_release_without_blocking_producer() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
@@ -3688,8 +3695,8 @@ mod tests {
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
 
         assert!(
-            !settled_while_full,
-            "a release must remain retained while the final browser command queue is full"
+            settled_while_full,
+            "retaining a release must not block the shared browser input producer"
         );
     }
 
