@@ -42,12 +42,17 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         hostile_bundled_cmux: bool = False,
         codex_interpreter_only_on_user_path: bool = False,
         launch_from_home: bool = False,
+        launch_from_root: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
             home = root / "home"
             project = root / "project"
-            working_directory = home if launch_from_home else project / "nested"
+            working_directory = (
+                Path("/")
+                if launch_from_root
+                else home if launch_from_home else project / "nested"
+            )
             effective_project = root / "effective-project"
             wrapper = root / "cmux-codex-wrapper"
             real_codex = (
@@ -75,7 +80,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
             (project / ".git").mkdir(parents=True)
-            working_directory.mkdir()
+            working_directory.mkdir(exist_ok=True)
             (effective_project / ".git").mkdir(parents=True)
             real_codex.parent.mkdir(parents=True, exist_ok=True)
             real_codex_target = (
@@ -354,6 +359,25 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(args, ["--enable", "hooks", "--yolo"], result.stderr)
+
+    def test_filesystem_root_is_not_an_executable_rejection_boundary(self) -> None:
+        cases = (
+            (["--yolo"], True),
+            (["-C", "/", "--yolo"], False),
+        )
+        for arguments, launch_from_root in cases:
+            with self.subTest(arguments=arguments):
+                args, _, result = self.run_wrapper(
+                    arguments,
+                    launch_from_root=launch_from_root,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    args,
+                    ["--enable", "hooks", *arguments],
+                    result.stderr,
+                )
 
     def test_last_and_named_resume_receive_trust_override(self) -> None:
         for arguments in (["resume", "--last"], ["resume", "session-name"]):
