@@ -676,14 +676,16 @@ struct ComputerUseUXTests {
             (endRequest?["args"] as? [String: String])?["session"]
                 == "\(driverSessionID)-mcp-42-1000"
         )
-        #expect(!ComputerUseSessionScope.isManagedProxySessionID(
+        #expect(ComputerUseSessionScope.isManagedProxySessionID(
             driverSessionID,
             for: driverSessionID
         ))
         #expect(ComputerUseRuntimeService.endDriverSessionRequest(
             driverSessionID: driverSessionID,
             proxySessionID: driverSessionID
-        ) == nil)
+        ).flatMap { request in
+            (request["args"] as? [String: String])?["session"]
+        } == driverSessionID)
         #expect(!ComputerUseSessionScope.isManagedProxySessionID(
             "\(driverSessionID)-mcp-",
             for: driverSessionID
@@ -1073,7 +1075,7 @@ struct ComputerUseUXTests {
     }
 
     @MainActor
-    @Test func menuRefreshDoesNotScheduleAgentIndexReload() {
+    @Test func menuStartPrimesAgentIndexWithoutPerStateReloads() {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-computer-use-menu-refresh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1106,8 +1108,13 @@ struct ComputerUseUXTests {
         )
 
         store.refresh()
-
         #expect(!sharedIndex.hasScheduledRefresh)
+
+        store.start()
+        #expect(sharedIndex.hasScheduledRefresh)
+
+        store.refresh()
+        #expect(sharedIndex.hasScheduledRefresh)
         store.stop()
     }
 
