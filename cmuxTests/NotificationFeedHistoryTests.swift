@@ -81,6 +81,78 @@ struct NotificationFeedHistoryTests {
         #expect(history.notifications.count == 5)
     }
 
+    @Test func totalRetentionCapsUnreadHistoryAtNewestRecords() {
+        let history = NotificationFeedHistoryStore(
+            fileURL: nil,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3
+        )
+        let workspaceID = UUID()
+        let baseDate = Date(timeIntervalSince1970: 1_000)
+        for offset in 0..<5 {
+            history.record(
+                notification(
+                    workspaceID: workspaceID,
+                    title: "Unread \(offset)",
+                    date: baseDate.addingTimeInterval(Double(offset)),
+                    isRead: false
+                ),
+                supersededIDs: []
+            )
+        }
+
+        #expect(history.notifications.count == 3)
+        #expect(history.notifications.map(\.title) == ["Unread 4", "Unread 3", "Unread 2"])
+        #expect(history.notifications.allSatisfy { !$0.isRead })
+    }
+
+    @Test func loadingOversizedHistoryPersistsCompactedSnapshot() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-compaction-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("history.json")
+        let workspaceID = UUID()
+        let baseDate = Date(timeIntervalSince1970: 1_500)
+        let records = (0..<5).map { offset in
+            NotificationFeedHistoryRecord(notification: notification(
+                workspaceID: workspaceID,
+                title: "Persisted unread \(offset)",
+                date: baseDate.addingTimeInterval(Double(offset)),
+                isRead: false
+            ))
+        }
+        _ = try write(
+            NotificationFeedHistorySnapshot(
+                revision: 4,
+                notifications: records
+            ),
+            to: fileURL
+        )
+
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3
+        )
+        let outcome = await persistence.load()
+        guard case .loaded(let loaded) = outcome else {
+            Issue.record("Expected compacted persisted notification feed")
+            return
+        }
+
+        let loadedTitles = loaded.notifications.map(\.title)
+        #expect(loaded.revision == 4)
+        #expect(loadedTitles == ["Persisted unread 4", "Persisted unread 3", "Persisted unread 2"])
+
+        let persisted = try JSONDecoder().decode(
+            NotificationFeedHistorySnapshot.self,
+            from: Data(contentsOf: fileURL)
+        )
+        #expect(persisted.revision == 4)
+        #expect(persisted.notifications.map(\.title) == loadedTitles)
+    }
+
     @Test func persistenceReloadsAndRejectsAnOlderRevisionWrite() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-history-tests-\(UUID().uuidString)", isDirectory: true)

@@ -187,6 +187,36 @@ import Testing
         #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["latest"])
     }
 
+    @Test @MainActor func sourceUpdateCapsInputBeforeSearchWork() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        let cap = NotificationFeedProjection.maxSourceItemCount
+        let total = cap + 25
+        let items = (0..<total).map { offset in
+            item(
+                id: "row-\(offset)",
+                createdAt: referenceDate.addingTimeInterval(Double(total - offset)),
+                isRead: false,
+                title: offset == cap + 10 ? "Dropped search target" : "Noise \(offset)"
+            )
+        }
+
+        projection.update(items: items, referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+
+        #expect(projection.sourceItemCount == cap)
+        #expect(projection.sourceUnreadCount == cap)
+        #expect(projection.sections.flatMap(\.items).count == cap)
+
+        projection.searchText = "Dropped search target"
+        await projection.waitForPendingRebuild()
+
+        #expect(projection.sections.isEmpty)
+        #expect(!projection.isSourceRebuilding)
+    }
+
     @Test @MainActor func sourceUpdateRetiresPriorRowsBeforeAsyncRebuild() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)

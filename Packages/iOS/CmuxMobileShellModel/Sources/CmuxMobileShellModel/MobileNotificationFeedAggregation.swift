@@ -2,6 +2,13 @@ import Foundation
 
 /// Produces one deterministic cross-Mac feed from per-Mac notification snapshots.
 public struct MobileNotificationFeedAggregation: Sendable {
+    /// Upper bound for retained notification-feed rows on the phone.
+    ///
+    /// The Mac keeps the same total history cap, but this defensive cap keeps
+    /// newer phones bounded when paired with older Macs that only capped read
+    /// history and could return an unbounded unread feed.
+    public static let maxItemCount = 2_000
+
     /// Creates a stateless feed aggregator.
     public init() {}
 
@@ -19,11 +26,13 @@ public struct MobileNotificationFeedAggregation: Sendable {
             }
             newestByIdentity[item.id] = item
         }
-        return newestByIdentity.values.sorted { lhs, rhs in
+        let sorted = newestByIdentity.values.sorted { lhs, rhs in
             if lhs.createdAt != rhs.createdAt {
                 return lhs.createdAt > rhs.createdAt
             }
             return lhs.id < rhs.id
         }
+        guard sorted.count > Self.maxItemCount else { return sorted }
+        return Array(sorted.prefix(Self.maxItemCount))
     }
 }

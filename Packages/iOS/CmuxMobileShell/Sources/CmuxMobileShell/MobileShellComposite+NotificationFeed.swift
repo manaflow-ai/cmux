@@ -370,27 +370,29 @@ extension MobileShellComposite {
         guard response.revision >= currentRevision else { return false }
 
         let status = notificationFeedConnectionStatus(for: macDeviceID)
-        let items = response.notifications.compactMap { wire -> MobileNotificationFeedItem? in
-            let id = wire.id.trimmingCharacters(in: .whitespacesAndNewlines)
-            let workspaceID = wire.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty, !workspaceID.isEmpty else { return nil }
-            return MobileNotificationFeedItem(
-                macDeviceID: macDeviceID,
-                notificationID: id,
-                macDisplayName: displayName,
-                remoteWorkspaceID: workspaceID,
-                remoteSurfaceID: normalizedOptional(wire.surfaceID),
-                title: wire.title,
-                subtitle: normalizedOptional(wire.subtitle),
-                body: wire.body,
-                createdAt: wire.createdAt,
-                isRead: wire.isRead,
-                retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
-                workspaceTitle: normalizedOptional(wire.workspaceTitle),
-                surfaceTitle: normalizedOptional(wire.surfaceTitle),
-                connectionStatus: status
-            )
-        }
+        let items = response.notifications
+            .prefix(MobileNotificationFeedAggregation.maxItemCount)
+            .compactMap { wire -> MobileNotificationFeedItem? in
+                let id = wire.id.trimmingCharacters(in: .whitespacesAndNewlines)
+                let workspaceID = wire.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !id.isEmpty, !workspaceID.isEmpty else { return nil }
+                return MobileNotificationFeedItem(
+                    macDeviceID: macDeviceID,
+                    notificationID: id,
+                    macDisplayName: displayName,
+                    remoteWorkspaceID: workspaceID,
+                    remoteSurfaceID: normalizedOptional(wire.surfaceID),
+                    title: wire.title,
+                    subtitle: normalizedOptional(wire.subtitle),
+                    body: wire.body,
+                    createdAt: wire.createdAt,
+                    isRead: wire.isRead,
+                    retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
+                    workspaceTitle: normalizedOptional(wire.workspaceTitle),
+                    surfaceTitle: normalizedOptional(wire.surfaceTitle),
+                    connectionStatus: status
+                )
+            }
         notificationFeedSnapshotsByMac[macDeviceID] = NotificationFeedMacSnapshot(
             revision: response.revision,
             items: items

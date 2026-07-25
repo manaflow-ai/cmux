@@ -42,6 +42,42 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedItems.map(\.notificationID) == ["a-current", "b-new"])
     }
 
+    @Test("Aggregation caps the retained phone feed at newest rows")
+    func aggregationCapsRetainedFeedAtNewestRows() throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let olderEntries = (0..<25).map { offset in
+            NotificationResponseEntry(
+                id: "old-\(offset)",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+        let newerEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "new-\(offset)",
+                createdAt: 10_000 + Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: olderEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: newerEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+
+        #expect(store.notificationFeedItems.count == cap)
+        #expect(store.notificationFeedUnreadCount == cap)
+        #expect(store.notificationFeedItems.allSatisfy { $0.macDeviceID == "mac-b" })
+        #expect(store.notificationFeedItems.first?.notificationID == "new-\(cap - 1)")
+    }
+
     @Test("Reset drops account-scoped notification content")
     func resetDropsContent() throws {
         let store = MobileShellComposite()
@@ -332,5 +368,23 @@ struct MobileShellNotificationFeedStateTests {
         try MobileNotificationFeedListResponse.decode(Data(
             #"{"revision":\#(revision),"notifications":[{"id":"\#(id)","workspace_id":"workspace","title":"Title","body":"Body","created_at":\#(createdAt),"is_read":false}]}"#.utf8
         ))
+    }
+
+    private func response(
+        revision: Int,
+        entries: [NotificationResponseEntry]
+    ) throws -> MobileNotificationFeedListResponse {
+        let notifications = entries.map { entry in
+            #"{"id":"\#(entry.id)","workspace_id":"workspace","title":"Title","body":"Body","created_at":\#(entry.createdAt),"is_read":\#(entry.isRead)}"#
+        }.joined(separator: ",")
+        return try MobileNotificationFeedListResponse.decode(Data(
+            #"{"revision":\#(revision),"notifications":[\#(notifications)]}"#.utf8
+        ))
+    }
+
+    private struct NotificationResponseEntry {
+        let id: String
+        let createdAt: Double
+        let isRead: Bool
     }
 }

@@ -32,7 +32,7 @@ final class NotificationFeedProjection {
         didSet {
             guard searchText != oldValue else { return }
             scheduleRebuild(
-                debounce: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                debounce: Self.normalizedSearchQuery(searchText).isEmpty
                     ? nil
                     : .milliseconds(200)
             )
@@ -60,12 +60,13 @@ final class NotificationFeedProjection {
         items: [MobileNotificationFeedItem],
         referenceDate: Date = .now
     ) {
-        guard sourceItems != items || self.referenceDate != referenceDate else { return }
-        sourceItems = items
+        let boundedItems = Self.boundedSourceItems(items)
+        guard sourceItems != boundedItems || self.referenceDate != referenceDate else { return }
+        sourceItems = boundedItems
         self.referenceDate = referenceDate
         sourceRevision &+= 1
-        sourceItemCount = items.count
-        sourceUnreadCount = items.lazy.filter { !$0.isRead }.count
+        sourceItemCount = boundedItems.count
+        sourceUnreadCount = boundedItems.lazy.filter { !$0.isRead }.count
         sections = []
         isSourceRebuilding = true
         scheduleRebuild()
@@ -82,7 +83,7 @@ final class NotificationFeedProjection {
         rebuildRevision &+= 1
         let requestedRebuildRevision = rebuildRevision
         let requestedSourceRevision = sourceRevision
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = Self.normalizedSearchQuery(searchText)
         let requestedFilter = filter
         let requestedReferenceDate = referenceDate
         let requestedCalendar = calendar
@@ -130,10 +131,29 @@ final class NotificationFeedProjection {
         }
     }
 
+    nonisolated static let maxSourceItemCount = MobileNotificationFeedAggregation.maxItemCount
+    nonisolated static let maxSearchQueryCharacters = 128
     nonisolated private static let maxMetadataSearchableCharactersPerField = 512
     nonisolated private static let maxTitleSearchableCharacters = 1_024
     nonisolated private static let maxSubtitleSearchableCharacters = 2_048
     nonisolated private static let maxBodySearchableCharacters = 8_192
+
+    nonisolated private static func boundedSourceItems(
+        _ items: [MobileNotificationFeedItem]
+    ) -> [MobileNotificationFeedItem] {
+        guard items.count > maxSourceItemCount else { return items }
+        return Array(items.prefix(maxSourceItemCount))
+    }
+
+    nonisolated private static func normalizedSearchQuery(_ value: String) -> String {
+        let end = value.index(
+            value.startIndex,
+            offsetBy: maxSearchQueryCharacters,
+            limitedBy: value.endIndex
+        ) ?? value.endIndex
+        return String(value[value.startIndex..<end])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     nonisolated private static func build(
         items: [MobileNotificationFeedItem],

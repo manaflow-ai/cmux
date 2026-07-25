@@ -22,6 +22,7 @@ actor NotificationFeedHistoryPersistence {
     private let fileURL: URL?
     private let fileManager: FileManager
     private let readRetentionLimit: Int
+    private let totalRetentionLimit: Int
     private var lastPersistedRevision = 0
     private var loadOutcome: NotificationFeedHistoryLoadOutcome?
     private var allowsWrites = true
@@ -29,11 +30,13 @@ actor NotificationFeedHistoryPersistence {
     init(
         fileURL: URL?,
         fileManager: FileManager,
-        readRetentionLimit: Int = NotificationFeedHistoryStore.readRetentionLimit
+        readRetentionLimit: Int = NotificationFeedHistoryStore.readRetentionLimit,
+        totalRetentionLimit: Int = NotificationFeedHistoryStore.totalRetentionLimit
     ) {
         self.fileURL = fileURL
         self.fileManager = fileManager
         self.readRetentionLimit = max(0, readRetentionLimit)
+        self.totalRetentionLimit = max(0, totalRetentionLimit)
     }
 
     func load() -> NotificationFeedHistoryLoadOutcome {
@@ -54,12 +57,19 @@ actor NotificationFeedHistoryPersistence {
                 loadOutcome = outcome
                 return outcome
             }
+            let normalizedNotifications = Self.normalized(
+                decoded.notifications,
+                readRetentionLimit: readRetentionLimit,
+                totalRetentionLimit: totalRetentionLimit
+            )
             let snapshot = NotificationFeedHistorySnapshot(
                 revision: max(0, decoded.revision),
-                notifications: Self.normalized(
-                    decoded.notifications,
-                    readRetentionLimit: readRetentionLimit
-                )
+                notifications: normalizedNotifications
+            )
+            compactLoadedSnapshotIfNeeded(
+                snapshot,
+                originalNotifications: decoded.notifications,
+                fileURL: fileURL
             )
             lastPersistedRevision = snapshot.revision
             outcome = .loaded(snapshot)
@@ -71,6 +81,24 @@ actor NotificationFeedHistoryPersistence {
         }
         loadOutcome = outcome
         return outcome
+    }
+
+    private func compactLoadedSnapshotIfNeeded(
+        _ snapshot: NotificationFeedHistorySnapshot,
+        originalNotifications: [NotificationFeedHistoryRecord],
+        fileURL: URL
+    ) {
+        guard snapshot.notifications != originalNotifications else { return }
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(snapshot)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            notificationFeedPersistenceLogger.error(
+                "Notification feed compaction failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision) error=\(error.localizedDescription, privacy: .private)"
+            )
+        }
     }
 
     func persist(_ snapshot: NotificationFeedHistorySnapshot) {
@@ -107,16 +135,25 @@ actor NotificationFeedHistoryPersistence {
 
     private static func normalized(
         _ records: [NotificationFeedHistoryRecord],
-        readRetentionLimit: Int
+        readRetentionLimit: Int,
+        totalRetentionLimit: Int
     ) -> [NotificationFeedHistoryRecord] {
+        guard totalRetentionLimit > 0 else { return [] }
         let sorted = records.sorted(by: recordPrecedes)
         var remainingReadSlots = readRetentionLimit
-        return sorted.filter { record in
-            guard record.isRead else { return true }
-            guard remainingReadSlots > 0 else { return false }
-            remainingReadSlots -= 1
-            return true
+        var normalized: [NotificationFeedHistoryRecord] = []
+        normalized.reserveCapacity(min(sorted.count, totalRetentionLimit))
+        for record in sorted {
+            if record.isRead {
+                guard remainingReadSlots > 0 else { continue }
+                remainingReadSlots -= 1
+            }
+            normalized.append(record)
+            if normalized.count >= totalRetentionLimit {
+                break
+            }
         }
+        return normalized
     }
 
     private static func recordPrecedes(

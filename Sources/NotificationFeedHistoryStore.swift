@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class NotificationFeedHistoryStore {
     nonisolated static let readRetentionLimit = 1_000
+    nonisolated static let totalRetentionLimit = 2_000
 
     private enum Mutation {
         case record(NotificationFeedHistoryRecord, supersededIDs: Set<UUID>)
@@ -25,6 +26,7 @@ final class NotificationFeedHistoryStore {
     private(set) var notifications: [NotificationFeedHistoryRecord] = []
 
     private let readRetentionLimit: Int
+    private let totalRetentionLimit: Int
     private let persistence: NotificationFeedHistoryPersistence
     private let persistsToDisk: Bool
     private let onChange: (Int) -> Void
@@ -40,15 +42,19 @@ final class NotificationFeedHistoryStore {
         fileURL: URL?,
         fileManager: FileManager = .default,
         readRetentionLimit: Int = NotificationFeedHistoryStore.readRetentionLimit,
+        totalRetentionLimit: Int = NotificationFeedHistoryStore.totalRetentionLimit,
         onChange: @escaping (Int) -> Void = { _ in }
     ) {
         let resolvedReadRetentionLimit = max(0, readRetentionLimit)
+        let resolvedTotalRetentionLimit = max(0, totalRetentionLimit)
         let persistence = NotificationFeedHistoryPersistence(
             fileURL: fileURL,
             fileManager: fileManager,
-            readRetentionLimit: resolvedReadRetentionLimit
+            readRetentionLimit: resolvedReadRetentionLimit,
+            totalRetentionLimit: resolvedTotalRetentionLimit
         )
         self.readRetentionLimit = resolvedReadRetentionLimit
+        self.totalRetentionLimit = resolvedTotalRetentionLimit
         self.persistence = persistence
         persistsToDisk = fileURL != nil
         self.onChange = onChange
@@ -174,7 +180,8 @@ final class NotificationFeedHistoryStore {
             mutation,
             to: &notifications,
             readRecordCount: &readRecordCount,
-            readRetentionLimit: readRetentionLimit
+            readRetentionLimit: readRetentionLimit,
+            totalRetentionLimit: totalRetentionLimit
         )
         guard result.changed else { return result }
 
@@ -212,7 +219,8 @@ final class NotificationFeedHistoryStore {
                 mutation,
                 to: &loadedNotifications,
                 readRecordCount: &loadedReadRecordCount,
-                readRetentionLimit: readRetentionLimit
+                readRetentionLimit: readRetentionLimit,
+                totalRetentionLimit: totalRetentionLimit
             )
             if result.changed {
                 replayedChanges += 1
@@ -249,7 +257,8 @@ final class NotificationFeedHistoryStore {
         _ mutation: Mutation,
         to records: inout [NotificationFeedHistoryRecord],
         readRecordCount: inout Int,
-        readRetentionLimit: Int
+        readRetentionLimit: Int,
+        totalRetentionLimit: Int
     ) -> MutationResult {
         var result = MutationResult()
         switch mutation {
@@ -330,6 +339,11 @@ final class NotificationFeedHistoryStore {
                 readRecordCount: &readRecordCount,
                 readRetentionLimit: readRetentionLimit
             )
+            trimOldestRecords(
+                in: &records,
+                readRecordCount: &readRecordCount,
+                totalRetentionLimit: totalRetentionLimit
+            )
         }
         return result
     }
@@ -378,6 +392,19 @@ final class NotificationFeedHistoryStore {
             guard records[index].isRead else { continue }
             records.remove(at: index)
             readRecordCount -= 1
+        }
+    }
+
+    private static func trimOldestRecords(
+        in records: inout [NotificationFeedHistoryRecord],
+        readRecordCount: inout Int,
+        totalRetentionLimit: Int
+    ) {
+        while records.count > totalRetentionLimit {
+            let removed = records.removeLast()
+            if removed.isRead {
+                readRecordCount -= 1
+            }
         }
     }
 
