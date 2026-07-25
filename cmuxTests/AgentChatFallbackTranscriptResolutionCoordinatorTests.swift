@@ -113,10 +113,15 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
             return path
         }
         await probe.waitUntilStarted()
+        let firstCompletionResult = firstCompleted.wait(timeout: .now() + 1)
         #expect(
-            firstCompleted.wait(timeout: .now() + 1) == .success,
+            firstCompletionResult == .success,
             "the advertised deadline must return while non-cooperative resolver I/O remains suspended"
         )
+        if firstCompletionResult == .timedOut {
+            await probe.releaseSuspendedResolution()
+            await probe.waitUntilFinished()
+        }
         #expect(await firstResolution.value == nil)
 
         let secondCompleted = DispatchSemaphore(value: 0)

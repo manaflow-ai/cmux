@@ -168,7 +168,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 for: [event],
                 timeout: waitTimeout
             ) { result in
-                let acceptance: FeedEventAcceptance? = DispatchQueue.main.sync {
+                _ = DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
                         result.commit {
                             guard ContinuousClock.now < deliveryDeadline else {
@@ -195,6 +195,11 @@ final class FeedCoordinator: @unchecked Sendable {
             }
         }
 
+        // Resolve before entering the global delivery lane so hook-session disk
+        // I/O for one agent cannot stall otherwise unrelated Feed ingress.
+        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
+            ? Self.resolveAttentionTarget(event: event)
+            : nil
         let semaphore = DispatchSemaphore(value: 0)
         let waiter = PendingWaiter(semaphore: semaphore)
 
@@ -202,12 +207,7 @@ final class FeedCoordinator: @unchecked Sendable {
             for: [event],
             timeout: waitTimeout
         ) { result in
-            // Resolve before the MainActor hop so hook-session disk I/O never
-            // extends the UI critical section.
-            let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
-                ? Self.resolveAttentionTarget(event: event)
-                : nil
-            let acceptance: FeedEventAcceptance? = DispatchQueue.main.sync {
+            _ = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     result.commit {
                         guard ContinuousClock.now < deliveryDeadline else {

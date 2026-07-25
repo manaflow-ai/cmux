@@ -10,7 +10,14 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
     ) async -> String?
 
     private var pendingResolutions: [
-        String: (id: UUID, task: Task<String?, Never>)
+        String: (
+            id: UUID,
+            deadline: ContinuousClock.Instant,
+            resolverTask: Task<Void, Never>?,
+            deadlineTask: Task<Void, Never>?,
+            waiters: [UUID: CheckedContinuation<String?, Never>],
+            expired: Bool
+        )
     ] = [:]
     private let resolver: Resolver
     private let timeout: Duration
@@ -31,29 +38,123 @@ final class AgentChatFallbackTranscriptResolutionCoordinator {
     }
 
     func resolve(for record: AgentChatSessionRecord) async -> String? {
-        if let pending = pendingResolutions[record.sessionID] {
-            return await pending.task.value
+        guard !Task.isCancelled else { return nil }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            guard !Task.isCancelled else { return nil }
+            return await withCheckedContinuation { continuation in
+                register(
+                    waiterID: waiterID,
+                    record: record,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelWaiter(waiterID, sessionID: record.sessionID)
+            }
         }
-
-        let id = UUID()
-        let resolver = resolver
-        let deadline = ContinuousClock.now + timeout
-        let task = Task<String?, Never> {
-            let path = await resolver(record, deadline)
-            guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
-            return path
-        }
-        pendingResolutions[record.sessionID] = (id: id, task: task)
-
-        let path = await task.value
-        if pendingResolutions[record.sessionID]?.id == id {
-            pendingResolutions.removeValue(forKey: record.sessionID)
-        }
-        return path
     }
 
     func cancel(sessionID: String) {
-        pendingResolutions.removeValue(forKey: sessionID)?.task.cancel()
+        guard let pending = pendingResolutions.removeValue(forKey: sessionID) else { return }
+        pending.resolverTask?.cancel()
+        pending.deadlineTask?.cancel()
+        for continuation in pending.waiters.values {
+            continuation.resume(returning: nil)
+        }
+    }
+
+    private func register(
+        waiterID: UUID,
+        record: AgentChatSessionRecord,
+        continuation: CheckedContinuation<String?, Never>
+    ) {
+        let sessionID = record.sessionID
+        if var pending = pendingResolutions[sessionID] {
+            guard !pending.expired, ContinuousClock.now < pending.deadline else {
+                if !pending.expired {
+                    expireResolution(sessionID: sessionID, id: pending.id)
+                }
+                continuation.resume(returning: nil)
+                return
+            }
+            pending.waiters[waiterID] = continuation
+            pendingResolutions[sessionID] = pending
+            return
+        }
+
+        let id = UUID()
+        let deadline = ContinuousClock.now + timeout
+        pendingResolutions[sessionID] = (
+            id: id,
+            deadline: deadline,
+            resolverTask: nil,
+            deadlineTask: nil,
+            waiters: [waiterID: continuation],
+            expired: false
+        )
+
+        let resolver = resolver
+        let resolverTask = Task { @MainActor [weak self, resolver] in
+            let path = await resolver(record, deadline)
+            self?.completeResolution(
+                sessionID: sessionID,
+                id: id,
+                path: path
+            )
+        }
+        let deadlineTask = Task { @MainActor [weak self] in
+            // A bounded cancellable deadline keeps fallback I/O from delaying chat history.
+            try? await ContinuousClock().sleep(until: deadline)
+            guard !Task.isCancelled else { return }
+            self?.expireResolution(sessionID: sessionID, id: id)
+        }
+        guard var pending = pendingResolutions[sessionID], pending.id == id else {
+            resolverTask.cancel()
+            deadlineTask.cancel()
+            return
+        }
+        pending.resolverTask = resolverTask
+        pending.deadlineTask = deadlineTask
+        pendingResolutions[sessionID] = pending
+    }
+
+    private func completeResolution(
+        sessionID: String,
+        id: UUID,
+        path: String?
+    ) {
+        guard let pending = pendingResolutions[sessionID], pending.id == id else { return }
+        pending.deadlineTask?.cancel()
+        pendingResolutions.removeValue(forKey: sessionID)
+        let resolvedPath = pending.expired || ContinuousClock.now >= pending.deadline
+            ? nil
+            : path
+        for continuation in pending.waiters.values {
+            continuation.resume(returning: resolvedPath)
+        }
+    }
+
+    private func expireResolution(sessionID: String, id: UUID) {
+        guard var pending = pendingResolutions[sessionID],
+              pending.id == id,
+              !pending.expired else { return }
+        pending.expired = true
+        pending.resolverTask?.cancel()
+        let waiters = Array(pending.waiters.values)
+        pending.waiters.removeAll()
+        pendingResolutions[sessionID] = pending
+        for continuation in waiters {
+            continuation.resume(returning: nil)
+        }
+    }
+
+    private func cancelWaiter(_ waiterID: UUID, sessionID: String) {
+        guard var pending = pendingResolutions[sessionID],
+              let continuation = pending.waiters.removeValue(forKey: waiterID) else { return }
+        pendingResolutions[sessionID] = pending
+        continuation.resume(returning: nil)
     }
 
     #if compiler(>=6.2)
