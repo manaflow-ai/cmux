@@ -3305,7 +3305,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
-    private var imeConsumedKeyUps: Set<UInt16> = []
+    private var terminalKeyInputLifecycleTracker = TerminalKeyInputLifecycleTracker()
     private var keyboardLayoutKeyIdentityTracker = KeyboardLayoutKeyIdentityTracker()
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
@@ -5090,7 +5090,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
-            imeConsumedKeyUps.removeAll()
+            terminalKeyInputLifecycleTracker.reset()
             keyboardLayoutKeyIdentityTracker.reset()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
@@ -5190,7 +5190,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
-            imeConsumedKeyUps.removeAll()
+            terminalKeyInputLifecycleTracker.reset()
             keyboardLayoutKeyIdentityTracker.reset()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
@@ -5625,14 +5625,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         )
         let inputPlan = terminalKeyInputPlanner.plan(for: inputSnapshot)
+        let inputActions = terminalKeyInputLifecycleTracker.actions(
+            for: inputPlan,
+            keyCode: event.keyCode,
+            isRepeat: event.isARepeat
+        )
 
-        if inputPlan.forwardsPhysicalKey {
-            imeConsumedKeyUps.remove(event.keyCode)
-        } else {
-            imeConsumedKeyUps.insert(event.keyCode)
-        }
-
-        for inputAction in inputPlan.actions {
+        for inputAction in inputActions {
 #if DEBUG
             let ghosttySendStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -5777,7 +5776,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
-        if imeConsumedKeyUps.remove(event.keyCode) != nil {
+        if !terminalKeyInputLifecycleTracker.shouldForwardKeyUp(
+            keyCode: event.keyCode
+        ) {
             return
         }
 
