@@ -13520,6 +13520,7 @@ struct VerticalTabsSidebar: View, Equatable {
             if movingIds.count > 1 {
                 didReorder = tabManager.reorderSidebarWorkspaces(
                     tabIds: movingIds,
+                    draggedTabId: plan.draggedWorkspaceId,
                     toIndex: targetIndex,
                     isDragOperation: true,
                     usesTopLevelRows: usesTopLevelRows,

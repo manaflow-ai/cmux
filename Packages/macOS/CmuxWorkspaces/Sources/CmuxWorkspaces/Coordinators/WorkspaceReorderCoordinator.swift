@@ -311,6 +311,10 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     ///
     /// - Parameters:
     ///   - tabIds: Workspace ids represented by the drag.
+    ///   - draggedTabId: The workspace whose row started the drag. The plan's
+    ///     `targetIndex` is removal-adjusted for this row alone
+    ///     (`SidebarDropPlanner.resolvedTargetIndex`), so the drop gap can
+    ///     only be recovered relative to the row space without it.
     ///   - targetIndex: The accepted plan's target index in its row space.
     ///   - isDragOperation: Whether drag-specific group inference applies.
     ///   - usesTopLevelRows: Whether `targetIndex` addresses top-level rows.
@@ -319,6 +323,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     @discardableResult
     public func reorderSidebarWorkspaces(
         tabIds: [UUID],
+        draggedTabId: UUID,
         toIndex targetIndex: Int,
         isDragOperation: Bool = false,
         usesTopLevelRows: Bool = false,
@@ -345,12 +350,17 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let previousOrder = model.tabs.map(\.id)
         let previousGroupIds = Dictionary(uniqueKeysWithValues: movingTabs.map { ($0.id, $0.groupId) })
         let movingIdSet = Set(movingIds)
-        let rowSpaceIds = usesTopLevelRows
-            ? model.sidebarTopLevelWorkspaceIds()
+        // `targetIndex` is the dragged row's final index in the row space
+        // WITHOUT that row. Resolving the reference against the full order
+        // instead lands the block one row early whenever the grab row sits
+        // above the drop gap, and can never express the bottom gap.
+        let referenceRowSpaceIds = (usesTopLevelRows
+            ? model.sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedTabId)
             : previousOrder
+        ).filter { $0 != draggedTabId }
         let referenceWorkspaceId = sidebarBlockReferenceWorkspaceId(
             targetIndex: targetIndex,
-            rowSpaceIds: rowSpaceIds,
+            rowSpaceIds: referenceRowSpaceIds,
             movingIds: movingIdSet
         )
         let remainingIds = previousOrder.filter { !movingIdSet.contains($0) }
@@ -367,19 +377,24 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
 
         if isDragOperation {
-            let destinationGroupId: UUID?
+            let resolution: SidebarBlockMembershipResolution
             if let explicitGroupId {
-                destinationGroupId = explicitGroupId
+                resolution = .assign(explicitGroupId)
             } else if usesTopLevelRows {
-                destinationGroupId = nil
+                resolution = .assign(nil)
             } else {
-                destinationGroupId = sidebarBlockDestinationGroupId(
+                resolution = sidebarBlockMembershipResolution(
                     referenceWorkspaceId: referenceWorkspaceId,
                     remainingIds: remainingIds
                 )
             }
-            for workspaceId in movingIds {
-                model.assignGroup(workspaceId: workspaceId, groupId: destinationGroupId)
+            if case .assign(let destinationGroupId) = resolution {
+                // Anchors never change membership via drag (their group
+                // identity owns them) — same guard as the single-drag path.
+                let anchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
+                for workspaceId in movingIds where !anchorIds.contains(workspaceId) {
+                    model.assignGroup(workspaceId: workspaceId, groupId: destinationGroupId)
+                }
             }
         }
 
@@ -399,15 +414,23 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         rowSpaceIds: [UUID],
         movingIds: Set<UUID>
     ) -> UUID? {
-        guard !rowSpaceIds.isEmpty else { return nil }
-        let clampedIndex = max(0, min(targetIndex, rowSpaceIds.count - 1))
+        // A past-the-end target is the planner's bottom gap ("append"); a nil
+        // reference preserves that instead of anchoring to the last row.
+        let clampedIndex = max(0, targetIndex)
+        guard clampedIndex < rowSpaceIds.count else { return nil }
         return rowSpaceIds[clampedIndex...].first { !movingIds.contains($0) }
     }
 
-    private func sidebarBlockDestinationGroupId(
+    /// How a block drop resolves group membership for its members.
+    private enum SidebarBlockMembershipResolution {
+        case assign(UUID?)
+        case preserve
+    }
+
+    private func sidebarBlockMembershipResolution(
         referenceWorkspaceId: UUID?,
         remainingIds: [UUID]
-    ) -> UUID? {
+    ) -> SidebarBlockMembershipResolution {
         let insertionIndex = referenceWorkspaceId
             .flatMap(remainingIds.firstIndex)
             ?? remainingIds.count
@@ -418,8 +441,13 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let afterGroupId = insertionIndex < remainingIds.count
             ? workspacesById[remainingIds[insertionIndex]]?.groupId
             : nil
-        guard beforeGroupId == afterGroupId else { return nil }
-        return beforeGroupId ?? nil
+        // Mirrors the single-drag neighbor inference
+        // (`applyDragInferredGroupMembership`): matching neighbors decide the
+        // membership; an ambiguous boundary preserves each member's current
+        // group (normalization keeps grouped members in their section)
+        // instead of stripping everyone to top-level.
+        guard beforeGroupId == afterGroupId else { return .preserve }
+        return .assign(beforeGroupId)
     }
 
     private func sidebarBlockDesiredWorkspaceIds(

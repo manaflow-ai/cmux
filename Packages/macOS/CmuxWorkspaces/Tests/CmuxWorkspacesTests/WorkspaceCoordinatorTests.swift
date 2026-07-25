@@ -463,9 +463,12 @@ struct WorkspaceCoordinatorTests {
         model.tabs = [a, b, c, d, e]
         model.selectedTabId = c.id
 
+        // Grabbed b, dropped at the gap between d and e: the planner's index
+        // is b's final position in [a, c, d, e] (order without the grab row).
         let moved = reorder.reorderSidebarWorkspaces(
             tabIds: [b.id, d.id],
-            toIndex: 4,
+            draggedTabId: b.id,
+            toIndex: 3,
             isDragOperation: true
         )
 
@@ -473,6 +476,29 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.map(\.id) == [a.id, c.id, b.id, d.id, e.id])
         #expect(model.selectedTabId == c.id)
         #expect(host.orderChanges == [[b.id, d.id]])
+    }
+
+    @Test
+    func sidebarBlockDropAtBottomGapAppends() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        let e = CoordinatorStubTab()
+        model.tabs = [a, b, c, d, e]
+
+        // Grabbed b, dropped below e: the planner emits index 4, past the end
+        // of [a, c, d, e]. Anchoring that to the last row instead of appending
+        // was the block-drop off-by-one.
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [b.id, d.id],
+            draggedTabId: b.id,
+            toIndex: 4,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [a.id, c.id, e.id, b.id, d.id])
     }
 
     @Test
@@ -486,9 +512,12 @@ struct WorkspaceCoordinatorTests {
         let e = CoordinatorStubTab()
         model.tabs = [a, b, c, d, e]
 
+        // Grabbed a, dropped at the gap between b and c (index 1 in
+        // [b, c, d, e]); d joins the block from below the gap.
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [a.id, d.id],
-            toIndex: 2,
+            draggedTabId: a.id,
+            toIndex: 1,
             isDragOperation: true
         ))
         #expect(model.tabs.map(\.id) == [b.id, a.id, d.id, c.id, e.id])
@@ -507,8 +536,11 @@ struct WorkspaceCoordinatorTests {
         let plain4 = CoordinatorStubTab()
         model.tabs = [pinned1, pinned2, pinned3, plain1, plain2, plain3, plain4]
 
+        // Grabbed plain2, dropped at the pinned/unpinned boundary (index 3 in
+        // the order without plain2): each tier clamps into its own region.
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [pinned1.id, pinned3.id, plain2.id, plain4.id],
+            draggedTabId: plain2.id,
             toIndex: 3,
             isDragOperation: true
         ))
@@ -538,10 +570,15 @@ struct WorkspaceCoordinatorTests {
             childWorkspaceIds: [target1.id, target2.id]
         ))
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
-        let targetIndex = try #require(model.tabs.firstIndex { $0.id == target2.id })
+        // Grabbed moving1; the gap above target2 indexes the order without
+        // the grab row, so the raw position shifts down by one.
+        let targetIndex = try #require(
+            model.tabs.filter { $0.id != moving1.id }.firstIndex { $0.id == target2.id }
+        )
 
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [moving1.id, moving2.id],
+            draggedTabId: moving1.id,
             toIndex: targetIndex,
             isDragOperation: true,
             explicitGroupId: groupId
@@ -571,15 +608,55 @@ struct WorkspaceCoordinatorTests {
             name: "G",
             childWorkspaceIds: [target1.id, target2.id]
         ))
-        let targetIndex = try #require(model.tabs.firstIndex { $0.id == target2.id })
+        let targetIndex = try #require(
+            model.tabs.filter { $0.id != moving1.id }.firstIndex { $0.id == target2.id }
+        )
 
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [moving1.id, moving2.id],
+            draggedTabId: moving1.id,
             toIndex: targetIndex,
             isDragOperation: true
         ))
         #expect(moving1.groupId == groupId)
         #expect(moving2.groupId == groupId)
+    }
+
+    @Test
+    func sidebarBlockAmbiguousGroupBoundaryPreservesMembership() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let loose = CoordinatorStubTab()
+        let member1 = CoordinatorStubTab()
+        let member2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [loose, member1, member2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [member1.id, member2.id]
+        ))
+        let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
+        // Grabbed loose; the gap between member2 and outside has one grouped
+        // and one ungrouped neighbor. Single-drag preserves membership there,
+        // so the block must too — stripping member2 out of its group here was
+        // the divergence this test pins down.
+        let targetIndex = try #require(
+            model.tabs.filter { $0.id != loose.id }.firstIndex { $0.id == outside.id }
+        )
+
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [loose.id, member2.id],
+            draggedTabId: loose.id,
+            toIndex: targetIndex,
+            isDragOperation: true
+        ))
+        #expect(loose.groupId == nil)
+        #expect(member2.groupId == groupId)
+        #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            anchorId,
+            member1.id,
+            member2.id,
+        ])
     }
 
     @Test
@@ -597,8 +674,11 @@ struct WorkspaceCoordinatorTests {
         ))
         let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
 
+        // Grabbed child1; index 2 in the top-level rows without it
+        // ([anchor, outside1, outside2]) is the gap above outside2.
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [child1.id, child2.id],
+            draggedTabId: child1.id,
             toIndex: 2,
             isDragOperation: true,
             usesTopLevelRows: true
@@ -626,6 +706,7 @@ struct WorkspaceCoordinatorTests {
 
         let blockResult = reorder.reorderSidebarWorkspaces(
             tabIds: [a.id],
+            draggedTabId: a.id,
             toIndex: 2,
             isDragOperation: true
         )
@@ -653,12 +734,15 @@ struct WorkspaceCoordinatorTests {
         let e = CoordinatorStubTab()
         model.tabs = [a, b, c, d, e]
 
+        // Grabbed b, dropped at index 2 of [a, c, d, e] — that slot is d,
+        // itself a block member, so the reference walks forward to e.
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [b.id, d.id],
-            toIndex: 1,
+            draggedTabId: b.id,
+            toIndex: 2,
             isDragOperation: true
         ))
-        #expect(model.tabs.map(\.id) == [a.id, b.id, d.id, c.id, e.id])
+        #expect(model.tabs.map(\.id) == [a.id, c.id, b.id, d.id, e.id])
     }
 
     @Test
@@ -672,6 +756,7 @@ struct WorkspaceCoordinatorTests {
 
         #expect(reorder.reorderSidebarWorkspaces(
             tabIds: [b.id, UUID()],
+            draggedTabId: b.id,
             toIndex: 0,
             isDragOperation: true
         ))
