@@ -159,6 +159,42 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(abs(updatedTable.contentOffset.y - maximumOffset(in: updatedTable)) <= 1.5)
     }
 
+    @Test("detached animated tail command converges after wrapped rows resolve")
+    func detachedAnimatedTailCommandConvergesAfterWrappedRowsResolve() async throws {
+        let state = TranscriptFollowStateBox(.detached(anchorID: 120, offset: 0, unseenCount: 0))
+        let wrappedText = Array(repeating: "Resolved transcript text can be much taller than its estimated table height.", count: 120)
+            .joined(separator: " ")
+        let rows = (0..<180).map {
+            TranscriptTestRow(id: $0, text: $0 == 179 ? wrappedText : "Compact response \($0)")
+        }
+        var harness = TranscriptTestHarness(rows: rows, followState: state)
+        let mounted = mount(harness)
+        defer { mounted.window.isHidden = true }
+        await settle(mounted.host, passes: 20)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        table.layoutIfNeeded()
+        table.setContentOffset(
+            CGPoint(x: 0, y: table.rectForRow(at: IndexPath(row: 120, section: 0)).minY),
+            animated: false
+        )
+        await settle(mounted.host, passes: 4)
+        #expect(distanceFromTail(in: table) > 400)
+
+        harness = TranscriptTestHarness(
+            rows: rows,
+            followState: state,
+            command: ConversationScrollCommand(generation: 1, target: .tail)
+        )
+        mounted.host.rootView = harness
+        await settle(mounted.host, passes: 48)
+
+        let updatedTable = try #require(transcriptTable(in: mounted.host.view))
+        #expect(updatedTable === table)
+        #expect(state.value == .followingTail)
+        #expect(distanceFromTail(in: updatedTable) <= 1.5)
+    }
+
     @Test("only the active transcript owns native status-bar scroll-to-top")
     func activeTranscriptOwnsScrollToTop() async throws {
         let rows = (0..<20).map { TranscriptTestRow(id: $0, text: "Response \($0)") }
