@@ -4,8 +4,6 @@ import type Stripe from "stripe";
 import { env } from "../../app/env";
 import enMessages from "../../messages/en.json";
 import jaMessages from "../../messages/ja.json";
-import { isAscConfigured } from "../asc/client";
-import { enrollTester } from "../asc/testflight";
 
 export const DEFAULT_PRO_FROM_EMAIL = "pro@cmux.com";
 export const PRO_REPLY_TO_EMAIL = "founders@manaflow.com";
@@ -14,12 +12,6 @@ export const PRO_TESTFLIGHT_SIGNUP_URL = "https://cmux.com/dashboard/testflight"
 type ProWelcomeLocale = "en" | "ja";
 
 type ProFulfillmentDependencies = {
-  isAscConfigured: () => boolean;
-  enrollTester: (
-    email: string,
-    firstName?: string,
-    lastName?: string,
-  ) => Promise<void>;
   sendEmail: (
     payload: ProWelcomeEmail,
     options: { idempotencyKey: string },
@@ -28,8 +20,6 @@ type ProFulfillmentDependencies = {
 };
 
 const defaultDependencies: ProFulfillmentDependencies = {
-  isAscConfigured,
-  enrollTester,
   sendEmail: async (payload, options) => {
     const resend = new Resend(env.RESEND_API_KEY);
     return resend.emails.send(payload, options);
@@ -47,7 +37,7 @@ export type ProWelcomeEmail = {
   headers: Record<string, string>;
 };
 
-export async function fulfillProCheckout(
+export async function sendProSignupWelcome(
   input: {
     session: Stripe.Checkout.Session;
     stackUserId: string;
@@ -58,14 +48,8 @@ export async function fulfillProCheckout(
   if (!email) {
     throw new Error("cmux Pro checkout is missing a customer email");
   }
-  if (!dependencies.isAscConfigured()) {
-    throw new Error("cmux Pro TestFlight enrollment is not configured");
-  }
 
   const customerName = checkoutCustomerName(input.session);
-  const { firstName, lastName } = splitCustomerName(customerName);
-  await dependencies.enrollTester(email, firstName, lastName);
-
   const sessionRef = input.session.id;
   const payload = buildProWelcomeEmail({
     from: formatFromAddress(dependencies.fromEmail()),
@@ -152,19 +136,6 @@ function expandedCustomer(session: Stripe.Checkout.Session): Stripe.Customer | n
   if (typeof customer !== "object" || customer === null) return null;
   if ("deleted" in customer && customer.deleted) return null;
   return customer as Stripe.Customer;
-}
-
-function splitCustomerName(name: string | null): {
-  firstName?: string;
-  lastName?: string;
-} {
-  const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
-  const first = parts.shift();
-  const last = parts.join(" ");
-  return {
-    firstName: first || undefined,
-    lastName: last || undefined,
-  };
 }
 
 function firstName(name: string | null | undefined): string | null {

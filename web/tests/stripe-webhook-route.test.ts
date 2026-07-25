@@ -18,7 +18,7 @@ const recordCheckoutCompletion = mock(async () => {
   return recordCheckoutCompletionResult;
 });
 const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
-const fulfillProCheckout = mock(async () => {});
+const sendProSignupWelcome = mock(async () => {});
 const retrieveSession = mock(async () => ({
   id: "cs_1",
   payment_status: "paid",
@@ -83,7 +83,7 @@ const POST = makeStripeWebhookHandler({
     }) as never,
   recordCheckoutCompletion: recordCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
-  fulfillProCheckout,
+  sendProSignupWelcome,
 });
 
 describe("Stripe billing webhook route", () => {
@@ -111,7 +111,7 @@ describe("Stripe billing webhook route", () => {
     };
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
-    fulfillProCheckout.mockClear();
+    sendProSignupWelcome.mockClear();
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
   });
@@ -161,12 +161,12 @@ describe("Stripe billing webhook route", () => {
     expect(updates.at(-1)).toMatchObject({ error: null });
   });
 
-  test("fulfills TestFlight and the Pro welcome after a personal Pro checkout", async () => {
+  test("sends the Pro signup welcome after a personal Pro checkout", async () => {
     const response = await POST(webhookRequest());
 
     expect(response.status).toBe(200);
-    expect(fulfillProCheckout).toHaveBeenCalledTimes(1);
-    expect(fulfillProCheckout).toHaveBeenCalledWith({
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).toHaveBeenCalledWith({
       session: expect.objectContaining({ id: "cs_1" }),
       stackUserId: "user_1",
     });
@@ -182,7 +182,7 @@ describe("Stripe billing webhook route", () => {
     const response = await POST(webhookRequest());
 
     expect(response.status).toBe(200);
-    expect(fulfillProCheckout).not.toHaveBeenCalled();
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
   });
 
   test("reports checkout completions skipped during account deletion", async () => {

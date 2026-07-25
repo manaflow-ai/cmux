@@ -3,36 +3,30 @@ import type Stripe from "stripe";
 
 import {
   buildProWelcomeEmail,
-  fulfillProCheckout,
+  sendProSignupWelcome,
   PRO_TESTFLIGHT_SIGNUP_URL,
 } from "../services/billing/proFulfillment";
 
 describe("cmux Pro checkout fulfillment", () => {
   test("sends a separate Pro welcome with signup link without auto-enrolling", async () => {
     const calls: string[] = [];
-    const enrollTester = mock(async () => {
-      calls.push("testflight");
-    });
     const sendEmail = mock(async () => {
       calls.push("email");
       return { error: null };
     });
 
-    await fulfillProCheckout(
+    await sendProSignupWelcome(
       {
         session: checkoutSession(),
         stackUserId: "user_1",
       },
       {
-        isAscConfigured: () => true,
-        enrollTester,
         sendEmail,
         fromEmail: () => "pro@cmux.com",
       },
     );
 
     expect(calls).toEqual(["email"]);
-    expect(enrollTester).not.toHaveBeenCalled();
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const [payload, options] = (sendEmail as unknown as {
       mock: { calls: [[Record<string, unknown>, Record<string, unknown>]] };
@@ -78,32 +72,26 @@ describe("cmux Pro checkout fulfillment", () => {
     );
   });
 
-  test("sends the signup email when ASC is unavailable", async () => {
-    const enrollTester = mock(async () => {});
+  test("sends the signup email without an ASC dependency", async () => {
     const sendEmail = mock(async () => ({ error: null }));
 
     await expect(
-      fulfillProCheckout(
+      sendProSignupWelcome(
         { session: checkoutSession(), stackUserId: "user_1" },
         {
-          isAscConfigured: () => false,
-          enrollTester,
           sendEmail,
           fromEmail: () => "pro@cmux.com",
         },
       ),
     ).resolves.toBeUndefined();
-    expect(enrollTester).not.toHaveBeenCalled();
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
   test("fails the checkout event when the Pro email provider rejects the send", async () => {
     await expect(
-      fulfillProCheckout(
+      sendProSignupWelcome(
         { session: checkoutSession(), stackUserId: "user_1" },
         {
-          isAscConfigured: () => true,
-          enrollTester: mock(async () => {}),
           sendEmail: mock(async () => ({
             error: { message: "provider unavailable" },
           })),
