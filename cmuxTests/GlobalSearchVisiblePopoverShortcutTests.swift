@@ -280,6 +280,45 @@ final class GlobalSearchVisiblePopoverShortcutTests {
 #endif
     }
 
+    @Test func visibleGlobalSearchQueryOwnsOptionDeadKeyShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeHarness(appDelegate: appDelegate)
+        defer { closeHarness(harness, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "n",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        let event = try makeKeyDownEvent(
+            key: "n",
+            characters: "",
+            modifiers: [.option],
+            keyCode: 45,
+            windowNumber: harness.auxiliaryWindow.windowNumber
+        )
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: event),
+            "The visible Search query must own the first event in an Option dead-key sequence"
+        )
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "Starting Option dead-key composition must not close Global Search"
+        )
+#else
+        Issue.record("Global Search visible-popover routing requires a DEBUG build")
+#endif
+    }
+
     @Test func markedTextOwnsInputWhileGlobalSearchIsVisible() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
