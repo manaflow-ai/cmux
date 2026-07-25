@@ -99,11 +99,6 @@ public struct CodexResumeTrustProbeCache: Sendable {
         return result
     }
 
-    private enum HandoffWaitResult: Sendable {
-        case found(Set<String>?)
-        case unavailable
-    }
-
     /// Waits on directory changes from the kernel while the current probe
     /// owner writes its atomic handoff. The paired clock task is cancellable,
     /// so a suspended owner cannot hold restored sessions indefinitely.
@@ -120,11 +115,13 @@ public struct CodexResumeTrustProbeCache: Sendable {
             return initial
         }
 
-        return await withTaskGroup(of: HandoffWaitResult.self) { group in
+        return await withTaskGroup(
+            of: (found: Bool, value: Set<String>?).self
+        ) { group in
             group.addTask {
                 for await _ in changes {
                     guard !Task.isCancelled else {
-                        return .unavailable
+                        return (false, nil)
                     }
                     let handoff = lookup(
                         at: cacheURL,
@@ -132,28 +129,23 @@ public struct CodexResumeTrustProbeCache: Sendable {
                         now: Date()
                     )
                     if handoff.found {
-                        return .found(handoff.value)
+                        return handoff
                     }
                 }
-                return .unavailable
+                return (false, nil)
             }
             group.addTask {
                 do {
                     try await ContinuousClock().sleep(for: Self.lockWait)
                 } catch {
-                    return .unavailable
+                    return (false, nil)
                 }
-                return .unavailable
-            }
-
-            let result = await group.next() ?? .unavailable
-            group.cancelAll()
-            switch result {
-            case .found(let value):
-                return (true, value)
-            case .unavailable:
                 return (false, nil)
             }
+
+            let result = await group.next() ?? (false, nil)
+            group.cancelAll()
+            return result
         }
     }
 

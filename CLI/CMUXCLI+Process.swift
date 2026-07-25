@@ -602,44 +602,33 @@ enum CLIProcessRunner {
                         for: .seconds(boundedTimeout)
                     )
                 } catch {
-                    return .cancelled
+                    return (nil, nil, false, false, nil, false)
                 }
-                return .timeout
+                return (nil, nil, false, false, nil, true)
             }
 
             while let event = await group.next() {
-                switch event {
-                case .standardOutput(
-                    let data,
-                    let matched,
-                    let limitExceeded,
-                    let readError
-                ):
+                if let data = event.standardOutput {
                     stdoutData = data
                     if !finished {
-                        matchedResponse = matched
-                        stdoutLimitExceeded = limitExceeded
-                        pipeError = readError
+                        matchedResponse = event.matchedResponse
+                        stdoutLimitExceeded = event.limitExceeded
+                        pipeError = event.error
                         finished = true
                     }
-                case .standardError(
-                    let data,
-                    let limitExceeded,
-                    let readError
-                ):
+                } else if let data = event.standardError {
                     stderrData = data
-                    stderrLimitExceeded = limitExceeded
-                    if !finished, limitExceeded || readError != nil {
-                        pipeError = readError
+                    stderrLimitExceeded = event.limitExceeded
+                    if !finished,
+                       event.limitExceeded || event.error != nil {
+                        pipeError = event.error
                         finished = true
                     }
-                case .timeout:
+                } else if event.timedOut {
                     if !finished {
                         timedOut = true
                         finished = true
                     }
-                case .cancelled:
-                    break
                 }
 
                 if finished, !cleanupStarted {
@@ -698,28 +687,20 @@ enum CLIProcessRunner {
         )
     }
 
-    private enum CLIJSONLinesReadEvent: Sendable {
-        case standardOutput(
-            Data,
-            matchedResponse: Bool,
-            limitExceeded: Bool,
-            error: String?
-        )
-        case standardError(
-            Data,
-            limitExceeded: Bool,
-            error: String?
-        )
-        case timeout
-        case cancelled
-    }
+    private typealias CLIJSONLinesReadEvent = (
+        standardOutput: Data?,
+        standardError: Data?,
+        matchedResponse: Bool,
+        limitExceeded: Bool,
+        error: String?,
+        timedOut: Bool
+    )
 
-    private enum CLIProcessTerminationWaitEvent: Sendable {
-        case exited(Int32)
-        case terminateGraceElapsed
-        case killGraceElapsed
-        case cancelled
-    }
+    private typealias CLIProcessTerminationWaitEvent = (
+        status: Int32?,
+        terminateGraceElapsed: Bool,
+        killGraceElapsed: Bool
+    )
 
     /// Reaps the direct child from its Process termination event without
     /// blocking a cooperative Swift thread. Escalate once if orderly
@@ -732,25 +713,25 @@ enum CLIProcessRunner {
             group.addTask {
                 var iterator = terminationEvents.makeAsyncIterator()
                 guard let status = await iterator.next() else {
-                    return .cancelled
+                    return (nil, false, false)
                 }
-                return .exited(status)
+                return (status, false, false)
             }
             group.addTask {
                 do {
                     try await ContinuousClock().sleep(for: .milliseconds(100))
                 } catch {
-                    return .cancelled
+                    return (nil, false, false)
                 }
-                return .terminateGraceElapsed
+                return (nil, true, false)
             }
 
             while let event = await group.next() {
-                switch event {
-                case .exited(let status):
+                if let status = event.status {
                     group.cancelAll()
                     return status
-                case .terminateGraceElapsed:
+                }
+                if event.terminateGraceElapsed {
                     if process.isRunning {
                         kill(process.processIdentifier, SIGKILL)
                     }
@@ -760,18 +741,16 @@ enum CLIProcessRunner {
                                 for: .milliseconds(400)
                             )
                         } catch {
-                            return .cancelled
+                            return (nil, false, false)
                         }
-                        return .killGraceElapsed
+                        return (nil, false, true)
                     }
-                case .killGraceElapsed:
+                } else if event.killGraceElapsed {
                     group.cancelAll()
                     return nil
-                case .cancelled:
-                    if Task.isCancelled {
-                        group.cancelAll()
-                        return nil
-                    }
+                } else if Task.isCancelled {
+                    group.cancelAll()
+                    return nil
                 }
             }
             return process.isRunning ? nil : process.terminationStatus
@@ -787,14 +766,11 @@ enum CLIProcessRunner {
         var lineStart = data.startIndex
         do {
             for try await byte in handle.bytes {
-                guard !Task.isCancelled else { return .cancelled }
+                guard !Task.isCancelled else {
+                    return (nil, nil, false, false, nil, false)
+                }
                 guard data.count < maxOutputBytes else {
-                    return .standardOutput(
-                        data,
-                        matchedResponse: false,
-                        limitExceeded: true,
-                        error: nil
-                    )
+                    return (data, nil, false, true, nil, false)
                 }
                 data.append(byte)
                 guard byte == 0x0a else { continue }
@@ -809,26 +785,20 @@ enum CLIProcessRunner {
                 else {
                     continue
                 }
-                return .standardOutput(
-                    data,
-                    matchedResponse: true,
-                    limitExceeded: false,
-                    error: nil
-                )
+                return (data, nil, true, false, nil, false)
             }
-            return .standardOutput(
-                data,
-                matchedResponse: false,
-                limitExceeded: false,
-                error: nil
-            )
+            return (data, nil, false, false, nil, false)
         } catch {
-            guard !Task.isCancelled else { return .cancelled }
-            return .standardOutput(
+            guard !Task.isCancelled else {
+                return (nil, nil, false, false, nil, false)
+            }
+            return (
                 data,
-                matchedResponse: false,
-                limitExceeded: false,
-                error: error.localizedDescription
+                nil,
+                false,
+                false,
+                error.localizedDescription,
+                false
             )
         }
     }
@@ -840,27 +810,26 @@ enum CLIProcessRunner {
         var data = Data()
         do {
             for try await byte in handle.bytes {
-                guard !Task.isCancelled else { return .cancelled }
+                guard !Task.isCancelled else {
+                    return (nil, nil, false, false, nil, false)
+                }
                 guard data.count < maxOutputBytes else {
-                    return .standardError(
-                        data,
-                        limitExceeded: true,
-                        error: nil
-                    )
+                    return (nil, data, false, true, nil, false)
                 }
                 data.append(byte)
             }
-            return .standardError(
-                data,
-                limitExceeded: false,
-                error: nil
-            )
+            return (nil, data, false, false, nil, false)
         } catch {
-            guard !Task.isCancelled else { return .cancelled }
-            return .standardError(
+            guard !Task.isCancelled else {
+                return (nil, nil, false, false, nil, false)
+            }
+            return (
+                nil,
                 data,
-                limitExceeded: false,
-                error: error.localizedDescription
+                false,
+                false,
+                error.localizedDescription,
+                false
             )
         }
     }
