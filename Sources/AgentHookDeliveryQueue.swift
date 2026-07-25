@@ -12,6 +12,7 @@ actor AgentHookDeliveryQueue {
 
     private enum AdmissionClass: Equatable, Sendable {
         case lifecycle
+        case terminalLifecycle
         case bestEffortTool
         case barrier
     }
@@ -61,6 +62,7 @@ actor AgentHookDeliveryQueue {
     // from monopolizing resident capacity ahead of lifecycle/barrier work.
     nonisolated(unsafe) private var outstandingBestEffortOrderingKeys: Set<String> = []
     nonisolated private let maximumLifecycleIngressEvents: Int
+    nonisolated private let maximumTerminalIngressEvents: Int
     nonisolated private let maximumToolIngressEvents: Int
     nonisolated private let maximumBarrierIngressEvents: Int
     nonisolated private let maximumOutstandingBestEffortEvents: Int
@@ -77,22 +79,25 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    /// Builds a queue whose defaults retain at most twenty bounded items:
-    /// eight actor-resident items, eight event-ingress items, and four barriers.
-    /// Event ingress reserves one replaceable slot for high-volume tool and shell
-    /// telemetry; lifecycle, needs-input, and notification events use the rest.
+    /// Builds a queue whose defaults retain at most twenty-four bounded items:
+    /// eight actor-resident items, eight general event-ingress items, four
+    /// terminal lifecycle items, and four barriers. General event ingress
+    /// reserves one replaceable slot for high-volume tool and shell telemetry;
+    /// terminal transitions cannot be displaced by notifications or finalizers.
     /// The event validator's payload and environment limits therefore also
     /// place a finite byte bound on the complete accepted backlog.
     init(
         maximumConcurrentDeliveries: Int = 4,
         maximumResidentEvents: Int = 8,
         maximumIngressEvents: Int = 8,
+        maximumTerminalIngressEvents: Int = 4,
         maximumBarrierIngressEvents: Int = 4,
         delivery: @escaping Delivery
     ) {
         precondition(maximumConcurrentDeliveries > 0)
         precondition(maximumResidentEvents >= maximumConcurrentDeliveries)
         precondition(maximumIngressEvents >= 2)
+        precondition(maximumTerminalIngressEvents > 0)
         precondition(maximumBarrierIngressEvents > 0)
 
         let toolIngressCapacity = 1
@@ -100,7 +105,9 @@ actor AgentHookDeliveryQueue {
         let admissionSignalPair = AsyncStream.makeStream(
             of: Void.self,
             bufferingPolicy: .bufferingOldest(
-                maximumIngressEvents + maximumBarrierIngressEvents
+                maximumIngressEvents
+                    + maximumTerminalIngressEvents
+                    + maximumBarrierIngressEvents
             )
         )
         let capacityPair = AsyncStream.makeStream(
@@ -109,6 +116,7 @@ actor AgentHookDeliveryQueue {
         )
         admissionSignalContinuation = admissionSignalPair.continuation
         maximumLifecycleIngressEvents = lifecycleIngressCapacity
+        self.maximumTerminalIngressEvents = maximumTerminalIngressEvents
         maximumToolIngressEvents = toolIngressCapacity
         self.maximumBarrierIngressEvents = maximumBarrierIngressEvents
         maximumOutstandingBestEffortEvents = max(1, maximumConcurrentDeliveries - 1)
@@ -151,9 +159,17 @@ actor AgentHookDeliveryQueue {
     /// acknowledge immediately after this returns true; false fails open.
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) -> Bool {
         let admittedEvent = event.admittedToQueue(at: ContinuousClock().now)
+        let admissionClass: AdmissionClass
+        if admittedEvent.isBestEffortTelemetry {
+            admissionClass = .bestEffortTool
+        } else if admittedEvent.requiresReservedTerminalAdmission {
+            admissionClass = .terminalLifecycle
+        } else {
+            admissionClass = .lifecycle
+        }
         return publish(
             .event(admittedEvent),
-            admissionClass: admittedEvent.isBestEffortTelemetry ? .bestEffortTool : .lifecycle,
+            admissionClass: admissionClass,
             droppedDescription: "agent=\(admittedEvent.agent) subcommand=\(admittedEvent.subcommand)"
         )
     }
@@ -189,6 +205,8 @@ actor AgentHookDeliveryQueue {
         switch admissionClass {
         case .lifecycle:
             capacity = maximumLifecycleIngressEvents
+        case .terminalLifecycle:
+            capacity = maximumTerminalIngressEvents
         case .bestEffortTool:
             capacity = maximumToolIngressEvents
         case .barrier:
@@ -198,8 +216,11 @@ actor AgentHookDeliveryQueue {
             $0.admissionClass == admissionClass
         }.count
         if classCount >= capacity {
-            guard admissionClass == .lifecycle,
-                  let replacementIndex = lifecycleReplacementIndex(replacedBy: item)
+            guard admissionClass == .lifecycle || admissionClass == .terminalLifecycle,
+                  let replacementIndex = lifecycleReplacementIndex(
+                    replacedBy: item,
+                    admissionClass: admissionClass
+                  )
             else {
                 agentHookDeliveryQueueLogger.error(
                     "Hook admission dropped \(droppedDescription, privacy: .public)"
@@ -277,10 +298,11 @@ actor AgentHookDeliveryQueue {
     }
 
     private nonisolated func lifecycleReplacementIndex(
-        replacedBy item: PendingItem
+        replacedBy item: PendingItem,
+        admissionClass: AdmissionClass
     ) -> Int? {
         let lifecycleIndices = admissionRecords.indices.filter {
-            admissionRecords[$0].admissionClass == .lifecycle
+            admissionRecords[$0].admissionClass == admissionClass
         }
         return lifecycleIndices.first {
             admissionRecords[$0].item.canBeReplaced(by: item)

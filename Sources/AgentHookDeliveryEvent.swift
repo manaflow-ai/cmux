@@ -12,6 +12,11 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         "session-end",
     ]
 
+    private static let reservedTerminalStateSubcommands: Set<String> = [
+        "stop",
+        "session-end",
+    ]
+
     private static let supersedableStateSubcommands: Set<String> = [
         "session-start",
         "prompt-submit",
@@ -81,6 +86,12 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
             return false
         }
         return toolName != "AskUserQuestion" && toolName != "ExitPlanMode"
+    }
+
+    /// Terminal transitions use capacity that notifications, finalizers, and
+    /// ordinary lifecycle snapshots cannot consume.
+    var requiresReservedTerminalAdmission: Bool {
+        Self.reservedTerminalStateSubcommands.contains(subcommand)
     }
 
     init?(params: [String: Any], deliverySocketPath: String? = nil) {

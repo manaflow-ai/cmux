@@ -50,12 +50,14 @@ extension RemoteCLIRelayServer {
             )
         }
 
-        private enum Phase {
+        private enum Phase: Equatable, Sendable {
             case awaitingAuth
             case awaitingCommand
             case forwarding
             case closed
         }
+
+        private static let handshakeTimeoutMilliseconds = 10_000
 
         private let connection: NWConnection
         private let localSocketPath: String
@@ -76,6 +78,7 @@ extension RemoteCLIRelayServer {
         private var challengeSentAt = Date()
         private var isClosed = false
         private var forwardingSocketDescriptor: Int32?
+        private var phaseTimeoutTask: Task<Void, Never>?
 
         init(
             connection: NWConnection,
@@ -98,6 +101,7 @@ extension RemoteCLIRelayServer {
         }
 
         func start() {
+            armPhaseTimeout(for: .awaitingAuth)
             connection.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 self.queue.async {
@@ -201,6 +205,7 @@ extension RemoteCLIRelayServer {
             }
 
             phase = .awaitingCommand
+            armPhaseTimeout(for: .awaitingCommand)
             sendJSONLine(["ok": true]) { [weak self] _ in
                 guard let self else { return }
                 self.queue.async {
@@ -215,6 +220,8 @@ extension RemoteCLIRelayServer {
                 return
             }
             phase = .forwarding
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
             let forwardedCommandLine = commandRewriter(commandLine)
             let socketDescriptor: Int32
             do {
@@ -264,6 +271,8 @@ extension RemoteCLIRelayServer {
             let elapsed = Date().timeIntervalSince(challengeSentAt)
             let delay = max(0, minimumFailureDelay - elapsed)
             phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
             // Anti-timing-oracle minimum delay via the injected clock (legacy
             // used queue.asyncAfter); ceil keeps the floor a true minimum.
             let delayMilliseconds = Int((delay * 1000).rounded(.up))
@@ -279,6 +288,24 @@ extension RemoteCLIRelayServer {
                             self.close()
                         }
                     }
+                }
+            }
+        }
+
+        private func armPhaseTimeout(for expectedPhase: Phase) {
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = Task { [weak self, clock] in
+                guard (try? await clock.sleep(
+                    forMilliseconds: Self.handshakeTimeoutMilliseconds
+                )) != nil else {
+                    return
+                }
+                guard let self else { return }
+                self.queue.async {
+                    guard !self.isClosed, self.phase == expectedPhase else {
+                        return
+                    }
+                    self.close()
                 }
             }
         }
@@ -299,6 +326,8 @@ extension RemoteCLIRelayServer {
             guard !isClosed else { return }
             isClosed = true
             phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
             if let forwardingSocketDescriptor {
                 // `shutdown` interrupts a blocking local read without racing
                 // descriptor reuse; the forwarding completion owns `close`.
