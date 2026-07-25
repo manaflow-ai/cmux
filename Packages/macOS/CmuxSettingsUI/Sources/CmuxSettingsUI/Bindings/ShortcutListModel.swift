@@ -10,9 +10,9 @@ final class ShortcutListModel {
 
     // MARK: - Observed state
 
-    private(set) var bindings: [String: StoredShortcut] = [:]
-    private(set) var managedBindingActionIDs: Set<String> = []
-    private(set) var legacyBindings: [String: StoredShortcut]
+    var bindings: [String: StoredShortcut] = [:]
+    var managedBindingActionIDs: Set<String> = []
+    var legacyBindings: [String: StoredShortcut]
     private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
     private(set) var whenOverrideRawStrings: [String: String] = [:]
     private(set) var chordModeActions: Set<String> = []
@@ -24,16 +24,16 @@ final class ShortcutListModel {
     /// Per-action conflict target for the red validation banner.
     private(set) var conflictRejections: [String: ShortcutAction] = [:]
     @ObservationIgnored private var rejectedConflictShortcuts: [String: StoredShortcut] = [:]
-    private var pendingBindings: [String: StoredShortcut]?
-    @ObservationIgnored private var pendingWriteGeneration = 0
+    var pendingBindings: [String: StoredShortcut]?
+    @ObservationIgnored var pendingWriteGeneration = 0
 
     // MARK: - Observation-ignored internals
 
-    @ObservationIgnored private let jsonStore: JSONConfigStore
-    @ObservationIgnored private let userDefaultsStore: UserDefaultsSettingsStore?
-    @ObservationIgnored private let catalog: SettingCatalog
-    @ObservationIgnored private let errorLog: SettingsErrorLog
-    @ObservationIgnored private let onShortcutsChanged: @MainActor () -> Void
+    @ObservationIgnored let jsonStore: JSONConfigStore
+    @ObservationIgnored let userDefaultsStore: UserDefaultsSettingsStore?
+    @ObservationIgnored let catalog: SettingCatalog
+    @ObservationIgnored let errorLog: SettingsErrorLog
+    @ObservationIgnored let onShortcutsChanged: @MainActor () -> Void
     @ObservationIgnored private let bindingsDriver = SettingReadDriver<ShortcutBindingsSnapshot>()
     @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
@@ -114,7 +114,7 @@ final class ShortcutListModel {
     func effective(for action: ShortcutAction) -> StoredShortcut? {
         let actionID = action.rawValue
         let candidate: StoredShortcut?
-        if pendingBindings != nil || !managedBindingActionIDs.contains(actionID) {
+        if !managedBindingActionIDs.contains(actionID) {
             candidate = latestBindings[actionID] ?? legacyBindings[actionID]
         } else {
             candidate = bindings[actionID]
@@ -313,6 +313,11 @@ final class ShortcutListModel {
             )
         }
         let proposed = StoredShortcut(first: stroke)
+        if action.shortcutBindingPolicyResult(for: proposed)
+            == .primaryModifierRequired {
+            markBareKeyRejected(action)
+            return
+        }
         if action.rejectsSystemDefinedMediaKey(proposed) {
             markSystemReservedRejected(action)
             return
@@ -406,52 +411,11 @@ final class ShortcutListModel {
         await write([:], resetAllLegacy: true)
     }
 
-    /// Persists `updated` to the bindings store, recording any failure to the
-    /// error log.
-    private func write(
-        _ updated: [String: StoredShortcut],
-        clearingLegacyFor action: ShortcutAction? = nil,
-        resetAllLegacy: Bool = false
-    ) async {
-        pendingWriteGeneration += 1
-        let generation = pendingWriteGeneration
-        pendingBindings = updated
-        bindings = updated
-        do {
-            try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
-            if resetAllLegacy {
-                await userDefaultsStore?.resetAllLegacyShortcutBindings()
-                legacyBindings.removeAll()
-            } else if let action, legacyBindings[action.rawValue] != nil {
-                await userDefaultsStore?.resetLegacyShortcutBinding(for: action)
-                legacyBindings.removeValue(forKey: action.rawValue)
-            }
-            onShortcutsChanged()
-            if pendingWriteGeneration == generation {
-                pendingBindings = nil
-            }
-        } catch {
-            if pendingWriteGeneration == generation {
-                let committed = await jsonStore.value(for: catalog.shortcuts.bindings)
-                if pendingWriteGeneration == generation {
-                    let changedActionIds = Set(bindings.keys).union(committed.keys)
-                        .filter { bindings[$0] != committed[$0] }
-                    bindings = committed
-                    pendingBindings = nil
-                    pruneRestoreShortcuts()
-                    pruneConflictRejections()
-                    pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
-                }
-            }
-            errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
-        }
-    }
-
     // MARK: - Prune helpers (moved verbatim from section)
 
     /// Drops the "Use a digit from 1 through 9" banner for an action only when
     /// *that action's* binding actually changed in the latest stream update.
-    private func pruneNumberedDigitRejections(changedActionIds: Set<String>) {
+    func pruneNumberedDigitRejections(changedActionIds: Set<String>) {
         guard !numberedDigitRejections.isEmpty else { return }
         for key in Array(numberedDigitRejections) where changedActionIds.contains(key) {
             numberedDigitRejections.remove(key)
@@ -460,7 +424,7 @@ final class ShortcutListModel {
 
     /// Drops conflict banners for actions whose binding now resolves cleanly
     /// (e.g. after an external cmux.json edit removes the colliding binding).
-    private func pruneConflictRejections(changedActionIds: Set<String> = []) {
+    func pruneConflictRejections(changedActionIds: Set<String> = []) {
         guard !conflictRejections.isEmpty else { return }
         for key in Array(conflictRejections.keys) {
             guard let action = ShortcutAction(rawValue: key) else {
@@ -487,7 +451,7 @@ final class ShortcutListModel {
     }
 
     /// Drops cached restore strokes for actions that are no longer unbound.
-    private func pruneRestoreShortcuts() {
+    func pruneRestoreShortcuts() {
         guard !restoreShortcuts.isEmpty else { return }
         // Iterate a key snapshot because the loop mutates `restoreShortcuts`.
         for key in Array(restoreShortcuts.keys) {

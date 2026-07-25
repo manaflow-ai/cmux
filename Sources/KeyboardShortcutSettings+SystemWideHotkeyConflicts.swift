@@ -2,10 +2,14 @@ import Foundation
 
 /// System-wide shortcut conflict helpers extracted from `KeyboardShortcutSettings.swift`, which sits at its file-length budget.
 extension KeyboardShortcutSettings {
-    static func reservedSystemWideHotkeyShortcuts(excluding currentAction: Action) -> [StoredShortcut] {
+    static func reservedSystemWideHotkeyShortcuts(
+        excluding currentAction: Action,
+        alsoExcluding ignoredActions: Set<Action> = []
+    ) -> [StoredShortcut] {
         var reserved: [StoredShortcut] = []
 
-        for action in Action.allCases where action != currentAction {
+        for action in Action.allCases
+        where action != currentAction && !ignoredActions.contains(action) {
             let shortcut = systemWideConflictShortcut(for: action)
             guard !shortcut.isUnbound else { continue }
             if shortcut.hasChord {
@@ -32,6 +36,30 @@ extension KeyboardShortcutSettings {
 
         reserved.append(contentsOf: hardcodedSystemWideHotkeyConflicts.filter { currentAction != .showHideAllWindows || $0.key != "`" || !$0.command || $0.option || $0.control })
         return reserved
+    }
+
+    static func systemWideHotkeyConflicts(
+        with shortcut: StoredShortcut,
+        excluding action: Action,
+        alsoExcluding ignoredActions: Set<Action> = []
+    ) -> Bool {
+        guard let registration = shortcut.carbonHotKeyRegistration else {
+            return false
+        }
+        let keyCode = UInt16(registration.keyCode)
+        let modifierFlags = shortcut.modifierFlags
+        let eventCharacter = KeyboardLayout.character(forKeyCode: keyCode)
+
+        return reservedSystemWideHotkeyShortcuts(
+            excluding: action,
+            alsoExcluding: ignoredActions
+        ).contains { reserved in
+            reserved.matches(
+                keyCode: keyCode,
+                modifierFlags: modifierFlags,
+                eventCharacter: eventCharacter
+            )
+        }
     }
 
     static func systemWideConflictShortcut(for action: Action) -> StoredShortcut {

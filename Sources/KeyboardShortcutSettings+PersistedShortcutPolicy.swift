@@ -15,6 +15,8 @@ extension KeyboardShortcutSettings.Action {
         ) {
         case .accepted:
             return nil
+        case .primaryModifierRequired:
+            return .systemWideHotkeyRequiresModifier
         case .bareFirstStrokeNotAllowed:
             return self == .showHideAllWindows
                 ? .systemWideHotkeyRequiresModifier
@@ -93,8 +95,9 @@ extension SystemWideHotkeySettings {
     /// Resolves a complete Show/Hide binding into the Carbon registration shape
     /// shared by conflict arbitration and the actual system-wide registrar.
     ///
-    /// App-shortcut conflicts are checked after Global Search has yielded to
-    /// this candidate, avoiding a recursive lookup between the two actions.
+    /// Global Search intentionally yields to this candidate. Every other
+    /// application and AppKit reservation is validated before it can reserve
+    /// the foreground shortcut or reach the registrar.
     static func registrationCandidate(
         for shortcut: StoredShortcut
     ) -> (shortcut: StoredShortcut, registration: CarbonHotKeyRegistration)? {
@@ -103,7 +106,12 @@ extension SystemWideHotkeySettings {
                 shortcut,
                 checkingSystemWideConflicts: false
             ),
-            let registration = normalizedShortcut.carbonHotKeyRegistration else {
+            let registration = normalizedShortcut.carbonHotKeyRegistration,
+            !KeyboardShortcutSettings.systemWideHotkeyConflicts(
+                with: normalizedShortcut,
+                excluding: action,
+                alsoExcluding: [.globalSearch]
+            ) else {
             return nil
         }
         return (normalizedShortcut, registration)

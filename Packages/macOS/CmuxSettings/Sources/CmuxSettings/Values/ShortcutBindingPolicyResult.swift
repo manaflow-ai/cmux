@@ -10,6 +10,9 @@ public enum ShortcutBindingPolicyResult: Sendable, Equatable {
     /// The action requires a modifier on this first stroke.
     case bareFirstStrokeNotAllowed
 
+    /// The system-wide action requires Command, Option, or Control.
+    case primaryModifierRequired
+
     /// The action does not support two-stroke shortcuts.
     case chordNotAllowed
 
@@ -38,6 +41,12 @@ public extension ShortcutAction {
         }
 
         let first = shortcut.first
+        if self == .showHideAllWindows,
+           !first.command,
+           !first.option,
+           !first.control {
+            return .primaryModifierRequired
+        }
         let supportsLegacyBareSpace = first.key.lowercased() == "space"
             && self != .globalSearch
         guard allowsBareFirstStroke

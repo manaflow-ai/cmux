@@ -780,23 +780,6 @@ enum KeyboardShortcutSettings {
         return normalized
     }
 
-    private static func systemWideHotkeyConflicts(with shortcut: StoredShortcut, excluding action: Action) -> Bool {
-        guard let registration = shortcut.carbonHotKeyRegistration else { return false }
-        let keyCode = UInt16(registration.keyCode)
-        let modifierFlags = shortcut.modifierFlags
-        // Validate against the keystroke AppKit shortcuts would see for the
-        // registered Carbon hotkey under the current input source.
-        let eventCharacter = KeyboardLayout.character(forKeyCode: keyCode)
-
-        return reservedSystemWideHotkeyShortcuts(excluding: action).contains { reserved in
-            reserved.matches(
-                keyCode: keyCode,
-                modifierFlags: modifierFlags,
-                eventCharacter: eventCharacter
-            )
-        }
-    }
-
     private static func conflictingAction(
         for proposedShortcut: StoredShortcut,
         excluding currentAction: Action
@@ -1243,11 +1226,13 @@ final class SystemWideHotkeyController {
             return
         }
 
-        guard let candidate = SystemWideHotkeySettings.registrationCandidate(for: shortcut),
-              let normalizedShortcut = Self.action.normalizedRecordedShortcut(candidate.shortcut) else {
+        guard let candidate = SystemWideHotkeySettings.registrationCandidate(
+            for: shortcut
+        ) else {
             unregisterHotKey()
             return
         }
+        let normalizedShortcut = candidate.shortcut
         let registration = candidate.registration
 
         if registeredShortcut == normalizedShortcut,
