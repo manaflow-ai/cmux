@@ -64,6 +64,26 @@ import Testing
         try? readiness.fileHandleForWriting.close()
     }
 
+    @Test func sidecarWriterTimesOutWhenChildStopsReadingStdin() async throws {
+        let input = Pipe()
+        let writer = try DiffSidecarFrameWriter(handle: input.fileHandleForWriting)
+        let request = Data(repeating: UInt8(ascii: "x"), count: 1024 * 1024)
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        do {
+            try await writer.write(frame: request, timeout: 0.02)
+            Issue.record("blocked sidecar write unexpectedly completed")
+        } catch let error as DiffSidecarFrameWriter.WriterError {
+            #expect(error == .timedOut)
+        }
+
+        #expect(clock.now - started < .seconds(1))
+        try? input.fileHandleForReading.close()
+        await writer.shutdown()
+        try? input.fileHandleForWriting.close()
+    }
+
     @Test func loadingOwnershipRejectsSupersededOperation() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
