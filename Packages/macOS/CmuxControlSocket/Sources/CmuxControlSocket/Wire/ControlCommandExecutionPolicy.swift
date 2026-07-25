@@ -94,6 +94,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.clear",
         "browser.profiles.delete",
         "browser.import.cookies",
+        // Starts an Agent Session provider if needed and writes user input to
+        // its stdin. Provider startup may resolve executables and spawn a
+        // subprocess, so the socket worker owns the wait instead of the main
+        // actor.
+        "agent_session.submit",
         "mobile.attach_ticket.create",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker

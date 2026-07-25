@@ -12,6 +12,167 @@ extension TerminalController {
     }
 }
 
+extension TerminalController {
+    @MainActor
+    func v2AgentSessionSubmit(params: [String: Any]) async -> V2CallResult {
+        guard let text = v2String(params, "text")
+            ?? v2String(params, "message")
+            ?? v2String(params, "prompt")
+            ?? v2String(params, "body") else {
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+        let providerID: AgentSessionProviderID?
+        if let rawProvider = v2String(params, "provider_id") ?? v2String(params, "provider") {
+            guard let parsedProvider = AgentSessionProviderID(rawValue: rawProvider) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid provider",
+                    data: ["provider": rawProvider]
+                )
+            }
+            providerID = parsedProvider
+        } else {
+            providerID = nil
+        }
+        let permissionMode: AgentSessionPermissionMode
+        if let rawPermissionMode = v2String(params, "permission_mode") ?? v2String(params, "permissionMode") {
+            guard let parsedPermissionMode = AgentSessionPermissionMode(rawValue: rawPermissionMode) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid permission mode",
+                    data: ["permission_mode": rawPermissionMode]
+                )
+            }
+            permissionMode = parsedPermissionMode
+        } else {
+            permissionMode = .standard
+        }
+
+        v2RefreshKnownRefs()
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
+            windowID: v2UUID(params, "window_id"),
+            groupID: v2UUID(params, "group_id"),
+            workspaceID: v2UUID(params, "workspace_id"),
+            surfaceID: v2UUID(params, "surface_id")
+                ?? v2UUID(params, "terminal_id")
+                ?? v2UUID(params, "tab_id"),
+            paneID: v2UUID(params, "pane_id")
+        )
+        guard let target = agentSessionSubmitTarget(routing: routing) else {
+            return .err(code: "not_found", message: "Agent Session surface not found", data: nil)
+        }
+        guard let agentPanel = target.panel as? AgentSessionPanel else {
+            return .err(
+                code: "invalid_params",
+                message: "Surface is not an Agent Session",
+                data: ["surface_id": target.panel.id.uuidString]
+            )
+        }
+
+        do {
+            let result = try await agentPanel.submitFromControl(
+                providerID: providerID,
+                permissionMode: permissionMode,
+                text: text
+            )
+            let session = result.session
+            return .ok([
+                "workspace_id": target.workspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: target.workspaceID),
+                "window_id": v2OrNull(target.windowID?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: target.windowID),
+                "surface_id": target.panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: target.panel.id),
+                "session_id": session.sessionId,
+                "provider_id": session.providerID.rawValue,
+                "started_provider": result.startedProvider,
+                "executable_path": session.executablePath,
+                "arguments": session.arguments,
+                "working_directory": v2OrNull(session.workingDirectory),
+            ])
+        } catch let error as AgentExecutableResolverError {
+            return .err(
+                code: "provider_unavailable",
+                message: error.message,
+                data: nil
+            )
+        } catch let error as AgentSessionBridgeError {
+            return .err(
+                code: error.code,
+                message: error.localizedDescription,
+                data: nil
+            )
+        } catch {
+            return .err(
+                code: "agent_session_error",
+                message: String(describing: error),
+                data: nil
+            )
+        }
+    }
+
+    private struct AgentSessionSubmitTarget {
+        let workspaceID: UUID
+        let windowID: UUID?
+        let panel: any Panel
+    }
+
+    @MainActor
+    private func agentSessionSubmitTarget(routing: ControlRoutingSelectors) -> AgentSessionSubmitTarget? {
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return nil
+        }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            let panels = orderedPanels(in: dock)
+            let panel = agentSessionPanelCandidate(
+                panels: panels,
+                explicitSurfaceID: routing.surfaceID,
+                focusedPanelID: dock.focusedPanelId
+            )
+            return panel.map {
+                AgentSessionSubmitTarget(
+                    workspaceID: dock.workspaceId,
+                    windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+                    panel: $0
+                )
+            }
+        }
+
+        guard let workspace = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
+            return nil
+        }
+        let panels = controlSurfacePanels(workspace: workspace)
+        let panel = agentSessionPanelCandidate(
+            panels: panels,
+            explicitSurfaceID: routing.surfaceID,
+            focusedPanelID: workspace.focusedPanelId
+        )
+        return panel.map {
+            AgentSessionSubmitTarget(
+                workspaceID: workspace.id,
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                panel: $0
+            )
+        }
+    }
+
+    private func agentSessionPanelCandidate(
+        panels: [any Panel],
+        explicitSurfaceID: UUID?,
+        focusedPanelID: UUID?
+    ) -> (any Panel)? {
+        if let explicitSurfaceID {
+            return panels.first { $0.id == explicitSurfaceID }
+        }
+        if let focusedPanelID,
+           let focused = panels.first(where: { $0.id == focusedPanelID }) {
+            return focused
+        }
+        return panels.first { $0 is AgentSessionPanel }
+    }
+}
+
 /// The surface-domain witnesses are the byte-faithful bodies of the former
 /// `v2Surface*` / `v2DebugTerminals` dispatchers, minus the per-read `v2MainSync`
 /// hop: the coordinator already runs on the main actor inside the socket-command

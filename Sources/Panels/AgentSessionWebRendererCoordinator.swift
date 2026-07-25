@@ -37,6 +37,58 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         webView?.window != nil
     }
 
+    func submitFromControl(
+        providerID requestedProviderID: AgentSessionProviderID?,
+        permissionMode: AgentSessionPermissionMode,
+        text: String
+    ) async throws -> AgentSessionControlSubmitResult {
+        guard !isClosed else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        guard !text.isEmpty else {
+            throw AgentSessionBridgeError.missingParameter("text")
+        }
+
+        if let active = processStore.activeSessionInfo {
+            if let requestedProviderID, requestedProviderID != active.providerID {
+                throw AgentSessionBridgeError.sessionAlreadyRunning
+            }
+            let session = try await processStore.writeLineToActive(
+                permissionMode: permissionMode,
+                text: text
+            )
+            return AgentSessionControlSubmitResult(session: session, startedProvider: false)
+        }
+
+        guard !isProviderStartPending else {
+            throw AgentSessionBridgeError.sessionAlreadyRunning
+        }
+        isProviderStartPending = true
+        defer {
+            isProviderStartPending = false
+        }
+        let provider = requestedProviderID ?? initialProviderID
+        initialProviderID = provider
+        onProviderIDChanged?(provider)
+        let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
+        let plan = try await Task.detached(priority: .userInitiated) {
+            let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
+            return try resolver.resolve(provider)
+        }.value
+        guard !isClosed else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        _ = try await processStore.start(
+            plan: plan,
+            workingDirectory: workingDirectory
+        )
+        let session = try await processStore.writeLineToActive(
+            permissionMode: permissionMode,
+            text: text
+        )
+        return AgentSessionControlSubmitResult(session: session, startedProvider: true)
+    }
+
     func bind(
         panelId: UUID,
         workspaceId: UUID,

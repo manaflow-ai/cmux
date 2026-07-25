@@ -4661,6 +4661,15 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
 
+        case "agent-session":
+            try runAgentSessionCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "surface":
             try runSurfaceCommand(
                 commandArgs: commandArgs,
@@ -6631,6 +6640,80 @@ struct CMUXCLI {
             )
         default:
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)")
+        }
+    }
+
+    private func runAgentSessionCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "agent-session requires a subcommand. Try: cmux agent-session submit --surface surface:1 \"hello\"")
+        }
+        switch subcommand {
+        case "submit":
+            let args = Array(commandArgs.dropFirst())
+            let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+            let (surfaceOpt, rem1) = parseOption(rem0, name: "--surface")
+            let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            let (providerOpt, rem3) = parseOption(rem2, name: "--provider")
+            let (providerIDOpt, rem4) = parseOption(rem3, name: "--provider-id")
+            let (permissionOpt, rem5) = parseOption(rem4, name: "--permission-mode")
+            let (permissionCamelOpt, rem6) = parseOption(rem5, name: "--permissionMode")
+            let (textOpt, rem7) = parseOption(rem6, name: "--text")
+            let textArgs: [String]
+            if let separatorIndex = rem7.firstIndex(of: "--") {
+                textArgs = Array(rem7[rem7.index(after: separatorIndex)...])
+            } else {
+                if let unknown = rem7.first(where: { $0.hasPrefix("--") }) {
+                    throw CLIError(message: "agent-session submit: unknown flag '\(unknown)'")
+                }
+                textArgs = rem7
+            }
+            let text = (textOpt ?? textArgs.joined(separator: " "))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                throw CLIError(message: "agent-session submit requires text")
+            }
+
+            var params: [String: Any] = ["text": text]
+            let windowRaw = windowOpt ?? windowOverride
+            let winId = try normalizeWindowHandle(windowRaw, client: client)
+            if let winId { params["window_id"] = winId }
+
+            let workspaceArg = workspaceOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+            if let wsId { params["workspace_id"] = wsId }
+
+            let sfId = try normalizeSurfaceHandle(surfaceOpt, client: client, workspaceHandle: wsId, windowHandle: winId)
+            if let sfId { params["surface_id"] = sfId }
+
+            if let provider = providerOpt ?? providerIDOpt {
+                params["provider_id"] = provider
+            }
+            if let permissionMode = permissionOpt ?? permissionCamelOpt {
+                params["permission_mode"] = permissionMode
+            }
+
+            let payload = try client.sendV2(
+                method: "agent_session.submit",
+                params: params,
+                responseTimeout: 125
+            )
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let provider = payload["provider_id"] as? String ?? "agent"
+                let started = (payload["started_provider"] as? Bool) == true
+                    ? " started_provider=true"
+                    : ""
+                print("\(v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "workspace"])) provider=\(provider)\(started)")
+            }
+        default:
+            throw CLIError(message: "Unsupported agent-session subcommand: \(subcommand)")
         }
     }
 
@@ -15999,6 +16082,27 @@ struct CMUXCLI {
               cmux new-surface --type browser --pane pane:1 --url https://example.com
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
+            """
+        case "agent-session":
+            return """
+            Usage: cmux agent-session submit [flags] [--] <text>
+
+            Submit text to an Agent Session surface. Starts the selected provider if it is not running.
+
+            Flags:
+              --workspace <id|ref|index>     Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>       Agent Session surface to target
+              --window <id|ref|index>        Window context for workspace/surface refs and indexes
+              --provider <codex|claude|opencode>
+                                             Provider to start when no session is running
+              --permission-mode <default|auto-review|full-access|custom>
+                                             Permission mode for the submitted turn
+              --text <text>                  Text to submit instead of positional text
+              --json                         Structured JSON output
+
+            Example:
+              cmux agent-session submit --surface surface:2 --provider codex "Say hello"
+              cmux agent-session submit --workspace workspace:1 -- --text that begins with dashes
             """
         case "close-surface":
             return """
@@ -35152,6 +35256,7 @@ export default CMUXSessionRestore;
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          agent-session submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--provider <codex|claude|opencode>] [--permission-mode <default|auto-review|full-access|custom>] [--text <text>|<text>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

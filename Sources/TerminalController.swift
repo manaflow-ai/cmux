@@ -1270,6 +1270,10 @@ class TerminalController {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
+        case "agent_session.submit":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) {
+                await self.v2AgentSessionSubmit(params: request.params)
+            }
         case "mobile.attach_ticket.create":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
@@ -2350,6 +2354,7 @@ class TerminalController {
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "agent_session.submit",
             "window.list",
             "window.current",
             "window.focus",
