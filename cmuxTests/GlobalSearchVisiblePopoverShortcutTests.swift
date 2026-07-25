@@ -192,6 +192,56 @@ final class GlobalSearchVisiblePopoverShortcutTests {
 #endif
     }
 
+    @Test func visibleGlobalSearchQueryOwnsCocoaControlEditingShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeHarness(appDelegate: appDelegate)
+        defer { closeHarness(harness, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "a",
+                command: false,
+                shift: false,
+                option: false,
+                control: true
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        let event = try makeKeyDownEvent(
+            key: "a",
+            characters: "\u{01}",
+            modifiers: [.control],
+            keyCode: 0,
+            windowNumber: harness.auxiliaryWindow.windowNumber
+        )
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: event),
+            "The visible Search query must own Ctrl-A text navigation"
+        )
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+#else
+        Issue.record("Global Search visible-popover routing requires a DEBUG build")
+#endif
+    }
+
+    @Test func queryEditingOwnershipIncludesOptionWordNavigation() throws {
+        let event = try makeKeyDownEvent(
+            key: "←",
+            modifiers: [.option],
+            keyCode: 123,
+            windowNumber: 0
+        )
+
+        #expect(
+            GlobalSearchKeyEvent(event).queryOwnsEditingShortcut,
+            "The Search query must own Option-Left word navigation"
+        )
+    }
+
     @Test func markedTextOwnsInputWhileGlobalSearchIsVisible() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)

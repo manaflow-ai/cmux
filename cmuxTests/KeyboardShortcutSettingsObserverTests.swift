@@ -73,4 +73,38 @@ struct KeyboardShortcutSettingsObserverTests {
         #expect(observer.globalSearchShortcut == .unbound)
         #expect(globalSearchLookupCount == initialLookupCount + 2)
     }
+
+    @Test func legacyMediaKeyGlobalSearchBindingFallsBackToDefault() throws {
+        let action = KeyboardShortcutSettings.Action.globalSearch
+        let defaults = UserDefaults.standard
+        let originalValue = defaults.object(forKey: action.defaultsKey)
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-global-search-observer-\(UUID().uuidString).json")
+                .path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            if let originalValue {
+                defaults.set(originalValue, forKey: action.defaultsKey)
+            } else {
+                defaults.removeObject(forKey: action.defaultsKey)
+            }
+        }
+
+        let mediaShortcut = StoredShortcut(
+            key: "media.playPause",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        defaults.set(try JSONEncoder().encode(mediaShortcut), forKey: action.defaultsKey)
+
+        #expect(KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut)
+    }
 }
