@@ -1095,10 +1095,7 @@ enum SystemWideHotkeySettings {
 
     static func shortcut() -> StoredShortcut {
         migrateLegacyShortcutIfNeeded()
-        if let managedShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
-            return managedShortcut
-        }
-        return storedShortcut() ?? defaultShortcut
+        return KeyboardShortcutSettings.shortcut(for: action)
     }
 
     static func setShortcut(_ shortcut: StoredShortcut) {
