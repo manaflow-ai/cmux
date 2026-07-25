@@ -11,10 +11,57 @@ struct MobileNotificationFeedAggregationTests {
         let macA = item(mac: "mac-a", id: "same", createdAt: timestamp)
         let newest = item(mac: "mac-a", id: "newest", createdAt: timestamp.addingTimeInterval(1))
 
-        let result = MobileNotificationFeedAggregation().items(from: [[macB], [macA, newest]])
+        let result = MobileNotificationFeedAggregation().items(from: [[macB], [newest, macA]])
 
         #expect(result.map(\.id) == [newest.id, macA.id, macB.id])
         #expect(Set(result.map(\.id)).count == 3)
+    }
+
+    @Test("Global cap keeps newest rows across many newest-first sources")
+    func globalCapAcrossManySources() {
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let olderSources = (0..<25).map { offset in
+            [
+                item(
+                    mac: "old-\(offset)",
+                    id: "old-\(offset)",
+                    createdAt: Date(timeIntervalSince1970: Double(offset))
+                )
+            ]
+        }
+        let newerItems = (0..<cap).reversed().map { offset in
+            item(
+                mac: "new",
+                id: "new-\(offset)",
+                createdAt: Date(timeIntervalSince1970: 10_000 + Double(offset))
+            )
+        }
+
+        let result = MobileNotificationFeedAggregation().items(from: olderSources + [newerItems])
+
+        #expect(result.count == cap)
+        #expect(result.allSatisfy { $0.macDeviceID == "new" })
+        #expect(result.first?.notificationID == "new-\(cap - 1)")
+        #expect(result.last?.notificationID == "new-0")
+    }
+
+    @Test("Source status is projected only onto retained rows")
+    func sourceStatusProjection() {
+        let retained = item(
+            mac: "mac",
+            id: "retained",
+            createdAt: Date(timeIntervalSince1970: 1),
+            connectionStatus: .connected
+        )
+
+        let result = MobileNotificationFeedAggregation().items(from: [
+            MobileNotificationFeedSourceSnapshot(
+                items: [retained],
+                connectionStatus: .reconnecting
+            )
+        ])
+
+        #expect(result.first?.connectionStatus == .reconnecting)
     }
 
     @Test("Unread filter preserves chronological input order")
@@ -30,7 +77,8 @@ struct MobileNotificationFeedAggregationTests {
         mac: String,
         id: String,
         createdAt: Date,
-        isRead: Bool = false
+        isRead: Bool = false,
+        connectionStatus: MobileMacConnectionStatus = .connected
     ) -> MobileNotificationFeedItem {
         MobileNotificationFeedItem(
             macDeviceID: mac,
@@ -41,7 +89,7 @@ struct MobileNotificationFeedAggregationTests {
             body: "Body",
             createdAt: createdAt,
             isRead: isRead,
-            connectionStatus: .connected
+            connectionStatus: connectionStatus
         )
     }
 }

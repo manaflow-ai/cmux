@@ -23,6 +23,7 @@ actor NotificationFeedHistoryPersistence {
     private let fileManager: FileManager
     private let readRetentionLimit: Int
     private let totalRetentionLimit: Int
+    private let maxSnapshotBytes: UInt64
     private var lastPersistedRevision = 0
     private var loadOutcome: NotificationFeedHistoryLoadOutcome?
     private var allowsWrites = true
@@ -31,12 +32,16 @@ actor NotificationFeedHistoryPersistence {
         fileURL: URL?,
         fileManager: FileManager,
         readRetentionLimit: Int = NotificationFeedHistoryStore.readRetentionLimit,
-        totalRetentionLimit: Int = NotificationFeedHistoryStore.totalRetentionLimit
+        totalRetentionLimit: Int = NotificationFeedHistoryStore.totalRetentionLimit,
+        maxSnapshotBytes: UInt64? = nil
     ) {
         self.fileURL = fileURL
         self.fileManager = fileManager
         self.readRetentionLimit = max(0, readRetentionLimit)
         self.totalRetentionLimit = max(0, totalRetentionLimit)
+        self.maxSnapshotBytes = maxSnapshotBytes ?? Self.defaultMaxSnapshotBytes(
+            totalRetentionLimit: self.totalRetentionLimit
+        )
     }
 
     func load() -> NotificationFeedHistoryLoadOutcome {
@@ -49,6 +54,14 @@ actor NotificationFeedHistoryPersistence {
 
         let outcome: NotificationFeedHistoryLoadOutcome
         do {
+            guard try snapshotFileFitsLoadBudget(fileURL) else {
+                notificationFeedPersistenceLogger.error(
+                    "Notification feed load rejected oversized file=\(fileURL.path, privacy: .private) limit=\(self.maxSnapshotBytes, privacy: .public)"
+                )
+                outcome = .corrupt
+                loadOutcome = outcome
+                return outcome
+            }
             let data = try Data(contentsOf: fileURL)
             let decoded = try JSONDecoder().decode(NotificationFeedHistorySnapshot.self, from: data)
             guard decoded.version == NotificationFeedHistorySnapshot.currentVersion else {
@@ -81,6 +94,20 @@ actor NotificationFeedHistoryPersistence {
         }
         loadOutcome = outcome
         return outcome
+    }
+
+    private static func defaultMaxSnapshotBytes(totalRetentionLimit: Int) -> UInt64 {
+        let minimumBudget = UInt64(1_048_576)
+        let perRecordBudget = UInt64(16_384)
+        let maximumBudget = UInt64(67_108_864)
+        let retainedRecordBudget = UInt64(max(1, totalRetentionLimit)) * perRecordBudget
+        return min(max(minimumBudget, retainedRecordBudget), maximumBudget)
+    }
+
+    private func snapshotFileFitsLoadBudget(_ fileURL: URL) throws -> Bool {
+        let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+        guard let size = attributes[.size] as? NSNumber else { return true }
+        return size.uint64Value <= maxSnapshotBytes
     }
 
     private func compactLoadedSnapshotIfNeeded(

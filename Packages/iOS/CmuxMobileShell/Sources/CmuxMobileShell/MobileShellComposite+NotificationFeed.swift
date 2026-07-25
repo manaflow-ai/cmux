@@ -321,7 +321,10 @@ extension MobileShellComposite {
     func recomputeNotificationFeedItems() {
         let projected = notificationFeedSnapshotsByMac.map { macDeviceID, snapshot in
             let status = notificationFeedConnectionStatus(for: macDeviceID)
-            return snapshot.items.map { $0.updating(connectionStatus: status) }
+            return MobileNotificationFeedSourceSnapshot(
+                items: snapshot.items,
+                connectionStatus: status
+            )
         }
         notificationFeedItems = notificationFeedAggregation.items(from: projected)
     }
@@ -370,6 +373,9 @@ extension MobileShellComposite {
         guard response.revision >= currentRevision else { return false }
 
         let status = notificationFeedConnectionStatus(for: macDeviceID)
+        // The Mac feed contract is newest-first. Cap the wire snapshot before
+        // local projection, then sort only that bounded window so the lazy
+        // cross-Mac merge receives deterministic per-Mac inputs.
         let items = response.notifications
             .prefix(MobileNotificationFeedAggregation.maxItemCount)
             .compactMap { wire -> MobileNotificationFeedItem? in
@@ -392,6 +398,12 @@ extension MobileShellComposite {
                     surfaceTitle: normalizedOptional(wire.surfaceTitle),
                     connectionStatus: status
                 )
+            }
+            .sorted { lhs, rhs in
+                if lhs.createdAt != rhs.createdAt {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhs.id < rhs.id
             }
         notificationFeedSnapshotsByMac[macDeviceID] = NotificationFeedMacSnapshot(
             revision: response.revision,

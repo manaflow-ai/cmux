@@ -184,6 +184,43 @@ struct NotificationFeedHistoryTests {
         #expect(persisted.notifications.map(\.title) == loadedTitles)
     }
 
+    @Test func oversizedHistoryFileIsRejectedBeforeFullDecode() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-size-limit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("history.json")
+        let workspaceID = UUID()
+        let largeRecord = NotificationFeedHistoryRecord(notification: notification(
+            workspaceID: workspaceID,
+            title: "Large",
+            body: String(repeating: "x", count: 1_024),
+            date: Date(timeIntervalSince1970: 1_600),
+            isRead: false
+        ))
+        let data = try write(
+            NotificationFeedHistorySnapshot(
+                revision: 6,
+                notifications: [largeRecord]
+            ),
+            to: fileURL
+        )
+
+        let persistence = NotificationFeedHistoryPersistence(
+            fileURL: fileURL,
+            fileManager: .default,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 3,
+            maxSnapshotBytes: UInt64(data.count - 1)
+        )
+
+        #expect(await persistence.load() == .corrupt)
+        let decodable = try JSONDecoder().decode(
+            NotificationFeedHistorySnapshot.self,
+            from: Data(contentsOf: fileURL)
+        )
+        #expect(decodable.revision == 6)
+    }
+
     @Test func persistenceReloadsAndRejectsAnOlderRevisionWrite() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-history-tests-\(UUID().uuidString)", isDirectory: true)
@@ -504,6 +541,7 @@ struct NotificationFeedHistoryTests {
         workspaceID: UUID,
         surfaceID: UUID? = nil,
         title: String,
+        body: String = "Body",
         date: Date,
         isRead: Bool
     ) -> TerminalNotification {
@@ -513,7 +551,7 @@ struct NotificationFeedHistoryTests {
             surfaceId: surfaceID,
             title: title,
             subtitle: "Agent",
-            body: "Body",
+            body: body,
             createdAt: date,
             isRead: isRead
         )
