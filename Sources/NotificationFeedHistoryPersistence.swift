@@ -451,7 +451,7 @@ actor NotificationFeedHistoryPersistence {
         fileURL
             .deletingLastPathComponent()
             .appendingPathComponent(
-                "\(fileURL.lastPathComponent).oversized.quarantine",
+                "\(fileURL.lastPathComponent).oversized-latest.quarantine",
                 isDirectory: false
             )
     }
@@ -468,7 +468,8 @@ actor NotificationFeedHistoryPersistence {
 
     private func pruneQuarantineBackups(for fileURL: URL, keeping keptURL: URL?) {
         guard let backups = try? quarantineBackupURLs(for: fileURL) else { return }
-        for backup in backups where backup != keptURL {
+        let keptName = keptURL?.lastPathComponent
+        for backup in backups where backup.lastPathComponent != keptName {
             try? fileManager.removeItem(at: backup)
         }
     }

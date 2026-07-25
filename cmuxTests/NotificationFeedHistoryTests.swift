@@ -358,7 +358,7 @@ struct NotificationFeedHistoryTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let fileURL = directory.appendingPathComponent("history.json")
         let backupURL = directory.appendingPathComponent(
-            "history.json.oversized-orphaned.quarantine",
+            "history.json.oversized-latest.quarantine",
             isDirectory: false
         )
         let workspaceID = UUID()
