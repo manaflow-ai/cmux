@@ -3547,6 +3547,8 @@ pub struct App {
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
+    pending_graphics_snapshot: Option<Vec<GraphicIdentity>>,
+    /// Graphics placements confirmed written to the outer terminal.
     last_graphics_snapshot: Vec<GraphicIdentity>,
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
@@ -4587,6 +4589,7 @@ pub fn run_with_machine_updates(
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
+        pending_graphics_snapshot: None,
         last_graphics_snapshot: Vec::new(),
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
@@ -5424,7 +5427,8 @@ impl App {
         self.deferred_input_sequence = 0;
         self.rendered_pointer_frame = RenderedPointerFrame::default();
         self.pending_graphics_submission = None;
-        // Retain the submitted graphics identity until the replacement
+        self.pending_graphics_snapshot = None;
+        // Retain the presented graphics identity until the replacement
         // session presents its first snapshot. An empty replacement must
         // differ here so the writer emits delete commands for old images.
         self.pointer_route_phase = PointerRoutePhase::DrawPending;
@@ -5949,6 +5953,9 @@ impl App {
         if self.pointer_route_is_globally_stale() {
             return true;
         }
+        if self.pending_graphics_changes_cell(mouse.column, mouse.row) {
+            return true;
+        }
         if !matches!(
             self.pointer_route_phase,
             PointerRoutePhase::GraphicsRenderPending
@@ -5963,6 +5970,19 @@ impl App {
         let live_generation =
             self.session.surface(surface).and_then(|surface| surface.browser_frame_seq());
         rendered_generation.is_none() || rendered_generation != live_generation
+    }
+
+    fn pending_graphics_changes_cell(&self, x: u16, y: u16) -> bool {
+        if self.pointer_route_phase != PointerRoutePhase::GraphicsPresentationPending
+            || self.pending_graphics_submission.is_none()
+        {
+            return false;
+        }
+        let pending = self.pending_graphics_snapshot.as_deref().unwrap_or(&[]);
+        let graphic_at = |snapshot: &[GraphicIdentity]| {
+            snapshot.iter().copied().find(|graphic| graphic.rect.contains(x, y))
+        };
+        graphic_at(&self.last_graphics_snapshot) != graphic_at(pending)
     }
 
     fn next_replay_pointer_route_is_stale(&self) -> bool {
@@ -6381,7 +6401,9 @@ impl App {
         let placements = self.graphic_placements();
         let snapshot =
             placements.iter().map(|placement| self.graphic_identity(placement)).collect::<Vec<_>>();
-        if snapshot == self.last_graphics_snapshot {
+        let submitted_snapshot =
+            self.pending_graphics_snapshot.as_ref().unwrap_or(&self.last_graphics_snapshot);
+        if &snapshot == submitted_snapshot {
             if self.pointer_route_phase == PointerRoutePhase::GraphicsRenderPending {
                 self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
                     PointerRoutePhase::GraphicsPresentationPending
@@ -6397,8 +6419,8 @@ impl App {
         self.next_graphics_submission = self.next_graphics_submission.wrapping_add(1).max(1);
         let submission = self.next_graphics_submission;
         if writer.submit(submission, self.session_generation, placements) {
-            self.last_graphics_snapshot = snapshot;
             self.pending_graphics_submission = Some(submission);
+            self.pending_graphics_snapshot = Some(snapshot);
             self.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
         }
         Ok(())
@@ -6458,6 +6480,7 @@ impl App {
 
     fn disable_graphics_after_failure(&mut self) -> RenderAction {
         self.pending_graphics_submission = None;
+        self.pending_graphics_snapshot = None;
         self.graphics_supported = false;
         self.last_graphics_snapshot.clear();
         self.rendered_pane_content_generations
@@ -6475,6 +6498,9 @@ impl App {
             return;
         }
         self.pending_graphics_submission = None;
+        if let Some(snapshot) = self.pending_graphics_snapshot.take() {
+            self.last_graphics_snapshot = snapshot;
+        }
         self.rendered_pane_content_generations
             .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
         for (surface, generation) in presentation.frames {
@@ -14854,6 +14880,18 @@ mod tests {
             app.pointer_route_is_stale_for_mouse(&covered),
             "the old browser image still owns this cell until deletion is presented"
         );
+
+        app.pending_graphics_snapshot = Some(vec![GraphicIdentity {
+            session_generation: app.session_generation,
+            surface: 11,
+            rect: Rect { x: 12, y: 2, width: 8, height: 4 },
+            seq: 13,
+        }]);
+        let newly_covered = MouseEvent { column: 13, ..covered };
+        let unchanged = MouseEvent { column: 25, ..covered };
+        assert!(app.pointer_route_is_stale_for_mouse(&covered));
+        assert!(app.pointer_route_is_stale_for_mouse(&newly_covered));
+        assert!(!app.pointer_route_is_stale_for_mouse(&unchanged));
     }
 
     #[test]
@@ -22423,6 +22461,7 @@ mod tests {
             graphics_writer: None,
             next_graphics_submission: 0,
             pending_graphics_submission: None,
+            pending_graphics_snapshot: None,
             last_graphics_snapshot: Vec::new(),
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
