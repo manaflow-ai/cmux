@@ -153,6 +153,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     var lastAppliedFontSizeChangeToken: UUID?
     var transferReconciledFontSizeChangeTokens: Set<UUID> = []
+    var lastPrunedFontSizeTransferRetirementGeneration: UInt64 = 0
     /// Whether runtime creation should ignore inherited lineage and follow current config.
     var followsConfiguredFontSize: Bool
     let workingDirectory: String?

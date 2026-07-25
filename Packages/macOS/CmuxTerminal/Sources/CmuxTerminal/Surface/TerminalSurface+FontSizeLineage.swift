@@ -7,6 +7,11 @@ extension TerminalSurface {
     private static var activeTransferReconciliationTokens: Set<UUID> = []
 
     @MainActor
+    private static var transferReconciliationRetirementGeneration: UInt64 = 0
+
+    private static let transferReconciliationPruneInterval: UInt64 = 32
+
+    @MainActor
     static var debugLastTransferTokenRetirementSurfaceVisitCount = 0
 
     @MainActor
@@ -27,6 +32,7 @@ extension TerminalSurface {
     /// coalesced event batch finishes, so this set is bounded by in-flight work.
     @MainActor
     public func markFontSizeChangeReconciledForTransfer(token: UUID) {
+        pruneRetiredFontSizeTransferTokens(force: false)
         Self.activeTransferReconciliationTokens.insert(token)
         transferReconciledFontSizeChangeTokens.insert(token)
     }
@@ -43,27 +49,49 @@ extension TerminalSurface {
         token: UUID
     ) {
         debugLastTransferTokenRetirementSurfaceVisitCount = 0
-        activeTransferReconciliationTokens.remove(token)
+        if activeTransferReconciliationTokens.remove(token) != nil {
+            transferReconciliationRetirementGeneration &+= 1
+        }
     }
 
     /// Tokens whose changes are already represented by this surface's lineage
     /// and must be copied when it seeds a descendant.
     @MainActor
     public func fontSizeChangeTokensForInheritance() -> Set<UUID> {
-        transferReconciledFontSizeChangeTokens.intersection(
-            Self.activeTransferReconciliationTokens
-        )
+        pruneRetiredFontSizeTransferTokens(force: true)
+        return transferReconciledFontSizeChangeTokens
     }
 
     /// Returns whether this surface's lineage already includes `token`.
     @MainActor
     public func hasAppliedFontSizeChange(token: UUID) -> Bool {
-        lastAppliedFontSizeChangeToken == token
-            || (
-                Self.activeTransferReconciliationTokens.contains(token)
-                    && transferReconciledFontSizeChangeTokens
-                        .contains(token)
-            )
+        if lastAppliedFontSizeChangeToken == token {
+            return true
+        }
+        guard Self.activeTransferReconciliationTokens.contains(token) else {
+            transferReconciledFontSizeChangeTokens.remove(token)
+            return false
+        }
+        return transferReconciledFontSizeChangeTokens.contains(token)
+    }
+
+    @MainActor
+    private func pruneRetiredFontSizeTransferTokens(force: Bool) {
+        let retirementGeneration =
+            Self.transferReconciliationRetirementGeneration
+        let retirementCount =
+            retirementGeneration
+            &- lastPrunedFontSizeTransferRetirementGeneration
+        guard force
+                || retirementCount
+                    >= Self.transferReconciliationPruneInterval else {
+            return
+        }
+        transferReconciledFontSizeChangeTokens.formIntersection(
+            Self.activeTransferReconciliationTokens
+        )
+        lastPrunedFontSizeTransferRetirementGeneration =
+            retirementGeneration
     }
 
     /// Adjusts this terminal's runtime font size and records an explicit override.
