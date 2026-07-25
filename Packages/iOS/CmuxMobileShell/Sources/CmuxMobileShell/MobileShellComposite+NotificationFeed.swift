@@ -185,7 +185,13 @@ extension MobileShellComposite {
         operationToken: UUID?
     ) async {
         defer { finishNotificationFeedOpenOperation(operationToken) }
-        if item.macDeviceID != normalizedForegroundNotificationFeedMacID() {
+        // Compare the exact pairing: a sibling build's notification on the
+        // foreground DEVICE still needs a switch to that build.
+        let isForegroundPairing = item.macDeviceID == normalizedForegroundNotificationFeedMacID()
+            && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                item.macInstanceTag, activeMacInstanceTag
+            )
+        if !isForegroundPairing {
             guard await switchToMac(
                 macDeviceID: item.macDeviceID,
                 instanceTag: item.macInstanceTag
@@ -385,10 +391,12 @@ extension MobileShellComposite {
         guard response.revision >= currentRevision else { return false }
 
         let status = notificationFeedConnectionStatus(forOwnerKey: ownerKey)
-        // The connection this snapshot arrived on identifies the exact pairing;
-        // the wire items carry no Mac identity of their own.
-        let macDeviceID = MobilePairedMac.pairingIdentity(from: ownerKey).macDeviceID
-        let instanceTag = notificationFeedInstanceTag(forOwnerKey: ownerKey)
+        // The owner key identifies the exact pairing this snapshot belongs to;
+        // the wire items carry no Mac identity of their own. Bare device keys
+        // (the foreground) resolve their tag from the live connection.
+        let identity = MobilePairedMac.pairingIdentity(from: ownerKey)
+        let macDeviceID = identity.macDeviceID
+        let instanceTag = identity.instanceTag ?? notificationFeedInstanceTag(forOwnerKey: ownerKey)
         let items = response.notifications.compactMap { wire -> MobileNotificationFeedItem? in
             let id = wire.id.trimmingCharacters(in: .whitespacesAndNewlines)
             let workspaceID = wire.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -655,9 +663,9 @@ extension MobileShellComposite {
         guard connectedClientCount > 0 else { return .unavailable }
         let targets = notificationFeedTargets()
         guard !targets.isEmpty else { return .requiresMacUpdate }
-        let targetIDs = Set(targets.map(\.macDeviceID))
+        let targetOwnerKeys = Set(targets.map(\.ownerKey))
         if notificationFeedItems.isEmpty,
-           notificationFeedSuccessfulMacIDs.isDisjoint(with: targetIDs) {
+           notificationFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
             return .unavailable
         }
         return targets.count < connectedClientCount ? .requiresMacUpdate : .ready

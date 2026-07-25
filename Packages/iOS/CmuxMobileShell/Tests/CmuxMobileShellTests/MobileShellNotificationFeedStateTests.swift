@@ -8,6 +8,31 @@ import Testing
 @MainActor
 @Suite("Mobile shell notification feed state")
 struct MobileShellNotificationFeedStateTests {
+    @Test("Sibling pairings keep separate snapshots under tagged owner keys")
+    func taggedOwnerKeysStaySeparate() throws {
+        let store = MobileShellComposite()
+        let nightlyKey = "mac-a\u{1F}nightly"
+        let stableKey = "mac-a\u{1F}default"
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 3, id: "shared-id", createdAt: 100),
+            ownerKey: nightlyKey,
+            displayName: "Desk Mac"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 5, id: "shared-id", createdAt: 200),
+            ownerKey: stableKey,
+            displayName: "Desk Mac"
+        ))
+
+        // Equal Mac-local ids from sibling builds must not dedupe, and each
+        // owner key tracks its own revision.
+        #expect(store.notificationFeedItems.count == 2)
+        #expect(store.notificationFeedSnapshotsByMac[nightlyKey]?.revision == 3)
+        #expect(store.notificationFeedSnapshotsByMac[stableKey]?.revision == 5)
+        #expect(Set(store.notificationFeedItems.map(\.macDeviceID)) == ["mac-a"])
+    }
+
     @Test("Newer per-Mac revisions win and all Macs aggregate chronologically")
     func revisionAndAggregation() throws {
         let store = MobileShellComposite()

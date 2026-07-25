@@ -78,7 +78,6 @@ extension MobileShellComposite {
         )
     }
 
-    /// Workspace count across every stored id represented by a visible paired-Mac row.
     /// Workspace count for one pairing row. Tagged rows count only toward
     /// their own build; rows with no tag (legacy hosts) count toward every
     /// sibling because their build is unknowable.
