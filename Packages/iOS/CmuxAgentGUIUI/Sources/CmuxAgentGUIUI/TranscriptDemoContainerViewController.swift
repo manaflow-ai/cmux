@@ -56,6 +56,7 @@ final class TranscriptDemoContainerViewController: UIViewController {
             }
         ))
         host.sizingOptions = .intrinsicContentSize
+        host.safeAreaRegions = .container
         host.view.translatesAutoresizingMaskIntoConstraints = false
         host.view.backgroundColor = .clear
         host.view.accessibilityIdentifier = "transcript.demo.composer-host"

@@ -88,6 +88,9 @@ extension GhosttySurfaceRepresentable.Coordinator {
         // height flows separately through `sizeThatFits`. Clear background so the
         // terminal/glass shows through.
         controller.view.backgroundColor = .clear
+        // The surface owns keyboard geometry. Keep the hosted SwiftUI field from
+        // applying a second keyboard-safe-area animation inside that moving band.
+        controller.safeAreaRegions = .container
         return controller
     }
 
