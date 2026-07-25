@@ -10,9 +10,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
-@Suite(.serialized)
-final class GlobalSearchShortcutSettingsTests {
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite final class GlobalSearchShortcutSettingsTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
     init() {
@@ -495,5 +494,6 @@ final class GlobalSearchShortcutSettingsTests {
                     chordControl: false
                 )
         )
+    }
     }
 }

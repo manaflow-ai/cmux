@@ -1,0 +1,205 @@
+import AppKit
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite(.serialized)
+final class GlobalSearchShortcutBehaviorTests {
+    private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
+
+    init() {
+        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-global-search-monitor-chain-\(UUID().uuidString).json")
+                .path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+    }
+
+    deinit {
+        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        KeyboardShortcutSettings.resetAll()
+    }
+
+    @Test func visibleSearchClosesForRemappedCommandShortcutThroughLocalMonitorChain() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        defer { closeWindow(window, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "g",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        let popoverWindow = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The real Search popover and its local key monitor must be active"
+        )
+
+        NSApp.sendEvent(
+            try makeKeyDownEvent(
+                key: "g",
+                modifiers: [.command],
+                keyCode: 5,
+                windowNumber: popoverWindow.windowNumber
+            )
+        )
+
+        #expect(
+            waitUntilGlobalSearchCloses(),
+            "The popover monitor must route the configured toggle before consuming generic Command keys"
+        )
+#else
+        Issue.record("Global Search local-monitor routing requires a DEBUG app-host build")
+#endif
+    }
+
+    @Test func visibleSearchClosesForRemappedChordThroughLocalMonitorChain() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        defer { closeWindow(window, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                chordKey: "g"
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        let popoverWindow = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The real Search popover and its local key monitor must be active"
+        )
+
+        NSApp.sendEvent(
+            try makeKeyDownEvent(
+                key: "k",
+                modifiers: [.command],
+                keyCode: 40,
+                windowNumber: popoverWindow.windowNumber
+            )
+        )
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        NSApp.sendEvent(
+            try makeKeyDownEvent(
+                key: "g",
+                modifiers: [],
+                keyCode: 5,
+                windowNumber: popoverWindow.windowNumber
+            )
+        )
+
+        #expect(
+            waitUntilGlobalSearchCloses(),
+            "The popover monitor must let the shared router arm and complete Global Search chords"
+        )
+#else
+        Issue.record("Global Search local-monitor routing requires a DEBUG app-host build")
+#endif
+    }
+
+    private func makeMainWindow(appDelegate: AppDelegate) throws -> NSWindow {
+        let windowId = appDelegate.createMainWindow()
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        let window = try #require(
+            NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+        )
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        return window
+    }
+
+    private func waitForSearchPopoverWindow(
+        excluding mainWindow: NSWindow,
+        timeout: TimeInterval = 2
+    ) -> NSWindow? {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if let window = NSApp.windows.first(where: {
+                $0 !== mainWindow
+                    && $0.isVisible
+                    && $0.firstResponder is NSTextView
+            }) {
+                return window
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return nil
+    }
+
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16,
+        windowNumber: Int
+    ) throws -> NSEvent {
+        try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: key,
+                charactersIgnoringModifiers: key,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        )
+    }
+
+    private func waitUntilGlobalSearchCloses(timeout: TimeInterval = 2) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if !GlobalSearchCoordinator.shared.isPaletteVisible() {
+                return true
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return !GlobalSearchCoordinator.shared.isPaletteVisible()
+    }
+
+    private func closeWindow(_ window: NSWindow, appDelegate: AppDelegate) {
+        GlobalSearchCoordinator.shared.dismissPalette()
+#if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
+#endif
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
+    }
+}

@@ -8,9 +8,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
-@Suite(.serialized)
-final class SystemWideHotkeyShortcutPolicyTests {
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite final class SystemWideHotkeyShortcutPolicyTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
     private let savedDefaults: [String: Any]
 
@@ -191,5 +190,6 @@ final class SystemWideHotkeyShortcutPolicyTests {
         for (key, value) in snapshot {
             defaults.set(value, forKey: key)
         }
+    }
     }
 }

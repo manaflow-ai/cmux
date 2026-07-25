@@ -8,9 +8,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
-@Suite(.serialized)
-final class GlobalSearchVisiblePopoverShortcutTests {
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite final class GlobalSearchVisiblePopoverShortcutTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
     init() {
@@ -479,5 +478,6 @@ final class GlobalSearchVisiblePopoverShortcutTests {
 
     private enum TestHarnessError: Error {
         case eventUnavailable
+    }
     }
 }

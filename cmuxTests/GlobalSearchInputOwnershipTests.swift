@@ -8,9 +8,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
-@Suite(.serialized)
-final class GlobalSearchInputOwnershipTests {
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite final class GlobalSearchInputOwnershipTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
     init() {
@@ -464,5 +463,6 @@ final class GlobalSearchInputOwnershipTests {
         case browserHarnessUnavailable
         case browserFocusUnavailable
         case eventUnavailable
+    }
     }
 }

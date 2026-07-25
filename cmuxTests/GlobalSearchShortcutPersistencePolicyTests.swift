@@ -7,9 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
-@Suite(.serialized)
-final class GlobalSearchShortcutPersistencePolicyTests {
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite final class GlobalSearchShortcutPersistencePolicyTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
     private let savedGlobalSearchDefault: Any?
     private let savedShowHideDefault: Any?
@@ -245,5 +244,6 @@ final class GlobalSearchShortcutPersistencePolicyTests {
         } else {
             UserDefaults.standard.removeObject(forKey: key)
         }
+    }
     }
 }

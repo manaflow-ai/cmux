@@ -8,9 +8,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
-@Suite(.serialized)
-final class GlobalSearchShortcutPriorityTests {
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite final class GlobalSearchShortcutPriorityTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
     init() {
@@ -475,5 +474,6 @@ final class GlobalSearchShortcutPriorityTests {
         case browserHarnessUnavailable
         case omnibarFocusUnavailable
         case eventUnavailable
+    }
     }
 }

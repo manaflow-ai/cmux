@@ -7,9 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
-@Suite("Keyboard shortcut settings observer", .serialized)
-struct KeyboardShortcutSettingsObserverTests {
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor @Suite("Keyboard shortcut settings observer") struct KeyboardShortcutSettingsObserverTests {
     @Test func mainThreadSettingsChangeIsAuthoritativeBeforePostReturns() {
         let observer = KeyboardShortcutSettingsObserver.shared
         let expectedRevision = observer.revision &+ 1
@@ -106,5 +105,6 @@ struct KeyboardShortcutSettingsObserverTests {
         defaults.set(try JSONEncoder().encode(mediaShortcut), forKey: action.defaultsKey)
 
         #expect(KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut)
+    }
     }
 }
