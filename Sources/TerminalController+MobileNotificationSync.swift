@@ -75,13 +75,18 @@ extension TerminalController {
         revision: Int,
         items: [MobileNotificationFeedWireItem]
     ) async -> [MobileNotificationFeedWireItem] {
-        await Task.detached(priority: .utility) {
+        let worker = Task.detached(priority: .utility) {
             mobileNotificationFeedItemsFittingFrameOnWorker(
                 responseID: responseID,
                 revision: revision,
                 items: items
             )
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     private nonisolated static func mobileNotificationFeedItemsFittingFrameOnWorker(
@@ -89,6 +94,7 @@ extension TerminalController {
         revision: Int,
         items: [MobileNotificationFeedWireItem]
     ) -> [MobileNotificationFeedWireItem] {
+        guard !Task.isCancelled else { return [] }
         guard !items.isEmpty,
               !mobileNotificationFeedResponseFits(
                   responseID: responseID,
@@ -102,6 +108,7 @@ extension TerminalController {
         var upperBound = items.count
         var best: [MobileNotificationFeedWireItem] = []
         while lowerBound <= upperBound {
+            guard !Task.isCancelled else { return best }
             let candidateCount = (lowerBound + upperBound) / 2
             let candidate = Array(items.prefix(candidateCount))
             if mobileNotificationFeedResponseFits(

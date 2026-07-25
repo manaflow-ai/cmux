@@ -202,7 +202,8 @@ struct NotificationFeedHistoryTests {
                 revision: 6,
                 notifications: [largeRecord]
             ),
-            to: fileURL
+            to: fileURL,
+            sortedKeys: true
         )
 
         let persistence = NotificationFeedHistoryPersistence(
@@ -266,7 +267,7 @@ struct NotificationFeedHistoryTests {
             ],
             version: NotificationFeedHistorySnapshot.currentVersion + 1
         )
-        let originalData = try write(futureSnapshot, to: fileURL)
+        let originalData = try write(futureSnapshot, to: fileURL, sortedKeys: true)
         let persistence = NotificationFeedHistoryPersistence(
             fileURL: fileURL,
             fileManager: .default,
@@ -756,13 +757,18 @@ struct NotificationFeedHistoryTests {
     @discardableResult
     private func write(
         _ snapshot: NotificationFeedHistorySnapshot,
-        to fileURL: URL
+        to fileURL: URL,
+        sortedKeys: Bool = false
     ) throws -> Data {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let data = try JSONEncoder().encode(snapshot)
+        let encoder = JSONEncoder()
+        if sortedKeys {
+            encoder.outputFormatting = [.sortedKeys]
+        }
+        let data = try encoder.encode(snapshot)
         try data.write(to: fileURL, options: .atomic)
         return data
     }

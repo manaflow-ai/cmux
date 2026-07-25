@@ -22,11 +22,191 @@ actor NotificationFeedHistoryPersistence {
     private static let titleByteLimit = 512
     private static let subtitleByteLimit = 512
     private static let bodyByteLimit = 2_048
-    private static let oversizedSnapshotHeaderProbeByteCount = 64 * 1024
+    private static let oversizedSnapshotHeaderChunkByteCount = 64 * 1024
 
     private struct SnapshotHeader {
         var version: Int?
         var revision: Int?
+
+        var isComplete: Bool {
+            version != nil && revision != nil
+        }
+    }
+
+    private struct SnapshotHeaderScanner {
+        var header = SnapshotHeader()
+        private var depth = 0
+        private var isInString = false
+        private var isEscapingString = false
+        private var isCapturingKey = false
+        private var keyBytes: [UInt8] = []
+        private var isExpectingKey = false
+        private var isExpectingValue = false
+        private var currentKey: String?
+        private var numberKey: String?
+        private var numberSign = 1
+        private var numberValue = 0
+        private var numberHasDigits = false
+
+        mutating func consume(_ data: Data) {
+            for byte in data {
+                consume(byte)
+                if header.isComplete { return }
+            }
+        }
+
+        private mutating func consume(_ byte: UInt8) {
+            if numberKey != nil {
+                if consumeNumberByte(byte) {
+                    return
+                }
+                finishNumber()
+                consume(byte)
+                return
+            }
+
+            if isInString {
+                if isEscapingString {
+                    isEscapingString = false
+                    if isCapturingKey {
+                        keyBytes.append(byte)
+                    }
+                    return
+                }
+                if byte == Self.backslash {
+                    isEscapingString = true
+                    if isCapturingKey {
+                        keyBytes.append(byte)
+                    }
+                    return
+                }
+                if byte == Self.quote {
+                    isInString = false
+                    if isCapturingKey {
+                        currentKey = String(bytes: keyBytes, encoding: .utf8)
+                        keyBytes.removeAll(keepingCapacity: true)
+                        isCapturingKey = false
+                    }
+                    return
+                }
+                if isCapturingKey {
+                    keyBytes.append(byte)
+                }
+                return
+            }
+
+            guard !Self.isWhitespace(byte) else { return }
+
+            switch byte {
+            case Self.leftBrace, Self.leftBracket:
+                if depth == 0, byte == Self.leftBrace {
+                    isExpectingKey = true
+                }
+                depth += 1
+                isExpectingValue = false
+            case Self.rightBrace, Self.rightBracket:
+                if depth > 0 {
+                    depth -= 1
+                }
+                if depth == 1 {
+                    currentKey = nil
+                    isExpectingValue = false
+                }
+            case Self.comma:
+                if depth == 1 {
+                    currentKey = nil
+                    isExpectingKey = true
+                    isExpectingValue = false
+                }
+            case Self.colon:
+                if depth == 1, currentKey != nil {
+                    isExpectingKey = false
+                    isExpectingValue = true
+                }
+            case Self.quote:
+                isInString = true
+                if depth == 1, isExpectingKey {
+                    isCapturingKey = true
+                    keyBytes.removeAll(keepingCapacity: true)
+                    isExpectingKey = false
+                } else {
+                    isCapturingKey = false
+                    isExpectingValue = false
+                }
+            default:
+                guard depth == 1,
+                      isExpectingValue,
+                      let currentKey,
+                      currentKey == "revision" || currentKey == "version",
+                      (Self.isDigit(byte) || byte == Self.minus) else {
+                    if depth == 1, isExpectingValue {
+                        isExpectingValue = false
+                    }
+                    return
+                }
+                startNumber(key: currentKey)
+                _ = consumeNumberByte(byte)
+            }
+        }
+
+        private mutating func startNumber(key: String) {
+            numberKey = key
+            numberSign = 1
+            numberValue = 0
+            numberHasDigits = false
+            isExpectingValue = false
+        }
+
+        private mutating func consumeNumberByte(_ byte: UInt8) -> Bool {
+            if byte == Self.minus, !numberHasDigits, numberValue == 0 {
+                numberSign = -1
+                return true
+            }
+            guard Self.isDigit(byte) else { return false }
+            numberHasDigits = true
+            numberValue = numberValue * 10 + Int(byte - Self.zero)
+            return true
+        }
+
+        private mutating func finishNumber() {
+            guard let numberKey else { return }
+            defer {
+                self.numberKey = nil
+                numberSign = 1
+                numberValue = 0
+                numberHasDigits = false
+                currentKey = nil
+            }
+            guard numberHasDigits else { return }
+            let value = numberValue * numberSign
+            if numberKey == "revision" {
+                header.revision = value
+            } else if numberKey == "version" {
+                header.version = value
+            }
+        }
+
+        private static let backslash = UInt8(ascii: "\\")
+        private static let colon = UInt8(ascii: ":")
+        private static let comma = UInt8(ascii: ",")
+        private static let leftBrace = UInt8(ascii: "{")
+        private static let leftBracket = UInt8(ascii: "[")
+        private static let minus = UInt8(ascii: "-")
+        private static let quote = UInt8(ascii: "\"")
+        private static let rightBrace = UInt8(ascii: "}")
+        private static let rightBracket = UInt8(ascii: "]")
+        private static let zero = UInt8(ascii: "0")
+
+        private static func isDigit(_ byte: UInt8) -> Bool {
+            byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9")
+        }
+
+        private static func isWhitespace(_ byte: UInt8) -> Bool {
+            byte == UInt8(ascii: " ")
+                || byte == UInt8(ascii: "\n")
+                || byte == UInt8(ascii: "\r")
+                || byte == UInt8(ascii: "\t")
+        }
     }
 
     private let fileURL: URL?
@@ -75,15 +255,22 @@ actor NotificationFeedHistoryPersistence {
                     outcome = .unsupportedVersion(version)
                 } else if header.version == NotificationFeedHistorySnapshot.currentVersion,
                           let revision = header.revision {
-                    if quarantineOversizedSnapshotFile(fileURL) {
+                    do {
+                        let quarantineURL = try quarantineOversizedSnapshotFile(fileURL)
                         let snapshot = NotificationFeedHistorySnapshot(
                             revision: max(0, revision),
                             notifications: []
                         )
-                        writeQuarantineReplacementSnapshot(snapshot, fileURL: fileURL)
-                        lastPersistedRevision = snapshot.revision
-                        outcome = .loaded(snapshot)
-                    } else {
+                        do {
+                            try writeQuarantineReplacementSnapshot(snapshot, fileURL: fileURL)
+                            lastPersistedRevision = snapshot.revision
+                            outcome = .loaded(snapshot)
+                        } catch {
+                            restoreQuarantinedSnapshot(quarantineURL, to: fileURL)
+                            allowsWrites = false
+                            outcome = .corrupt
+                        }
+                    } catch {
                         allowsWrites = false
                         outcome = .corrupt
                     }
@@ -153,51 +340,22 @@ actor NotificationFeedHistoryPersistence {
         defer {
             try? handle.close()
         }
-        guard let data = try handle.read(
-            upToCount: Self.oversizedSnapshotHeaderProbeByteCount
-        ) else {
-            return SnapshotHeader()
+        var scanner = SnapshotHeaderScanner()
+        while true {
+            guard let data = try handle.read(
+                upToCount: Self.oversizedSnapshotHeaderChunkByteCount
+            ), !data.isEmpty else {
+                break
+            }
+            scanner.consume(data)
+            if scanner.header.isComplete {
+                break
+            }
         }
-        guard let text = String(data: data, encoding: .utf8) else {
-            return SnapshotHeader()
-        }
-        let metadataText: Substring
-        if let notificationsKeyRange = text.range(of: "\"notifications\"") {
-            metadataText = text[..<notificationsKeyRange.lowerBound]
-        } else {
-            metadataText = text[...]
-        }
-        return SnapshotHeader(
-            version: Self.jsonIntegerValue(named: "version", in: metadataText),
-            revision: Self.jsonIntegerValue(named: "revision", in: metadataText)
-        )
+        return scanner.header
     }
 
-    private static func jsonIntegerValue(named key: String, in text: Substring) -> Int? {
-        guard let keyRange = text.range(of: "\"\(key)\"") else { return nil }
-        var index = keyRange.upperBound
-        while index < text.endIndex, text[index].isWhitespace {
-            index = text.index(after: index)
-        }
-        guard index < text.endIndex, text[index] == ":" else { return nil }
-        index = text.index(after: index)
-        while index < text.endIndex, text[index].isWhitespace {
-            index = text.index(after: index)
-        }
-        var sign = ""
-        if index < text.endIndex, text[index] == "-" {
-            sign = "-"
-            index = text.index(after: index)
-        }
-        let digitStart = index
-        while index < text.endIndex, text[index].isNumber {
-            index = text.index(after: index)
-        }
-        guard digitStart < index else { return nil }
-        return Int(sign + text[digitStart..<index])
-    }
-
-    private func quarantineOversizedSnapshotFile(_ fileURL: URL) -> Bool {
+    private func quarantineOversizedSnapshotFile(_ fileURL: URL) throws -> URL {
         let quarantineURL = fileURL
             .deletingLastPathComponent()
             .appendingPathComponent(
@@ -209,19 +367,19 @@ actor NotificationFeedHistoryPersistence {
             notificationFeedPersistenceLogger.notice(
                 "Notification feed oversized file quarantined source=\(fileURL.path, privacy: .private) destination=\(quarantineURL.path, privacy: .private)"
             )
-            return true
+            return quarantineURL
         } catch {
             notificationFeedPersistenceLogger.error(
                 "Notification feed oversized file quarantine failed file=\(fileURL.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
             )
-            return false
+            throw error
         }
     }
 
     private func writeQuarantineReplacementSnapshot(
         _ snapshot: NotificationFeedHistorySnapshot,
         fileURL: URL
-    ) {
+    ) throws {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
@@ -230,6 +388,20 @@ actor NotificationFeedHistoryPersistence {
         } catch {
             notificationFeedPersistenceLogger.error(
                 "Notification feed quarantine replacement write failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+            )
+            throw error
+        }
+    }
+
+    private func restoreQuarantinedSnapshot(_ quarantineURL: URL, to fileURL: URL) {
+        do {
+            try fileManager.moveItem(at: quarantineURL, to: fileURL)
+            notificationFeedPersistenceLogger.notice(
+                "Notification feed quarantine restored after replacement failure source=\(quarantineURL.path, privacy: .private) destination=\(fileURL.path, privacy: .private)"
+            )
+        } catch {
+            notificationFeedPersistenceLogger.error(
+                "Notification feed quarantine restore failed source=\(quarantineURL.path, privacy: .private) destination=\(fileURL.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
             )
         }
     }
