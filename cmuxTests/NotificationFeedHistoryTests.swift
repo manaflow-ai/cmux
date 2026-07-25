@@ -638,7 +638,7 @@ struct NotificationFeedHistoryTests {
     }
 
     @Test func oversizedCurrentSnapshotScannerCapsEscapedTopLevelKeyBytes() throws {
-        var scanner = NotificationFeedHistoryPersistence.OversizedCurrentSnapshotRecordScanner(
+        var scanner = NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner(
             maxRecordBytes: 1_024
         )
         let keepScanning: (Data) throws -> Bool = { _ in true }

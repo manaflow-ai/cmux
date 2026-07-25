@@ -73,8 +73,8 @@ import Testing
         )
 
         let displayedQuery = coordinator.activeNativeSearchText()
-        #expect(displayedQuery.unicodeScalars.count <= MobileSearchQueryBounds.maxUnicodeScalars)
-        #expect(displayedQuery.utf8.count <= MobileSearchQueryBounds.maxUTF8Bytes)
+        #expect(displayedQuery.unicodeScalars.count <= MobileSearchQueryBounds().maxUnicodeScalars)
+        #expect(displayedQuery.utf8.count <= MobileSearchQueryBounds().maxUTF8Bytes)
         #expect(coordinator.searchDestinationText(for: .notifications) == displayedQuery)
 
         #expect(coordinator.commitSubmit() == .notifications)
@@ -111,8 +111,8 @@ import Testing
 
         coordinator.workspaces = "workspace" + String(repeating: "\u{0301}", count: 10_000)
 
-        #expect(coordinator.workspaces.unicodeScalars.count <= MobileSearchQueryBounds.maxUnicodeScalars)
-        #expect(coordinator.workspaces.utf8.count <= MobileSearchQueryBounds.maxUTF8Bytes)
+        #expect(coordinator.workspaces.unicodeScalars.count <= MobileSearchQueryBounds().maxUnicodeScalars)
+        #expect(coordinator.workspaces.utf8.count <= MobileSearchQueryBounds().maxUTF8Bytes)
         #expect(coordinator.activeNativeSearchText() == coordinator.workspaces)
     }
 

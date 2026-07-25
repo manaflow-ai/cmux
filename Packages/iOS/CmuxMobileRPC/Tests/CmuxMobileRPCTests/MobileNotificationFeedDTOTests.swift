@@ -45,8 +45,8 @@ struct MobileNotificationFeedDTOTests {
         #expect(throws: (any Error).self) {
             _ = try MobileNotificationFeedListResponse.decode(data)
         }
-        let response = try MobileNotificationFeedListResponse.decodeBounded(
-            data,
+        let response = try MobileNotificationFeedListResponse(
+            decodingBounded: data,
             maxNotifications: 1,
             stringLimits: MobileNotificationFeedListStringLimits(
                 identifierByteLimit: 8,

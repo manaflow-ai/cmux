@@ -1,10 +1,10 @@
 import Foundation
 
-enum MobileSearchQueryBounds {
-    static let maxUnicodeScalars = 128
-    static let maxUTF8Bytes = 512
+struct MobileSearchQueryBounds: Sendable {
+    let maxUnicodeScalars = 128
+    let maxUTF8Bytes = 512
 
-    static func boundedEditingText(_ value: String) -> (value: String, didChange: Bool) {
+    func boundedEditingText(_ value: String) -> (value: String, didChange: Bool) {
         var output = String()
         output.reserveCapacity(min(maxUnicodeScalars, maxUTF8Bytes))
         var scalarCount = 0
@@ -28,7 +28,7 @@ enum MobileSearchQueryBounds {
         )
     }
 
-    static func normalizedFilterText(_ value: String) -> (value: String, didChange: Bool) {
+    func normalizedFilterText(_ value: String) -> (value: String, didChange: Bool) {
         let bounded = boundedEditingText(value)
         let output = bounded.value
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)

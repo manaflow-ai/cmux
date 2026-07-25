@@ -20,6 +20,7 @@ final class MobilePrimarySearchCoordinator {
     private var phase: MobilePrimarySearchPhase = .inactive
     private var workspaceNativeSearchText = ""
     private var notificationNativeSearchText = ""
+    private let searchQueryBounds = MobileSearchQueryBounds()
 
     init(initialScope: MobilePrimarySearchScope = .workspaces) {
         scope = initialScope
@@ -133,7 +134,7 @@ final class MobilePrimarySearchCoordinator {
     }
 
     private func setNativeSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
-        let value = MobileSearchQueryBounds.boundedEditingText(value).value
+        let value = searchQueryBounds.boundedEditingText(value).value
         switch scope {
         case .workspaces:
             guard workspaceNativeSearchText != value else { return }
@@ -145,7 +146,7 @@ final class MobilePrimarySearchCoordinator {
     }
 
     private func setCommittedSearchText(_ value: String, for scope: MobilePrimarySearchScope) {
-        let value = MobileSearchQueryBounds.boundedEditingText(value).value
+        let value = searchQueryBounds.boundedEditingText(value).value
         switch scope {
         case .workspaces:
             guard workspaces != value else { return }
@@ -160,7 +161,7 @@ final class MobilePrimarySearchCoordinator {
         for scope: MobilePrimarySearchScope,
         oldValue: String
     ) {
-        let normalized = MobileSearchQueryBounds.boundedEditingText(committedSearchText(for: scope))
+        let normalized = searchQueryBounds.boundedEditingText(committedSearchText(for: scope))
         if normalized.didChange {
             setCommittedSearchText(normalized.value, for: scope)
         }
@@ -171,7 +172,7 @@ final class MobilePrimarySearchCoordinator {
 
     private func commitNativeDraft(for scope: MobilePrimarySearchScope) {
         setCommittedSearchText(
-            MobileSearchQueryBounds.normalizedFilterText(nativeSearchText(for: scope)).value,
+            searchQueryBounds.normalizedFilterText(nativeSearchText(for: scope)).value,
             for: scope
         )
     }

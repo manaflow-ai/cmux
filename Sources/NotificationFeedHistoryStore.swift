@@ -6,28 +6,6 @@ final class NotificationFeedHistoryStore {
     nonisolated static let readRetentionLimit = 1_000
     nonisolated static let totalRetentionLimit = 2_000
 
-    private enum Mutation {
-        case record(NotificationFeedHistoryRecord, supersededIDs: Set<UUID>)
-        case reconcileActive([NotificationFeedHistoryRecord])
-        case markReadIDs(Set<UUID>)
-        case markReadWorkspace(UUID)
-        case markReadSurface(tabId: UUID, surfaceId: UUID?)
-        case markAllRead
-        case markUnreadIDs(Set<UUID>)
-        case rebindSurface(sourceTabId: UUID, destinationTabId: UUID, surfaceId: UUID)
-    }
-
-    private struct MutationResult {
-        var changed = false
-        var marked = 0
-    }
-
-    private enum InsertionChange {
-        case none
-        case insertedNew(UUID)
-        case replacedExisting
-    }
-
     private(set) var revision = 0
     private(set) var notifications: [NotificationFeedHistoryRecord] = []
 
@@ -38,7 +16,7 @@ final class NotificationFeedHistoryStore {
     private let onChange: (Int) -> Void
     private var didFinishLoading = false
     private var persistenceAllowsWrites = true
-    private var pendingMutations: [Mutation] = []
+    private var pendingMutations: [NotificationFeedHistoryMutation] = []
     private var readRecordCount = 0
 
     private(set) var loadingTask: Task<Void, Never>?
@@ -184,7 +162,7 @@ final class NotificationFeedHistoryStore {
             )
     }
 
-    private func commit(_ mutation: Mutation) -> MutationResult {
+    private func commit(_ mutation: NotificationFeedHistoryMutation) -> NotificationFeedHistoryMutationResult {
         if !didFinishLoading {
             pendingMutations.append(mutation)
         }
@@ -287,13 +265,13 @@ final class NotificationFeedHistoryStore {
     }
 
     private static func apply(
-        _ mutation: Mutation,
+        _ mutation: NotificationFeedHistoryMutation,
         to records: inout [NotificationFeedHistoryRecord],
         readRecordCount: inout Int,
         readRetentionLimit: Int,
         totalRetentionLimit: Int
-    ) -> MutationResult {
-        var result = MutationResult()
+    ) -> NotificationFeedHistoryMutationResult {
+        var result = NotificationFeedHistoryMutationResult()
         var insertedNewIDs = Set<UUID>()
         var changedExistingState = false
         switch mutation {
@@ -413,7 +391,7 @@ final class NotificationFeedHistoryStore {
     ) -> [TerminalNotification] {
         guard totalRetentionLimit > 0 else { return [] }
         guard notifications.count > totalRetentionLimit else { return notifications }
-        var heap = RetainedActiveNotificationHeap(limit: totalRetentionLimit)
+        var heap = NotificationFeedHistoryRetainedActiveNotificationHeap(limit: totalRetentionLimit)
         for notification in notifications {
             heap.insert(notification)
         }
@@ -429,70 +407,11 @@ final class NotificationFeedHistoryStore {
         return Array(records.sorted(by: recordPrecedes).prefix(totalRetentionLimit))
     }
 
-    private struct RetainedActiveNotificationHeap {
-        let limit: Int
-        private var storage: [TerminalNotification] = []
-
-        init(limit: Int) {
-            self.limit = limit
-            storage.reserveCapacity(limit)
-        }
-
-        mutating func insert(_ notification: TerminalNotification) {
-            guard limit > 0 else { return }
-            guard storage.count >= limit else {
-                storage.append(notification)
-                siftUp(from: storage.count - 1)
-                return
-            }
-            guard let oldest = storage.first,
-                  activeNotificationPrecedes(notification, oldest) else {
-                return
-            }
-            storage[0] = notification
-            siftDown(from: 0)
-        }
-
-        func sortedNewestFirst() -> [TerminalNotification] {
-            storage.sorted(by: activeNotificationPrecedes)
-        }
-
-        private mutating func siftUp(from startIndex: Int) {
-            var child = startIndex
-            while child > 0 {
-                let parent = (child - 1) / 2
-                guard activeNotificationIsOlder(storage[child], than: storage[parent]) else { return }
-                storage.swapAt(child, parent)
-                child = parent
-            }
-        }
-
-        private mutating func siftDown(from startIndex: Int) {
-            var parent = startIndex
-            while true {
-                let left = parent * 2 + 1
-                let right = left + 1
-                var candidate = parent
-                if left < storage.count,
-                   activeNotificationIsOlder(storage[left], than: storage[candidate]) {
-                    candidate = left
-                }
-                if right < storage.count,
-                   activeNotificationIsOlder(storage[right], than: storage[candidate]) {
-                    candidate = right
-                }
-                guard candidate != parent else { return }
-                storage.swapAt(parent, candidate)
-                parent = candidate
-            }
-        }
-    }
-
     private static func insertOrReplace(
         _ record: NotificationFeedHistoryRecord,
         in records: inout [NotificationFeedHistoryRecord],
         readRecordCount: inout Int
-    ) -> InsertionChange {
+    ) -> NotificationFeedHistoryInsertionChange {
         if let existingIndex = records.firstIndex(where: { $0.id == record.id }) {
             let existing = records[existingIndex]
             guard existing != record else { return .none }
@@ -561,20 +480,4 @@ final class NotificationFeedHistoryStore {
         return lhs.id.uuidString > rhs.id.uuidString
     }
 
-    private nonisolated static func activeNotificationPrecedes(
-        _ lhs: TerminalNotification,
-        _ rhs: TerminalNotification
-    ) -> Bool {
-        if lhs.createdAt != rhs.createdAt {
-            return lhs.createdAt > rhs.createdAt
-        }
-        return lhs.id.uuidString > rhs.id.uuidString
-    }
-
-    private nonisolated static func activeNotificationIsOlder(
-        _ lhs: TerminalNotification,
-        than rhs: TerminalNotification
-    ) -> Bool {
-        activeNotificationPrecedes(rhs, lhs)
-    }
 }

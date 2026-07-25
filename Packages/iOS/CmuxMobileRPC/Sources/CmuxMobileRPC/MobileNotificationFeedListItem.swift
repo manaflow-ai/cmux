@@ -39,6 +39,7 @@ public struct MobileNotificationFeedListItem: Decodable, Equatable, Sendable {
         case surfaceTitle = "surface_title"
     }
 
+    /// Creates a notification-feed list item from already-normalized values.
     public init(
         id: String,
         workspaceID: String,

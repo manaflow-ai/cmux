@@ -1,20 +1,5 @@
 import Foundation
 
-/// One per-Mac notification source plus the connection status to project onto
-/// retained rows during aggregation.
-public struct MobileNotificationFeedSourceSnapshot: Sendable {
-    public let items: [MobileNotificationFeedItem]
-    public let connectionStatus: MobileMacConnectionStatus?
-
-    public init(
-        items: [MobileNotificationFeedItem],
-        connectionStatus: MobileMacConnectionStatus? = nil
-    ) {
-        self.items = items
-        self.connectionStatus = connectionStatus
-    }
-}
-
 /// Produces one deterministic cross-Mac feed from per-Mac notification snapshots.
 public struct MobileNotificationFeedAggregation: Sendable {
     /// Upper bound for retained notification-feed rows on the phone.
@@ -46,13 +31,13 @@ public struct MobileNotificationFeedAggregation: Sendable {
 
         for item in snapshots.joined() {
             if let existing = newestByIdentity[item.id],
-               !Self.itemPrecedes(item, existing) {
+               !mobileNotificationFeedItemPrecedes(item, existing) {
                 continue
             }
             newestByIdentity[item.id] = item
         }
 
-        let sorted = newestByIdentity.values.sorted(by: Self.itemPrecedes)
+        let sorted = newestByIdentity.values.sorted(by: mobileNotificationFeedItemPrecedes)
         guard sorted.count > Self.maxItemCount else { return sorted }
         return Array(sorted.prefix(Self.maxItemCount))
     }
@@ -69,10 +54,10 @@ public struct MobileNotificationFeedAggregation: Sendable {
     ) -> [MobileNotificationFeedItem] {
         guard Self.maxItemCount > 0 else { return [] }
 
-        var frontier = CandidateHeap()
+        var frontier = MobileNotificationFeedAggregationCandidateHeap()
         for (sourceIndex, snapshot) in snapshots.enumerated() {
             guard let item = snapshot.items.first else { continue }
-            frontier.insert(Candidate(
+            frontier.insert(MobileNotificationFeedAggregationCandidate(
                 item: item,
                 sourceIndex: sourceIndex,
                 itemIndex: 0,
@@ -98,7 +83,7 @@ public struct MobileNotificationFeedAggregation: Sendable {
             let nextIndex = candidate.itemIndex + 1
             let snapshot = snapshots[candidate.sourceIndex]
             if nextIndex < snapshot.items.count {
-                frontier.insert(Candidate(
+                frontier.insert(MobileNotificationFeedAggregationCandidate(
                     item: snapshot.items[nextIndex],
                     sourceIndex: candidate.sourceIndex,
                     itemIndex: nextIndex,
@@ -109,80 +94,14 @@ public struct MobileNotificationFeedAggregation: Sendable {
 
         return result
     }
+}
 
-    private static func itemPrecedes(
-        _ lhs: MobileNotificationFeedItem,
-        _ rhs: MobileNotificationFeedItem
-    ) -> Bool {
-        if lhs.createdAt != rhs.createdAt {
-            return lhs.createdAt > rhs.createdAt
-        }
-        return lhs.id < rhs.id
+func mobileNotificationFeedItemPrecedes(
+    _ lhs: MobileNotificationFeedItem,
+    _ rhs: MobileNotificationFeedItem
+) -> Bool {
+    if lhs.createdAt != rhs.createdAt {
+        return lhs.createdAt > rhs.createdAt
     }
-
-    private struct Candidate: Sendable {
-        var item: MobileNotificationFeedItem
-        var sourceIndex: Int
-        var itemIndex: Int
-        var connectionStatus: MobileMacConnectionStatus?
-    }
-
-    private struct CandidateHeap: Sendable {
-        private var storage: [Candidate] = []
-
-        mutating func insert(_ candidate: Candidate) {
-            storage.append(candidate)
-            siftUp(from: storage.count - 1)
-        }
-
-        mutating func pop() -> Candidate? {
-            guard !storage.isEmpty else { return nil }
-            guard storage.count > 1 else { return storage.removeLast() }
-            let candidate = storage[0]
-            storage[0] = storage.removeLast()
-            siftDown(from: 0)
-            return candidate
-        }
-
-        private mutating func siftUp(from startIndex: Int) {
-            var child = startIndex
-            while child > 0 {
-                let parent = (child - 1) / 2
-                guard candidatePrecedes(storage[child], storage[parent]) else { return }
-                storage.swapAt(child, parent)
-                child = parent
-            }
-        }
-
-        private mutating func siftDown(from startIndex: Int) {
-            var parent = startIndex
-            while true {
-                let left = parent * 2 + 1
-                let right = left + 1
-                var candidate = parent
-                if left < storage.count, candidatePrecedes(storage[left], storage[candidate]) {
-                    candidate = left
-                }
-                if right < storage.count, candidatePrecedes(storage[right], storage[candidate]) {
-                    candidate = right
-                }
-                guard candidate != parent else { return }
-                storage.swapAt(parent, candidate)
-                parent = candidate
-            }
-        }
-
-        private func candidatePrecedes(_ lhs: Candidate, _ rhs: Candidate) -> Bool {
-            if lhs.item.createdAt != rhs.item.createdAt {
-                return lhs.item.createdAt > rhs.item.createdAt
-            }
-            if lhs.item.id != rhs.item.id {
-                return lhs.item.id < rhs.item.id
-            }
-            if lhs.sourceIndex != rhs.sourceIndex {
-                return lhs.sourceIndex < rhs.sourceIndex
-            }
-            return lhs.itemIndex < rhs.itemIndex
-        }
-    }
+    return lhs.id < rhs.id
 }

@@ -8,14 +8,14 @@ private let notificationFeedLog = Logger(
     category: "notification-feed"
 )
 
+nonisolated private let mobileShellNotificationFeedIdentifierByteLimit = 512
+nonisolated private let mobileShellNotificationFeedTitleByteLimit = 512
+nonisolated private let mobileShellNotificationFeedSubtitleByteLimit = 512
+nonisolated private let mobileShellNotificationFeedBodyByteLimit = 2_048
+nonisolated private let mobileShellNotificationFeedMetadataByteLimit = 512
+
 @MainActor
 extension MobileShellComposite {
-    nonisolated private static let notificationFeedIdentifierByteLimit = 512
-    nonisolated private static let notificationFeedTitleByteLimit = 512
-    nonisolated private static let notificationFeedSubtitleByteLimit = 512
-    nonisolated private static let notificationFeedBodyByteLimit = 2_048
-    nonisolated private static let notificationFeedMetadataByteLimit = 512
-
     /// Refreshes the chronological feed from every currently connected capable Mac.
     ///
     /// A Mac that is offline keeps its last-known snapshot. Connected Macs that
@@ -438,28 +438,28 @@ extension MobileShellComposite {
                         macDisplayName: macDisplayName,
                         remoteWorkspaceID: workspaceID,
                         remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
-                        title: Self.string(
+                        title: mobileShellNotificationFeedString(
                             wire.title,
-                            limitedToUTF8Bytes: Self.notificationFeedTitleByteLimit
+                            limitedToUTF8Bytes: mobileShellNotificationFeedTitleByteLimit
                         ),
                         subtitle: normalizedOptionalText(
                             wire.subtitle,
-                            limitedToUTF8Bytes: Self.notificationFeedSubtitleByteLimit
+                            limitedToUTF8Bytes: mobileShellNotificationFeedSubtitleByteLimit
                         ),
-                        body: Self.string(
+                        body: mobileShellNotificationFeedString(
                             wire.body,
-                            limitedToUTF8Bytes: Self.notificationFeedBodyByteLimit
+                            limitedToUTF8Bytes: mobileShellNotificationFeedBodyByteLimit
                         ),
                         createdAt: wire.createdAt,
                         isRead: wire.isRead,
                         retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
                         workspaceTitle: normalizedOptionalText(
                             wire.workspaceTitle,
-                            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+                            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
                         ),
                         surfaceTitle: normalizedOptionalText(
                             wire.surfaceTitle,
-                            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+                            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
                         ),
                         connectionStatus: status
                     )
@@ -534,11 +534,11 @@ extension MobileShellComposite {
                 params: [:]
             )
             let data = try await client.sendRequest(request)
-            let stringLimits = Self.notificationFeedListStringLimits()
+            let stringLimits = mobileShellNotificationFeedListStringLimits()
             let maxNotifications = MobileNotificationFeedAggregation.maxItemCount
             let decoderTask = Task.detached(priority: .userInitiated) {
-                try MobileNotificationFeedListResponse.decodeBounded(
-                    data,
+                try MobileNotificationFeedListResponse(
+                    decodingBounded: data,
                     maxNotifications: maxNotifications,
                     stringLimits: stringLimits
                 )
@@ -560,16 +560,6 @@ extension MobileShellComposite {
                 "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
             )
         }
-    }
-
-    nonisolated private static func notificationFeedListStringLimits() -> MobileNotificationFeedListStringLimits {
-        MobileNotificationFeedListStringLimits(
-            identifierByteLimit: notificationFeedIdentifierByteLimit,
-            titleByteLimit: notificationFeedTitleByteLimit,
-            subtitleByteLimit: notificationFeedSubtitleByteLimit,
-            bodyByteLimit: notificationFeedBodyByteLimit,
-            metadataByteLimit: notificationFeedMetadataByteLimit
-        )
     }
 
     private func markAllNotificationFeedItemsRead(on target: NotificationFeedClientTarget) async {
@@ -712,17 +702,17 @@ extension MobileShellComposite {
     private func normalizedDisplayName(_ value: String?, fallback: String) -> String {
         normalizedOptionalText(
             value,
-            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
-        ) ?? Self.string(
+            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
+        ) ?? mobileShellNotificationFeedString(
             fallback.trimmingCharacters(in: .whitespacesAndNewlines),
-            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
         )
     }
 
     private func normalizedIdentifier(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
-              trimmed.utf8.count <= Self.notificationFeedIdentifierByteLimit else {
+              trimmed.utf8.count <= mobileShellNotificationFeedIdentifierByteLimit else {
             return nil
         }
         return trimmed
@@ -731,7 +721,7 @@ extension MobileShellComposite {
     private func normalizedOptionalIdentifier(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty,
-              trimmed.utf8.count <= Self.notificationFeedIdentifierByteLimit else {
+              trimmed.utf8.count <= mobileShellNotificationFeedIdentifierByteLimit else {
             return nil
         }
         return trimmed
@@ -745,20 +735,30 @@ extension MobileShellComposite {
               !trimmed.isEmpty else {
             return nil
         }
-        return Self.string(trimmed, limitedToUTF8Bytes: maxBytes)
+        return mobileShellNotificationFeedString(trimmed, limitedToUTF8Bytes: maxBytes)
     }
+}
 
-    private static func string(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
-        guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
-        var byteCount = 0
-        var endIndex = value.startIndex
-        while endIndex < value.endIndex {
-            let nextIndex = value.index(after: endIndex)
-            let characterByteCount = value[endIndex..<nextIndex].utf8.count
-            guard byteCount + characterByteCount <= maxBytes else { break }
-            byteCount += characterByteCount
-            endIndex = nextIndex
-        }
-        return String(value[..<endIndex])
+nonisolated private func mobileShellNotificationFeedListStringLimits() -> MobileNotificationFeedListStringLimits {
+    MobileNotificationFeedListStringLimits(
+        identifierByteLimit: mobileShellNotificationFeedIdentifierByteLimit,
+        titleByteLimit: mobileShellNotificationFeedTitleByteLimit,
+        subtitleByteLimit: mobileShellNotificationFeedSubtitleByteLimit,
+        bodyByteLimit: mobileShellNotificationFeedBodyByteLimit,
+        metadataByteLimit: mobileShellNotificationFeedMetadataByteLimit
+    )
+}
+
+private func mobileShellNotificationFeedString(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
+    guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
+    var byteCount = 0
+    var endIndex = value.startIndex
+    while endIndex < value.endIndex {
+        let nextIndex = value.index(after: endIndex)
+        let characterByteCount = value[endIndex..<nextIndex].utf8.count
+        guard byteCount + characterByteCount <= maxBytes else { break }
+        byteCount += characterByteCount
+        endIndex = nextIndex
     }
+    return String(value[..<endIndex])
 }

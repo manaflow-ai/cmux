@@ -1138,6 +1138,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7A1B2C3D4E5F60718293A4B6 /* MobileHostTerminalThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1B2C3D4E5F60718293A4B5 /* MobileHostTerminalThemeTests.swift */; };
 		C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */; };
 		C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */; };
+		C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
 		325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */; };
@@ -1179,11 +1180,20 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552010000000000000004 /* NotificationBurstCoalescer.swift */; };
 		7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */; };
 		D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */; };
+		C0DEFEF00000000000000001 /* NotificationFeedHistoryInsertionChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF00000000000000002 /* NotificationFeedHistoryInsertionChange.swift */; };
+		C0DEFEF10000000000000001 /* NotificationFeedHistoryMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF10000000000000002 /* NotificationFeedHistoryMutation.swift */; };
+		C0DEFEF20000000000000001 /* NotificationFeedHistoryMutationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF20000000000000002 /* NotificationFeedHistoryMutationResult.swift */; };
+		C0DEFEF30000000000000001 /* NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF30000000000000002 /* NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner.swift */; };
+		C0DEFEF40000000000000001 /* NotificationFeedHistoryOversizedSnapshotMigrationError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF40000000000000002 /* NotificationFeedHistoryOversizedSnapshotMigrationError.swift */; };
+		C0DEFEF50000000000000001 /* NotificationFeedHistoryOversizedSnapshotRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF50000000000000002 /* NotificationFeedHistoryOversizedSnapshotRecovery.swift */; };
 		C0DEFEE30000000000000001 /* NotificationFeedHistoryPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE30000000000000002 /* NotificationFeedHistoryPersistence.swift */; };
 		C0DEFEE10000000000000001 /* NotificationFeedHistoryRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE10000000000000002 /* NotificationFeedHistoryRecord.swift */; };
+		C0DEFEF60000000000000001 /* NotificationFeedHistoryRetainedActiveNotificationHeap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF60000000000000002 /* NotificationFeedHistoryRetainedActiveNotificationHeap.swift */; };
 		C0DEFEE20000000000000001 /* NotificationFeedHistorySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE20000000000000002 /* NotificationFeedHistorySnapshot.swift */; };
+		C0DEFEF70000000000000001 /* NotificationFeedHistorySnapshotHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF70000000000000002 /* NotificationFeedHistorySnapshotHeader.swift */; };
 		C0DEFEE40000000000000001 /* NotificationFeedHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */; };
 		C0DEFEE50000000000000001 /* NotificationFeedHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE50000000000000002 /* NotificationFeedHistoryTests.swift */; };
+		C0DEFEF80000000000000001 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */; };
 		D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */; };
 		D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */; };
 		D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000004 /* NotificationPopoverRow.swift */; };
@@ -3383,6 +3393,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7A1B2C3D4E5F60718293A4B5 /* MobileHostTerminalThemeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTerminalThemeTests.swift; sourceTree = "<group>"; };
 		C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTransportAuthorization.swift; sourceTree = "<group>"; };
 		C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostWorkspaceTicketAuthorizationTests.swift; sourceTree = "<group>"; };
+		C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNotificationFeedWireItem.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
 		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
@@ -3424,11 +3435,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C06552010000000000000004 /* NotificationBurstCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBurstCoalescer.swift; sourceTree = "<group>"; };
 		7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NotificationCacheMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationDismissSyncTests.swift"; sourceTree = "<group>"; };
+		C0DEFEF00000000000000002 /* NotificationFeedHistoryInsertionChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryInsertionChange.swift; sourceTree = "<group>"; };
+		C0DEFEF10000000000000002 /* NotificationFeedHistoryMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryMutation.swift; sourceTree = "<group>"; };
+		C0DEFEF20000000000000002 /* NotificationFeedHistoryMutationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryMutationResult.swift; sourceTree = "<group>"; };
+		C0DEFEF30000000000000002 /* NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner.swift; sourceTree = "<group>"; };
+		C0DEFEF40000000000000002 /* NotificationFeedHistoryOversizedSnapshotMigrationError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryOversizedSnapshotMigrationError.swift; sourceTree = "<group>"; };
+		C0DEFEF50000000000000002 /* NotificationFeedHistoryOversizedSnapshotRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryOversizedSnapshotRecovery.swift; sourceTree = "<group>"; };
 		C0DEFEE30000000000000002 /* NotificationFeedHistoryPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryPersistence.swift; sourceTree = "<group>"; };
 		C0DEFEE10000000000000002 /* NotificationFeedHistoryRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryRecord.swift; sourceTree = "<group>"; };
+		C0DEFEF60000000000000002 /* NotificationFeedHistoryRetainedActiveNotificationHeap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryRetainedActiveNotificationHeap.swift; sourceTree = "<group>"; };
 		C0DEFEE20000000000000002 /* NotificationFeedHistorySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistorySnapshot.swift; sourceTree = "<group>"; };
+		C0DEFEF70000000000000002 /* NotificationFeedHistorySnapshotHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistorySnapshotHeader.swift; sourceTree = "<group>"; };
 		C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryStore.swift; sourceTree = "<group>"; };
 		C0DEFEE50000000000000002 /* NotificationFeedHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryTests.swift; sourceTree = "<group>"; };
+		C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift; sourceTree = "<group>"; };
 		D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingRepresentable.swift; sourceTree = "<group>"; };
 		D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingView.swift; sourceTree = "<group>"; };
 		D77690000000000000000004 /* NotificationPopoverRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverRow.swift; sourceTree = "<group>"; };
@@ -5608,10 +5628,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */,
 				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
 				B7F00001 /* NotificationSoundSettings.swift */,
+				C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */,
+				C0DEFEF00000000000000002 /* NotificationFeedHistoryInsertionChange.swift */,
+				C0DEFEF10000000000000002 /* NotificationFeedHistoryMutation.swift */,
+				C0DEFEF20000000000000002 /* NotificationFeedHistoryMutationResult.swift */,
+				C0DEFEF30000000000000002 /* NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner.swift */,
+				C0DEFEF40000000000000002 /* NotificationFeedHistoryOversizedSnapshotMigrationError.swift */,
+				C0DEFEF50000000000000002 /* NotificationFeedHistoryOversizedSnapshotRecovery.swift */,
 				C0DEFEE30000000000000002 /* NotificationFeedHistoryPersistence.swift */,
 				C0DEFEE10000000000000002 /* NotificationFeedHistoryRecord.swift */,
+				C0DEFEF60000000000000002 /* NotificationFeedHistoryRetainedActiveNotificationHeap.swift */,
+				C0DEFEF70000000000000002 /* NotificationFeedHistorySnapshotHeader.swift */,
 				C0DEFEE20000000000000002 /* NotificationFeedHistorySnapshot.swift */,
 				C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */,
+				C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */,
 				A5F10000000000000000000C /* TerminalNotification.swift */,
 				D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
@@ -7961,6 +7991,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */,
 				C7A50B000000000000000020 /* MobileHostTerminalTheme.swift in Sources */,
 				C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */,
+				C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */,
 				0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */,
 				325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */,
 				C1A070000000000000000006 /* MobilePairingView+Connected.swift in Sources */,
@@ -7989,10 +8020,19 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,
+				C0DEFEF00000000000000001 /* NotificationFeedHistoryInsertionChange.swift in Sources */,
+				C0DEFEF10000000000000001 /* NotificationFeedHistoryMutation.swift in Sources */,
+				C0DEFEF20000000000000001 /* NotificationFeedHistoryMutationResult.swift in Sources */,
+				C0DEFEF30000000000000001 /* NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner.swift in Sources */,
+				C0DEFEF40000000000000001 /* NotificationFeedHistoryOversizedSnapshotMigrationError.swift in Sources */,
+				C0DEFEF50000000000000001 /* NotificationFeedHistoryOversizedSnapshotRecovery.swift in Sources */,
 				C0DEFEE30000000000000001 /* NotificationFeedHistoryPersistence.swift in Sources */,
 				C0DEFEE10000000000000001 /* NotificationFeedHistoryRecord.swift in Sources */,
+				C0DEFEF60000000000000001 /* NotificationFeedHistoryRetainedActiveNotificationHeap.swift in Sources */,
 				C0DEFEE20000000000000001 /* NotificationFeedHistorySnapshot.swift in Sources */,
+				C0DEFEF70000000000000001 /* NotificationFeedHistorySnapshotHeader.swift in Sources */,
 				C0DEFEE40000000000000001 /* NotificationFeedHistoryStore.swift in Sources */,
+				C0DEFEF80000000000000001 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift in Sources */,
 				D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */,
 				D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */,
 				D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */,

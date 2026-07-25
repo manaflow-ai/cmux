@@ -2,34 +2,6 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// The mobile app's primary destinations and transient search selection.
-enum MobilePrimaryTab: Hashable {
-    case workspaces
-    case notifications
-    case search
-}
-
-/// The searchable primary destination that owns the persistent search tab.
-///
-/// New primary tabs must explicitly choose whether they introduce a search
-/// scope or preserve the most recent searchable destination.
-enum MobilePrimarySearchScope: Equatable {
-    case workspaces
-    case notifications
-}
-
-enum MobilePrimarySearchPhase: Equatable {
-    case inactive
-    case active(MobilePrimarySearchScope)
-    case deactivating(MobilePrimarySearchScope)
-}
-
-enum MobilePrimaryNotificationNavigationRoute: Equatable {
-    case mountedNotificationSearch
-    case notificationTabAfterSearchDismissal
-    case mountedNotificationTab
-}
-
 /// Native primary navigation shared by the live shell and deterministic UI
 /// fixtures. Keeping the tab construction here guarantees that previews exercise
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
@@ -201,20 +173,4 @@ struct MobilePrimaryTabScaffold<
     }
 }
 
-private struct MobilePrimarySearchLifecycleModifier: ViewModifier {
-    @Environment(\.isSearching) private var isSearching
-
-    let scope: MobilePrimarySearchScope
-    let update: (MobilePrimarySearchScope, Bool) -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: isSearching, initial: true) { _, isSearching in
-                update(scope, isSearching)
-            }
-            .onDisappear {
-                update(scope, false)
-            }
-    }
-}
 #endif

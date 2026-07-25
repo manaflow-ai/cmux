@@ -208,8 +208,8 @@ import Testing
 
         projection.searchText = "target" + String(repeating: "\u{0301}", count: 10_000)
 
-        #expect(projection.searchText.unicodeScalars.count <= NotificationFeedProjection.maxSearchQueryUnicodeScalars)
-        #expect(projection.searchText.utf8.count <= NotificationFeedProjection.maxSearchQueryUTF8Bytes)
+        #expect(projection.searchText.unicodeScalars.count <= notificationFeedProjectionMaxSearchQueryUnicodeScalars)
+        #expect(projection.searchText.utf8.count <= notificationFeedProjectionMaxSearchQueryUTF8Bytes)
         await projection.waitForPendingRebuild()
         #expect(!projection.isSourceRebuilding)
     }
@@ -241,7 +241,7 @@ import Testing
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
         let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
-        let cap = NotificationFeedProjection.maxSourceItemCount
+        let cap = notificationFeedProjectionMaxSourceItemCount
         let total = cap + 25
         let items = (0..<total).map { offset in
             item(
