@@ -5,7 +5,7 @@ import Testing
 @Suite
 struct ShareProtocolCodecTests {
     @Test
-    func `Host hello preserves the TypeScript v1 envelope`() throws {
+    func `Host hello preserves the TypeScript v2 envelope`() throws {
         let message = ShareHostMessage.hello(
             shared: [ShareSharedWorkspace(id: "workspace", title: "Demo")],
             layouts: [ShareWorkspaceLayout(ws: "workspace", tree: nil)]
@@ -17,7 +17,7 @@ struct ShareProtocolCodecTests {
         )
 
         #expect(object["t"] as? String == "hello")
-        #expect(object["proto"] as? Int == 1)
+        #expect(object["proto"] as? Int == 2)
         #expect((object["shared"] as? [[String: Any]])?.first?["id"] as? String == "workspace")
         #expect((object["layouts"] as? [[String: Any]])?.first?["tree"] is NSNull)
         #expect(object["type"] == nil)
@@ -41,6 +41,26 @@ struct ShareProtocolCodecTests {
             try JSONDecoder().decode(ShareServerMessage.self, from: subscription)
                 == .guestSub(ws: "w1", pane: "p1", count: 2)
         )
+    }
+
+    @Test
+    func `Guest terminal resync decodes and validates its authenticated route`() throws {
+        let validator = WorkspaceShareInboundMessageValidator()
+        let valid = try JSONDecoder().decode(
+            ShareServerMessage.self,
+            from: Data(
+                #"{"t":"guest-resync","user":"u1","ws":"w1","pane":"p1"}"#.utf8
+            )
+        )
+        let invalid = try JSONDecoder().decode(
+            ShareServerMessage.self,
+            from: Data(
+                #"{"t":"guest-resync","user":"u1","ws":"","pane":"p1"}"#.utf8
+            )
+        )
+
+        #expect(validator.acceptsPayload(valid))
+        #expect(!validator.acceptsPayload(invalid))
     }
 
     @Test

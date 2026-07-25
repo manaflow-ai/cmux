@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   normalizeOutboundCursor,
   ShareClient,
+  type ShareTerminalAdapter,
 } from "../app/[locale]/share/[code]/share-connection";
 import {
-  BINARY_KIND_GRID,
   MAX_BINARY_MESSAGE_BYTES,
   MAX_CHAT_HISTORY,
   MAX_CURSORS,
@@ -16,6 +16,14 @@ import {
   wireEmail,
   wireId,
 } from "../app/[locale]/share/[code]/share-protocol";
+import {
+  decodeTerminalFrame,
+  TERMINAL_HEADER_BYTES,
+  TERMINAL_KIND_BASELINE,
+  TERMINAL_KIND_INPUT,
+  TERMINAL_KIND_OUTPUT,
+  TERMINAL_TRANSPORT_VERSION,
+} from "../app/[locale]/share/[code]/terminal-wire";
 
 const originalFetch = globalThis.fetch;
 const originalWebSocket = globalThis.WebSocket;
@@ -47,7 +55,7 @@ class FakeWebSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
   onSend: ((data: string) => void) | null = null;
-  sent: string[] = [];
+  sent: Array<string | ArrayBuffer> = [];
   closeCalls = 0;
   closedWith: { code: number; reason: string } | null = null;
 
@@ -56,9 +64,9 @@ class FakeWebSocket {
     FakeWebSocket.instances.push(this);
   }
 
-  send(data: string): void {
+  send(data: string | ArrayBuffer): void {
     this.sent.push(data);
-    this.onSend?.(data);
+    if (typeof data === "string") this.onSend?.(data);
   }
 
   open(): void {
@@ -91,7 +99,9 @@ class FakeWebSocket {
   }
 
   messages(): Array<Record<string, unknown>> {
-    return this.sent.map((message) => JSON.parse(message) as Record<string, unknown>);
+    return this.sent
+      .filter((message): message is string => typeof message === "string")
+      .map((message) => JSON.parse(message) as Record<string, unknown>);
   }
 }
 
@@ -157,13 +167,16 @@ function tokenError(
 }
 
 function tokenSuccess(
-  wsUrl = "wss://share.cmux.test/v1/share/sessions/code12345678/ws",
+  wsUrl = "wss://share.cmux.test/v2/share/sessions/code12345678/ws",
   token = "guest-token",
 ): Response {
   return new Response(
     JSON.stringify({
       token,
       wsUrl,
+      protocolVersion: 2,
+      terminalTransportVersion: 1,
+      deploymentId: "deployment-test",
     }),
     {
       status: 200,
@@ -175,7 +188,7 @@ function tokenSuccess(
 function snapshot(role: "editor" | "viewer" = "editor") {
   return {
     t: "session-state",
-    proto: 1,
+    proto: 2,
     shared: [{ id: "workspace:1", title: "Chosen" }],
     layouts: [
       {
@@ -236,54 +249,92 @@ function exactJsonBytes(value: Record<string, unknown>, targetBytes: number): st
   return encoded;
 }
 
-function binaryGridFrame(payload: unknown): Uint8Array {
+function terminalFrame(options: {
+  readonly kind?: number;
+  readonly payload?: Uint8Array;
+  readonly sequenceStart?: number;
+  readonly sequenceEnd?: number;
+  readonly rows?: number;
+  readonly columns?: number;
+} = {}): Uint8Array {
   const encoder = new TextEncoder();
   const ws = encoder.encode("workspace:1");
   const pane = encoder.encode("surface:terminal");
-  const body = encoder.encode(
-    typeof payload === "string" ? payload : JSON.stringify(payload),
+  const payload = options.payload ?? new TextEncoder().encode("accepted\r\n");
+  const kind = options.kind ?? TERMINAL_KIND_BASELINE;
+  const sequenceStart = options.sequenceStart ?? 1;
+  const sequenceEnd =
+    options.sequenceEnd ??
+    (kind === TERMINAL_KIND_OUTPUT
+      ? sequenceStart + payload.byteLength
+      : sequenceStart);
+  const rows = options.rows ?? (kind === TERMINAL_KIND_BASELINE ? 2 : 0);
+  const columns =
+    options.columns ?? (kind === TERMINAL_KIND_BASELINE ? 10 : 0);
+  const frame = new Uint8Array(
+    TERMINAL_HEADER_BYTES + ws.length + pane.length + payload.length,
   );
-  const frame = new Uint8Array(3 + ws.length + pane.length + body.length);
-  let offset = 0;
-  frame[offset] = BINARY_KIND_GRID;
-  offset += 1;
-  frame[offset] = ws.length;
-  offset += 1;
+  const view = new DataView(frame.buffer);
+  frame.set(new TextEncoder().encode("CMXS"), 0);
+  view.setUint8(4, TERMINAL_TRANSPORT_VERSION);
+  view.setUint8(5, kind);
+  // A stable nonzero UUID.
+  frame.set(
+    new Uint8Array([
+      0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x45, 0x67,
+      0x89, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78,
+    ]),
+    8,
+  );
+  view.setBigUint64(24, BigInt(sequenceStart), false);
+  view.setBigUint64(32, BigInt(sequenceEnd), false);
+  view.setUint16(40, rows, false);
+  view.setUint16(42, columns, false);
+  view.setUint16(44, ws.length, false);
+  view.setUint16(46, pane.length, false);
+  view.setUint32(52, payload.length, false);
+  let offset = TERMINAL_HEADER_BYTES;
   frame.set(ws, offset);
   offset += ws.length;
-  frame[offset] = pane.length;
-  offset += 1;
   frame.set(pane, offset);
   offset += pane.length;
-  frame.set(body, offset);
+  frame.set(payload, offset);
   return frame;
 }
 
-function exactBinaryGridFrame(
-  payload: Record<string, unknown>,
-  targetBytes: number,
-): Uint8Array {
-  const empty = binaryGridFrame({ ...payload, padding: "" });
+function exactTerminalFrame(targetBytes: number): Uint8Array {
+  const empty = terminalFrame({ payload: new Uint8Array() });
   const paddingBytes = targetBytes - empty.byteLength;
   expect(paddingBytes).toBeGreaterThanOrEqual(0);
-  const frame = binaryGridFrame({
-    ...payload,
-    padding: "x".repeat(paddingBytes),
+  const frame = terminalFrame({
+    payload: new Uint8Array(paddingBytes).fill(0x61),
   });
   expect(frame.byteLength).toBe(targetBytes);
   return frame;
 }
 
-function fullGridFrame() {
+function recordingTerminal(): {
+  readonly adapter: ShareTerminalAdapter;
+  readonly writes: Uint8Array[];
+  readonly completions: Array<() => void>;
+  readonly sizes: Array<{ columns: number; rows: number }>;
+} {
+  const writes: Uint8Array[] = [];
+  const completions: Array<() => void> = [];
+  const sizes: Array<{ columns: number; rows: number }> = [];
   return {
-    format: "cmux.render-grid.v1",
-    surface_id: "surface:terminal",
-    state_seq: 1,
-    columns: 10,
-    rows: 2,
-    full: true,
-    styles: [{ id: 0 }],
-    row_spans: [{ row: 0, column: 0, style_id: 0, text: "accepted" }],
+    writes,
+    completions,
+    sizes,
+    adapter: {
+      resize(columns, rows) {
+        sizes.push({ columns, rows });
+      },
+      write(data, onConsumed) {
+        writes.push(data.slice());
+        completions.push(onConsumed);
+      },
+    },
   };
 }
 
@@ -501,7 +552,7 @@ describe("ShareClient token refresh failures", () => {
 
   test("rejects a remote cleartext WebSocket before exposing the bearer token", async () => {
     globalThis.fetch = (async () =>
-      tokenSuccess("ws://evil.example/v1/share/sessions/code12345678/ws")) as typeof fetch;
+      tokenSuccess("ws://evil.example/v2/share/sessions/code12345678/ws")) as typeof fetch;
     const client = trackedClient();
 
     client.start();
@@ -514,9 +565,9 @@ describe("ShareClient token refresh failures", () => {
   });
 
   for (const wsUrl of [
-    "ws://localhost:8787/v1/share/sessions/code12345678/ws",
-    "ws://127.42.0.9:8787/v1/share/sessions/code12345678/ws",
-    "ws://[::1]:8787/v1/share/sessions/code12345678/ws",
+    "ws://localhost:8787/v2/share/sessions/code12345678/ws",
+    "ws://127.42.0.9:8787/v2/share/sessions/code12345678/ws",
+    "ws://[::1]:8787/v2/share/sessions/code12345678/ws",
   ]) {
     test(`accepts the cleartext loopback WebSocket ${wsUrl}`, async () => {
       globalThis.fetch = (async () => tokenSuccess(wsUrl)) as typeof fetch;
@@ -536,7 +587,7 @@ describe("ShareClient token refresh failures", () => {
     const token = "x".repeat(8 * 1024);
     globalThis.fetch = (async () =>
       tokenSuccess(
-        "wss://share.cmux.test/v1/share/sessions/code12345678/ws",
+        "wss://share.cmux.test/v2/share/sessions/code12345678/ws",
         token,
       )) as typeof fetch;
     const client = trackedClient();
@@ -553,7 +604,7 @@ describe("ShareClient token refresh failures", () => {
   test("rejects a bearer token over 8 KiB before opening a socket", async () => {
     globalThis.fetch = (async () =>
       tokenSuccess(
-        "wss://share.cmux.test/v1/share/sessions/code12345678/ws",
+        "wss://share.cmux.test/v2/share/sessions/code12345678/ws",
         "x".repeat(8 * 1024 + 1),
       )) as typeof fetch;
     const client = trackedClient();
@@ -685,7 +736,7 @@ describe("ShareClient terminal-only session behavior", () => {
   test("uses only the server-selected workspace and subscribes only terminal leaves", async () => {
     const { client, socket } = await connectedClient();
     const sentBeforeSnapshot = socket.sent.length;
-    expect(socket.messages()[0]).toEqual({ t: "hello", proto: 1 });
+    expect(socket.messages()[0]).toEqual({ t: "hello", proto: 2 });
 
     socket.receive(snapshot());
 
@@ -712,7 +763,7 @@ describe("ShareClient terminal-only session behavior", () => {
   test("surfaces a session protocol mismatch instead of leaving a blank workspace", async () => {
     const { client, socket } = await connectedClient();
     const mismatched = snapshot("viewer");
-    mismatched.proto = 2;
+    mismatched.proto = 1;
 
     socket.receive(mismatched);
 
@@ -768,6 +819,102 @@ describe("ShareClient terminal-only session behavior", () => {
 
     const input = socket.messages().find((message) => message.t === "input");
     expect((input?.data as string).length).toBe(MAX_TERMINAL_INPUT_BYTES);
+  });
+
+  test("paces a large xterm paste without losing or transcoding bytes", async () => {
+    let now = 10_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+    const paste =
+      `${"a".repeat(24 * MAX_TERMINAL_INPUT_BYTES - 1)}😀tail`;
+    const expected = new TextEncoder().encode(paste);
+
+    expect(
+      client.sendTerminalData("workspace:1", "surface:terminal", paste),
+    ).toBe(true);
+
+    let frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(24);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    await runOnlyTimer();
+
+    frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(25);
+    expect(frames.every((frame) => frame?.kind === TERMINAL_KIND_INPUT)).toBe(
+      true,
+    );
+    expect(
+      frames.every(
+        (frame) =>
+          frame?.ws === "workspace:1" &&
+          frame.pane === "surface:terminal" &&
+          frame.user === "" &&
+          frame.payload.byteLength <= MAX_TERMINAL_INPUT_BYTES,
+      ),
+    ).toBe(true);
+    const actual = new Uint8Array(
+      frames.reduce((sum, frame) => sum + (frame?.payload.byteLength ?? 0), 0),
+    );
+    let offset = 0;
+    for (const frame of frames) {
+      if (!frame) continue;
+      actual.set(frame.payload, offset);
+      offset += frame.payload.byteLength;
+    }
+    expect(actual).toEqual(expected);
+  });
+
+  test("drops a queued xterm paste immediately on role downgrade", async () => {
+    let now = 20_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+
+    expect(
+      client.sendTerminalData(
+        "workspace:1",
+        "surface:terminal",
+        "x".repeat(25 * MAX_TERMINAL_INPUT_BYTES),
+      ),
+    ).toBe(true);
+    expect(scheduledTimers.size).toBe(1);
+
+    socket.receive({ t: "role-changed", role: "viewer" });
+    expect(scheduledTimers.size).toBe(0);
+    now += 1_000;
+
+    const frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(24);
+    expect(client.session.get().you?.role).toBe("viewer");
+    expect(
+      client.sendTerminalData("workspace:1", "surface:terminal", "blocked"),
+    ).toBe(false);
   });
 
   test("pending state retains no prior session data", async () => {
@@ -948,7 +1095,9 @@ describe("ShareClient terminal-only session behavior", () => {
     const before = client.session.get();
 
     expect(() => socket.receiveRaw("{broken")).not.toThrow();
-    expect(() => socket.receive({ t: "session-state", shared: "wrong" })).not.toThrow();
+    expect(() =>
+      socket.receive({ t: "presence", participants: "wrong" }),
+    ).not.toThrow();
     expect(() => socket.receiveBinary(new ArrayBuffer(1))).not.toThrow();
     expect(() => socket.receiveBinary(new Uint8Array([1, 1, 0xff, 0]))).not.toThrow();
     expect(() => socket.receiveBinary({ arbitrary: true })).not.toThrow();
@@ -1030,30 +1179,90 @@ describe("ShareClient delivery credit acknowledgements", () => {
     expect(scheduledTimers.size).toBe(0);
   });
 
-  test("applies a binary grid before acknowledging it", async () => {
+  test("acknowledges a terminal baseline only after xterm consumes it", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());
-    const model = client.gridFor("workspace:1", "surface:terminal");
-    let generationAtAck = -1;
-    socket.onSend = (data) => {
-      const message = JSON.parse(data) as Record<string, unknown>;
-      if (message.t === "ack" && message.nonce === "grid-frame") {
-        generationAtAck = model.generation;
-      }
-    };
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
 
-    socket.receiveBinary(binaryGridFrame(fullGridFrame()));
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "terminal-frame" });
+    await settle();
 
-    expect(model.ready).toBe(true);
-    expect(model.generation).toBe(1);
+    expect(terminal.sizes).toEqual([{ columns: 10, rows: 2 }]);
+    expect(new TextDecoder().decode(terminal.writes[0])).toBe("accepted\r\n");
     expect(ackMessages(socket)).toEqual([]);
 
-    socket.receive({ t: "ack-request", nonce: "grid-frame" });
+    terminal.completions[0]?.();
+    await settle();
 
-    expect(generationAtAck).toBe(1);
     expect(ackMessages(socket)).toContainEqual({
       t: "ack",
-      nonce: "grid-frame",
+      nonce: "terminal-frame",
+    });
+  });
+
+  test("retains all 128 delivery credits while xterm serially consumes frames", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    const expectedNonces: string[] = [];
+
+    for (let index = 0; index < 128; index += 1) {
+      const nonce = `terminal-${index}`;
+      expectedNonces.push(nonce);
+      socket.receiveBinary(
+        index === 0
+          ? terminalFrame({
+              payload: new TextEncoder().encode("baseline"),
+              sequenceStart: 0,
+              sequenceEnd: 0,
+            })
+          : terminalFrame({
+              kind: TERMINAL_KIND_OUTPUT,
+              payload: new Uint8Array([0x61 + index % 26]),
+              sequenceStart: index - 1,
+              sequenceEnd: index,
+            }),
+      );
+      socket.receive({ t: "ack-request", nonce });
+    }
+    client.sendInput(
+      "workspace:1",
+      "surface:terminal",
+      "typed after the burst",
+    );
+    await settle();
+
+    expect(terminal.writes).toHaveLength(1);
+    expect(ackMessages(socket).map((message) => message.nonce)).toEqual([
+      "snapshot",
+    ]);
+
+    for (let index = 0; index < 128; index += 1) {
+      terminal.completions[index]?.();
+      await settle();
+      if (index < 127) expect(terminal.writes).toHaveLength(index + 2);
+    }
+
+    expect(
+      ackMessages(socket).slice(1).map((message) => message.nonce),
+    ).toEqual(expectedNonces);
+    expect(socket.messages().at(-1)).toEqual({
+      t: "input",
+      ws: "workspace:1",
+      pane: "surface:terminal",
+      data: "typed after the burst",
     });
   });
 
@@ -1146,42 +1355,37 @@ describe("ShareClient delivery credit acknowledgements", () => {
     expect(scheduledTimers.size).toBe(0);
   });
 
-  test("applies and acknowledges a binary grid at one byte below the 1 MiB limit", async () => {
+  test("applies and acknowledges a terminal frame one byte below the 1 MiB limit", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());
-    const model = client.gridFor("workspace:1", "surface:terminal");
-    const frame = exactBinaryGridFrame(
-      fullGridFrame() as Record<string, unknown>,
-      MAX_BINARY_MESSAGE_BYTES - 1,
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
     );
-    let generationAtAck = -1;
-    socket.onSend = (data) => {
-      const message = JSON.parse(data) as Record<string, unknown>;
-      if (message.t === "ack" && message.nonce === "near-limit-grid") {
-        generationAtAck = model.generation;
-      }
-    };
+    const frame = exactTerminalFrame(MAX_BINARY_MESSAGE_BYTES - 1);
 
     socket.receiveBinary(frame);
+    socket.receive({ t: "ack-request", nonce: "near-limit-terminal" });
+    await settle();
 
     expect(socket.closedWith).toBeNull();
-    expect(model.ready).toBe(true);
-    expect(model.generation).toBe(1);
+    expect(terminal.writes).toHaveLength(1);
     expect(ackMessages(socket)).toEqual([]);
 
-    socket.receive({ t: "ack-request", nonce: "near-limit-grid" });
+    terminal.completions[0]?.();
+    await settle();
 
-    expect(generationAtAck).toBe(1);
     expect(ackMessages(socket)).toContainEqual({
       t: "ack",
-      nonce: "near-limit-grid",
+      nonce: "near-limit-terminal",
     });
   });
 
   test("closes with 1009 at the exact 1 MiB binary boundary", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());
-    const model = client.gridFor("workspace:1", "surface:terminal");
 
     socket.receiveBinary(new Uint8Array(MAX_BINARY_MESSAGE_BYTES));
 
@@ -1189,7 +1393,6 @@ describe("ShareClient delivery credit acknowledgements", () => {
       code: 1009,
       reason: "binary message too large",
     });
-    expect(model.generation).toBe(0);
     expect(ackMessages(socket)).toEqual([]);
     expect(client.session.get().status).toBe("unavailable");
     expect(scheduledTimers.size).toBe(0);
@@ -1198,7 +1401,6 @@ describe("ShareClient delivery credit acknowledgements", () => {
   test("closes with 1009 above the 1 MiB binary boundary", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());
-    const model = client.gridFor("workspace:1", "surface:terminal");
 
     socket.receiveBinary(new Uint8Array(MAX_BINARY_MESSAGE_BYTES + 1).buffer);
 
@@ -1206,26 +1408,19 @@ describe("ShareClient delivery credit acknowledgements", () => {
       code: 1009,
       reason: "binary message too large",
     });
-    expect(model.generation).toBe(0);
     expect(ackMessages(socket)).toEqual([]);
     expect(client.session.get().status).toBe("unavailable");
     expect(scheduledTimers.size).toBe(0);
   });
 
-  test("rejects malformed binary headers, UTF-8 ids, and frame kinds without ACKs", async () => {
-    const { client, socket } = await connectedClient();
+  test("rejects malformed terminal headers, UTF-8 ids, and frame kinds without ACKs", async () => {
+    const { socket } = await connectedClient();
     socket.receive(snapshot());
-    const model = client.gridFor("workspace:1", "surface:terminal");
-    const malformedHeader = new Uint8Array([BINARY_KIND_GRID, 10, 0x61]);
-    const malformedUtf8 = new Uint8Array([
-      BINARY_KIND_GRID,
-      1,
-      0xff,
-      1,
-      0x61,
-    ]);
-    const unknownKind = binaryGridFrame(fullGridFrame());
-    unknownKind[0] = 0x7f;
+    const malformedHeader = new Uint8Array([0x43, 0x4d, 0x58]);
+    const malformedUtf8 = terminalFrame();
+    malformedUtf8[TERMINAL_HEADER_BYTES] = 0xff;
+    const unknownKind = terminalFrame();
+    unknownKind[5] = 0x7f;
 
     for (const [nonce, frame] of [
       ["bad-header", malformedHeader],
@@ -1237,7 +1432,6 @@ describe("ShareClient delivery credit acknowledgements", () => {
     }
 
     expect(socket.closedWith).toBeNull();
-    expect(model.generation).toBe(0);
     expect(ackMessages(socket)).toEqual([]);
   });
 
@@ -1251,16 +1445,16 @@ describe("ShareClient delivery credit acknowledgements", () => {
     expect(reconnected).toBeDefined();
     reconnected?.open();
 
-    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 1 }]);
+    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 2 }]);
     reconnected?.receive({ t: "ack-request", nonce: "orphaned" });
-    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 1 }]);
+    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 2 }]);
 
     reconnected?.receive(snapshot());
-    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 1 }]);
+    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 2 }]);
     reconnected?.receive({ t: "ack-request", nonce: "after-snapshot" });
 
     expect(reconnected?.messages()).toEqual([
-      { t: "hello", proto: 1 },
+      { t: "hello", proto: 2 },
       { t: "ack", nonce: "after-snapshot" },
       { t: "sub", ws: "workspace:1", pane: "surface:terminal" },
       { t: "focus", ws: "workspace:1" },
@@ -1287,46 +1481,10 @@ describe("ShareClient delivery credit acknowledgements", () => {
   test("does not acknowledge rejected or unknown payloads", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());
-    const model = client.gridFor("workspace:1", "surface:terminal");
     const before = client.session.get();
 
-    socket.receiveBinary(binaryGridFrame("{malformed"));
-    socket.receive({ t: "ack-request", nonce: "bad-grid" });
-    expect(model.generation).toBe(0);
-    expect(ackMessages(socket)).toEqual([]);
-
-    for (const [nonce, payload] of [
-      [
-        "too-many-styles",
-        {
-          ...fullGridFrame(),
-          styles: Array.from({ length: 4_097 }, (_, id) => ({ id })),
-        },
-      ],
-      [
-        "too-many-palette-colors",
-        {
-          ...fullGridFrame(),
-          terminal_theme: {
-            background: "#000000",
-            foreground: "#ffffff",
-            cursor: "#ffffff",
-            palette: Array.from({ length: 257 }, () => "#000000"),
-          },
-        },
-      ],
-      [
-        "too-many-cleared-rows",
-        {
-          ...fullGridFrame(),
-          cleared_rows: Array.from({ length: 501 }, () => 0),
-        },
-      ],
-    ] as const) {
-      socket.receiveBinary(binaryGridFrame(payload));
-      socket.receive({ t: "ack-request", nonce });
-    }
-    expect(model.generation).toBe(0);
+    socket.receiveBinary(new Uint8Array([0x43, 0x4d, 0x58]));
+    socket.receive({ t: "ack-request", nonce: "bad-terminal" });
     expect(ackMessages(socket)).toEqual([]);
 
     socket.receive({ t: "role-changed", role: "owner" });
