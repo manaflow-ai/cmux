@@ -170,6 +170,8 @@ final class GlobalSearchShortcutPriorityTests {
             contentView.addSubview(presentationView)
             webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         }
+        BrowserOmnibarNativeFieldRegistry.shared.unregister(harness.field, panelId: harness.panel.id)
+        harness.field.removeFromSuperview()
         #expect(harness.window.makeFirstResponder(webView))
         #expect(harness.window.firstResponder === webView)
 
