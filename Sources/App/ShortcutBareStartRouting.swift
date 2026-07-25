@@ -128,6 +128,29 @@ extension AppDelegate {
             $0.shortcut?.bareShortcutStartKey == bareShortcutKey
         }
     }
+
+    func matchCachedGlobalSearchShortcut(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags? = nil
+    ) -> Bool {
+        let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+        guard let stroke = activeGlobalSearchStroke(for: shortcut),
+              stroke.modifierFlags
+                  == (normalizedFlags ?? ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)),
+              matchShortcutStroke(event: event, stroke: stroke) else {
+            return false
+        }
+        return globalSearchShortcutWhenClauseAllows(event: event)
+    }
+
+    private func activeGlobalSearchStroke(for shortcut: StoredShortcut) -> ShortcutStroke? {
+        guard !shortcut.isUnbound else { return nil }
+        if let activePrefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard shortcut.firstStroke == activePrefix else { return nil }
+            return shortcut.secondStroke
+        }
+        return shortcut.hasChord ? nil : shortcut.firstStroke
+    }
 }
 
 private extension NSEvent {

@@ -13284,7 +13284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let globalSearchShortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
-        let matchesGlobalSearchShortcut = matchCachedGlobalSearchShortcut(event: event)
+        let matchesGlobalSearchShortcut = matchCachedGlobalSearchShortcut(
+            event: event,
+            normalizedFlags: normalizedFlags
+        )
         let commandPaletteConsumesShortcut = shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
@@ -13292,6 +13295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
         let globalSearchUnarmedChordPrefixMatches = globalSearchShortcut.hasChord
             && activeConfiguredShortcutChordPrefixForCurrentEvent == nil
+            && globalSearchShortcut.firstStroke.modifierFlags == normalizedFlags
             && matchShortcutStroke(event: event, stroke: globalSearchShortcut.firstStroke)
         let globalSearchIsVisible = (matchesGlobalSearchShortcut || globalSearchUnarmedChordPrefixMatches)
             && GlobalSearchCoordinator.shared.isPaletteVisible()
@@ -13490,7 +13494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchCachedGlobalSearchShortcut(event: event) {
+        if matchesGlobalSearchShortcut {
             toggleGlobalSearchPalette()
             return true
         }
@@ -15226,19 +15230,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
-    func matchCachedGlobalSearchShortcut(event: NSEvent) -> Bool {
-        guard matchConfiguredShortcut(
-            event: event,
-            shortcut: KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
-        ) else {
-            return false
-        }
-        return globalSearchShortcutWhenClauseAllows(event: event)
-    }
-
     /// `shortcuts.when` gates opening Search; visible Search owns its toggle so
     /// the auxiliary popover's transient focus context cannot prevent dismissal.
-    private func globalSearchShortcutWhenClauseAllows(event: NSEvent) -> Bool {
+    func globalSearchShortcutWhenClauseAllows(event: NSEvent) -> Bool {
         GlobalSearchCoordinator.shared.isPaletteVisible()
             || shortcutWhenClauseAllows(action: .globalSearch, event: event)
     }

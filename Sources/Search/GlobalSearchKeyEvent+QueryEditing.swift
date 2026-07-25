@@ -43,8 +43,20 @@ extension GlobalSearchKeyEvent {
     }
 
     private var isPrintableTextInput: Bool {
-        guard let characters, !characters.isEmpty else { return false }
-        return characters.unicodeScalars.allSatisfy { scalar in
+        if Self.isPrintableText(characters) {
+            return true
+        }
+        return Self.isPrintableText(
+            KeyboardLayout.textInputCharacter(
+                forKeyCode: keyCode,
+                modifierFlags: modifierFlags
+            )
+        )
+    }
+
+    private static func isPrintableText(_ text: String?) -> Bool {
+        guard let text, !text.isEmpty else { return false }
+        return text.unicodeScalars.allSatisfy { scalar in
             !CharacterSet.controlCharacters.contains(scalar)
                 && (scalar.value < 0xF700 || scalar.value > 0xF8FF)
         }
