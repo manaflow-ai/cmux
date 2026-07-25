@@ -117,27 +117,48 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         }
         do {
             try process.run()
+            let processID = process.processIdentifier
             // The CLI repeats this in its first instructions. This parent-side
             // attempt closes the spawn window before the child reaches main().
-            _ = Darwin.setpgid(process.processIdentifier, process.processIdentifier)
+            _ = Darwin.setpgid(processID, processID)
+            let processGroupID = Self.processGroupIdentifier(
+                processID: processID
+            )
+
+            let completion = await awaitCompletion(
+                terminations: terminations,
+                processTimeout: processTimeout
+            )
+            switch completion {
+            case .cancelled:
+                Self.terminateProcessGroup(
+                    processID: processID,
+                    processGroupID: processGroupID,
+                    signal: SIGKILL
+                )
+            case .deadline:
+                Self.terminateProcessGroup(
+                    processID: processID,
+                    processGroupID: processGroupID,
+                    signal: SIGTERM
+                )
+                // Once escalation starts it must finish even if SIGTERM exits
+                // the group leader or cancellation interrupts the grace wait.
+                try? await ContinuousClock().sleep(for: terminationGrace)
+                Self.terminateProcessGroup(
+                    processID: processID,
+                    processGroupID: processGroupID,
+                    signal: SIGKILL
+                )
+            case .exited, .inputFailure, .launchFailure:
+                break
+            }
+            process.terminationHandler = nil
+            return completion
         } catch {
             process.terminationHandler = nil
             return .launchFailure(error.localizedDescription)
         }
-
-        let completion = await awaitCompletion(
-            terminations: terminations,
-            processID: process.processIdentifier,
-            processTimeout: processTimeout
-        )
-        process.terminationHandler = nil
-        switch completion {
-        case .cancelled:
-            Self.terminateProcessGroup(processID: process.processIdentifier, signal: SIGKILL)
-        case .exited, .deadline, .inputFailure, .launchFailure:
-            break
-        }
-        return completion
     }
 
     private func logFailure(_ completion: Completion) {
@@ -251,7 +272,6 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
 
     private func awaitCompletion(
         terminations: AsyncStream<Int32>,
-        processID: pid_t,
         processTimeout: Duration
     ) async -> Completion {
         await withTaskGroup(of: Completion.self) { group in
@@ -261,7 +281,6 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
                 }
                 return .cancelled
             }
-            let terminationGrace = terminationGrace
             group.addTask {
                 do {
                     // This is the child lifetime deadline, not polling or settling.
@@ -269,14 +288,6 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
                 } catch {
                     return .cancelled
                 }
-                Self.terminateProcessGroup(processID: processID, signal: SIGTERM)
-                do {
-                    // A bounded grace period precedes process-group SIGKILL.
-                    try await ContinuousClock().sleep(for: terminationGrace)
-                } catch {
-                    return .cancelled
-                }
-                Self.terminateProcessGroup(processID: processID, signal: SIGKILL)
                 return .deadline
             }
             let completion = await group.next() ?? .cancelled
@@ -285,9 +296,17 @@ nonisolated struct AgentHookDeliveryProcess: Sendable {
         }
     }
 
-    private static func terminateProcessGroup(processID: pid_t, signal: Int32) {
-        if Darwin.getpgid(processID) == processID {
-            _ = Darwin.kill(-processID, signal)
+    private static func processGroupIdentifier(processID: pid_t) -> pid_t? {
+        Darwin.getpgid(processID) == processID ? processID : nil
+    }
+
+    private static func terminateProcessGroup(
+        processID: pid_t,
+        processGroupID: pid_t?,
+        signal: Int32
+    ) {
+        if let processGroupID {
+            _ = Darwin.kill(-processGroupID, signal)
         } else {
             _ = Darwin.kill(processID, signal)
         }

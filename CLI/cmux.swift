@@ -30422,7 +30422,7 @@ export default CMUXSessionRestore;
                 surfaceId: surfaceId,
                 excludingSessionId: sessionId,
                 onlyNewerThanExcludedSession: true,
-                requireLiveProcess: !relayOrigin
+                requireLiveProcess: liveProcessIdentityAllowed
             )) == true
         }
         func hasOtherRunningSession(workspaceId: String) -> Bool {
@@ -30430,7 +30430,7 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: nil,
                 excludingSessionId: sessionId,
-                requireLiveProcess: !relayOrigin
+                requireLiveProcess: liveProcessIdentityAllowed
             )) == true
         }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
