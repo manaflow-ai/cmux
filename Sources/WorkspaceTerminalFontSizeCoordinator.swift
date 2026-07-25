@@ -195,6 +195,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         var configuredRuntimePoints: Float32?
         var magnificationPercent: Int?
         var didParticipateWindowDock = false
+        var remainingRequestTokens: Set<UUID> = []
+        var transferReconciledRequestTokens: Set<UUID> = []
     }
 
     private enum RequestTarget {
@@ -502,9 +504,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 closingManager: closingManager
            ) {
             cancelInheritance(for: activeRequest)
-            clearTransferReconciliationMarks(
-                token: activeRequest.token
-            )
             removedRequests.append(activeRequest.request)
             self.activeRequest = nil
         }
@@ -517,7 +516,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             }
         )
         for request in removedRequests {
-            clearTransferReconciliationMarks(token: request.token)
+            retire(request)
             releaseClaimIfIdle(for: request)
         }
 
@@ -1051,11 +1050,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func sealPendingEventBatch() {
         guard let batch = pendingEventBatch else { return }
         pendingEventBatch = nil
+        batch.lineage.remainingRequestTokens.insert(
+            batch.windowDockRequest.token
+        )
         sealedRequests.append(batch.windowDockRequest)
         for workspaceId in batch.workspaceOrder {
             guard let request = batch.workspaceRequests[workspaceId] else {
                 continue
             }
+            batch.lineage.remainingRequestTokens.insert(request.token)
             sealedRequests.append(request)
         }
     }
@@ -1360,6 +1363,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         ],
         applyChanges: Bool
     ) {
+        var combinedChange: WorkspaceTerminalFontSizeChange?
+        var combinedConfiguredRuntimePoints: Float32?
         for entry in requests {
             if applyChanges,
                !transferReconciliation(
@@ -1369,19 +1374,49 @@ final class WorkspaceTerminalFontSizeCoordinator {
                !terminalPanel.surface.hasAppliedFontSizeChange(
                     token: entry.request.token
                ) {
-                _ = applyChange(
-                    entry.request.change,
-                    terminalPanel,
-                    entry.configuredRuntimePoints
-                )
+                if var existing = combinedChange {
+                    if case .resetThen = entry.request.change {
+                        // A later reset discards earlier work and owns the
+                        // configured fallback for the combined native action.
+                        combinedConfiguredRuntimePoints =
+                            entry.configuredRuntimePoints
+                    }
+                    append(entry.request.change, to: &existing)
+                    combinedChange = existing
+                } else {
+                    combinedChange = entry.request.change
+                    combinedConfiguredRuntimePoints =
+                        entry.configuredRuntimePoints
+                }
             }
-            terminalPanel.surface
-                .markFontSizeChangeReconciledForTransfer(
-                    token: entry.request.token
-                )
-            transferReconciledRequests[entry.request.token] =
-                entry.request
         }
+        if let combinedChange,
+           let combinedConfiguredRuntimePoints {
+            _ = applyChange(
+                combinedChange,
+                terminalPanel,
+                combinedConfiguredRuntimePoints
+            )
+        }
+        for entry in requests {
+            recordTransferReconciliation(
+                on: terminalPanel,
+                for: entry.request
+            )
+        }
+    }
+
+    private func recordTransferReconciliation(
+        on terminalPanel: TerminalPanel,
+        for request: PendingRequest
+    ) {
+        terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
+            token: request.token
+        )
+        transferReconciledRequests[request.token] = request
+        request.batchLineage.transferReconciledRequestTokens.insert(
+            request.token
+        )
     }
 
     private func transferReconciliation(
@@ -1432,6 +1467,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
     }
 
+    private func retire(_ request: PendingRequest) {
+        let batchLineage = request.batchLineage
+        guard batchLineage.remainingRequestTokens.remove(request.token)
+                != nil,
+              batchLineage.remainingRequestTokens.isEmpty else {
+            return
+        }
+        let tokens = batchLineage.transferReconciledRequestTokens
+        batchLineage.transferReconciledRequestTokens.removeAll()
+        for token in tokens {
+            clearTransferReconciliationMarks(token: token)
+        }
+    }
+
     private func apply(
         _ candidate: WorkspaceTerminalFontSizePanelDiscovery.Candidate,
         to activeRequest: inout ActiveRequest
@@ -1455,6 +1504,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 token: activeRequest.token
             )
         }
+        // A sibling target can outlive this request, so preserve proof of the
+        // shared event until every request in the batch retires.
+        recordTransferReconciliation(
+            on: terminalPanel,
+            for: activeRequest.request
+        )
 
         activeRequest.participatingLineage.consider(terminalPanel)
         if case .windowDock = candidate.origin {
@@ -1464,9 +1519,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private func finish(_ activeRequest: ActiveRequest) {
         defer {
-            clearTransferReconciliationMarks(
-                token: activeRequest.token
-            )
+            retire(activeRequest.request)
             if case .workspace(_, let workspaceReference) =
                     activeRequest.request.target {
                 releaseWorkspaceClaimIfIdle(
@@ -1585,9 +1638,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                         break
                     }
                     guard activate(request) else {
-                        clearTransferReconciliationMarks(
-                            token: request.token
-                        )
+                        retire(request)
                         if case .workspace(_, let workspaceReference) =
                                 request.target {
                             releaseWorkspaceClaimIfIdle(

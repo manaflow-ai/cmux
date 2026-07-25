@@ -25,7 +25,7 @@ extension TerminalSurface {
 
     /// Records transient request provenance while this live panel transfers
     /// between containers. The owning coordinator retires the token when its
-    /// bounded request finishes, so this set is bounded by in-flight moves.
+    /// coalesced event batch finishes, so this set is bounded by in-flight work.
     @MainActor
     public func markFontSizeChangeReconciledForTransfer(token: UUID) {
         transferReconciledFontSizeChangeTokens.insert(token)
