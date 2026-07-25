@@ -12647,22 +12647,22 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput,
-        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GuardedMouseEncode,
-        MachineActionWorker, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneContentGeneration, PaneEdge, PaneFocusHistory,
-        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
-        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
-        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
-        RenderedPointerFrame, Selection, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GraphicIdentity,
+        GuardedMouseEncode, MachineActionWorker, MenuAction, MenuItem, MutationImpact,
+        MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneContentGeneration,
+        PaneEdge, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
+        PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget,
+        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel,
+        RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
+        SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
+        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
+        WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
+        canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
+        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -17884,6 +17884,28 @@ mod tests {
     }
 
     #[test]
+    fn session_presentation_reset_preserves_graphics_until_the_clear_is_submitted() {
+        let mux = Mux::new("reset-rendered-graphics-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let previous = GraphicIdentity {
+            surface: 77,
+            rect: Rect { x: 2, y: 3, width: 12, height: 5 },
+            seq: 9,
+        };
+        app.last_graphics_snapshot.push(previous);
+        app.pending_graphics_submission = Some(4);
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert_eq!(app.pending_graphics_submission, None);
+        assert_eq!(
+            app.last_graphics_snapshot,
+            vec![previous],
+            "the next empty graphics frame must differ and clear the previous session"
+        );
+    }
+
+    #[test]
     fn pointer_motion_continues_during_non_routing_background_mutation() {
         let mux = Mux::new("background-pointer-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -20785,6 +20807,103 @@ mod tests {
         update.provider.as_mut().unwrap().actions.swap(0, 1);
         app.handle(AppEvent::MachineUiUpdated(Box::new(update))).unwrap();
         assert!(app.prompt.is_none(), "a prompt cannot submit against a reordered action index");
+    }
+
+    #[test]
+    fn provider_action_menu_resource_blocks_index_retargeting() {
+        let mux = Mux::new("provider-action-menu-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.open_provider_actions_menu(1, 3);
+
+        let action = MenuAction::InvokeProviderAction(0);
+        assert!(
+            matches!(
+                app.menu.as_ref().and_then(|menu| menu.captured_resource(action)),
+                Some(Some(_))
+            ),
+            "provider actions must capture the stable action behind their displayed index"
+        );
+
+        app.machine_ui.as_mut().unwrap().provider.as_mut().unwrap().actions.swap(0, 1);
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+
+        assert!(
+            app.machine_ui.as_ref().unwrap().request.is_none(),
+            "the displayed action cannot retarget after the provider array changes"
+        );
+    }
+
+    #[test]
+    fn provider_scope_menu_resource_blocks_index_retargeting() {
+        let mux = Mux::new("provider-scope-menu-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.open_provider_scope_menu(1, 2);
+
+        let action = MenuAction::SelectProviderScope(1);
+        assert!(
+            matches!(
+                app.menu.as_ref().and_then(|menu| menu.captured_resource(action)),
+                Some(Some(_))
+            ),
+            "provider scopes must capture the stable scope behind their displayed index"
+        );
+
+        app.machine_ui.as_mut().unwrap().provider.as_mut().unwrap().scopes.swap(0, 1);
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+
+        assert!(
+            app.machine_ui.as_ref().unwrap().request.is_none(),
+            "the displayed scope cannot retarget after the provider array changes"
+        );
+    }
+
+    #[test]
+    fn recoverable_workspace_menu_resource_blocks_index_retargeting() {
+        let mux = Mux::new("recoverable-workspace-menu-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = provider_machine_ui_with_lifecycle();
+        let mut workspaces = ui.managed_workspaces().to_vec();
+        workspaces.push(ManagedWorkspaceDescriptor {
+            id: "00000000-0000-4000-8000-000000000100".into(),
+            name: "second-recoverable".into(),
+            mode: WorkspaceCreationMode::Host,
+            status: ManagedWorkspaceStatus::Recoverable,
+            version: 13,
+            recoverable_until: Some("2030-01-03T03:04:05Z".into()),
+            capabilities: ManagedWorkspaceCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        });
+        ui.set_managed_workspaces(MachineKey(41), workspaces.clone());
+        app.machine_ui = Some(ui);
+        app.hits.push((
+            Rect { x: 2, y: 2, width: 8, height: 1 },
+            super::Hit::RecoverableWorkspace { index: 0 },
+        ));
+        app.open_context_menu(2, 2);
+
+        let action = MenuAction::RestoreManagedWorkspace(0);
+        assert!(
+            matches!(
+                app.menu.as_ref().and_then(|menu| menu.captured_resource(action)),
+                Some(Some(_))
+            ),
+            "recoverable workspaces must capture the stable workspace behind their displayed index"
+        );
+
+        workspaces.swap(1, 2);
+        app.machine_ui.as_mut().unwrap().set_managed_workspaces(MachineKey(41), workspaces);
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+
+        assert!(
+            app.machine_ui.as_ref().unwrap().request.is_none(),
+            "the displayed workspace cannot retarget after the recoverable array changes"
+        );
     }
 
     #[test]
