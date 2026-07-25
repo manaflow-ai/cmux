@@ -107,6 +107,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    generated_hook_settings: str | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -242,7 +243,11 @@ exit 0
         env["FAKE_HOOK_CMUX_BIN_LOG"] = str(hook_cmux_bin_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
-        env["FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"] = generated_claude_hook_settings()
+        env["FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"] = (
+            generated_claude_hook_settings()
+            if generated_hook_settings is None
+            else generated_hook_settings
+        )
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
         if hooks_disabled:
@@ -681,6 +686,59 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
         failures,
     )
+
+
+def test_semantically_empty_generated_settings_keep_decision_hook_fallback(
+    failures: list[str],
+) -> None:
+    for generated_settings in ("{}", '{"hooks":{}}'):
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            generated_hook_settings=generated_settings,
+        )
+        expect(
+            code == 0,
+            f"empty generated settings {generated_settings}: wrapper exited {code}: {stderr}",
+            failures,
+        )
+        settings = parse_settings_arg(real_argv)
+        hooks = settings.get("hooks", {})
+        expect(
+            set(hooks) == {"PreToolUse", "PermissionRequest"},
+            f"empty generated settings {generated_settings}: safe fallback hooks were lost: {hooks}",
+            failures,
+        )
+        expect(
+            "preferredNotifChannel" not in settings,
+            f"empty generated settings {generated_settings}: native notifications were disabled: {settings}",
+            failures,
+        )
+        cron_groups = [
+            group
+            for group in hooks.get("PreToolUse", [])
+            if group.get("matcher") == "CronCreate"
+        ]
+        expect(
+            any(
+                "hooks claude cron-create-guard" in hook.get("command", "")
+                and hook.get("async") is not True
+                for group in cron_groups
+                for hook in group.get("hooks", [])
+            ),
+            f"empty generated settings {generated_settings}: CronCreate denial was lost: {hooks}",
+            failures,
+        )
+        expect(
+            any(
+                "hooks feed --source claude" in hook.get("command", "")
+                and hook.get("async") is not True
+                for group in hooks.get("PermissionRequest", [])
+                for hook in group.get("hooks", [])
+            ),
+            f"empty generated settings {generated_settings}: PermissionRequest decision hook was lost: {hooks}",
+            failures,
+        )
 
 
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
@@ -1954,6 +2012,7 @@ def main() -> int:
         return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_semantically_empty_generated_settings_keep_decision_hook_fallback(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
