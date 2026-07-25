@@ -831,14 +831,17 @@ struct WorkspaceShellView: View {
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         #if os(iOS)
         if request.origin == .notificationFeed {
-            if selectedPrimaryTab == .search {
+            switch primarySearchCoordinator.notificationFeedNavigationRoute(
+                selectedTab: selectedPrimaryTab
+            ) {
+            case .mountedNotificationSearch:
                 if notificationSearchNavigationPath.last != workspaceID {
                     notificationSearchNavigationPath = [workspaceID]
                 }
-            } else if primarySearchCoordinator.isPresented {
+            case .notificationTabAfterSearchDismissal:
                 pendingPrimarySearchNotificationNavigationID = workspaceID
                 transitionPrimaryTab(to: .notifications)
-            } else {
+            case .mountedNotificationTab:
                 transitionPrimaryTab(to: .notifications)
                 if notificationNavigationPath.last != workspaceID {
                     notificationNavigationPath = [workspaceID]

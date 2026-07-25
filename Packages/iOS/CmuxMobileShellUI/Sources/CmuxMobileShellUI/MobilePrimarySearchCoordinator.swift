@@ -109,6 +109,20 @@ final class MobilePrimarySearchCoordinator {
         return committedSearchText(for: scope)
     }
 
+    func notificationFeedNavigationRoute(
+        selectedTab: MobilePrimaryTab
+    ) -> MobilePrimaryNotificationNavigationRoute {
+        if selectedTab == .search {
+            return scope == .notifications
+                ? .mountedNotificationSearch
+                : .notificationTabAfterSearchDismissal
+        }
+        if isPresented {
+            return .notificationTabAfterSearchDismissal
+        }
+        return .mountedNotificationTab
+    }
+
     func committedSearchText(for scope: MobilePrimarySearchScope) -> String {
         switch scope {
         case .workspaces:

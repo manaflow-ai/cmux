@@ -24,6 +24,12 @@ enum MobilePrimarySearchPhase: Equatable {
     case deactivating(MobilePrimarySearchScope)
 }
 
+enum MobilePrimaryNotificationNavigationRoute: Equatable {
+    case mountedNotificationSearch
+    case notificationTabAfterSearchDismissal
+    case mountedNotificationTab
+}
+
 /// Native primary navigation shared by the live shell and deterministic UI
 /// fixtures. Keeping the tab construction here guarantees that previews exercise
 /// the same labels, symbols, badge behavior, and selection semantics as the app.

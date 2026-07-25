@@ -163,6 +163,49 @@ import Testing
         #expect(coordinator.activeNativeSearchText() == "")
     }
 
+    @Test func notificationDeepLinkUsesNotificationSearchOnlyWhenThatSearchScopeIsMounted() {
+        let coordinator = MobilePrimarySearchCoordinator()
+
+        #expect(
+            coordinator.notificationFeedNavigationRoute(selectedTab: .search)
+                == .notificationTabAfterSearchDismissal
+        )
+
+        coordinator.synchronizeSelection(.notifications)
+
+        #expect(
+            coordinator.notificationFeedNavigationRoute(selectedTab: .search)
+                == .mountedNotificationSearch
+        )
+    }
+
+    @Test func notificationDeepLinkDismissesPresentedSearchBeforePushingNotifications() {
+        let coordinator = MobilePrimarySearchCoordinator()
+        coordinator.synchronizeSelection(.workspaces)
+        coordinator.setPresentation(true)
+
+        #expect(
+            coordinator.notificationFeedNavigationRoute(selectedTab: .workspaces)
+                == .notificationTabAfterSearchDismissal
+        )
+
+        coordinator.synchronizeSelection(.notifications)
+
+        #expect(
+            coordinator.notificationFeedNavigationRoute(selectedTab: .notifications)
+                == .notificationTabAfterSearchDismissal
+        )
+    }
+
+    @Test func notificationDeepLinkUsesMountedNotificationsStackWhenSearchIsInactive() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+
+        #expect(
+            coordinator.notificationFeedNavigationRoute(selectedTab: .notifications)
+                == .mountedNotificationTab
+        )
+    }
+
     @Test func otherScopeRejectsNativeWrite() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.notifications)
