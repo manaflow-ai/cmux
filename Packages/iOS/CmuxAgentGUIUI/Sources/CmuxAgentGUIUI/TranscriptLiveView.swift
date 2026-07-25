@@ -387,12 +387,15 @@ public struct TranscriptLiveView: View {
     }
 
     private func requestTail() {
-        switch AgentTranscriptTailRequestPolicy.action(hasMoreAfter: input.hasMoreAfter) {
+        let action = AgentTranscriptTailRequestPolicy.action(hasMoreAfter: input.hasMoreAfter)
+        followState = AgentTranscriptTailRequestPolicy.followStateBeforeCommand(
+            current: followState,
+            action: action
+        )
+        switch action {
         case .localScroll:
-            followState = .followingTail
             requestScroll(.tail)
         case .semanticTail:
-            followState = .jumpingToTail
             jumpToTail()
         }
     }
