@@ -2224,6 +2224,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */; };
 		D7AB34400000000000000001 /* WorkspaceSurfaceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */; };
 		C0DE32470000000000000003 /* WorkspaceSurfaceIdentifierClipboardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */; };
+		8837B0010000000000000001 /* WorkspaceSurfaceResumeStartupLaunch+WorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8837B0020000000000000002 /* WorkspaceSurfaceResumeStartupLaunch+WorkingDirectory.swift */; };
 		E3B7A4000000000000000003 /* WorkspaceTabColorEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000004 /* WorkspaceTabColorEntry.swift */; };
 		E30750000000000000000002 /* WorkspaceTabColorResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000001 /* WorkspaceTabColorResolution.swift */; };
 		E3B7A4000000000000000001 /* WorkspaceTabColorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */; };
@@ -4448,6 +4449,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStressProfileTests.swift; sourceTree = "<group>"; };
 		D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSurfaceConfig.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSurfaceIdentifierClipboardText.swift; sourceTree = "<group>"; };
+		8837B0020000000000000002 /* WorkspaceSurfaceResumeStartupLaunch+WorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceSurfaceResumeStartupLaunch+WorkingDirectory.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000004 /* WorkspaceTabColorEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorEntry.swift; sourceTree = "<group>"; };
 		E30750000000000000000001 /* WorkspaceTabColorResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorResolution.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorSettings.swift; sourceTree = "<group>"; };
@@ -5207,6 +5209,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */,
 				7989B1057989B1057989B105 /* Workspace+RemoteRelayCommandRewrite.swift */,
 				7989B1047989B1047989B104 /* Workspace+RemoteSurfaceResumeBinding.swift */,
+				8837B0020000000000000002 /* WorkspaceSurfaceResumeStartupLaunch+WorkingDirectory.swift */,
 				8300A0030000000000000003 /* Workspace+SSHConnectionBroker.swift */,
 				791102020000000000000001 /* RemoteDisconnectPreparationService.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
@@ -8706,6 +8709,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				4CC1722A934F4D8B99FC64C5 /* WorkspaceSidebarProcessTitleObservationModel.swift in Sources */,
 				D7AB34400000000000000001 /* WorkspaceSurfaceConfig.swift in Sources */,
 				C0DE32470000000000000003 /* WorkspaceSurfaceIdentifierClipboardText.swift in Sources */,
+				8837B0010000000000000001 /* WorkspaceSurfaceResumeStartupLaunch+WorkingDirectory.swift in Sources */,
 				E3B7A4000000000000000003 /* WorkspaceTabColorEntry.swift in Sources */,
 				E30750000000000000000002 /* WorkspaceTabColorResolution.swift in Sources */,
 				E3B7A4000000000000000001 /* WorkspaceTabColorSettings.swift in Sources */,

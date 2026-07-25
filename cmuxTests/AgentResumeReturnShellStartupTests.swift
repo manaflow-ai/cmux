@@ -55,17 +55,8 @@ struct AgentResumeReturnShellStartupTests {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        let startupInput: String
-        switch launch {
-        case .command(let command):
-            // Ghostty's startup-command path has already entered a login shell
-            // before dispatching cmux's command.
-            process.arguments = ["-lc", "exec \(command)"]
-            startupInput = ""
-        case .input(let input):
-            process.arguments = ["-li"]
-            startupInput = input
-        }
+        process.arguments = ["-li"]
+        let startupInput = launch.initialInput
         process.environment = [
             "HOME": home.path,
             "LOGNAME": NSUserName(),

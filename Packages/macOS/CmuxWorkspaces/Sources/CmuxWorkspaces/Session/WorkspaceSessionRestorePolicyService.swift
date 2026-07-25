@@ -102,7 +102,7 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         )
     }
 
-    /// Returns the command or input launch action for a restored surface resume binding.
+    /// Returns post-start input for a restored surface resume binding.
     public func surfaceResumeStartupLaunch(
         _ resumeBinding: Binding?,
         autoResumeAgentSessions: Bool,
@@ -128,20 +128,12 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         )
     }
 
-    /// Returns the command or input launch action for an already approved binding.
+    /// Returns post-start input for an already approved binding.
     public func surfaceResumeStartupLaunch(
         forApprovedBinding effectiveBinding: Binding,
         allowLauncherScript: Bool = true,
         fileManager: FileManager = .default
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
-        if effectiveBinding.isAgentHookBinding,
-           allowLauncherScript,
-           let command = effectiveBinding.startupCommandWithLauncherScript(
-               fileManager: fileManager,
-               temporaryDirectory: temporaryDirectory
-           ) {
-            return .command(command)
-        }
         guard let input = effectiveBinding.startupInputWithLauncherScript(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
