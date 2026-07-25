@@ -153,6 +153,7 @@ def run_wrapper(
     dead_socket: bool = False,
     auth_token: bool = True,
     auth_token_file: bool = False,
+    installed_broker: bool = True,
 ) -> tuple[int, list[str], str, Path]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -240,7 +241,25 @@ exit 1
             env.pop("CMUX_COMPUTER_USE_MCP_DISABLED", None)
             env.pop("CMUX_CUA_DRIVER", None)
             env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
+            env.pop("CMUX_CUA_CLIENT_PATH", None)
             env.pop("CUA_DRIVER_SOCKET_AUTH_TOKEN", None)
+            if bundled_driver and installed_broker:
+                installed_helper = (
+                    sandbox_home
+                    / "Library"
+                    / "Application Support"
+                    / "cmux"
+                    / "computer-use"
+                    / "helper"
+                    / "default"
+                    / "cmux Computer Use.app"
+                    / "Contents"
+                    / "MacOS"
+                    / "cmux Computer Use"
+                )
+                installed_helper.parent.mkdir(parents=True)
+                make_executable(installed_helper, "#!/usr/bin/env bash\nexit 0\n")
+                env["CMUX_CUA_CLIENT_PATH"] = str(installed_helper)
             if auth_token_file:
                 token_file = tmp / "auth-token"
                 token_file.write_text("cmux-test-auth-token\n", encoding="utf-8")
@@ -321,17 +340,18 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
         command = json.loads(cmd)
         command_path = Path(command)
         expect(
-            command_path.name == "cmux-computer-use-client",
-            f"expected bundled Computer Use client command, got {cmd}",
+            command_path.name == "cmux Computer Use",
+            f"expected installed Computer Use broker command, got {cmd}",
             failures,
         )
         expect(
-            command_path.parts[-3:] == (
-                "Resources",
-                "bin",
-                "cmux-computer-use-client",
+            command_path.parts[-4:] == (
+                "cmux Computer Use.app",
+                "Contents",
+                "MacOS",
+                "cmux Computer Use",
             ),
-            f"expected bundled cmux Computer Use client command, got {command}",
+            f"expected installed cmux Computer Use broker command, got {command}",
             failures,
         )
     if mcp_args_raw is not None:
@@ -421,8 +441,8 @@ def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
     expect(cmd is not None, f"missing computer-use command config for fork in {args}", failures)
     if cmd is not None:
         expect(
-            Path(json.loads(cmd)).name == "cmux-computer-use-client",
-            f"expected bundled Computer Use client command for fork, got {cmd}",
+            Path(json.loads(cmd)).name == "cmux Computer Use",
+            f"expected installed Computer Use broker command for fork, got {cmd}",
             failures,
         )
     first_config_index = args.index("-c") if "-c" in args else -1
@@ -448,6 +468,23 @@ def test_codex_skips_when_driver_unavailable(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(["hello"], bundled_driver=False)
     expect(code == 0, f"no-driver wrapper exited {code}: {stderr}", failures)
     expect(command_config(args) is None, f"expected no injection without driver, got {args}", failures)
+
+
+def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -> None:
+    # Codex app approval authenticates the MCP proxy as the exact executable
+    # already serving the cmux-owned daemon. Falling back to the separately
+    # signed Resources/bin client can list schemas but fails before the first
+    # real MCP session, so the wrapper must fail closed instead.
+    code, args, stderr, _ = run_wrapper(
+        ["hello"],
+        installed_broker=False,
+    )
+    expect(code == 0, f"missing-broker wrapper exited {code}: {stderr}", failures)
+    expect(
+        command_config(args) is None,
+        f"expected no injection without the installed daemon broker, got {args}",
+        failures,
+    )
 
 
 def test_codex_skips_when_disabled(failures: list[str]) -> None:
@@ -535,8 +572,8 @@ def test_codex_gets_cua_driver_when_hook_injection_fails(failures: list[str]) ->
     if cmd is not None:
         command = json.loads(cmd)
         expect(
-            Path(command).name == "cmux-computer-use-client",
-            f"expected bundled Computer Use client command after hook failure, got {cmd}",
+            Path(command).name == "cmux Computer Use",
+            f"expected installed Computer Use broker command after hook failure, got {cmd}",
             failures,
         )
     expect_scrubbed_mcp_env(args, failures, "hook-injection failure", helper_owned=True)
@@ -557,6 +594,7 @@ def main() -> int:
     test_codex_uses_trusted_cua_driver_override(failures)
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
+    test_codex_skips_when_installed_broker_is_unavailable(failures)
     test_codex_skips_when_disabled(failures)
     test_codex_skips_when_daemon_credential_is_missing(failures)
     test_codex_fork_gets_hooks_and_cua_driver(failures)
