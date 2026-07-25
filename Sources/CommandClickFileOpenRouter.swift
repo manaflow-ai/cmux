@@ -3,6 +3,11 @@ import CmuxSettings
 import Foundation
 
 enum CommandClickFileOpenRouter {
+    nonisolated static func isHTMLPath(_ path: String) -> Bool {
+        let pathExtension = (path as NSString).pathExtension.lowercased()
+        return pathExtension == "html" || pathExtension == "htm"
+    }
+
     nonisolated static func shouldRouteInCmux(path: String) -> Bool {
         let store = FileRouteSettingsStore(defaults: .standard)
         return store.shouldRouteMarkdown(path: path)
@@ -24,6 +29,16 @@ enum CommandClickFileOpenRouter {
         guard store.shouldRouteSupportedFile(path: filePath) else {
             return false
         }
+
+        if Self.isHTMLPath(filePath),
+           BrowserAvailabilitySettings.isEnabled(),
+           workspace.openTerminalBrowserLink(
+               url: URL(fileURLWithPath: filePath).standardizedFileURL,
+               sourcePanelId: sourcePanelId
+           ) {
+            return true
+        }
+
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
     }
 
