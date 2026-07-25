@@ -56,6 +56,14 @@ extension WorkspaceDetailView {
                 .transition(.opacity)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if workspaceChangesHint != nil {
+                WorkspaceChangesHintBanner(
+                    openChanges: openWorkspaceChanges,
+                    dismiss: dismissWorkspaceChangesHint
+                )
+            }
+        }
         .onChange(of: surface) { _, newSurface in
             if newSurface == .terminal {
                 // The surface stayed mounted under the chrome, so no attach

@@ -54,6 +54,22 @@ struct MobileIrohSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: Binding(
+                    get: { model.snapshot.pathPreference == .relayOnly },
+                    set: { model.setPathPreference($0 ? .relayOnly : .automatic) }
+                )) {
+                    Text(L10n.string("mobile.iroh.relayOnly", defaultValue: "Relay Only"))
+                }
+                .disabled(model.isMutating)
+                .accessibilityIdentifier("MobileIrohRelayOnly")
+            } footer: {
+                Text(L10n.string(
+                    "mobile.iroh.relayOnly.footer",
+                    defaultValue: "Keeps this device's Iroh connections on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
+                ))
+            }
+
+            Section {
                 ForEach(model.snapshot.customRelays) { relay in
                     HStack {
                         VStack(alignment: .leading) {
@@ -137,6 +153,11 @@ struct MobileIrohSettingsView: View {
                 eventCount: model.diagnosticReport.events.count,
                 exportText: model.diagnosticExportText,
                 needsAttention: !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil,
+                verboseLogEnabled: model.verboseLogEnabled,
+                verboseLogShareURL: model.verboseLogShareURL,
+                setVerboseLog: { enabled in
+                    Task { await model.setVerboseLog(enabled) }
+                },
                 refresh: model.refresh,
                 clear: {
                     Task { await model.clearDiagnosticReport() }
@@ -324,6 +345,11 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             L10n.string("mobile.iroh.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionRefused",
@@ -360,6 +386,16 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.admissionDenied",
                 defaultValue: "Connection Admission Denied"
             )
+        case .some(.admissionLeaseExpired):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
+            )
         case .some(.authorizationFailed):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.authorizationFailed",
@@ -373,6 +409,11 @@ private extension MobileIrohSettingsView {
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionClosed",
                 defaultValue: "Connection Closed"
+            )
+        case .some(.sendQueueOverflow):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
             )
         case .some(.superseded):
             L10n.string(
@@ -447,6 +488,9 @@ private struct MobileIrohDiagnosticsSection: View {
     let eventCount: Int
     let exportText: String
     let needsAttention: Bool
+    let verboseLogEnabled: Bool
+    let verboseLogShareURL: URL?
+    let setVerboseLog: (Bool) -> Void
     let refresh: () -> Void
     let clear: () -> Void
 
@@ -512,6 +556,37 @@ private struct MobileIrohDiagnosticsSection: View {
             }
             .disabled(exportText.isEmpty)
             .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+
+            Toggle(isOn: Binding(
+                get: { verboseLogEnabled },
+                set: setVerboseLog
+            )) {
+                Text(L10n.string(
+                    "mobile.iroh.diagnostics.verboseLog",
+                    defaultValue: "Verbose Connection Log"
+                ))
+            }
+            .accessibilityIdentifier("MobileIrohVerboseLogToggle")
+            if verboseLogEnabled {
+                Text(L10n.string(
+                    "mobile.iroh.diagnostics.verboseLog.footer",
+                    defaultValue: "Records detailed connection activity to a file on this device for troubleshooting. Terminal contents and credentials are never written."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+            if let verboseLogShareURL {
+                ShareLink(item: verboseLogShareURL) {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.diagnostics.shareVerboseLog",
+                            defaultValue: "Share Verbose Log"
+                        ),
+                        systemImage: "doc.text"
+                    )
+                }
+                .accessibilityIdentifier("MobileIrohShareVerboseLog")
+            }
 
             Button(role: .destructive) {
                 showsClearConfirmation = true

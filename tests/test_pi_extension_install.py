@@ -98,6 +98,35 @@ def main() -> int:
         bin_dir.mkdir()
         fake_pi = bin_dir / "pi"
         make_executable(fake_pi, "#!/usr/bin/env bash\nexit 0\n")
+        modern_package = root / "modern-node-modules" / "@earendil-works" / "pi-coding-agent"
+        modern_cli = modern_package / "dist" / "cli.js"
+        modern_cli.parent.mkdir(parents=True)
+        make_executable(modern_cli, "#!/usr/bin/env node\n")
+        (modern_package / "package.json").write_text(
+            json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.80.5"}),
+            encoding="utf-8",
+        )
+        legacy_package = root / "legacy-node-modules" / "@earendil-works" / "pi-coding-agent"
+        legacy_cli = legacy_package / "dist" / "cli.js"
+        legacy_cli.parent.mkdir(parents=True)
+        make_executable(legacy_cli, "#!/usr/bin/env node\n")
+        (legacy_package / "package.json").write_text(
+            json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.74.0"}),
+            encoding="utf-8",
+        )
+        malformed_package = root / "malformed-node-modules" / "@earendil-works" / "pi-coding-agent"
+        malformed_cli = malformed_package / "dist" / "cli.js"
+        malformed_cli.parent.mkdir(parents=True)
+        make_executable(malformed_cli, "#!/usr/bin/env node\n")
+        (malformed_package / "package.json").write_text(
+            json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "development"}),
+            encoding="utf-8",
+        )
+        # Match npm's launcher shape so version detection exercises the unresolved bin/pi symlink.
+        legacy_bin_dir = root / "legacy-bin"
+        legacy_bin_dir.mkdir()
+        legacy_pi = legacy_bin_dir / "pi"
+        legacy_pi.symlink_to(legacy_cli)
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
@@ -179,6 +208,10 @@ esac
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
         check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
+        check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
+        check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
+        check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
+        check_env["CMUX_TEST_PI_MALFORMED_SCRIPT_PATH"] = str(malformed_cli)
         check_env["OPENAI_API_KEY"] = "openai-secret-should-not-leak"
         check_env["ANTHROPIC_AUTH_TOKEN"] = "anthropic-secret-should-not-leak"
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
@@ -206,6 +239,7 @@ for (const name of [
   "session_start",
   "before_agent_start",
   "agent_end",
+  "agent_settled",
   "session_shutdown",
   "tool_execution_start",
   "tool_execution_end",
@@ -216,16 +250,25 @@ process.argv.splice(
   0,
   process.argv.length,
   "/opt/homebrew/bin/node",
-  "/tmp/node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+  process.env.CMUX_TEST_PI_MODERN_SCRIPT_PATH,
   "--model",
   "anthropic/claude-sonnet-4-5"
 );
+let agentIdle = true;
 const ctx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return agentIdle; },
   sessionManager: {
     getSessionId() { return "pi-session-test"; }
   }
 };
+async function completionHookCount() {
+  // Count observable completion commands so lifecycle timing is tested without source inspection.
+  const path = process.env.CMUX_TEST_PI_ARGS_LOG;
+  if (!path || !Bun.file(path).size) return 0;
+  const lines = (await Bun.file(path).text()).split("\\n");
+  return lines.filter((line) => line.includes("hooks pi notification") || line.includes("hooks pi stop")).length;
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
 await handlers.get("tool_execution_start")({
@@ -241,6 +284,15 @@ await handlers.get("tool_execution_end")({
   result: { content: [{ type: "text", text: "ok" }] },
   isError: false
 }, ctx);
+let completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "hello pi" },
+    { role: "assistant", content: [{ type: "text", text: "intermediate" }] }
+  ],
+  stopReason: "retrying"
+}, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("agent_end emitted completion before settlement");
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "hello pi" },
@@ -248,34 +300,61 @@ await handlers.get("agent_end")({
   ],
   stopReason: "completed"
 }, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("repeated agent_end emitted completion before settlement");
+agentIdle = false;
+await handlers.get("agent_settled")({}, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("busy settlement emitted completion while another run was active");
+agentIdle = true;
+await handlers.get("agent_settled")({}, ctx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("agent_settled did not emit notification and stop");
+await handlers.get("agent_settled")({}, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("shutdown after settlement emitted a duplicate stop");
 const interruptedCtx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return true; },
   sessionManager: {
     getSessionId() { return "pi-session-interrupted"; }
   }
 };
 await handlers.get("session_start")({}, interruptedCtx);
 await handlers.get("before_agent_start")({ prompt: "interrupt me" }, interruptedCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "not yet settled" }],
+  stopReason: "completed"
+}, interruptedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("interrupted agent emitted completion before settlement");
 await handlers.get("session_shutdown")({ reason: "terminated" }, interruptedCtx);
+completionCount += 1;
+if (await completionHookCount() !== completionCount) throw new Error("interrupted shutdown did not emit one stop");
+await handlers.get("agent_settled")({}, interruptedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("late settlement emitted completion after shutdown");
 process.env.CMUX_PI_HOOKS_DISABLED = "1";
+const disabledCompletionCount = await completionHookCount();
 const disabledCtx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return true; },
   sessionManager: {
     getSessionId() { return "pi-session-disabled"; }
   }
 };
 await handlers.get("session_start")({}, disabledCtx);
 await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
+if (await completionHookCount() !== disabledCompletionCount) throw new Error("hooks-disabled mode emitted completion hooks");
 delete process.env.CMUX_PI_HOOKS_DISABLED;
 const notificationFailureCtx = {
   cwd: "/tmp/pi-project",
+  isIdle() { return true; },
   sessionManager: {
     getSessionId() { return "pi-session-notification-fails"; }
   }
 };
 await handlers.get("session_start")({}, notificationFailureCtx);
 await handlers.get("before_agent_start")({ prompt: "finish without routed notification" }, notificationFailureCtx);
+completionCount = await completionHookCount();
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "finish without routed notification" },
@@ -283,6 +362,78 @@ await handlers.get("agent_end")({
   ],
   stopReason: "completed"
 }, notificationFailureCtx);
+if (await completionHookCount() !== completionCount) throw new Error("failed notification was attempted before settlement");
+await handlers.get("agent_settled")({}, notificationFailureCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
+await handlers.get("agent_settled")({}, notificationFailureCtx);
+if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_LEGACY_SCRIPT_PATH
+);
+const legacyCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-legacy"; }
+  }
+};
+await handlers.get("session_start")({}, legacyCtx);
+await handlers.get("before_agent_start")({ prompt: "legacy pi" }, legacyCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "legacy done" }],
+  stopReason: "completed"
+}, legacyCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("legacy Pi agent_end did not emit completion fallback");
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH
+);
+const unknownCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-unknown"; }
+  }
+};
+await handlers.get("session_start")({}, unknownCtx);
+await handlers.get("before_agent_start")({ prompt: "unknown pi" }, unknownCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "unknown done" }],
+  stopReason: "completed"
+}, unknownCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("unknown Pi agent_end did not emit completion fallback");
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_MALFORMED_SCRIPT_PATH
+);
+const malformedCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-malformed"; }
+  }
+};
+await handlers.get("session_start")({}, malformedCtx);
+await handlers.get("before_agent_start")({ prompt: "malformed pi" }, malformedCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "malformed done" }],
+  stopReason: "completed"
+}, malformedCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("malformed Pi agent_end did not emit completion fallback");
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -300,9 +451,9 @@ await handlers.get("agent_end")({
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 21, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 34, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 21 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 39, timeout=20.0)
+        stdin_log = wait_for_text(fake_stdin_log, 64, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 39 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -327,30 +478,35 @@ await handlers.get("agent_end")({
                 resume_ops.append("set")
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
-        expected_resume_ops = ["set", "get", "clear", "set", "get", "clear", "set", "get"]
+        expected_resume_ops = [
+            "set", "get", "clear",
+            "set", "get", "clear",
+            "set", "get",
+            "set", "get",
+            "set", "get",
+            "set", "get",
+        ]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
             return 1
-        stop_notification_ops = []
-        for line in arg_lines:
-            if "hooks pi notification" in line:
-                stop_notification_ops.append("notification")
-            elif "hooks pi stop" in line:
-                stop_notification_ops.append("stop")
-        if stop_notification_ops[:2] != ["notification", "stop"]:
-            print(
-                "FAIL: Pi completion stop suppressed native fallback before custom notification, "
-                f"got {stop_notification_ops!r}"
-            )
-            return 1
-        if stop_notification_ops[-2:] != ["notification", "stop"]:
-            print(
-                "FAIL: Pi notification failure path did not attempt custom notification before stop, "
-                f"got {stop_notification_ops!r}"
-            )
-            return 1
-
         payloads = payloads_from_log(stdin_log)
+        for session_id in [
+            "pi-session-test",
+            "pi-session-notification-fails",
+            "pi-session-legacy",
+            "pi-session-unknown",
+            "pi-session-malformed",
+        ]:
+            # Verify each completion path routes its notification before suppressing the native stop fallback.
+            completion_events = [
+                payload.get("hook_event_name")
+                for payload in payloads
+                if payload.get("session_id") == session_id
+                and payload.get("hook_event_name") in {"Notification", "Stop"}
+            ]
+            if completion_events != ["Notification", "Stop"]:
+                print(f"FAIL: completion hooks were out of order for {session_id}: {completion_events!r}")
+                return 1
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
             print(f"FAIL: extension did not pass session id, got {payloads!r}")
             return 1
@@ -386,6 +542,42 @@ await handlers.get("agent_end")({
                 "FAIL: failed Pi completion notification still suppressed native notification fallback, "
                 f"got {fallback_stop_payload!r}"
             )
+            return 1
+        legacy_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-legacy"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if legacy_stop_payload is None or legacy_stop_payload.get("last_assistant_message") != "legacy done":
+            print(f"FAIL: legacy Pi agent_end did not emit its completion payload, got {payloads!r}")
+            return 1
+        unknown_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-unknown"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if unknown_stop_payload is None or unknown_stop_payload.get("last_assistant_message") != "unknown done":
+            print(f"FAIL: unknown Pi agent_end did not emit its completion payload, got {payloads!r}")
+            return 1
+        malformed_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-malformed"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if malformed_stop_payload is None or malformed_stop_payload.get("last_assistant_message") != "malformed done":
+            print(f"FAIL: malformed Pi agent_end did not emit its completion payload, got {payloads!r}")
             return 1
         interrupted_stop_payload = next(
             (payload for payload in payloads if payload.get("terminationReason") == "terminated"),

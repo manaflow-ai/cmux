@@ -307,27 +307,87 @@ describe("POST /api/relay/token", () => {
     expect(invalid.status).toBe(400);
   });
 
-  test("rate limits by authenticated account and fails closed", async () => {
+  test("rate limits per account and endpoint and fails closed", async () => {
     let key: string | undefined;
+    let checks = 0;
     const limited = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
       deps({
         isVercel: () => true,
         rateLimitRuleId: () => "relay-token",
         checkRateLimit: async (_id, options) => {
+          checks += 1;
           key = options.rateLimitKey;
           return { rateLimited: true };
         },
       }),
     );
     expect(limited.status).toBe(429);
-    expect(key).toBe("account-a");
+    // Partitioned per device: a storming endpoint starves only itself, never
+    // the account's other phones, simulators, or tagged builds.
+    expect(key).toBe(`account-a:${ENDPOINT_ID.toLowerCase()}`);
     expect(limited.headers.get("retry-after")).toBe("600");
+
+    // Malformed requests are rejected before the limiter and never consume
+    // the per-device budget.
+    const invalid = await handleRelayTokenRequest(
+      request({ endpointId: "not-an-endpoint" }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          checks += 1;
+          return { rateLimited: true };
+        },
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    expect(checks).toBe(1);
+
+    const blocked = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => ({ rateLimited: false, error: "blocked" }),
+      }),
+    );
+    expect(blocked.status).toBe(429);
 
     const unavailable = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
-      deps({ isVercel: () => true, rateLimitRuleId: () => undefined }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          throw new Error("firewall unreachable");
+        },
+      }),
     );
     expect(unavailable.status).toBe(503);
+  });
+
+  test("skips rate limiting when no rule is configured", async () => {
+    // An unset rule id env var means the operator wants no rate limiting.
+    // This must mint credentials, not 503 every device off the relay network.
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({ isVercel: () => true, rateLimitRuleId: () => undefined }),
+    );
+    expect(response.status).toBe(200);
+  });
+
+  test("fails open when the configured rate-limit rule no longer exists", async () => {
+    // Vercel reports a deleted firewall rule as not-found. That is an operator
+    // action, not an outage, so the mint must proceed as if unlimited.
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => ({ rateLimited: false, error: "not-found" }),
+      }),
+    );
+    expect(response.status).toBe(200);
   });
 });

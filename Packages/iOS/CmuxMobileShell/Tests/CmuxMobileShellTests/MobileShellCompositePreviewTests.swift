@@ -15,6 +15,28 @@ import Testing
 /// doubles.
 @MainActor
 @Suite struct MobileShellCompositePreviewTests {
+    @Test func userRetryCoalescesWhileReconnectIsAlreadyInFlight() async {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+
+        let retryStarted = await store.retryActiveMacReconnect(stackUserID: "user-1")
+        #expect(!retryStarted)
+        #expect(store.isReconnectingStoredMac)
+        #expect(!store.didFinishStoredMacReconnectAttempt)
+    }
+
+    @Test func explicitPairingReleasesSupersededStoredReconnectState() {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+        store.pairingCode = "preview-host"
+
+        store.connectPreviewHost()
+
+        #expect(!store.isReconnectingStoredMac)
+    }
+
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
         let store = MobileShellComposite.preview()
         let workspace = MobileWorkspacePreview(
@@ -274,7 +296,7 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { await team.value },
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
 
         let staleReconnect = Task {
@@ -301,7 +323,7 @@ import Testing
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
 
         store.currentTeamDidChange()

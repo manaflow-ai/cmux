@@ -1,4 +1,5 @@
 #if canImport(UIKit) && DEBUG
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -146,6 +147,39 @@ public struct WorkspaceListLayoutPreviewView: View {
         ),
     ]
 
+    static let previewPairedMacs: [MobilePairedMac] = [
+        MobilePairedMac(
+            macDeviceID: "preview-macbook-pro",
+            displayName: "MacBook Pro",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: nil,
+            instanceTag: "nightly"
+        ),
+        MobilePairedMac(
+            macDeviceID: "preview-macbook-pro",
+            displayName: "MacBook Pro",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 1),
+            isActive: false,
+            stackUserID: nil,
+            instanceTag: "stable"
+        ),
+        MobilePairedMac(
+            macDeviceID: "preview-studio",
+            displayName: "Studio Display Bench With A Very Long Name",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 0),
+            isActive: false,
+            stackUserID: nil,
+            instanceTag: "stable"
+        ),
+    ]
+
     private static let seedNames = [
         "cmux", "iOS avatar tuning", "Docs", "Sidebar perf", "Typing latency",
         "Release prep", "Chip gallery", "Diff viewer", "Workspace todos", "Super search",
@@ -209,6 +243,14 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
     }
 
+    /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS=1` wraps the list in a tab
+    /// scaffold mirroring the shell's TabView, so scroll-edge behavior against
+    /// the real floating tab bar can be exercised without Mac pairing. Off by
+    /// default: the App Store screenshot rig expects the bare list chrome.
+    private var showsTabScaffold: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS"] == "1"
+    }
+
     public var body: some View {
         let workspacesBinding = $model.workspaces
         let refreshGenerationBinding = $refreshGeneration
@@ -220,7 +262,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
-                NavigationStack {
+                let workspaceListStack = NavigationStack {
                     WorkspaceListSearchHost { searchText in
                         WorkspaceListView(
                             workspaces: model.workspaces,
@@ -232,8 +274,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                             wrapWorkspaceTitles: false,
                             previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
                             unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                            profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                            profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
                             selectWorkspace: { id in
                                 selectedWorkspaceID = id
                                 if reorderEnabled {
@@ -302,6 +342,19 @@ public struct WorkspaceListLayoutPreviewView: View {
                             .accessibilityHidden(true)
                     }
                 }
+                if showsTabScaffold {
+                    TabView {
+                        Tab("Workspaces", systemImage: "rectangle.stack") {
+                            workspaceListStack
+                        }
+                        Tab("Notifications", systemImage: "bell") {
+                            Text("Notification feed fixture")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    workspaceListStack
+                }
             }
         }
         .overlay(alignment: .topLeading) {
@@ -321,4 +374,14 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
     }
 }
+
+/// Pairing rows for the store-free workspace-list fixture. Lives in this
+/// DEBUG-only file so the production view exposes no fixture storage; the
+/// picker reads it only when `UITestConfig.workspaceListLayoutPreviewEnabled`.
+enum WorkspaceListLayoutPreviewFixture {
+    static var displayPairedMacs: [MobilePairedMac] {
+        WorkspaceListLayoutPreviewView.previewPairedMacs
+    }
+}
+
 #endif

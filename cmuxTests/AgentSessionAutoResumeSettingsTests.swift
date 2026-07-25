@@ -543,6 +543,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 updatedAt: 1_777_777_777
             ),
         ])
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex,

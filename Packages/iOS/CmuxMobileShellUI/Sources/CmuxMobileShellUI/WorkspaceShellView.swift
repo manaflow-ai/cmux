@@ -68,7 +68,8 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let openDevices: () -> Void
     let title: String
     let isLoading: Bool
-    @Binding var selection: WorkspaceMacSelection
+    let selection: WorkspaceMacSelection
+    let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
     let showAddDevice: (() -> Void)?
 
@@ -82,13 +83,20 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
         }
         ToolbarItem(id: "workspace-list-title", placement: .principal) {
             WorkspaceMacTitlePicker(
-                title: title,
-                isLoading: isLoading,
-                selection: $selection,
-                machines: machines,
-                showAddDevice: showAddDevice,
-                labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                value: WorkspaceMacTitlePickerValue(
+                    title: title,
+                    isLoading: isLoading,
+                    selection: selection,
+                    machines: machines,
+                    canAddDevice: showAddDevice != nil,
+                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
+                ),
+                actions: WorkspaceMacTitlePickerActions(
+                    select: select,
+                    addDevice: showAddDevice
+                )
             )
+            .equatable()
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
@@ -115,10 +123,8 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             openDevices: openDevices,
             title: renderContext.title,
             isLoading: pendingSelection != nil,
-            selection: Binding(
-                get: { pendingSelection ?? renderContext.visibleSelection },
-                set: select
-            ),
+            selection: pendingSelection ?? renderContext.visibleSelection,
+            select: select,
             machines: renderContext.machines,
             showAddDevice: showAddDevice
         )
@@ -144,6 +150,7 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    var showPairingScanner: (() -> Void)?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -152,6 +159,7 @@ struct WorkspaceShellView: View {
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var showingRootSettings = false
+    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
     @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
@@ -246,10 +254,16 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
                 updateRootToolbarMachineSnapshots(snapshots)
             }
-            .sheet(isPresented: $showingRootSettings) {
+            .sheet(isPresented: $showingRootSettings, onDismiss: {
+                settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            }) {
                 MobileSettingsView(
                     connectedHostName: store.connectedHostName,
-                    rescanQR: { store.disconnectAndForgetActiveMac() },
+                    startPairingScanner: {
+                        settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                            isSettingsPresented: $showingRootSettings
+                        )
+                    },
                     signOut: signOut,
                     store: store
                 )
@@ -462,6 +476,8 @@ struct WorkspaceShellView: View {
             selectedWorkspaceID: store.selectedWorkspaceID,
             host: store.connectedHostName,
             connectionStatus: listConnectionStatus,
+            workspaceChangesCapable: store.workspaceChangesCapable,
+            workspaceChangeChipsByWorkspaceID: store.workspaceChangeChipsByWorkspaceID,
             macUpdateHint: store.macUpdateHint,
             macUpdateHintMacName: store.connectedHostName,
             dismissMacUpdateHint: { store.dismissMacUpdateHint() },
@@ -471,8 +487,6 @@ struct WorkspaceShellView: View {
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-            profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-            profilePictureSize: displaySettings.profilePictureSize,
             selectWorkspace: selectWorkspace,
             createWorkspace: navigationStyle == .push
                 ? createWorkspaceInCompactStack
@@ -485,17 +499,21 @@ struct WorkspaceShellView: View {
                 : createWorkspaceGroupIfConnectedClosure,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
-            switchMac: { macDeviceID in
-                await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
+            switchMac: { macDeviceID, instanceTag in
+                await switchMacFromWorkspacePicker(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
             },
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
-            rescanQR: { store.disconnectAndForgetActiveMac() },
             signOut: signOut,
             reconnect: reconnectClosure,
             showAddDevice: showAddDevice,
+            showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
+            customizeWorkspace: customizeWorkspaceClosure,
             setPinned: setWorkspacePinnedClosure,
             setUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,
@@ -556,16 +574,19 @@ struct WorkspaceShellView: View {
         }
         for mac in store.pairedMacs + store.displayPairedMacs {
             names[mac.macDeviceID] = mac.resolvedName
+            names[mac.id] = mac.resolvedName
         }
         if let buildScope = MobileIOSBuildScope.current() {
             names = names.mapValues(buildScope.computerDisplayName)
         }
 
+        let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
-            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            filterMachineIDFor: { scope.aliasIndex.deviceRepresentativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
+            buildLabelsByID: buildLabelsByID,
             fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
         )
         return WorkspaceShellRenderPresentation(
@@ -591,8 +612,10 @@ struct WorkspaceShellView: View {
         case .all, .automatic:
             title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
         case .machine(let id):
-            title = machineSnapshots.macPickerMachines.first { $0.id == id }?.name
-                ?? L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            title = machineSnapshots.macPickerTitle(
+                for: id,
+                fallback: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            )
         }
         return WorkspaceRootToolbarRenderContext(
             title: title,
@@ -624,8 +647,13 @@ struct WorkspaceShellView: View {
                 await cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: true)
             }
             guard !Task.isCancelled, rootToolbarSelectionGeneration == generation else { return }
-            if case .machine(let id) = selection, startsSwitch {
-                let switched = await switchMacFromWorkspacePicker(macDeviceID: id)
+            if case .machine(let id) = selection,
+               startsSwitch,
+               let target = macSelectionScope.switchTarget(for: id) {
+                let switched = await switchMacFromWorkspacePicker(
+                    macDeviceID: target.macDeviceID,
+                    instanceTag: target.instanceTag
+                )
                 guard !Task.isCancelled,
                       rootToolbarSelectionGeneration == generation,
                       switched else { return }
@@ -636,14 +664,7 @@ struct WorkspaceShellView: View {
 
     private func rootToolbarSelectionNeedsMacSwitch(_ selection: WorkspaceMacSelection) -> Bool {
         guard case .machine(let id) = selection else { return false }
-        let scope = macSelectionScope
-        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
-        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
-            return false
-        }
-        return store.displayPairedMacs.contains { mac in
-            !scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID).isDisjoint(with: targetIDs)
-        }
+        return macSelectionScope.shouldSwitch(to: id)
     }
 
     private func updateRootToolbarMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
@@ -725,7 +746,10 @@ struct WorkspaceShellView: View {
     }
 
     @MainActor
-    private func switchMacFromWorkspacePicker(macDeviceID: String) async -> Bool {
+    private func switchMacFromWorkspacePicker(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async -> Bool {
         pendingMacSwitchGeneration &+= 1
         let generation = pendingMacSwitchGeneration
         pendingMacSwitchID = macDeviceID
@@ -734,7 +758,7 @@ struct WorkspaceShellView: View {
                 pendingMacSwitchID = nil
             }
         }
-        return await store.switchToMac(macDeviceID: macDeviceID)
+        return await store.switchToMac(macDeviceID: macDeviceID, instanceTag: instanceTag)
     }
 
     @MainActor
@@ -801,6 +825,7 @@ struct WorkspaceShellView: View {
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             renameWorkspace: renameWorkspaceClosure,
+            customizeWorkspace: customizeWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,

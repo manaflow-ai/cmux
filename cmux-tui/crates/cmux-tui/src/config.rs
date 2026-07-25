@@ -35,6 +35,20 @@
 //!       "cwd": "/optional"
 //!     }
 //!   },
+//!   "machine_sidebar": {
+//!     "enabled": false,
+//!     "width": 22,
+//!     "max_width": 0
+//!   },
+//!   "machine_provider": {
+//!     "cloud": {
+//!       "enabled": false,
+//!       "host": "cmux.cloud",
+//!       "user": null,
+//!       "port": null,
+//!       "identity_file": null
+//!     }
+//!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 //!     "mode": "headful",
@@ -59,7 +73,7 @@
 //!     "new-tab": ["t", "alt+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
-//!     "select-screen-1": "1",
+//!     "select-screen-0": "0",
 //!     "browser-edit-url": "u"
 //!   }
 //! }
@@ -75,7 +89,7 @@
 //! chord string, an array of chord strings, or `"none"`. Overrides replace
 //! all default chords for that action. Action names are:
 //! `new-tab`, `new-browser-tab` (alias: `new_browser_tab`),
-//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-1` through
+//! `new-pane-smart`, `next-tab`, `prev-tab`, `select-tab-0` through
 //! `select-tab-9`, `split-right`, `split-down`, `close-tab`,
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
@@ -89,14 +103,13 @@
 //! The defaults intentionally match tmux where cmux has the same
 //! capability. `x` closes the active pane and `X` closes the active tab;
 //! set `"close-pane": "X"` and `"close-tab": "x"` to restore the old
-//! cmux defaults. Screens are visibly numbered from 1, so
-//! `select-screen-1` selects the first visible screen, ..., and
-//! `select-screen-0` selects the tenth visible screen. Zellij's modal
+//! cmux defaults. Screen positions are zero-based, so each
+//! `select-screen-N` action selects the screen at index `N`. Zellij's modal
 //! `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -134,6 +147,12 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
+    machine_sidebar: RawMachineSidebar,
+    #[serde(default)]
+    machine_provider: RawMachineProvider,
+    #[serde(default)]
+    machines: Vec<RawMachine>,
+    #[serde(default)]
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
@@ -151,6 +170,23 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineProvider {
+    #[serde(default)]
+    cloud: RawCloudProvider,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCloudProvider {
+    enabled: Option<bool>,
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -393,6 +429,107 @@ struct RawSidebarPlugin {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawMachineSidebar {
+    enabled: Option<bool>,
+    width: Option<u16>,
+    max_width: Option<u16>,
+}
+
+#[derive(Debug)]
+struct RawMachine {
+    id: String,
+    name: String,
+    subtitle: String,
+    target: RawMachineTarget,
+}
+
+#[derive(Debug)]
+enum RawMachineTarget {
+    Unix {
+        socket: String,
+    },
+    Ssh {
+        host: String,
+        user: Option<String>,
+        port: Option<u16>,
+        identity_file: Option<String>,
+        session: Option<String>,
+        binary: Option<String>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum RawMachineTransport {
+    Unix,
+    Ssh,
+}
+
+/// The public machine shape stays flat for compatibility, while this wire
+/// type gives serde one exact field set to validate before transport-specific
+/// checks run. `flatten` and `deny_unknown_fields` cannot safely be combined.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineWire {
+    id: String,
+    name: String,
+    #[serde(default)]
+    subtitle: String,
+    transport: RawMachineTransport,
+    socket: Option<String>,
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
+    session: Option<String>,
+    binary: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RawMachine {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawMachineWire::deserialize(deserializer)?;
+        let target = match raw.transport {
+            RawMachineTransport::Unix => {
+                if raw.host.is_some()
+                    || raw.user.is_some()
+                    || raw.port.is_some()
+                    || raw.identity_file.is_some()
+                    || raw.session.is_some()
+                    || raw.binary.is_some()
+                {
+                    return Err(serde::de::Error::custom(
+                        "SSH fields are not valid for a unix machine transport",
+                    ));
+                }
+                RawMachineTarget::Unix {
+                    socket: raw.socket.ok_or_else(|| serde::de::Error::missing_field("socket"))?,
+                }
+            }
+            RawMachineTransport::Ssh => {
+                if raw.socket.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "socket is not valid for an ssh machine transport",
+                    ));
+                }
+                RawMachineTarget::Ssh {
+                    host: raw.host.ok_or_else(|| serde::de::Error::missing_field("host"))?,
+                    user: raw.user,
+                    port: raw.port,
+                    identity_file: raw.identity_file,
+                    session: raw.session,
+                    binary: raw.binary,
+                }
+            }
+        };
+        Ok(Self { id: raw.id, name: raw.name, subtitle: raw.subtitle, target })
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBrowser {
     chrome_binary: Option<String>,
     mode: Option<ConfigBrowserMode>,
@@ -540,6 +677,70 @@ pub struct Sidebar {
 impl Default for Sidebar {
     fn default() -> Self {
         Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
+    }
+}
+
+/// Optional client-local rail listing connection targets. It is disabled for
+/// ordinary local cmux sessions and enabled by a machine provider or config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSidebar {
+    pub enabled: bool,
+    pub width: u16,
+    pub max_width: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MachineProviderConfig {
+    pub cloud: CloudProviderConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudProviderConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub user: Option<String>,
+    pub port: Option<u16>,
+    pub identity_file: Option<PathBuf>,
+}
+
+impl Default for CloudProviderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "cmux.cloud".to_string(),
+            user: None,
+            port: None,
+            identity_file: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineConfig {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
+    pub target: MachineTargetConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineTargetConfig {
+    Unix {
+        socket: PathBuf,
+    },
+    Ssh {
+        host: String,
+        user: Option<String>,
+        port: Option<u16>,
+        identity_file: Option<PathBuf>,
+        session: String,
+        binary: String,
+    },
+}
+
+impl Default for MachineSidebar {
+    fn default() -> Self {
+        Self { enabled: false, width: 22, max_width: 0 }
     }
 }
 
@@ -691,15 +892,14 @@ impl Action {
 
     pub fn screen_index(&self) -> Option<usize> {
         match self {
-            Action::SelectScreen(0) => Some(9),
-            Action::SelectScreen(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectScreen(number @ 0..=9) => Some(*number as usize),
             _ => None,
         }
     }
 
     pub fn tab_index(&self) -> Option<usize> {
         match self {
-            Action::SelectTab(number @ 1..=9) => Some((*number as usize) - 1),
+            Action::SelectTab(number @ 0..=9) => Some(*number as usize),
             _ => None,
         }
     }
@@ -714,9 +914,11 @@ pub struct Chord {
 
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        // Shift is implied by uppercase/symbol chars; compare it only
-        // for non-char codes.
-        let mods_match = if matches!(self.code, KeyCode::Char(_)) {
+        // Shift is implied by uppercase/symbol chars and by BackTab. Crossterm
+        // reports the latter as BackTab + SHIFT even though users configure it
+        // as plain "backtab", so do not make that unavoidable modifier part
+        // of the chord comparison.
+        let mods_match = if matches!(self.code, KeyCode::Char(_) | KeyCode::BackTab) {
             key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
         } else {
             const TRACKED: KeyModifiers =
@@ -896,6 +1098,7 @@ fn all_actions() -> &'static [Action] {
         Action::NewPaneSmart,
         Action::NextTab,
         Action::PrevTab,
+        Action::SelectTab(0),
         Action::SelectTab(1),
         Action::SelectTab(2),
         Action::SelectTab(3),
@@ -1004,6 +1207,9 @@ pub struct Config {
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub machine_sidebar: MachineSidebar,
+    pub machine_provider: MachineProviderConfig,
+    pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
     pub server: Server,
@@ -1155,6 +1361,79 @@ pub fn load() -> Config {
             });
         }
     }
+    if let Some(enabled) = raw.machine_sidebar.enabled {
+        config.machine_sidebar.enabled = enabled;
+    }
+    if let Some(width) = raw.machine_sidebar.width {
+        config.machine_sidebar.width = width.clamp(10, 60);
+    }
+    if let Some(max_width) = raw.machine_sidebar.max_width {
+        config.machine_sidebar.max_width = max_width;
+    }
+    let cloud = raw.machine_provider.cloud;
+    if let Some(enabled) = cloud.enabled {
+        config.machine_provider.cloud.enabled = enabled;
+    }
+    if let Some(host) = cloud.host {
+        let host = host.trim();
+        if host.is_empty() {
+            eprintln!("cmux-tui: ignoring empty machine_provider.cloud.host");
+        } else {
+            config.machine_provider.cloud.host = host.to_string();
+        }
+    }
+    config.machine_provider.cloud.user =
+        cloud.user.map(|user| user.trim().to_string()).filter(|user| !user.is_empty());
+    config.machine_provider.cloud.port = match cloud.port {
+        Some(0) => {
+            eprintln!("cmux-tui: ignoring zero machine_provider.cloud.port");
+            None
+        }
+        port => port,
+    };
+    config.machine_provider.cloud.identity_file = cloud
+        .identity_file
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from);
+    let mut machine_ids = HashSet::new();
+    for machine in raw.machines {
+        let id = machine.id.trim().to_string();
+        let name = machine.name.trim().to_string();
+        if id.is_empty() || name.is_empty() || !machine_ids.insert(id.clone()) {
+            eprintln!("cmux-tui: ignoring machine with an empty or duplicate id/name");
+            continue;
+        }
+        let target = match machine.target {
+            RawMachineTarget::Unix { socket } if !socket.trim().is_empty() => {
+                MachineTargetConfig::Unix { socket: PathBuf::from(socket) }
+            }
+            RawMachineTarget::Ssh { host, user, port, identity_file, session, binary }
+                if !host.trim().is_empty() =>
+            {
+                let port = normalize_ssh_machine_port(&id, port);
+                MachineTargetConfig::Ssh {
+                    host: host.trim().to_string(),
+                    user: user.filter(|value| !value.trim().is_empty()),
+                    port,
+                    identity_file: identity_file
+                        .filter(|value| !value.trim().is_empty())
+                        .map(PathBuf::from),
+                    session: session
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "main".to_string()),
+                    binary: binary
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "cmux-tui".to_string()),
+                }
+            }
+            _ => {
+                eprintln!("cmux-tui: ignoring machine {id:?} with an empty transport target");
+                continue;
+            }
+        };
+        config.machines.push(MachineConfig { id, name, subtitle: machine.subtitle, target });
+    }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
     if let Some(mode) = raw.browser.mode {
         config.browser.mode = mode.into();
@@ -1200,6 +1479,16 @@ pub fn load() -> Config {
     config
 }
 
+fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
+    match port {
+        Some(0) => {
+            eprintln!("cmux-tui: ignoring zero SSH machine port for {id:?}");
+            None
+        }
+        port => port,
+    }
+}
+
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
     options.chrome_binary = config.browser.chrome_binary.clone();
     options.browser_mode = config.browser.mode;
@@ -1212,7 +1501,7 @@ pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOp
     options.browser_capture_scale = config.browser.capture_scale;
 }
 
-/// The label for a tab: user name if set, otherwise its 1-based number
+/// The label for a tab: user name if set, otherwise its zero-based index
 /// plus a recognized agent program name (or the full title when
 /// `show_titles` is on).
 pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
@@ -1221,7 +1510,7 @@ pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> 
     {
         return name.to_string();
     }
-    let number = index + 1;
+    let number = index;
     let suffix = if tabs.show_titles {
         (!title.is_empty()).then(|| title.to_string())
     } else {
@@ -1350,7 +1639,7 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty settings with Ghostty's application defaults
+/// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
     let parsed = resolved_ghostty_defaults()
@@ -1366,7 +1655,10 @@ fn ghostty_defaults() -> DefaultColors {
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
     defaults.cursor_style.get_or_insert(CursorShape::Block);
-    defaults.cursor_blink.get_or_insert(true);
+    // `cursor-style-blink = null` is semantically different from `true` in
+    // Ghostty: both start blinking, but only the unset form lets DEC mode 12
+    // control the live cursor. Keep that absence intact for the terminal
+    // application boundary to resolve without losing its provenance.
     defaults
 }
 
@@ -1374,19 +1666,34 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
 /// same theme-loading behavior as the graphical terminal. A failed or slow
 /// invocation is deliberately ignored; startup then uses the file fallback.
 fn resolved_ghostty_defaults() -> Option<DefaultColors> {
-    platform::ghostty_binary_paths()
-        .iter()
-        .find_map(|path| run_ghostty_show_config(path))
-        .map(|text| parse_resolved_ghostty_defaults(&text))
+    resolved_ghostty_defaults_from(&platform::ghostty_installations())
 }
 
-fn run_ghostty_show_config(path: &Path) -> Option<String> {
-    let mut child = Command::new(path)
+fn resolved_ghostty_defaults_from(
+    installations: &[platform::GhosttyInstallation],
+) -> Option<DefaultColors> {
+    installations.iter().find_map(|installation| {
+        let text = run_ghostty_show_config(installation)?;
+        let defaults = parse_resolved_ghostty_defaults(&text);
+        // `+show-config` serializes Ghostty's effective application defaults,
+        // including both colors. An executable that exits successfully but
+        // emits no resolved config (for example a packaging stub) is not a
+        // usable resolver and must not suppress later pinned candidates.
+        (defaults.fg.is_some() && defaults.bg.is_some()).then_some(defaults)
+    })
+}
+
+fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+    let mut command = Command::new(&installation.binary);
+    command
         .args(["+show-config", "--no-pager"])
+        .env_remove("GHOSTTY_RESOURCES_DIR")
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    if let Some(resources_dir) = installation.resources_dir.as_deref() {
+        command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
+    }
+    let mut child = command.spawn().ok()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let status = loop {
         match child.try_wait().ok()? {
@@ -1604,6 +1911,20 @@ mod tests {
     }
 
     #[test]
+    fn resolves_ghostty_cursor_defaults_without_erasing_nullable_blink_semantics() {
+        let absent = resolve_ghostty_application_defaults(parse_ghostty_defaults(""));
+        assert_eq!(absent.cursor_style, Some(CursorShape::Block));
+        assert_eq!(absent.cursor_blink, None);
+
+        for (value, expected) in [("true", true), ("false", false)] {
+            let explicit = resolve_ghostty_application_defaults(parse_ghostty_defaults(&format!(
+                "cursor-style-blink = {value}\n"
+            )));
+            assert_eq!(explicit.cursor_blink, Some(expected));
+        }
+    }
+
+    #[test]
     fn parses_ghostty_terminal_colors_and_palette_with_later_valid_entry_wins() {
         let defaults = parse_ghostty_defaults(
             "foreground = #010203\n\
@@ -1655,6 +1976,72 @@ mod tests {
         assert_eq!(defaults.palette[0], Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
         assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf9, g: 0x26, b: 0x72 }));
         assert_eq!(defaults.palette[15], Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packaged_ghostty_resolver_receives_matching_resources() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-resolver-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let resources = root.join("ghostty");
+        let binary = root.join("ghostty-config-helper");
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\n\
+             printf 'resource-path = %s\\n' \"$GHOSTTY_RESOURCES_DIR\"\n\
+             printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
+            binary,
+            resources_dir: Some(resources.clone()),
+        })
+        .unwrap();
+        assert!(output.contains(&format!("resource-path = {}", resources.display())));
+        let defaults = parse_resolved_ghostty_defaults(&output);
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unusable_packaged_ghostty_resolver_falls_through() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-fallback-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let broken = root.join("copied-app-binary");
+        let working = root.join("standalone-cli-helper");
+        std::fs::write(&broken, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(
+            &working,
+            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&working, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let defaults = resolved_ghostty_defaults_from(&[
+            platform::GhosttyInstallation { binary: broken, resources_dir: None },
+            platform::GhosttyInstallation { binary: working, resources_dir: None },
+        ])
+        .unwrap();
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1758,7 +2145,7 @@ mod tests {
         assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
         assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         mux.shutdown();
         server::cleanup(&socket);
     }
@@ -1863,7 +2250,7 @@ mod tests {
     }
 
     #[test]
-    fn omitted_ghostty_cursor_blink_resolves_to_blinking() {
+    fn omitted_ghostty_cursor_blink_remains_unspecified() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
@@ -1884,7 +2271,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         assert_eq!(config.terminal_defaults.cursor_style, Some(CursorShape::Bar));
-        assert_eq!(config.terminal_defaults.cursor_blink, Some(true));
+        assert_eq!(config.terminal_defaults.cursor_blink, None);
+        assert_eq!(config.cursor_blink, None);
     }
 
     #[test]
@@ -1930,12 +2318,41 @@ mod tests {
     }
 
     #[test]
+    fn machine_config_rejects_misspelled_and_cross_transport_fields() {
+        for invalid in [
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","sesion":"main"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"ssh","host":"mini","socket":"/tmp/mux.sock"}]}"#,
+            r#"{"machines":[{"id":"mini","name":"Mini","transport":"unix","socket":"/tmp/mux.sock","host":"mini"}]}"#,
+        ] {
+            assert!(serde_json::from_str::<RawConfig>(invalid).is_err(), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
+        assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
+        assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
+        assert_eq!(normalize_ssh_machine_port("mini", None), None);
+    }
+
+    #[test]
     fn parses_websocket_server_config() {
         let raw: RawConfig =
             serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#)
                 .unwrap();
         assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
         assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn cloud_provider_defaults_are_inert_and_target_cmux_cloud() {
+        let config = Config::default();
+
+        assert!(!config.machine_provider.cloud.enabled);
+        assert_eq!(config.machine_provider.cloud.host, "cmux.cloud");
+        assert_eq!(config.machine_provider.cloud.user, None);
+        assert_eq!(config.machine_provider.cloud.port, None);
+        assert_eq!(config.machine_provider.cloud.identity_file, None);
     }
 
     #[test]
@@ -1961,20 +2378,27 @@ mod tests {
     #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
-        assert_eq!(tab_label(&tabs, 0, "", None), "1");
-        assert_eq!(tab_label(&tabs, 1, "zsh", None), "2");
-        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "3");
+        assert_eq!(tab_label(&tabs, 0, "", None), "0");
+        assert_eq!(tab_label(&tabs, 1, "zsh", None), "1");
+        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "2");
         // Recognized agent programs surface in the label.
-        assert_eq!(tab_label(&tabs, 0, "claude", None), "1 claude");
-        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "4 codex");
-        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "5 opencode");
+        assert_eq!(tab_label(&tabs, 0, "claude", None), "0 claude");
+        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "3 codex");
+        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "4 opencode");
         // "pi" matches only as a word, not inside other words.
-        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "6");
-        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "5");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "5 pi");
         assert_eq!(tab_label(&tabs, 5, "pi chat", Some("api")), "api");
 
         let titled = Tabs { show_titles: true, ..Tabs::default() };
-        assert_eq!(tab_label(&titled, 1, "zsh", None), "2 zsh");
+        assert_eq!(tab_label(&titled, 1, "zsh", None), "1 zsh");
+    }
+
+    #[test]
+    fn tab_selection_actions_use_zero_based_indexes() {
+        assert_eq!(Action::SelectTab(0).tab_index(), Some(0));
+        assert_eq!(Action::SelectTab(9).tab_index(), Some(9));
+        assert_eq!(Action::SelectTab(10).tab_index(), None);
     }
 
     #[test]
@@ -2003,12 +2427,38 @@ mod tests {
                         "cwd": "/tmp"
                     }
                 },
+                "machine_sidebar": {
+                    "enabled": true,
+                    "width": 26,
+                    "max_width": 34
+                },
+                "machine_provider": {
+                    "cloud": {
+                        "enabled": true,
+                        "host": "edge.example.com",
+                        "user": "lawrence",
+                        "port": 2200,
+                        "identity_file": "/tmp/cloud-key"
+                    }
+                },
+                "machines": [
+                    {
+                        "id": "mini",
+                        "name": "Mac mini",
+                        "subtitle": "studio",
+                        "transport": "ssh",
+                        "host": "mini.local",
+                        "user": "lawrence",
+                        "session": "main"
+                    }
+                ],
                 "scrollbar": {"position": "border"},
                 "keys": {
                     "alt_shortcuts": false,
                     "rename-pane": "r",
                     "focus-left": ["left", "alt+h"],
                     "next-tab": "none",
+                    "select-tab-0": "q",
                     "browser-edit-url": "u"
                 }
             }"##,
@@ -2033,6 +2483,28 @@ mod tests {
         assert_eq!(config.sidebar.width, 30);
         assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.sidebar.view, SidebarView::Workspaces);
+        assert_eq!(
+            config.machine_sidebar,
+            MachineSidebar { enabled: true, width: 26, max_width: 34 }
+        );
+        assert_eq!(
+            config.machine_provider.cloud,
+            CloudProviderConfig {
+                enabled: true,
+                host: "edge.example.com".into(),
+                user: Some("lawrence".into()),
+                port: Some(2200),
+                identity_file: Some(PathBuf::from("/tmp/cloud-key")),
+            }
+        );
+        assert_eq!(config.machines.len(), 1);
+        assert_eq!(config.machines[0].id, "mini");
+        assert_eq!(config.machines[0].name, "Mac mini");
+        assert!(matches!(
+            &config.machines[0].target,
+            MachineTargetConfig::Ssh { host, user: Some(user), session, .. }
+                if host == "mini.local" && user == "lawrence" && session == "main"
+        ));
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
@@ -2042,6 +2514,10 @@ mod tests {
             Some(Action::RenameTab)
         );
         assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            Some(Action::SelectTab(0))
+        );
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
             Some(Action::BrowserEditUrl)
@@ -2230,9 +2706,9 @@ mod tests {
             );
         }
 
-        assert_eq!(Action::SelectScreen(1).screen_index(), Some(0));
-        assert_eq!(Action::SelectScreen(9).screen_index(), Some(8));
-        assert_eq!(Action::SelectScreen(0).screen_index(), Some(9));
+        assert_eq!(Action::SelectScreen(0).screen_index(), Some(0));
+        assert_eq!(Action::SelectScreen(1).screen_index(), Some(1));
+        assert_eq!(Action::SelectScreen(9).screen_index(), Some(9));
     }
 
     #[test]
@@ -2244,6 +2720,15 @@ mod tests {
         let plain_left = Chord { code: KeyCode::Left, mods: KeyModifiers::NONE };
         assert!(plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
         assert!(!plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+    }
+
+    #[test]
+    fn default_backtab_accepts_crossterm_implied_shift() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
+            Some(Action::PrevTab)
+        );
     }
 
     #[test]

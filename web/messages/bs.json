@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Nastavite u terminalu",
+    "returnBody": "Za nastavak se vratite u terminal u kojem ste pokrenuli ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Plaćanje je završeno",
+        "body": "Vaša pretplata je potvrđena. Može potrajati dok se nova ograničenja ne prikažu."
+      },
+      "checkoutCanceled": {
+        "title": "Plaćanje je otkazano",
+        "body": "Plaćanje je zatvoreno bez promjene vašeg plana."
+      },
+      "portalReturn": {
+        "title": "Povratak s portala za naplatu",
+        "body": "Može potrajati dok se promjene s portala za naplatu ne prikažu."
+      },
+      "default": {
+        "title": "Naplata je završena",
+        "body": "Postupak naplate je završen."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Terminal napravljen za multitasking",
     "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",

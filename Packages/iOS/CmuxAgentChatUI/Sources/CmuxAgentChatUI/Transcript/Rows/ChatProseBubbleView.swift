@@ -7,7 +7,7 @@ import UIKit
 /// The core prose bubble: user prompts render trailing-aligned plain text
 /// on the outgoing fill; agent prose renders leading-aligned with markdown
 /// text runs and embedded monospace code blocks.
-public struct ChatProseBubbleView: View {
+public struct ChatProseBubbleView: View, Equatable {
     private let prose: ChatProse
     private let message: ChatMessage
     private let groupPosition: ChatGroupPosition
@@ -44,6 +44,13 @@ public struct ChatProseBubbleView: View {
         self.showsTimestamp = showsTimestamp
         self.onShowCodeDetail = onShowCodeDetail
         self.onCopied = onCopied
+    }
+
+    nonisolated public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.prose == rhs.prose
+            && lhs.message == rhs.message
+            && lhs.groupPosition == rhs.groupPosition
+            && lhs.showsTimestamp == rhs.showsTimestamp
     }
 
     public var body: some View {

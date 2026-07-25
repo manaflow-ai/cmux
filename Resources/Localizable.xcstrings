@@ -3484,6 +3484,23 @@
         }
       }
     },
+    "agent.kimi.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        }
+      }
+    },
     "agent.ollama.displayName": {
       "extractionState": "manual",
       "localizations": {
@@ -49211,125 +49228,6 @@
         }
       }
     },
-    "cli.workspaceGroup.help.createSafety": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Omitting --from creates an anchor-only group without capturing live workspaces."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--from を省略すると、実行中のワークスペースを取り込まずにアンカーのみのグループを作成します。"
-          }
-        }
-      }
-    },
-    "cli.workspaceGroup.help.deleteSafety": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dissolve a group, preserving all members"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全メンバーを保持したままグループを解除"
-          }
-        }
-      }
-    },
-    "cli.workspaceGroup.help.destructiveDelete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete the group AND close every member workspace. Explicitly destructive."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループを削除し、すべてのメンバーワークスペースを閉じます。明示的な破壊操作です。"
-          }
-        }
-      }
-    },
-    "cli.workspaceGroup.response.closed.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK group deleted (closed %lld workspaces)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK グループを削除しました（%lld 個のワークスペースを閉じました）"
-          }
-        }
-      }
-    },
-    "cli.workspaceGroup.response.closed.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK group deleted (closed %lld workspace)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK グループを削除しました（%lld 個のワークスペースを閉じました）"
-          }
-        }
-      }
-    },
-    "cli.workspaceGroup.response.dissolved.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK group dissolved (kept %lld workspaces)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK グループを解除しました（%lld 個のワークスペースを保持しました）"
-          }
-        }
-      }
-    },
-    "cli.workspaceGroup.response.dissolved.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK group dissolved (kept %lld workspace)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK グループを解除しました（%lld 個のワークスペースを保持しました）"
-          }
-        }
-      }
-    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {
@@ -49604,6 +49502,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Використання: cmux workspace <підкоманда> [прапорці]\n\nКанонічний простір імен для операцій з робочими просторами.\nЗастарілі дієслівні команди (new-workspace, list-workspaces,\nclose-workspace, rename-workspace, select-workspace) продовжують\nпрацювати й одноразово показують підказку про застарілість, що\nвказує сюди.\n\nПідкоманди:\n  list                    Список робочих просторів у вікні\n  create [flags]          Створити робочий простір (ті самі прапорці, що й\n                          new-workspace, зокрема --env KEY=VALUE та --env-file <path>)\n  env [workspace] [--mask]\n                          Показати налаштовані змінні середовища робочого\n                          простору (--mask приховує значення)\n  close <workspace>       Закрити робочий простір\n  rename <workspace> --title <new>\n  select <workspace>      Зробити робочий простір активним\n  reconnect [workspace]   Перепідключити віддалений (SSH) робочий простір,\n                          зокрема той, де автоматичне перепідключення\n                          призупинено через недосяжний хост\n  disconnect [workspace]  Зупинити з'єднання віддаленого (SSH) робочого простору\n  status [set <lane|auto>]\n                          Показати або закріпити todo-статус робочого простору\n  loading <on|off> [--id <name>]\n                          Перемкнути індикатор завантаження робочого простору.\n                          Кожен --id — окремий лоадер; без --id перемикається\n                          один типовий\n  group <subcommand>      Операції з групами робочих просторів (див. cmux workspace-group --help)\n\nenv/reconnect/disconnect приймають позиційний дескриптор або --workspace\n<id|ref|index>; типово використовується робочий простір викликача,\nдалі — вибраний (у вікні з --window, якщо задано).\n\nПриклади:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.help.createSafety": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitting --from creates an anchor-only group without capturing live workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--from を省略すると、実行中のワークスペースを取り込まずにアンカーのみのグループを作成します。"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.help.deleteSafety": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissolve a group, preserving all members"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全メンバーを保持したままグループを解除"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.help.destructiveDelete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete the group AND close every member workspace. Explicitly destructive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除し、すべてのメンバーワークスペースを閉じます。明示的な破壊操作です。"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.response.closed.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK group deleted (closed %lld workspace)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK グループを削除しました（%lld 個のワークスペースを閉じました）"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.response.closed.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK group deleted (closed %lld workspaces)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK グループを削除しました（%lld 個のワークスペースを閉じました）"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.response.dissolved.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK group dissolved (kept %lld workspace)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK グループを解除しました（%lld 個のワークスペースを保持しました）"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.response.dissolved.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK group dissolved (kept %lld workspaces)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK グループを解除しました（%lld 個のワークスペースを保持しました）"
           }
         }
       }
@@ -105415,23 +105432,6 @@
         }
       }
     },
-    "featureFlags.override.remote": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモート"
-          }
-        }
-      }
-    },
     "featureFlags.override.remoteControlledNote": {
       "extractionState": "manual",
       "localizations": {
@@ -129905,13 +129905,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."
+            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone の cmux アプリでこのコードをスキャンして、ターミナルワークスペースを同期します。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
           }
         }
       }
@@ -129980,6 +129980,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "そのターミナルは利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidContentRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace, path, or revision is missing or invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース、パス、またはリビジョンの指定が無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスが指定されていないか、無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace identifier is missing or invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの識別子が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidWorkspaceIDs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A selected workspace identifier is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したワークスペースの識別子が無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.notRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace directory is not a Git repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのディレクトリはGitリポジトリではありません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.pathNotChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path is not in the workspace changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスはワークスペースの変更に含まれていません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.pathOutsideRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path must stay inside the repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスはリポジトリ内に収まっている必要があります"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read workspace diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの差分を読み込めませんでした"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.workspaceIDsCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Between 1 and 64 workspaces can be requested at once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度にリクエストできるワークスペースは1〜64件です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace or effective directory not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースまたは有効なディレクトリが見つかりません"
           }
         }
       }
@@ -143597,6 +143767,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "長い行を横スクロールせずにエディタの右端で折り返します。プレーンテキストのファイルエディタに適用されます。"
+          }
+        }
+      }
+    },
+    "settings.app.focusHistoryIncludesPanesAndTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Panes and Tabs in Focus History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス履歴にペインとタブを含める"
+          }
+        }
+      }
+    },
+    "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back and forward navigate between workspaces only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る／進むではワークスペース間のみを移動します。"
+          }
+        }
+      }
+    },
+    "settings.app.focusHistoryIncludesPanesAndTabs.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back and forward navigate focus changes between panes, tabs, and workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る／進むではペイン、タブ、ワークスペース間のフォーカス移動をたどります。"
           }
         }
       }
@@ -168418,13 +168639,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a QR code to pair your iPhone or iPad with this Mac."
+            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR コードを表示して、iPhone または iPad をこの Mac とペアリングします。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
           }
         }
       }
@@ -169024,40 +169245,6 @@
         }
       }
     },
-    "settings.networking.debug.relayOnly": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relay-Only Verification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リレー限定の検証"
-          }
-        }
-      }
-    },
-    "settings.networking.debug.relayOnly.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Debug builds only. Keeps authenticated Iroh sessions on relays so the relay path can be verified."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デバッグビルド専用です。認証済みの Iroh セッションをリレー経路に固定して、リレー接続を検証します。"
-          }
-        }
-      }
-    },
     "settings.networking.diagnostics.clear": {
       "extractionState": "manual",
       "localizations": {
@@ -169156,6 +169343,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続の受け入れが拒否されました"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.admissionLeaseExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admission Lease Expired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受け入れリースの期限切れ"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.admissionRevalidationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admission Revalidation Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受け入れの再検証に失敗しました"
           }
         }
       }
@@ -169432,6 +169653,23 @@
         }
       }
     },
+    "settings.networking.diagnostics.failure.sendQueueOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Queue Overflow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信キューオーバーフロー"
+          }
+        }
+      }
+    },
     "settings.networking.diagnostics.failure.superseded": {
       "extractionState": "manual",
       "localizations": {
@@ -169462,6 +169700,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイムアウト"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.transportIdleTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport Idle Timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続アイドルタイムアウト"
           }
         }
       }
@@ -170023,6 +170278,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新"
+          }
+        }
+      }
+    },
+    "settings.networking.relayOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーのみ"
+          }
+        }
+      }
+    },
+    "settings.networking.relayOnly.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac への Iroh 接続を、直接経路やローカルネットワーク経路ではなく cmux リレー経由に固定します。次回の再接続時に適用されます。"
           }
         }
       }
@@ -215172,7 +215461,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing or invalid workspace_id"
+            "value": "The workspace identifier is missing or invalid"
           }
         },
         "ja": {
@@ -215325,7 +215614,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing or invalid workspace_id"
+            "value": "The workspace identifier is missing or invalid"
           }
         },
         "ja": {
@@ -237708,40 +237997,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "チェックリスト完了"
-          }
-        }
-      }
-    },
-    "workspace.todo.notification.doneBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This workspace's status is now done."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このワークスペースのステータスが完了になりました。"
-          }
-        }
-      }
-    },
-    "workspace.todo.notification.doneTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace marked done"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを完了にしました"
           }
         }
       }

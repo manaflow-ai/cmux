@@ -35,4 +35,31 @@ public struct UITestEnvironmentConfig: Equatable, Sendable {
         guard value == "comfortable" || value == "compact" else { return nil }
         return value
     }
+
+    /// Whether the deterministic onboarding preview is enabled.
+    public var onboardingPreviewEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_ONBOARDING_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the onboarding preview should show connection fallback.
+    public var onboardingConnectionFallbackEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the deterministic pairing-scanner preview is enabled.
+    public var pairingScannerPreviewEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_SCANNER_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
 }

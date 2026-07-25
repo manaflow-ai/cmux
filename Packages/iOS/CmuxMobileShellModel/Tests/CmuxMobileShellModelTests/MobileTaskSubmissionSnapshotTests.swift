@@ -118,6 +118,27 @@ import Testing
         expectIdentityRotated(from: before, to: after)
     }
 
+    @Test func customWorkspaceNameChangesEffectiveRequest() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let generated = snapshot(template: template, workspaceName: "")
+        let custom = snapshot(template: template, workspaceName: "Release checklist")
+
+        #expect(generated.workspaceTitle == generated.composition.title)
+        #expect(custom.workspaceTitle == "Release checklist")
+        #expect(!generated.isRequestEquivalent(to: custom))
+        expectIdentityRotated(from: generated, to: custom)
+    }
+
+    @Test func workspaceNameUsesTrimmedWireValue() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let padded = snapshot(template: template, workspaceName: "  Release checklist  ")
+        let trimmed = snapshot(template: template, workspaceName: "Release checklist")
+
+        #expect(padded.workspaceTitle == "Release checklist")
+        #expect(padded.isRequestEquivalent(to: trimmed))
+        expectIdentityPreserved(from: padded, to: trimmed)
+    }
+
     @Test func selectedTemplateChangeWithDifferentCompositionChangesRequest() {
         let before = snapshot(template: MobileTaskTemplate(
             name: "Codex",
@@ -338,17 +359,71 @@ import Testing
         #expect(identity.id != originalID)
     }
 
+    @Test func differentInstanceTagsChangeRequestIdentity() {
+        let template = MobileTaskTemplate(
+            id: UUID(),
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex"
+        )
+        let nightly = snapshot(template: template, macInstanceTag: "nightly")
+        let stable = snapshot(template: template, macInstanceTag: "stable")
+        let legacy = snapshot(template: template, macInstanceTag: nil)
+
+        #expect(!nightly.isRequestEquivalent(to: stable))
+        #expect(!nightly.isRequestEquivalent(to: legacy))
+        #expect(nightly.isRequestEquivalent(to: snapshot(template: template, macInstanceTag: "nightly")))
+    }
+
+    @Test func instanceTagSurvivesOperationRebindAndDraftRoundTrip() throws {
+        let template = MobileTaskTemplate(
+            id: UUID(),
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex"
+        )
+        let captured = snapshot(template: template, macInstanceTag: "nightly")
+
+        let rebound = captured.withOperationID(UUID())
+        #expect(rebound.macInstanceTag == "nightly")
+
+        let draft = captured.draft
+        #expect(draft.macInstanceTag == "nightly")
+
+        let decoded = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: JSONEncoder().encode(draft)
+        )
+        #expect(decoded.macInstanceTag == "nightly")
+    }
+
+    @Test func legacyDraftPayloadDecodesWithoutInstanceTag() throws {
+        let legacyJSON = """
+        {"prompt":"ship it","macDeviceID":"mac-a","directory":"~","didEditDirectory":false}
+        """
+        let decoded = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: Data(legacyJSON.utf8)
+        )
+        #expect(decoded.macInstanceTag == nil)
+        #expect(decoded.macDeviceID == "mac-a")
+    }
+
     private func snapshot(
         template: MobileTaskTemplate,
         prompt: String = "ship it",
         macDeviceID: String = "mac-a",
-        directory: String = "~/cmux"
+        macInstanceTag: String? = nil,
+        directory: String = "~/cmux",
+        workspaceName: String = ""
     ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
             template: template,
             prompt: prompt,
             macDeviceID: macDeviceID,
+            macInstanceTag: macInstanceTag,
             directory: directory,
+            workspaceName: workspaceName,
             didEditDirectory: false,
             operationID: UUID()
         )

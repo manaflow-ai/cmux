@@ -140,9 +140,12 @@ export async function handleIrohRoute(
     if (rateLimited || error === "blocked") {
       return irohJsonResponse({ error: "rate_limited" }, 429, { "retry-after": "60" });
     }
-    if (error) {
-      console.error("iroh trust broker firewall unavailable", { operation, failure: error });
-      return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+    if (error === "not-found") {
+      // The configured rule no longer exists (Vercel returns 404). That means
+      // the operator deleted the limit, so treat it as "no limit" and fail open
+      // rather than 503-ing every request. Genuine unavailability (timeout or an
+      // unexpected status) still fails closed via the catch above.
+      console.warn("iroh rate-limit rule not found; failing open", { operation });
     }
   }
 

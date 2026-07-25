@@ -35,11 +35,14 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     ///   - container: The pane view's content container.
     ///   - onFocusPanel: Invoked when the content reports keyboard focus
     ///     (terminal surfaces report via their `onFocus` hook).
+    ///   - makeTerminalVisible: Applies terminal visibility after attaching
+    ///     the terminal view to its container.
     init(
         content: CanvasPaneContent,
         panelId: UUID,
         container: NSView,
-        onFocusPanel: @escaping (UUID) -> Void
+        onFocusPanel: @escaping (UUID) -> Void,
+        makeTerminalVisible: @MainActor (GhosttySurfaceScrollView) -> Void = { $0.setVisibleInUI(true) }
     ) {
         self.content = content
         self.panelId = panelId
@@ -55,7 +58,6 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             // terminal at the viewport edge. Detach and parent directly so
             // the clip view crops instead.
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-            hostedView.setVisibleInUI(true)
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
@@ -75,12 +77,12 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         }
 
         switch content {
-        case .terminal:
-            // Ghostty's scroll view manages its own constraints-free layout.
-            view.translatesAutoresizingMaskIntoConstraints = true
-            view.autoresizingMask = [.width, .height]
-            view.frame = container.bounds
-            container.addSubview(view)
+        case .terminal(let panel, _):
+            Self.attachTerminalView(
+                panel.hostedView,
+                to: container,
+                makeVisible: makeTerminalVisible
+            )
         case .hosted:
             // Hosting views self-size to SwiftUI's ideal size under
             // autoresizing; pin with constraints so the pane dictates size.
@@ -93,6 +95,20 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             ])
         }
+    }
+
+    /// Attaches a terminal view before applying its visible lifecycle state.
+    static func attachTerminalView<View: NSView>(
+        _ view: View,
+        to container: NSView,
+        makeVisible: @MainActor (View) -> Void
+    ) {
+        // Ghostty's scroll view manages its own constraints-free layout.
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = [.width, .height]
+        view.frame = container.bounds
+        container.addSubview(view)
+        makeVisible(view)
     }
 
     /// The terminal panel when this mount hosts a terminal directly.

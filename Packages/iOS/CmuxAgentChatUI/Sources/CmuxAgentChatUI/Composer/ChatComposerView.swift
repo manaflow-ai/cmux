@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileSupport
 import Foundation
@@ -316,7 +317,7 @@ public struct ChatComposerView: View {
         #if os(iOS)
         dictation.cancel()
         let outbound = capabilities.allowsAttachments ? attachments.map(\.outbound) : []
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        MobileHapticFeedback().impact(style: .light)
         #else
         let outbound: [ChatOutboundAttachment] = []
         #endif
@@ -330,7 +331,7 @@ public struct ChatComposerView: View {
 
     private func performStop() {
         #if os(iOS)
-        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        MobileHapticFeedback().impact(style: .rigid)
         #endif
         let now = Date()
         if capabilities.allowsHardInterrupt,

@@ -110,6 +110,7 @@ private struct NotificationFeedList: View {
                     Section {
                         ForEach(section.items) { item in
                             NotificationFeedRow(item: item, actions: actions)
+                                .equatable()
                         }
                     } header: {
                         NotificationFeedDayHeader(section: section)

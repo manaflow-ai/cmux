@@ -38,7 +38,8 @@ public struct NotificationFeedPreviewView: View {
                                 defaultValue: "All Computers"
                             ),
                             isLoading: false,
-                            selection: $macSelection,
+                            selection: macSelection,
+                            select: { macSelection = $0 },
                             machines: [],
                             showAddDevice: nil
                         )

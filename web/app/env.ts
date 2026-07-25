@@ -70,7 +70,6 @@ const privateRelayEnvNames = new Set([
   "CMUX_RELAY_JWT_PRIVATE_KEY_PEM",
   "CMUX_RELAY_POLICY_KEY_ID",
   "CMUX_RELAY_POLICY_PRIVATE_KEY_PEM",
-  "CMUX_RELAY_TOKEN_RATE_LIMIT_ID",
 ]);
 const publicEnvValidationIssues = (issues: readonly unknown[]): readonly unknown[] => {
   const publicIssues: unknown[] = [];
@@ -132,16 +131,6 @@ const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((valu
     });
   }
 });
-const requireVercelProductionValue = (name: string): z.ZodType<string | undefined> =>
-  z.string().min(1).optional().superRefine((value, context) => {
-    if (isVercelProductionDeployment && !value) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `${name} is required for Vercel production runtimes`,
-      });
-    }
-  });
-
 const stackEnv = (
   value: string | undefined,
   fallback: string
@@ -155,9 +144,11 @@ export const env = createEnv({
   server: {
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
-    CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
-    CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID"),
-    CMUX_ANALYTICS_RATE_LIMIT_ID: requireVercelProductionValue("CMUX_ANALYTICS_RATE_LIMIT_ID"),
+    // Rate-limit rule ids are all optional: an unset id means that route runs
+    // without rate limiting (the operator removed the limits deliberately).
+    CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
@@ -234,7 +225,11 @@ export const env = createEnv({
     CMUX_IROH_MINT_URL: irohMinterUrl.optional(),
     CMUX_IROH_MINT_HMAC_SECRET_B64:
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
-    CMUX_IROH_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_IROH_RATE_LIMIT_ID"),
+    // Optional: leave unset to disable iroh rate limiting entirely. When unset,
+    // the firewall gate in routeHandler.ts is skipped. Matches the other
+    // optional rate-limit IDs (CMUX_PUSH_RATE_LIMIT_ID,
+    // CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID).
+    CMUX_IROH_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -255,7 +250,10 @@ export const env = createEnv({
     CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: requireVercelRelayValue(
       z.string().min(64).max(16_384),
     ),
-    CMUX_RELAY_TOKEN_RATE_LIMIT_ID: requireVercelRelayValue(),
+    // Optional: leave unset to disable relay-token rate limiting entirely.
+    // When unset, enforceRelayRateLimit skips the firewall gate. Matches
+    // CMUX_IROH_RATE_LIMIT_ID and CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID.
+    CMUX_RELAY_TOKEN_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Optional dedicated rule. Preferences deliberately fall back to the token
     // rule so existing deployments keep one shared account-scoped limiter.
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),

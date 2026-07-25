@@ -3,9 +3,13 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-struct NotificationFeedRow: View {
+struct NotificationFeedRow: View, Equatable {
     let item: MobileNotificationFeedItem
     let actions: NotificationFeedActions
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item
+    }
 
     var body: some View {
         let presentation = NotificationFeedRowPresentation(item: item)
@@ -54,7 +58,7 @@ struct NotificationFeedRow: View {
                 .accessibilityIdentifier("MobileNotificationFeedMarkUnreadMenu-\(accessibilitySuffix)")
             }
         })
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if !item.isRead {
                 Button {
                     actions.markRead(item)
@@ -66,6 +70,17 @@ struct NotificationFeedRow: View {
                 }
                 .tint(.blue)
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadSwipe-\(accessibilitySuffix)")
+            } else {
+                Button {
+                    actions.markUnread(item)
+                } label: {
+                    Label(
+                        L10n.string("mobile.notificationFeed.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: "envelope.badge"
+                    )
+                }
+                .tint(.blue)
+                .accessibilityIdentifier("MobileNotificationFeedMarkUnreadSwipe-\(accessibilitySuffix)")
             }
         }
         .accessibilityElement(children: .ignore)

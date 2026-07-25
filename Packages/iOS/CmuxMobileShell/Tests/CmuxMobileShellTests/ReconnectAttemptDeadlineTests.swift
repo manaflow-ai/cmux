@@ -35,6 +35,67 @@ extension ReconnectRouteSelectionTests {
         #expect(outcome.abandoned == nil)
     }
 
+    @Test func userRetrySupersedesAttemptWhoseRestoringDeadlineElapsed() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: Date.init,
+            supportedRouteKinds: [.iroh]
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": []],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "reconnect-deadline-retry-\(UUID().uuidString)"
+            )!,
+            storedMacReconnectRestoringDeadlineSeconds: 0.5
+        )
+
+        let firstAttempt = Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedStore.waitUntilLoadStarted(teamID: nil)
+        let deadlineElapsed = try await pollUntil(attempts: 1000) {
+            store.didFinishStoredMacReconnectAttempt && !store.isReconnectingStoredMac
+        }
+        #expect(deadlineElapsed)
+
+        let firstGeneration = store.storedMacReconnectGeneration
+        let retry = Task {
+            await store.retryActiveMacReconnect(stackUserID: "user-1")
+        }
+        var retryOwnsFlags = false
+        for _ in 0..<1000 {
+            let loadCount = await pairedStore.currentLoadAllCount()
+            if store.storedMacReconnectGeneration > firstGeneration,
+               store.isReconnectingStoredMac,
+               loadCount >= 2 {
+                retryOwnsFlags = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(retryOwnsFlags)
+
+        await pairedStore.release(teamID: nil)
+        #expect(await firstAttempt.value == false)
+        #expect(store.storedMacReconnectGeneration > firstGeneration)
+        #expect(store.isReconnectingStoredMac)
+
+        await pairedStore.release(teamID: nil)
+        #expect(await retry.value == false)
+        #expect(!store.isReconnectingStoredMac)
+    }
+
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

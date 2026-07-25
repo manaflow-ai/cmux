@@ -289,8 +289,8 @@ extension MobileShellComposite {
         notificationFeedOpenTask = nil
     }
 
-    /// Removes one forgotten Mac's content and cancels work that could restore it.
-    /// - Parameter macDeviceID: The forgotten Mac's stable device id.
+    /// Removes one hidden Mac's content and cancels work that could restore it.
+    /// - Parameter macDeviceID: The hidden Mac's stable device id.
     func removeNotificationFeedSnapshot(macDeviceID: String) {
         notificationFeedRefreshTasksByMac[macDeviceID]?.cancel()
         notificationFeedRefreshTasksByMac[macDeviceID] = nil

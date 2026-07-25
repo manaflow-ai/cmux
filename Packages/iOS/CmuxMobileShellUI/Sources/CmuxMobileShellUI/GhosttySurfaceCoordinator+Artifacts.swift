@@ -182,12 +182,9 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
             // Bytes the iPhone wants to send TO the PTY (typing, paste,
-            // mouse reports). Forward to the Mac sync server which
-            // writes them into the Mac's libghostty surface, which in
-            // turn writes them down the PTY.
-            Task { @MainActor [weak store] in
-                await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
-            }
+            // mouse reports). Enqueue synchronously so keystroke order is enqueue
+            // order; the composite's single drain preserves that order on the wire.
+            store?.sendTerminalRawInput(data, surfaceID: surfaceID)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {

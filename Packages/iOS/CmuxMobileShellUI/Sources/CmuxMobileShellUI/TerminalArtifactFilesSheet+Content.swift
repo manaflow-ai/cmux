@@ -310,11 +310,12 @@ extension TerminalArtifactFilesSheet {
                                     ),
                                     layout: .list,
                                     loader: sessionLoader,
-                                    open: {
-                                        open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                    },
+                                    scope: .session,
+                                    swipeOrder: swipeOrder,
+                                    open: open,
                                     onCopiedPath: notifyPathCopied
                                 )
+                                .equatable()
                                 Divider().padding(.leading, 72)
                             }
                             if !usesCompleteSessionSnapshot,
@@ -335,11 +336,12 @@ extension TerminalArtifactFilesSheet {
                                         ),
                                         layout: .grid,
                                         loader: sessionLoader,
-                                        open: {
-                                            open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                        },
+                                        scope: .session,
+                                        swipeOrder: swipeOrder,
+                                        open: open,
                                         onCopiedPath: notifyPathCopied
                                     )
+                                    .equatable()
                                 }
                             } footer: {
                                 if !usesCompleteSessionSnapshot,
@@ -377,11 +379,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                             layout: .list,
                             loader: sessionLoader,
-                            open: {
-                                open(item.path, scope: .session, swipeOrder: swipeOrder)
-                            },
+                            scope: .session,
+                            swipeOrder: swipeOrder,
+                            open: open,
                             onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                         Divider().padding(.leading, 72)
                     }
                     if let pagingCursor {
@@ -398,11 +401,12 @@ extension TerminalArtifactFilesSheet {
                                 artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                                 layout: .grid,
                                 loader: sessionLoader,
-                                open: {
-                                    open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                },
+                                scope: .session,
+                                swipeOrder: swipeOrder,
+                                open: open,
                                 onCopiedPath: notifyPathCopied
                             )
+                            .equatable()
                         }
                     } footer: {
                         if let pagingCursor {
@@ -438,11 +442,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .list,
                             loader: loader,
-                            open: {
-                                open(artifact.path, scope: scope, swipeOrder: swipeOrder)
-                            },
+                            scope: scope,
+                            swipeOrder: swipeOrder,
+                            open: open,
                             onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                         Divider().padding(.leading, 72)
                     }
                 }
@@ -455,11 +460,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .grid,
                             loader: loader,
-                            open: {
-                                open(artifact.path, scope: scope, swipeOrder: swipeOrder)
-                            },
+                            scope: scope,
+                            swipeOrder: swipeOrder,
+                            open: open,
                             onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                     }
                 }
                 .padding(16)
@@ -595,23 +601,13 @@ extension TerminalArtifactFilesSheet {
                 }
             }
 
-            Menu {
-                Picker(
-                    String(
-                        localized: "terminal.artifact.gallery.sort",
-                        defaultValue: "Sort",
-                        bundle: .module
-                    ),
-                    selection: $gallerySort
-                ) {
-                    ForEach(ChatArtifactGallerySort.allCases, id: \.self) { sort in
-                        Text(sortTitle(sort)).tag(sort)
-                    }
-                }
-            } label: {
-                Label(sortTitle(gallerySort), systemImage: "arrow.up.arrow.down")
-                    .font(.subheadline.weight(.medium))
-            }
+            TerminalArtifactGallerySortMenu(
+                value: TerminalArtifactGallerySortMenuValue(sort: gallerySort),
+                actions: TerminalArtifactGallerySortMenuActions(
+                    setSort: { gallerySort = $0 }
+                )
+            )
+            .equatable()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -631,17 +627,6 @@ extension TerminalArtifactFilesSheet {
             String(localized: "terminal.artifact.gallery.filter.docs", defaultValue: "Docs", bundle: .module)
         case .folders:
             String(localized: "terminal.artifact.gallery.filter.folders", defaultValue: "Folders", bundle: .module)
-        }
-    }
-
-    private func sortTitle(_ sort: ChatArtifactGallerySort) -> String {
-        switch sort {
-        case .recent:
-            String(localized: "terminal.artifact.gallery.sort.recent", defaultValue: "Recent", bundle: .module)
-        case .name:
-            String(localized: "terminal.artifact.gallery.sort.name", defaultValue: "Name", bundle: .module)
-        case .size:
-            String(localized: "terminal.artifact.gallery.sort.size", defaultValue: "Size", bundle: .module)
         }
     }
 

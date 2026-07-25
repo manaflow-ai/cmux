@@ -13,7 +13,7 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-        let initialReconnectGeneration = fixture.store.storedMacReconnectGenerationForTesting()
+        let initialReconnectGeneration = fixture.store.storedMacReconnectGeneration
         let firstClient = try #require(fixture.store.remoteClient)
         let first = try #require(fixture.box.get())
         await first.close()
@@ -26,7 +26,7 @@ extension ReconnectRouteSelectionTests {
         }
         #expect(recovered)
         #expect(
-            fixture.store.storedMacReconnectGenerationForTesting()
+            fixture.store.storedMacReconnectGeneration
                 == initialReconnectGeneration + 1
         )
         let attemptedKinds = fixture.factory.attemptedKinds()
@@ -79,6 +79,65 @@ extension ReconnectRouteSelectionTests {
         #expect(owner.phase == .redialing(replacementAttempt))
         #expect(owner.task != nil)
         #expect(owner.isCurrent(replacementAttempt))
+    }
+
+    @Test func cancelProbingReturnsOwnerToIdle() throws {
+        let owner = MobileConnectionRecoveryOwner()
+        defer { owner.cancel() }
+        let attempt = try #require(owner.begin(
+            trigger: "foreground",
+            sourceConnectionGeneration: UUID(),
+            probing: true
+        ))
+        owner.install(Task {}, for: attempt)
+
+        #expect(owner.cancelProbing())
+        #expect(owner.phase == .idle)
+        #expect(owner.task == nil)
+    }
+
+    @Test func cancelProbingLeavesNonProbePhasesUnchanged() throws {
+        let generation = UUID()
+
+        let idleOwner = MobileConnectionRecoveryOwner()
+        #expect(!idleOwner.cancelProbing())
+        #expect(idleOwner.phase == .idle)
+
+        let redialingOwner = MobileConnectionRecoveryOwner()
+        let redialingAttempt = try #require(redialingOwner.begin(
+            trigger: "networkChange",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        #expect(!redialingOwner.cancelProbing())
+        #expect(redialingOwner.phase == .redialing(redialingAttempt))
+
+        let validatingOwner = MobileConnectionRecoveryOwner()
+        let validatingAttempt = try #require(validatingOwner.begin(
+            trigger: "networkChange",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        let replacementGeneration = UUID()
+        #expect(validatingOwner.transitionToValidation(
+            validatingAttempt,
+            connectionGeneration: replacementGeneration
+        ))
+        #expect(!validatingOwner.cancelProbing())
+        #expect(validatingOwner.phase == .validatingReplacement(
+            validatingAttempt,
+            connectionGeneration: replacementGeneration
+        ))
+
+        let failedOwner = MobileConnectionRecoveryOwner()
+        let failedAttempt = try #require(failedOwner.begin(
+            trigger: "networkChange",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        #expect(failedOwner.fail(failedAttempt))
+        #expect(!failedOwner.cancelProbing())
+        #expect(failedOwner.phase == .failed(failedAttempt))
     }
 
     @Test func localPinnedIrohRecoveryDoesNotWaitForBackupRefresh() async throws {
