@@ -82,6 +82,30 @@ import Testing
         #expect(coordinator.activeNativeSearchText() == displayedQuery)
     }
 
+    @Test func nativeSearchPreservesTrailingSpaceWhileEditing() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        coordinator.synchronizeSelection(.notifications)
+        coordinator.setPresentation(true)
+
+        coordinator.updateNativeSearchText(
+            "Docs ",
+            for: .notifications,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.activeNativeSearchText() == "Docs ")
+        #expect(coordinator.searchDestinationText(for: .notifications) == "Docs ")
+
+        coordinator.updateNativeSearchText(
+            "Docs m",
+            for: .notifications,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.activeNativeSearchText() == "Docs m")
+
+        #expect(coordinator.commitSubmit() == .notifications)
+        #expect(coordinator.notifications == "Docs m")
+    }
+
     @Test func directCommittedSearchBindingUsesSharedBounds() {
         let coordinator = MobilePrimarySearchCoordinator()
 
@@ -90,6 +114,18 @@ import Testing
         #expect(coordinator.workspaces.unicodeScalars.count <= MobileSearchQueryBounds.maxUnicodeScalars)
         #expect(coordinator.workspaces.utf8.count <= MobileSearchQueryBounds.maxUTF8Bytes)
         #expect(coordinator.activeNativeSearchText() == coordinator.workspaces)
+    }
+
+    @Test func directCommittedSearchBindingPreservesTrailingSpaceWhileEditing() {
+        let coordinator = MobilePrimarySearchCoordinator()
+
+        coordinator.workspaces = "Docs "
+        #expect(coordinator.workspaces == "Docs ")
+        #expect(coordinator.activeNativeSearchText() == "Docs ")
+
+        coordinator.workspaces = "Docs m"
+        #expect(coordinator.workspaces == "Docs m")
+        #expect(coordinator.activeNativeSearchText() == "Docs m")
     }
 
     @Test func deactivatingSearchRejectsPlatformCleanupWrite() {

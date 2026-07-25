@@ -214,6 +214,28 @@ import Testing
         #expect(!projection.isSourceRebuilding)
     }
 
+    @Test @MainActor func searchTextPreservesTrailingSpaceWhileFilteringWithTrimmedQuery() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        projection.update(items: [
+            item(
+                id: "docs",
+                createdAt: try #require(isoDate("2026-07-15T17:30:00Z")),
+                isRead: false,
+                title: "Docs"
+            ),
+        ], referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+
+        projection.searchText = "Docs "
+        await projection.waitForPendingRebuild()
+
+        #expect(projection.searchText == "Docs ")
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["docs"])
+    }
+
     @Test @MainActor func sourceUpdateCapsInputBeforeSearchWork() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)

@@ -4,7 +4,7 @@ enum MobileSearchQueryBounds {
     static let maxUnicodeScalars = 128
     static let maxUTF8Bytes = 512
 
-    static func normalized(_ value: String) -> (value: String, didChange: Bool) {
+    static func boundedEditingText(_ value: String) -> (value: String, didChange: Bool) {
         var output = String()
         output.reserveCapacity(min(maxUnicodeScalars, maxUTF8Bytes))
         var scalarCount = 0
@@ -22,10 +22,19 @@ enum MobileSearchQueryBounds {
             utf8ByteCount += scalarUTF8ByteCount
         }
 
+        return (
+            value: output,
+            didChange: didTruncate
+        )
+    }
+
+    static func normalizedFilterText(_ value: String) -> (value: String, didChange: Bool) {
+        let bounded = boundedEditingText(value)
+        let output = bounded.value
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         return (
             value: trimmed,
-            didChange: didTruncate || trimmed != output
+            didChange: bounded.didChange || trimmed != output
         )
     }
 }

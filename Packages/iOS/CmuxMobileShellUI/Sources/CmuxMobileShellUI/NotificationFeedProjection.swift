@@ -30,13 +30,13 @@ final class NotificationFeedProjection {
     }
     var searchText = "" {
         didSet {
-            let normalized = MobileSearchQueryBounds.normalized(searchText)
+            let normalized = MobileSearchQueryBounds.boundedEditingText(searchText)
             if normalized.didChange {
                 searchText = normalized.value
             }
             guard normalized.value != oldValue else { return }
             scheduleRebuild(
-                debounce: normalized.value.isEmpty
+                debounce: Self.normalizedSearchQuery(normalized.value).isEmpty
                     ? nil
                     : .milliseconds(200)
             )
@@ -152,7 +152,7 @@ final class NotificationFeedProjection {
     }
 
     nonisolated private static func normalizedSearchQuery(_ value: String) -> String {
-        MobileSearchQueryBounds.normalized(value).value
+        MobileSearchQueryBounds.normalizedFilterText(value).value
     }
 
     nonisolated private static func build(

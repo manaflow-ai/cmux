@@ -359,11 +359,29 @@ extension MobileShellComposite {
         ).map(\.id))
         for macDeviceID in Array(notificationFeedSnapshotsByMac.keys) {
             guard var snapshot = notificationFeedSnapshotsByMac[macDeviceID] else { continue }
-            let retainedItems = snapshot.items.filter { retainedIDs.contains($0.id) }
+            let retainedItems = deduplicatedNotificationFeedItems(
+                snapshot.items.filter { retainedIDs.contains($0.id) }
+            )
             guard retainedItems.count != snapshot.items.count else { continue }
             snapshot.items = retainedItems
             notificationFeedSnapshotsByMac[macDeviceID] = snapshot
         }
+    }
+
+    /// Keeps the first row for each identity. Callers provide newest-first
+    /// items, so the retained row is the row aggregation would emit.
+    private func deduplicatedNotificationFeedItems(
+        _ items: [MobileNotificationFeedItem]
+    ) -> [MobileNotificationFeedItem] {
+        var seenIDs = Set<MobileNotificationFeedItemID>()
+        seenIDs.reserveCapacity(items.count)
+        var uniqueItems: [MobileNotificationFeedItem] = []
+        uniqueItems.reserveCapacity(items.count)
+        for item in items {
+            guard seenIDs.insert(item.id).inserted else { continue }
+            uniqueItems.append(item)
+        }
+        return uniqueItems
     }
 
     /// Resolves the foreground Mac id for event routing without exposing RPC state to UI.
@@ -415,51 +433,53 @@ extension MobileShellComposite {
         // The Mac feed contract is newest-first. Cap the wire snapshot before
         // local projection, then sort only that bounded window so the lazy
         // cross-Mac merge receives deterministic per-Mac inputs.
-        let items = response.notifications
-            .prefix(MobileNotificationFeedAggregation.maxItemCount)
-            .compactMap { wire -> MobileNotificationFeedItem? in
-                guard let id = normalizedIdentifier(wire.id),
-                      let workspaceID = normalizedIdentifier(wire.workspaceID) else {
-                    return nil
+        let items = deduplicatedNotificationFeedItems(
+            response.notifications
+                .prefix(MobileNotificationFeedAggregation.maxItemCount)
+                .compactMap { wire -> MobileNotificationFeedItem? in
+                    guard let id = normalizedIdentifier(wire.id),
+                          let workspaceID = normalizedIdentifier(wire.workspaceID) else {
+                        return nil
+                    }
+                    return MobileNotificationFeedItem(
+                        macDeviceID: macDeviceID,
+                        notificationID: id,
+                        macDisplayName: macDisplayName,
+                        remoteWorkspaceID: workspaceID,
+                        remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
+                        title: Self.string(
+                            wire.title,
+                            limitedToUTF8Bytes: Self.notificationFeedTitleByteLimit
+                        ),
+                        subtitle: normalizedOptionalText(
+                            wire.subtitle,
+                            limitedToUTF8Bytes: Self.notificationFeedSubtitleByteLimit
+                        ),
+                        body: Self.string(
+                            wire.body,
+                            limitedToUTF8Bytes: Self.notificationFeedBodyByteLimit
+                        ),
+                        createdAt: wire.createdAt,
+                        isRead: wire.isRead,
+                        retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
+                        workspaceTitle: normalizedOptionalText(
+                            wire.workspaceTitle,
+                            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+                        ),
+                        surfaceTitle: normalizedOptionalText(
+                            wire.surfaceTitle,
+                            limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
+                        ),
+                        connectionStatus: status
+                    )
                 }
-                return MobileNotificationFeedItem(
-                    macDeviceID: macDeviceID,
-                    notificationID: id,
-                    macDisplayName: macDisplayName,
-                    remoteWorkspaceID: workspaceID,
-                    remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
-                    title: Self.string(
-                        wire.title,
-                        limitedToUTF8Bytes: Self.notificationFeedTitleByteLimit
-                    ),
-                    subtitle: normalizedOptionalText(
-                        wire.subtitle,
-                        limitedToUTF8Bytes: Self.notificationFeedSubtitleByteLimit
-                    ),
-                    body: Self.string(
-                        wire.body,
-                        limitedToUTF8Bytes: Self.notificationFeedBodyByteLimit
-                    ),
-                    createdAt: wire.createdAt,
-                    isRead: wire.isRead,
-                    retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
-                    workspaceTitle: normalizedOptionalText(
-                        wire.workspaceTitle,
-                        limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
-                    ),
-                    surfaceTitle: normalizedOptionalText(
-                        wire.surfaceTitle,
-                        limitedToUTF8Bytes: Self.notificationFeedMetadataByteLimit
-                    ),
-                    connectionStatus: status
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.createdAt != rhs.createdAt {
-                    return lhs.createdAt > rhs.createdAt
+                .sorted { lhs, rhs in
+                    if lhs.createdAt != rhs.createdAt {
+                        return lhs.createdAt > rhs.createdAt
+                    }
+                    return lhs.id < rhs.id
                 }
-                return lhs.id < rhs.id
-            }
+        )
         notificationFeedSnapshotsByMac[macDeviceID] = NotificationFeedMacSnapshot(
             revision: response.revision,
             items: items

@@ -121,6 +121,38 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedItems.count == cap)
     }
 
+    @Test("Source cache deduplicates repeated wire notification identities")
+    func sourceCacheDeduplicatesRepeatedWireNotificationIdentities() throws {
+        let store = MobileShellComposite()
+        let cap = MobileNotificationFeedAggregation.maxItemCount
+        let duplicatedEntries = (0..<cap).map { offset in
+            NotificationResponseEntry(
+                id: "duplicate",
+                createdAt: Double(offset),
+                isRead: false
+            )
+        }
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: duplicatedEntries),
+            macDeviceID: "mac-a",
+            displayName: "Studio"
+        ))
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, entries: duplicatedEntries),
+            macDeviceID: "mac-b",
+            displayName: "Laptop"
+        ))
+
+        let sourceItemCount = store.notificationFeedSnapshotsByMac.values.reduce(0) { count, snapshot in
+            count + snapshot.items.count
+        }
+        #expect(sourceItemCount == 2)
+        #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.items.count == 1)
+        #expect(store.notificationFeedSnapshotsByMac["mac-b"]?.items.count == 1)
+        #expect(store.notificationFeedItems.count == 2)
+    }
+
     @Test("Legacy Mac payloads are bounded before phone retention")
     func legacyMacPayloadsAreBoundedBeforeRetention() throws {
         let store = MobileShellComposite()
