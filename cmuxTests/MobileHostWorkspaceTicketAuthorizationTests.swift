@@ -70,16 +70,20 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         return try CmxAttachTicketCompactCoder().decode(data)
     }
 
-    @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
+    @Test func attachTargetsUseDestinationSpecificRoutes() throws {
         let loopback = try loopbackRoute()
         let tailscale = try tailscaleRoute()
         let iroh = try irohRoute()
         let sanitizedIroh = try irohRoute(withPathHint: false)
         let routes = [loopback, tailscale, iroh]
 
-        #expect(try MobileAttachTarget.simulatorInjection.selectRoutes(from: routes) == [sanitizedIroh])
+        #expect(try MobileAttachTarget.simulatorInjection.selectRoutes(from: routes) == [loopback])
         #expect(try MobileAttachTarget.physicalDevice.selectRoutes(from: routes) == [sanitizedIroh])
         #expect(try MobileAttachTarget.ticketOnly.selectRoutes(from: routes) == routes)
+        #expect(
+            try MobileAttachTarget.simulatorInjection.selectRoutes(from: [tailscale, iroh])
+                == [sanitizedIroh]
+        )
         #expect(
             try MobileAttachTarget.simulatorInjection.selectRoutes(from: [loopback, tailscale])
                 == [loopback]
@@ -96,7 +100,6 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         for target in [MobileAttachTarget.simulatorInjection, .physicalDevice] {
             let selectedRoutes = try target.selectRoutes(from: [
-                try loopbackRoute(),
                 try tailscaleRoute(),
                 originalRoute,
             ])
@@ -272,13 +275,16 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
+    @Test func attachTicketWithoutPublishedRoutesPreservesNoRoutesError() async {
         let service = MobileHostService.shared
         service.debugSetListenerStateForTesting(
             generation: UUID(),
             usesEphemeralFallback: false,
             port: nil
         )
+        // A signed-in Mac can still publish an Iroh route with no legacy TCP listener.
+        // This test covers the distinct no-route contract.
+        MobileHostPublicStatusCache.removeAll()
 
         await #expect(throws: MobileAttachTicketStoreError.noRoutes) {
             try await service.createAttachTicket(
