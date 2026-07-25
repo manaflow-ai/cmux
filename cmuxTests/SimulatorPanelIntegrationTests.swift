@@ -198,6 +198,29 @@ struct SimulatorPanelIntegrationTests {
         #expect(await secondClient.discoveryCount == 1)
     }
 
+    @Test("Awaitable close does not finish before worker rollback")
+    func awaitableCloseWaitsForWorkerRollback() async {
+        let client = SimulatorFeatureFlagPaneClient(blockStop: true)
+        let panel = SimulatorPanel(client: client)
+        let completion = SimulatorCloseCompletionProbe()
+        let closeTask = Task { @MainActor in
+            await panel.closeAndWait()
+            await completion.markCompleted()
+        }
+
+        for _ in 0..<100 {
+            if await client.stopCount != 0 { break }
+            await Task.yield()
+        }
+
+        #expect(await client.stopCount == 1)
+        #expect(!(await completion.isCompleted))
+
+        await client.releaseStop()
+        await closeTask.value
+        #expect(await completion.isCompleted)
+    }
+
     @Test("External file drops target Simulator import instead of file previews")
     func externalFileDropRouting() async throws {
         let flags = CmuxFeatureFlags.shared
@@ -758,6 +781,14 @@ private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
     func releaseStop() {
         stopContinuation?.resume()
         stopContinuation = nil
+    }
+}
+
+private actor SimulatorCloseCompletionProbe {
+    private(set) var isCompleted = false
+
+    func markCompleted() {
+        isCompleted = true
     }
 }
 

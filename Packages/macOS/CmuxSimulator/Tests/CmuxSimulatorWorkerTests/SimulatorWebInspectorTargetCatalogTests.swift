@@ -19,6 +19,7 @@ struct SimulatorWebInspectorTargetCatalogTests {
         #expect(target.applicationName == "Example")
         #expect(target.bundleIdentifier == "com.example.app")
         #expect(target.isInUse)
+        #expect(catalog.target(id: target.id) == target)
     }
 
     @Test("Our own connection does not mark a target in use")
@@ -38,12 +39,14 @@ struct SimulatorWebInspectorTargetCatalogTests {
 
         catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
         #expect(catalog.targets.isEmpty)
+        #expect(catalog.target(id: "APP|7") == nil)
         catalog.apply(Self.pageListing(connectionIdentifier: nil), ownConnectionIdentifier: "OURS")
         catalog.apply([
             "__selector": "_rpc_applicationDisconnected:",
             "__argument": ["WIRApplicationIdentifierKey": "APP"],
         ], ownConnectionIdentifier: "OURS")
         #expect(catalog.targets.isEmpty)
+        #expect(catalog.target(id: "APP|7") == nil)
     }
 
     @Test("Identical listings are semantic no-ops")
@@ -94,6 +97,32 @@ struct SimulatorWebInspectorTargetCatalogTests {
             SimulatorWorkerOutbound.webInspectorTargets(requestID: UUID(), catalog.targets)
         )
         #expect(encoded.count < SimulatorLengthPrefixedMessageChannel.maximumFrameLength)
+    }
+
+    @Test("Target ID lookup does not sort the published catalog")
+    func targetLookupAvoidsPublishedOrderingWork() {
+        var catalog = SimulatorWebInspectorTargetCatalog()
+        catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
+        let pages = Dictionary(uniqueKeysWithValues: (0..<512).map { index in
+            (String(index), [
+                "WIRPageIdentifierKey": index,
+                "WIRTitleKey": String(repeating: "z", count: 512 - index),
+                "WIRURLKey": "https://example.test/\(index)",
+                "WIRTypeKey": "WIRTypeWebPage",
+            ] as [String: Any])
+        })
+        catalog.apply(
+            Self.pageListing(connectionIdentifier: nil, pages: pages),
+            ownConnectionIdentifier: "OURS"
+        )
+
+        let elapsed = ContinuousClock().measure {
+            for _ in 0..<2_000 {
+                _ = catalog.target(id: "APP|511")
+            }
+        }
+
+        #expect(elapsed < .milliseconds(250))
     }
 
     private static func applicationList() -> [String: Any] {
