@@ -58,9 +58,14 @@ actor AgentHookDeliveryQueue {
     // Access is serialized by `admissionPublicationLock`; the array never grows
     // beyond the configured ingress capacities.
     nonisolated(unsafe) private var admissionRecords: [AdmissionRecord] = []
+    // Best-effort telemetry remains bounded after it leaves ingress. Limiting
+    // one event per lane and reserving a delivery slot prevents tool bursts
+    // from monopolizing resident capacity ahead of lifecycle/barrier work.
+    nonisolated(unsafe) private var outstandingBestEffortOrderingKeys: Set<String> = []
     nonisolated private let maximumLifecycleIngressEvents: Int
     nonisolated private let maximumToolIngressEvents: Int
     nonisolated private let maximumBarrierIngressEvents: Int
+    nonisolated private let maximumOutstandingBestEffortEvents: Int
     private let capacityContinuation: AsyncStream<Void>.Continuation
     private let delivery: Delivery
     private let maximumConcurrentDeliveries: Int
@@ -108,6 +113,7 @@ actor AgentHookDeliveryQueue {
         maximumLifecycleIngressEvents = lifecycleIngressCapacity
         maximumToolIngressEvents = toolIngressCapacity
         self.maximumBarrierIngressEvents = maximumBarrierIngressEvents
+        maximumOutstandingBestEffortEvents = max(1, maximumConcurrentDeliveries - 1)
         capacityContinuation = capacityPair.continuation
         self.delivery = delivery
         self.maximumConcurrentDeliveries = maximumConcurrentDeliveries
@@ -213,6 +219,20 @@ actor AgentHookDeliveryQueue {
             return true
         }
 
+        if admissionClass == .bestEffortTool {
+            let orderingKey = item.orderingKey
+            guard !outstandingBestEffortOrderingKeys.contains(orderingKey),
+                  outstandingBestEffortOrderingKeys.count
+                    < maximumOutstandingBestEffortEvents
+            else {
+                agentHookDeliveryQueueLogger.error(
+                    "Hook admission dropped \(droppedDescription, privacy: .public)"
+                )
+                return false
+            }
+            outstandingBestEffortOrderingKeys.insert(orderingKey)
+        }
+
         admissionRecords.append(AdmissionRecord(
             item: item,
             admissionClass: admissionClass
@@ -222,6 +242,10 @@ actor AgentHookDeliveryQueue {
             return true
         case .dropped:
             admissionRecords.removeLast()
+            rollbackOutstandingBestEffortReservation(
+                admissionClass: admissionClass,
+                orderingKey: item.orderingKey
+            )
             assertionFailure("Agent hook admission signal overflowed")
             agentHookDeliveryQueueLogger.error(
                 "Hook admission dropped \(droppedDescription, privacy: .public)"
@@ -229,11 +253,29 @@ actor AgentHookDeliveryQueue {
             return false
         case .terminated:
             admissionRecords.removeLast()
+            rollbackOutstandingBestEffortReservation(
+                admissionClass: admissionClass,
+                orderingKey: item.orderingKey
+            )
             return false
         @unknown default:
             admissionRecords.removeLast()
+            rollbackOutstandingBestEffortReservation(
+                admissionClass: admissionClass,
+                orderingKey: item.orderingKey
+            )
             return false
         }
+    }
+
+    /// Called only while `admissionPublicationLock` is held.
+    private nonisolated func rollbackOutstandingBestEffortReservation(
+        admissionClass: AdmissionClass,
+        orderingKey: String
+    ) {
+        guard admissionClass == .bestEffortTool else { return }
+        let removed = outstandingBestEffortOrderingKeys.remove(orderingKey)
+        assert(removed != nil)
     }
 
     private nonisolated func lifecycleReplacementIndex(
@@ -244,9 +286,16 @@ actor AgentHookDeliveryQueue {
         }
         return lifecycleIndices.first {
             admissionRecords[$0].item.orderingKey == item.orderingKey
-        } ?? lifecycleIndices.first {
-            !admissionRecords[$0].item.preservesLatestLifecycleState
-        } ?? lifecycleIndices.first
+        }
+    }
+
+    private nonisolated func releaseOutstandingBestEffortReservation(
+        orderingKey: String
+    ) {
+        admissionPublicationLock.lock()
+        let removed = outstandingBestEffortOrderingKeys.remove(orderingKey)
+        admissionPublicationLock.unlock()
+        assert(removed != nil)
     }
 
     private nonisolated func takeNextPublishedItem() -> PendingItem? {
@@ -281,7 +330,10 @@ actor AgentHookDeliveryQueue {
                 let delivery = self.delivery
                 Task { [weak self] in
                     await delivery(event)
-                    await self?.deliveryFinished(orderingKey: orderingKey)
+                    await self?.deliveryFinished(
+                        orderingKey: orderingKey,
+                        completedBestEffortTelemetry: event.isBestEffortTelemetry
+                    )
                 }
             }
         }
@@ -297,8 +349,14 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    private func deliveryFinished(orderingKey: String) {
+    private func deliveryFinished(
+        orderingKey: String,
+        completedBestEffortTelemetry: Bool
+    ) {
         guard activeOrderingKeys.remove(orderingKey) != nil else { return }
+        if completedBestEffortTelemetry {
+            releaseOutstandingBestEffortReservation(orderingKey: orderingKey)
+        }
         // Return exactly the resident-capacity permit reserved before acceptance.
         capacityContinuation.yield(())
         if pendingByOrderingKey[orderingKey]?.isEmpty == false {
