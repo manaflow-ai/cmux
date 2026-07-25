@@ -59,6 +59,13 @@ extension CMUXCLI {
                 environment[key] = value
             }
         }
+        let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
+        let admittedPID = environment[pidEnvironmentKey].flatMap(Int.init)
+        if !client.isRelayBacked,
+           admittedPID.map({ $0 > 0 }) != true,
+           let inferredPID = inferredAgentPID() {
+            environment[pidEnvironmentKey] = String(inferredPID)
+        }
         if client.isRelayBacked {
             let relayEnvironmentKeys: Set<String> = [
                 "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
@@ -197,6 +204,11 @@ extension CMUXCLI {
             keys: ["permission_mode", "permissionMode"]
         ).map {
             compactQueuedAgentHookString($0, maximumLength: 80)
+        }
+        for key in ["fullyIdle", "cmux_notification_routed"] {
+            if let value = rawObject[key] as? Bool {
+                fallback[key] = value
+            }
         }
         if let toolName,
            let compactToolInput = parsed.object?["tool_input"] as? [String: Any],

@@ -27333,7 +27333,7 @@ struct CMUXCLI {
         return pid
     }
 
-    private func inferredAgentPID() -> Int? {
+    func inferredAgentPID() -> Int? {
         var candidate = getppid()
         var remainingWrapperSkips = 8
 
