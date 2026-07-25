@@ -27992,7 +27992,7 @@ struct CMUXCLI {
             commandRenderer = { parts, quote in
                 AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                     parts: parts,
-                    generatedSystemEnvPrefix: !environmentParts.isEmpty,
+                    generatedSystemEnvPrefix: false,
                     quote: quote
                 )
             }
