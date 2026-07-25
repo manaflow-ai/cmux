@@ -92,6 +92,52 @@ struct NativeConversationTranscriptUIKitTests {
         #expect(!imageRect.insetBy(dx: 0, dy: 0.5).intersects(followingRect.insetBy(dx: 0, dy: 0.5)))
     }
 
+    @Test("reconfigured visible rows invalidate native height before drawing over neighbors")
+    func reconfiguredVisibleRowsInvalidateHeightBeforeDrawingOverNeighbors() async throws {
+        let state = TranscriptFollowStateBox(.detached(anchorID: 0, offset: 0, unseenCount: 0))
+        let initialRows = [
+            TranscriptTestRow(id: 0, text: "Short streamed answer."),
+            TranscriptTestRow(id: 1, text: "Following prompt bubble."),
+        ]
+        var harness = TranscriptTestHarness(rows: initialRows, followState: state)
+        let mounted = mount(
+            harness,
+            size: CGSize(width: 390, height: 1_400)
+        )
+        defer { mounted.window.isHidden = true }
+
+        await settle(mounted.host, passes: 16)
+
+        let table = try #require(transcriptTable(in: mounted.host.view))
+        let initialHeight = table.rectForRow(at: IndexPath(row: 0, section: 0)).height
+        let expandedText = Array(
+            repeating: "The same visible row later resolves into a much taller markdown answer.",
+            count: 52
+        ).joined(separator: " ")
+        harness = TranscriptTestHarness(
+            rows: [
+                TranscriptTestRow(id: 0, text: expandedText),
+                TranscriptTestRow(id: 1, text: "Following prompt bubble."),
+            ],
+            followState: state
+        )
+        mounted.host.rootView = harness
+
+        await settle(mounted.host, passes: 32)
+
+        let updatedTable = try #require(transcriptTable(in: mounted.host.view))
+        #expect(updatedTable === table)
+        let expandedRect = updatedTable.rectForRow(at: IndexPath(row: 0, section: 0))
+        let followingRect = updatedTable.rectForRow(at: IndexPath(row: 1, section: 0))
+        #expect(expandedRect.height > initialHeight + 240)
+        #expect(expandedRect.maxY <= followingRect.minY + 0.5)
+        #expect(!expandedRect.insetBy(dx: 0, dy: 0.5).intersects(followingRect.insetBy(dx: 0, dy: 0.5)))
+
+        let expandedCell = try #require(updatedTable.cellForRow(at: IndexPath(row: 0, section: 0)))
+        let paintedFrame = descendantFrameUnion(of: expandedCell, in: updatedTable)
+        #expect(paintedFrame.maxY <= followingRect.minY + 0.5)
+    }
+
     @Test("detached first-visible anchor survives a prepend")
     func detachedAnchorSurvivesPrepend() async throws {
         let initialRows = (100..<240).map {
@@ -459,6 +505,15 @@ struct NativeConversationTranscriptUIKitTests {
             matches.append(contentsOf: descendants(of: type, in: subview))
         }
         return matches
+    }
+
+    private func descendantFrameUnion(of view: UIView, in coordinateSpace: UIView) -> CGRect {
+        var union = CGRect.null
+        for subview in view.subviews {
+            union = union.union(subview.convert(subview.bounds, to: coordinateSpace))
+            union = union.union(descendantFrameUnion(of: subview, in: coordinateSpace))
+        }
+        return union.isNull ? view.convert(view.bounds, to: coordinateSpace) : union
     }
 
     private func firstVisibleAnchor(
