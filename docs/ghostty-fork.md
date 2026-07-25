@@ -19,14 +19,43 @@ https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
 https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
+The nonblocking renderer lifecycle fix landed through
+https://github.com/manaflow-ai/ghostty/pull/132 before that cumulative merge.
 The resulting main line supplies the external-frontend renderer contract used
 by cmux Browser, exact cursor state for process-separated terminal mirrors,
-mutable-default color reset semantics, and the product-main renderer/link
-fixes described below.
+mutable-default color reset semantics, nonblocking embedded lifecycle updates,
+and the product-main renderer/link fixes described below.
 
 Its universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Nonblocking renderer lifecycle state
+
+- Commits:
+  - `2d99010ff` (test: cover nonblocking renderer lifecycle state)
+  - `ca21db1bb` (fix: publish renderer lifecycle state without blocking)
+  - `ade1de1f4` (merge the then-current fork `main`)
+  - `98c95ac88` (merge the lifecycle fix through fork PR #132)
+- Files:
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Publishes surface visibility, focus, and macOS display ID into independent
+    atomic latest-value slots instead of waiting for capacity in the bounded
+    renderer mailbox.
+  - Applies those coalesced values on the renderer thread after ordered mailbox
+    work, so an older compatibility message cannot overwrite a newer lifecycle
+    request.
+  - Keeps embedder UI executors nonblocking even when the renderer thread is
+    wedged or its mailbox is full. The renderer wakeup remains the signal that
+    drives the next drain.
+  - Conflict note: future surface lifecycle or renderer-mailbox changes must
+    preserve the invariant that UI-thread visibility, focus, and display-ID
+    calls never wait for renderer progress. New idempotent lifecycle fields
+    should use the same latest-value publication path rather than a `.forever`
+    mailbox push.
 
 ### External frontend rendering and recovery
 
@@ -109,7 +138,8 @@ result on `manaflow-ai/ghostty` `main` through
 https://github.com/manaflow-ai/ghostty/pull/128. The current submodule pin
 therefore includes the indented hard-newline link continuations, tokened
 presentation lifetime fixes, leased external frames, recovery snapshots,
-cursor continuity state, and mutable-default color resets together.
+cursor continuity state, mutable-default color resets, and nonblocking embedded
+lifecycle publication together.
 
 The older `b211341be` universal ReleaseFast archive remains published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1

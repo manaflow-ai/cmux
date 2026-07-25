@@ -477,6 +477,8 @@ struct WorkspaceShellView: View {
             selectedWorkspaceID: store.selectedWorkspaceID,
             host: store.connectedHostName,
             connectionStatus: listConnectionStatus,
+            workspaceChangesCapable: store.workspaceChangesCapable,
+            workspaceChangeChipsByWorkspaceID: store.workspaceChangeChipsByWorkspaceID,
             macUpdateHint: store.macUpdateHint,
             macUpdateHintMacName: store.connectedHostName,
             dismissMacUpdateHint: { store.dismissMacUpdateHint() },
@@ -486,8 +488,6 @@ struct WorkspaceShellView: View {
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-            profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-            profilePictureSize: displaySettings.profilePictureSize,
             selectWorkspace: selectWorkspace,
             createWorkspace: navigationStyle == .push
                 ? createWorkspaceInCompactStack
@@ -515,6 +515,7 @@ struct WorkspaceShellView: View {
             showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
+            customizeWorkspace: customizeWorkspaceClosure,
             setPinned: setWorkspacePinnedClosure,
             setUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,
@@ -826,6 +827,7 @@ struct WorkspaceShellView: View {
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             renameWorkspace: renameWorkspaceClosure,
+            customizeWorkspace: customizeWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
