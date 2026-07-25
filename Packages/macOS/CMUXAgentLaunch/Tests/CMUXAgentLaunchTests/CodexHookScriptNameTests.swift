@@ -28,13 +28,40 @@ struct CodexHookScriptNameTests {
     }
 
     @Test(
-        "Malformed generated filenames are rejected",
+        "Empty or separator-only subcommands are rejected",
+        arguments: ["", "/", "///", "---", "___"]
+    )
+    func emptyOrSeparatorOnlySubcommandsAreRejected(subcommand: String) {
+        let name: CodexHookScriptName? = CodexHookScriptName(
+            contents: "contents",
+            subcommand: subcommand
+        )
+        #expect(name == nil)
+    }
+
+    @Test(
+        "Recognized legacy generated filenames parse",
         arguments: [
             "cmux-codex-hook-stop.sh",
+            "cmux-codex-hook-persistent-stop.sh",
+            "cmux-codex-hook-persistent-feed-PreToolUse.sh",
+        ]
+    )
+    func recognizedLegacyGeneratedFilenamesParse(filename: String) throws {
+        let name = try #require(CodexHookScriptName(filename: filename))
+        let contentID: String? = name.contentID
+        #expect(contentID == nil)
+        #expect(name.filename == filename)
+    }
+
+    @Test(
+        "Malformed generated filenames are rejected",
+        arguments: [
             "cmux-codex-hook-0123456789abcde-stop.sh",
             "cmux-codex-hook-0123456789abcdef-.sh",
             "cmux-codex-hook-0123456789ABCDEF-stop.sh",
             "cmux-codex-hook-0123456789abcdef-stop!.sh",
+            "cmux-codex-hook-unrecognized.sh",
             "prefix-cmux-codex-hook-0123456789abcdef-stop.sh",
         ]
     )

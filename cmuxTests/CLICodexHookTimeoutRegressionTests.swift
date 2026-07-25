@@ -338,6 +338,63 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(stopHooks.first?.body.contains("cat >/dev/null") == true)
     }
 
+    @Test func codexHookInstallPreservesUnrecognizedGeneratedLookingScriptPath() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-unrecognized-path-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hooksDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let userScript = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-unrecognized.sh", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: userScript, lines: [
+            "#!/bin/sh",
+            "echo user-hook",
+        ])
+        let userHookJSON: [String: Any] = [
+            "hooks": [
+                "Stop": [
+                    [
+                        "hooks": [
+                            [
+                                "command": userScript.path,
+                                "timeout": 10000,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(
+            withJSONObject: userHookJSON,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        .write(
+            to: codexHome.appendingPathComponent("hooks.json", isDirectory: false),
+            options: .atomic
+        )
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let stopHooks = try codexHookEntries(in: codexHome)
+            .filter { $0.eventName == "Stop" }
+        #expect(stopHooks.contains { $0.command == userScript.path })
+        #expect(stopHooks.contains { $0.command != userScript.path })
+    }
+
     @Test func codexInstalledAsyncStopDoesNotMarkNewerTurnIdle() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
