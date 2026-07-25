@@ -20,6 +20,15 @@ own terminal process tree. Do not configure the bundled driver with
 terminal host and bypass the separately permissioned **cmux Computer Use**
 helper.
 
+Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
+replace that plugin: it supplies its own local MCP server and the
+`$cmux-computer-use` skill. The first Codex session that successfully attaches
+the server links the app-bundled skill into
+`~/.agents/skills/cmux-computer-use`, which is Codex's user-wide skill location.
+No `npx skills add` step or restart is required. cmux refreshes only a symlink
+that already points at a cmux app bundle and never overwrites a user-owned
+skill directory or unrelated symlink.
+
 The user grants Accessibility and Screen Recording to the helper once. A
 cmux-launched agent then connects through the authenticated, variant-scoped
 socket and can perceive the desktop through screenshots and accessibility

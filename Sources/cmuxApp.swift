@@ -170,6 +170,11 @@ struct cmuxApp: App {
             1
         )
         setenv(
+            ComputerUseRuntimePaths.codexDaemonSocketEnvironmentKey,
+            computerUsePaths.codexDaemonSocketURL.path,
+            1
+        )
+        setenv(
             ComputerUseRuntimePaths.stateDirectoryEnvironmentKey,
             computerUsePaths.stateDirectoryURL.path,
             1

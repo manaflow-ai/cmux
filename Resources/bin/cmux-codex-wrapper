@@ -243,6 +243,39 @@ cmux_computer_use_auth_token() {
     printf '%s' "$token"
 }
 
+cmux_codex_install_computer_use_skill() {
+    # Codex discovers user-wide skills under ~/.agents/skills. Keep the source
+    # inside the signed cmux app and link it instead of copying stale versions.
+    # Never replace a real directory or a symlink the user owns.
+    local home="${HOME:-}"
+    [[ "$home" = /* ]] || return 1
+    local self_dir resource_dir source_dir skills_root destination target
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    source_dir="$resource_dir/cmux-computer-use"
+    [[ -f "$source_dir/SKILL.md" ]] || return 1
+
+    skills_root="$home/.agents/skills"
+    destination="$skills_root/cmux-computer-use"
+    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
+
+    if [[ -L "$destination" ]]; then
+        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+        case "$target" in
+            */Contents/Resources/cmux-computer-use)
+                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    elif [[ -e "$destination" ]]; then
+        return 0
+    else
+        /bin/ln -s "$source_dir" "$destination" 2>/dev/null
+    fi
+}
+
 cmux_codex_emit_computer_use_args() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
@@ -262,7 +295,7 @@ cmux_codex_emit_computer_use_args() {
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
     runtime_uid="$(/usr/bin/id -u)"
-    cua_socket="${CMUX_CUA_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cua.sock}"
+    cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/codex-cua.sock}"
     state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/computer-use/runtime/${runtime_scope}/state}"
     # The helper owns external onboarding; the proxy keeps this false so its
     # first driving call waits until that helper reports both grants.
@@ -579,7 +612,9 @@ cmux_codex_read_inject_args() {
 # Computer-use args are generated independently of hook injection: the bundled
 # cua-driver is local and does not need the cmux hook socket, so a failed or
 # empty `hooks codex inject-args` emit must not silently drop computer use.
-cmux_codex_read_computer_use_args "$@" || true
+if cmux_codex_read_computer_use_args "$@"; then
+    cmux_codex_install_computer_use_skill || true
+fi
 
 if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"

@@ -7,19 +7,28 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
 
     init?(
         paths: ComputerUseRuntimePaths,
+        profile: ComputerUseDaemonProfile = .native,
         rootProcessIdentity: AgentPIDProcessIdentity? = AgentPIDProcessIdentity(
             pid: ProcessInfo.processInfo.processIdentifier
         )
     ) {
         guard let rootProcessIdentity else { return nil }
-        arguments = [
+        var arguments = [
             "serve",
             "--socket",
-            paths.daemonSocketURL.path,
+            profile == .native
+                ? paths.daemonSocketURL.path
+                : paths.codexDaemonSocketURL.path,
+        ]
+        if profile == .codexCompatibility {
+            arguments.append("--codex-computer-use-compat")
+        }
+        arguments.append(contentsOf: [
             "--no-permissions-gate",
             "--cursor-shape",
             "cmux",
-        ]
+        ])
+        self.arguments = arguments
         environment = [
             "CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW": "1",
             "CUA_DRIVER_RS_PERMISSIONS_GATE": "0",

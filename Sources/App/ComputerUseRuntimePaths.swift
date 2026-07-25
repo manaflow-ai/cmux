@@ -4,6 +4,7 @@ import Foundation
 /// Filesystem paths shared by the app-owned Computer Use runtime and agent wrappers.
 struct ComputerUseRuntimePaths: Sendable {
     static let daemonSocketEnvironmentKey = "CMUX_CUA_SOCKET_PATH"
+    static let codexDaemonSocketEnvironmentKey = "CMUX_CUA_CODEX_SOCKET_PATH"
     static let stateDirectoryEnvironmentKey = "CMUX_CUA_STATE_DIR"
     static let runtimeScopeEnvironmentKey = "CMUX_CUA_RUNTIME_SCOPE"
     static let clientExecutableEnvironmentKey = "CMUX_CUA_CLIENT_PATH"
@@ -22,6 +23,7 @@ struct ComputerUseRuntimePaths: Sendable {
     let computerUseDirectoryURL: URL
     let runtimeDirectoryURL: URL
     let daemonSocketURL: URL
+    let codexDaemonSocketURL: URL
     let authenticationTokenFileURL: URL
     let stateDirectoryURL: URL
     let permissionDatabaseDirectoryURL: URL
@@ -62,6 +64,7 @@ struct ComputerUseRuntimePaths: Sendable {
             .appendingPathComponent("cmux-cua-\(userIdentifier)", isDirectory: true)
             .appendingPathComponent(scope, isDirectory: true)
         daemonSocketURL = runtimeDirectoryURL.appendingPathComponent("cua.sock")
+        codexDaemonSocketURL = runtimeDirectoryURL.appendingPathComponent("codex-cua.sock")
         authenticationTokenFileURL = runtimeDirectoryURL.appendingPathComponent("auth-token")
         self.authenticationToken = authenticationToken.flatMap(Self.nonEmptyToken)
             ?? Self.persistedAuthenticationToken(
@@ -113,7 +116,11 @@ struct ComputerUseRuntimePaths: Sendable {
     ) -> String {
         let socketParent = rootDirectoryURL
             .appendingPathComponent("cmux-cua-\(userIdentifier)", isDirectory: true)
-        let fixedByteCount = socketParent.path.utf8.count + "/".utf8.count + "/cua.sock".utf8.count
+        let longestSocketName = "/codex-cua.sock"
+        let fixedByteCount =
+            socketParent.path.utf8.count
+                + "/".utf8.count
+                + longestSocketName.utf8.count
         let maximumScopeByteCount = max(1, 103 - fixedByteCount)
         guard candidate.utf8.count > maximumScopeByteCount else { return candidate }
 
