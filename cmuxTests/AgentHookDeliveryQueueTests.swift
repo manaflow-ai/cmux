@@ -49,8 +49,8 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads().contains("after-capacity"))
     }
 
-    @Test("Best-effort tool saturation cannot evict user-visible events")
-    func toolIngressReservesUserVisibleCapacityAndPreservesOrder() async throws {
+    @Test("Best-effort tool saturation cannot evict terminal lifecycle events")
+    func toolIngressReservesTerminalLifecycleCapacityAndPreservesOrder() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["session-start"])
         let queue = AgentHookDeliveryQueue(
             maximumConcurrentDeliveries: 1,
@@ -67,9 +67,15 @@ struct AgentHookDeliveryQueueTests {
         )))
         try await probe.waitUntilStarted(count: 1)
         #expect(queue.enqueue(try makeEvent(
-            agent: "codex",
-            subcommand: "post-tool-use",
-            payload: "tool",
+            agent: "cursor",
+            subcommand: "shell-exec",
+            payload: "shell-exec",
+            surfaceID: "surface-a"
+        )))
+        #expect(!queue.enqueue(try makeEvent(
+            agent: "cursor",
+            subcommand: "shell-done",
+            payload: "shell-done-overflow",
             surfaceID: "surface-a"
         )))
         #expect(queue.enqueue(try makeEvent(
@@ -78,19 +84,13 @@ struct AgentHookDeliveryQueueTests {
             surfaceID: "surface-a"
         )))
         #expect(queue.enqueue(try makeEvent(
-            subcommand: "pre-tool-use",
-            payload: "needs-input-tool",
+            subcommand: "stop",
+            payload: "stop",
             surfaceID: "surface-a"
         )))
         #expect(queue.enqueue(try makeEvent(
-            subcommand: "prompt-submit",
-            payload: "prompt",
-            surfaceID: "surface-a"
-        )))
-        #expect(!queue.enqueue(try makeEvent(
-            agent: "codex",
-            subcommand: "post-tool-use",
-            payload: "codex-tool-overflow",
+            subcommand: "session-end",
+            payload: "session-end",
             surfaceID: "surface-a"
         )))
         #expect(!queue.enqueue(try makeEvent(
@@ -102,7 +102,7 @@ struct AgentHookDeliveryQueueTests {
         await probe.release(payload: "session-start")
         try await probe.waitUntilCompleted(count: 5)
         #expect(await probe.completedPayloads() == [
-            "session-start", "tool", "push", "needs-input-tool", "prompt",
+            "session-start", "shell-exec", "push", "stop", "session-end",
         ])
     }
 
@@ -122,6 +122,45 @@ struct AgentHookDeliveryQueueTests {
         try await probe.waitUntilCompleted(count: 2)
         #expect(await probe.startedPayloads() == ["first", "second"])
         #expect(await probe.completedPayloads() == ["first", "second"])
+    }
+
+    @Test("A decision barrier waits for its lane while an independent lane progresses")
+    func decisionBarrierPreservesLaneOrderWithoutGlobalStall() async throws {
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["lifecycle-a"])
+        let barrierProbe = AgentHookDeliveryBarrierProbe()
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 2,
+            maximumResidentEvents: 4,
+            maximumIngressEvents: 4
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        let lifecycleA = try makeEvent(payload: "lifecycle-a", surfaceID: "surface-a")
+        #expect(queue.enqueue(lifecycleA))
+        try await probe.waitUntilStarted(count: 1)
+
+        let barrierTask = Task.detached {
+            await barrierProbe.markStarted()
+            let result = queue.waitForPriorDeliveries(
+                orderingKey: lifecycleA.orderingKey,
+                timeout: 3
+            )
+            await barrierProbe.complete(result: result)
+            return result
+        }
+        try await barrierProbe.waitUntilStarted()
+        #expect(queue.enqueue(try makeEvent(payload: "lifecycle-b", surfaceID: "surface-b")))
+
+        try await probe.waitUntilStarted(count: 2)
+        #expect(await probe.startedPayloads() == ["lifecycle-a", "lifecycle-b"])
+        #expect(await probe.completedPayloads() == ["lifecycle-b"])
+        #expect(await barrierProbe.result() == nil)
+
+        await probe.release(payload: "lifecycle-a")
+        #expect(await barrierTask.value)
+        try await probe.waitUntilCompleted(count: 2)
+        #expect(await probe.completedPayloads() == ["lifecycle-b", "lifecycle-a"])
     }
 
     @Test("Global delivery concurrency is capped and queued lanes progress when a slot frees")
@@ -317,6 +356,67 @@ struct AgentHookDeliveryQueueTests {
             options: .regularExpression
         )
         return "CMUX_\(component)_PID"
+    }
+}
+
+private actor AgentHookDeliveryBarrierProbe {
+    private let startedEvents: AsyncStream<Void>
+    private let startedEventContinuation: AsyncStream<Void>.Continuation
+    private var started = false
+    private var completedResult: Bool?
+
+    init() {
+        let startedPair = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        startedEvents = startedPair.stream
+        startedEventContinuation = startedPair.continuation
+    }
+
+    func markStarted() {
+        started = true
+        startedEventContinuation.yield(())
+    }
+
+    func complete(result: Bool) {
+        completedResult = result
+    }
+
+    func result() -> Bool? {
+        completedResult
+    }
+
+    func waitUntilStarted() async throws {
+        guard !started else { return }
+        let events = startedEvents
+        let outcome = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in events {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                do {
+                    // A genuine assertion deadline, not a polling or settling sleep.
+                    try await ContinuousClock().sleep(for: .seconds(3))
+                    return false
+                } catch {
+                    return true
+                }
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        guard outcome else {
+            throw AgentHookDeliveryProbeError.timedOut(
+                state: "barrier started",
+                expected: 1,
+                observed: 0
+            )
+        }
     }
 }
 

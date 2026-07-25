@@ -187,6 +187,135 @@ struct CLIRelayQueuedHookRegressionTests {
         #expect(sessions[sessionID] != nil)
     }
 
+    @Test("Relay replay preserves a Claude fork's parent through start and early end")
+    func relayReplayPreservesClaudeForkParentRecord() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-relay-claude-fork-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let parentSessionID = "claude-parent-session"
+        let parentSurfaceID = "55555555-5555-5555-5555-555555555555"
+        let relay = try RelayQueuedHookMockServer(
+            ttyName: "8538",
+            workspaceID: remoteWorkspaceID,
+            surfaceID: remoteSurfaceID
+        )
+        relay.start()
+        defer { relay.close() }
+        let launchArguments = [
+            "/remote/bin/claude", "--resume", parentSessionID, "--fork-session",
+        ]
+        let launchArgumentsBase64 = Data(
+            launchArguments.joined(separator: "\0").utf8
+        ).base64EncodedString()
+        let environment = relayEnvironment(
+            home: root,
+            extra: [
+                "SSH_TTY": "/dev/pts/8538",
+                "CMUX_AGENT_LAUNCH_KIND": "claude",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": launchArgumentsBase64,
+                "CMUX_WORKSPACE_ID": "stale-workspace",
+                "CMUX_SURFACE_ID": "stale-surface",
+            ]
+        )
+
+        let sessionStartPayload = """
+        {"session_id":"\(parentSessionID)","source":"resume","cwd":"/remote/repo","hook_event_name":"SessionStart"}
+        """
+        let sessionStartAdmission = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", relay.endpoint,
+                "hooks", "enqueue", "claude", "session-start",
+            ],
+            environment: environment,
+            standardInput: sessionStartPayload,
+            timeout: 5
+        )
+        #expect(!sessionStartAdmission.timedOut, Comment(rawValue: sessionStartAdmission.stderr))
+        #expect(sessionStartAdmission.status == 0, Comment(rawValue: sessionStartAdmission.stderr))
+        let admittedSessionStart = try admittedParams(
+            from: relay,
+            subcommand: "session-start"
+        )
+        let portableSessionStartPayload = try #require(
+            admittedSessionStart["payload"] as? String
+        )
+        let portableSessionStart = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(portableSessionStartPayload.utf8)
+            ) as? [String: Any]
+        )
+        #expect(portableSessionStart["_cmux_claude_fork_session"] as? Bool == true)
+        #expect(
+            portableSessionStart["_cmux_claude_fork_parent_session_id"] as? String
+                == parentSessionID
+        )
+
+        try seedClaudeParentStore(
+            root: root,
+            sessionID: parentSessionID,
+            parentSurfaceID: parentSurfaceID
+        )
+        _ = try replay(
+            cliPath: cliPath,
+            root: root,
+            agent: "claude",
+            subcommand: "session-start",
+            payload: portableSessionStartPayload
+        )
+        var parentRecord = try claudeSessionRecord(
+            root: root,
+            sessionID: parentSessionID
+        )
+        #expect(parentRecord["surfaceId"] as? String == parentSurfaceID)
+
+        let sessionEndPayload = """
+        {"session_id":"\(parentSessionID)","cwd":"/remote/repo","hook_event_name":"SessionEnd"}
+        """
+        let sessionEndAdmission = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", relay.endpoint,
+                "hooks", "enqueue", "claude", "session-end",
+            ],
+            environment: environment,
+            standardInput: sessionEndPayload,
+            timeout: 5
+        )
+        #expect(!sessionEndAdmission.timedOut, Comment(rawValue: sessionEndAdmission.stderr))
+        #expect(sessionEndAdmission.status == 0, Comment(rawValue: sessionEndAdmission.stderr))
+        let admittedSessionEnd = try admittedParams(
+            from: relay,
+            subcommand: "session-end"
+        )
+        let portableSessionEndPayload = try #require(
+            admittedSessionEnd["payload"] as? String
+        )
+
+        try seedClaudeParentStore(
+            root: root,
+            sessionID: parentSessionID,
+            parentSurfaceID: parentSurfaceID
+        )
+        _ = try replay(
+            cliPath: cliPath,
+            root: root,
+            agent: "claude",
+            subcommand: "session-end",
+            payload: portableSessionEndPayload
+        )
+        parentRecord = try claudeSessionRecord(
+            root: root,
+            sessionID: parentSessionID
+        )
+        #expect(parentRecord["surfaceId"] as? String == parentSurfaceID)
+    }
+
     private func replay(
         cliPath: String,
         root: URL,
@@ -244,13 +373,73 @@ struct CLIRelayQueuedHookRegressionTests {
     }
 
     private func admittedParams(
-        from relay: RelayQueuedHookMockServer
+        from relay: RelayQueuedHookMockServer,
+        subcommand: String? = nil
     ) throws -> [String: Any] {
         let requests = relay.requests()
         let request = try #require(requests.first {
-            $0["method"] as? String == "agent.hook.enqueue"
+            guard $0["method"] as? String == "agent.hook.enqueue" else {
+                return false
+            }
+            guard let subcommand else { return true }
+            return ($0["params"] as? [String: Any])?["subcommand"] as? String
+                == subcommand
         }, Comment(rawValue: String(describing: requests)))
         return try #require(request["params"] as? [String: Any])
+    }
+
+    private func seedClaudeParentStore(
+        root: URL,
+        sessionID: String,
+        parentSurfaceID: String
+    ) throws {
+        let now = Date().timeIntervalSince1970
+        let active: [String: Any] = [
+            "sessionId": sessionID,
+            "updatedAt": now,
+        ]
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionID: [
+                    "sessionId": sessionID,
+                    "workspaceId": replayWorkspaceID,
+                    "surfaceId": parentSurfaceID,
+                    "cwd": root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                replayWorkspaceID: active,
+            ],
+            "activeSessionsBySurface": [
+                parentSurfaceID: active,
+            ],
+        ]
+        let data = try JSONSerialization.data(
+            withJSONObject: store,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(
+            to: root.appendingPathComponent("claude-hook-sessions.json"),
+            options: .atomic
+        )
+    }
+
+    private func claudeSessionRecord(
+        root: URL,
+        sessionID: String
+    ) throws -> [String: Any] {
+        let data = try Data(
+            contentsOf: root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        let store = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let sessions = try #require(store["sessions"] as? [String: Any])
+        return try #require(sessions[sessionID] as? [String: Any])
     }
 
     private func writeRovoSession(

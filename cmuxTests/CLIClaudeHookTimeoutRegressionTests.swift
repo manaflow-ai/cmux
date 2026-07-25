@@ -715,6 +715,130 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(!commands.contains { $0.contains("--color=#FF453A") })
     }
 
+    @Test("Actionable Feed decisions establish their delivery lane barrier before push")
+    func actionableFeedDecisionWaitsForEarlierQueuedLifecycleWork() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-feed-decision-barrier-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let socketPath = makeCodexHookSocketPath("feed-barrier")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: surfaceID,
+            connectionLimit: 4
+        )
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "hooks", "feed", "--source", "gemini", "--event", "PreToolUse",
+            ],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_GEMINI_PID": "8535",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: """
+            {"session_id":"decision-session","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"true"}}
+            """,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requests = capturedCommands.snapshot().compactMap(codexHookJSONObject)
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(
+            Array(methods.prefix(2)) == ["agent.hook.barrier", "feed.push"],
+            Comment(rawValue: String(describing: requests))
+        )
+        let barrier = try #require(requests.first {
+            $0["method"] as? String == "agent.hook.barrier"
+        })
+        let params = try #require(barrier["params"] as? [String: Any])
+        #expect(params["agent"] as? String == "gemini")
+        let environment = try #require(params["environment"] as? [String: Any])
+        #expect(environment["CMUX_WORKSPACE_ID"] as? String == workspaceID)
+        #expect(environment["CMUX_SURFACE_ID"] as? String == surfaceID)
+        #expect(environment["CMUX_GEMINI_PID"] as? String == "8535")
+    }
+
+    @Test("Direct Codex permission status waits for its queued lifecycle lane")
+    func codexPermissionStatusWaitsForEarlierQueuedLifecycleWork() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-codex-decision-barrier-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let socketPath = makeCodexHookSocketPath("codex-barrier")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: surfaceID,
+            connectionLimit: 8
+        )
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "hooks", "codex", "notification",
+            ],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_CODEX_PID": "8535",
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: """
+            {"session_id":"codex-decision-session","hook_event_name":"PermissionRequest","tool_name":"Write"}
+            """,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requests = capturedCommands.snapshot().compactMap(codexHookJSONObject)
+        #expect(
+            requests.first?["method"] as? String == "agent.hook.barrier",
+            Comment(rawValue: String(describing: requests))
+        )
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["agent"] as? String == "codex")
+        let environment = try #require(params["environment"] as? [String: Any])
+        #expect(environment["CMUX_SURFACE_ID"] as? String == surfaceID)
+        #expect(environment["CMUX_CODEX_PID"] as? String == "8535")
+    }
+
     @Test("Custom agent installers emit bounded queue admission")
     func customAgentInstallersEmitBoundedQueueAdmission() throws {
         struct Producer {

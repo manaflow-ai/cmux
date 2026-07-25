@@ -256,6 +256,10 @@ func runCodexHookProcess(
     }
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
+    let exitSignal = DispatchSemaphore(value: 0)
+    process.terminationHandler = { _ in
+        exitSignal.signal()
+    }
 
     do {
         try process.run()
@@ -265,12 +269,6 @@ func runCodexHookProcess(
     if let standardInput, let stdinPipe {
         stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdinPipe.fileHandleForWriting.close()
-    }
-
-    let exitSignal = DispatchSemaphore(value: 0)
-    DispatchQueue.global(qos: .userInitiated).async {
-        process.waitUntilExit()
-        exitSignal.signal()
     }
 
     let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
