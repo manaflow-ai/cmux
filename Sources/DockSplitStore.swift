@@ -434,7 +434,7 @@ final class DockSplitStore: BonsplitDelegate {
                 && fallbackLineageAlreadyIncludesChange
         )
         activeTerminalFontSizeChangeInheritanceContext = context
-        lastTerminalFontSizeLineage = context.fallbackLineage
+        rememberDurableTerminalFontSizeLineage(context.fallbackLineage)
     }
 
     func endTerminalFontSizeChangeInheritance(token: UUID) {
@@ -459,8 +459,17 @@ final class DockSplitStore: BonsplitDelegate {
         }
         let focusedLineage = focusedTerminalPanel?.surface.fontSizeLineageSnapshot()
         if let lineage = focusedLineage ?? fallback ?? lastTerminalFontSizeLineage {
-            lastTerminalFontSizeLineage = lineage
+            rememberDurableTerminalFontSizeLineage(lineage)
         }
+    }
+
+    /// Concrete config-following values are valid only during an active
+    /// change. Persisting one would freeze the config value for future panes.
+    private func rememberDurableTerminalFontSizeLineage(
+        _ lineage: TerminalFontSizeLineage?
+    ) {
+        lastTerminalFontSizeLineage =
+            lineage?.isExplicitOverride == true ? lineage : nil
     }
 
     private func inheritedTerminalFontSizeConfig(
@@ -479,7 +488,11 @@ final class DockSplitStore: BonsplitDelegate {
                 ?? lastTerminalFontSizeLineage else {
             return nil
         }
-        lastTerminalFontSizeLineage = lineage
+        guard inheritanceContext != nil || lineage.isExplicitOverride else {
+            rememberDurableTerminalFontSizeLineage(nil)
+            return nil
+        }
+        rememberDurableTerminalFontSizeLineage(lineage)
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = lineage
         config.fontSizeChangeToken = inheritanceContext?.token
