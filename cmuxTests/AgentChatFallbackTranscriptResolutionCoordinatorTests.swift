@@ -106,32 +106,55 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
             return (record, coordinator)
         }
 
-        let firstCompleted = DispatchSemaphore(value: 0)
+        let (firstCompletions, firstCompletionContinuation) = AsyncStream.makeStream(
+            of: Bool.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
         let firstResolution = Task { @MainActor in
             let path = await coordinator.resolve(for: record)
-            firstCompleted.signal()
+            firstCompletionContinuation.yield(true)
+            firstCompletionContinuation.finish()
             return path
         }
+        let firstDeadline = Task {
+            try? await ContinuousClock().sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            firstCompletionContinuation.yield(false)
+            firstCompletionContinuation.finish()
+        }
         await probe.waitUntilStarted()
-        let firstCompletionResult = firstCompleted.wait(timeout: .now() + 1)
+        let firstCompletedBeforeDeadline = await firstCompletions.first { _ in true } ?? false
+        firstDeadline.cancel()
         #expect(
-            firstCompletionResult == .success,
+            firstCompletedBeforeDeadline,
             "the advertised deadline must return while non-cooperative resolver I/O remains suspended"
         )
-        if firstCompletionResult == .timedOut {
+        if !firstCompletedBeforeDeadline {
             await probe.releaseSuspendedResolution()
             await probe.waitUntilFinished()
         }
         #expect(await firstResolution.value == nil)
 
-        let secondCompleted = DispatchSemaphore(value: 0)
+        let (secondCompletions, secondCompletionContinuation) = AsyncStream.makeStream(
+            of: Bool.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
         let secondResolution = Task { @MainActor in
             let path = await coordinator.resolve(for: record)
-            secondCompleted.signal()
+            secondCompletionContinuation.yield(true)
+            secondCompletionContinuation.finish()
             return path
         }
+        let secondDeadline = Task {
+            try? await ContinuousClock().sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            secondCompletionContinuation.yield(false)
+            secondCompletionContinuation.finish()
+        }
+        let secondCompletedBeforeDeadline = await secondCompletions.first { _ in true } ?? false
+        secondDeadline.cancel()
         #expect(
-            secondCompleted.wait(timeout: .now() + 1) == .success,
+            secondCompletedBeforeDeadline,
             "an expired lookup must reject coalesced callers without spawning more stuck resolver work"
         )
         #expect(await secondResolution.value == nil)
