@@ -9,6 +9,43 @@ internal import CMUXDebugLog
 #endif
 // MARK: - Headless bootstrap windows and runtime surface lifecycle
 extension TerminalSurface {
+    /// Transfers sole ownership of a detached native runtime surface to the
+    /// teardown coordinator. Native teardown joins Ghostty's IO threads, so it
+    /// must never run on the main actor.
+    @MainActor
+    private func enqueueDetachedRuntimeTeardown(
+        reason: String,
+        surface: ghostty_surface_t,
+        callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
+        byteTeeLease: (any TerminalByteTeeLease)?
+    ) {
+#if DEBUG
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            runtimeTeardown.enqueueRuntimeTeardown(
+                id: id,
+                workspaceId: tabId,
+                reason: reason,
+                surface: surface,
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: byteTeeLease,
+                freeSurface: freeSurface
+            )
+            return
+        }
+#endif
+        runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: reason,
+            surface: surface,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: byteTeeLease
+        )
+    }
+
     @MainActor
     func scheduleHeadlessRuntimeStartIfNeeded(
         reason: String,
@@ -268,33 +305,13 @@ extension TerminalSurface {
         }
 #endif
 
-#if DEBUG
-        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
-            // Transport manualIOContext and teeLease through the request too:
-            // the coordinator releases all callback userdata only after the
-            // native free, which is what joins ghostty's IO threads.
-            runtimeTeardown.enqueueRuntimeTeardown(
-                id: id,
-                workspaceId: tabId,
-                reason: "teardown",
-                surface: surfaceToFree,
-                callbackContext: callbackContext,
-                manualIOContext: manualIOContext,
-                byteTeeLease: teeLease,
-                freeSurface: freeSurface
-            )
-            return
-        }
-#endif
-
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-        }
+        enqueueDetachedRuntimeTeardown(
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
     }
 
     /// Frees the runtime surface while keeping the model alive for an
@@ -343,31 +360,13 @@ extension TerminalSurface {
         )
 #endif
 
-#if DEBUG
-        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
-            // Transport manualIOContext and teeLease through the request too:
-            // the coordinator releases all callback userdata only after the
-            // native free, which is what joins ghostty's IO threads.
-            runtimeTeardown.enqueueRuntimeTeardown(
-                id: id,
-                workspaceId: tabId,
-                reason: reason,
-                surface: surfaceToFree,
-                callbackContext: callbackContext,
-                manualIOContext: manualIOContext,
-                byteTeeLease: teeLease,
-                freeSurface: freeSurface
-            )
-            return
-        }
-#endif
-
-        Task { @MainActor in
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-        }
+        enqueueDetachedRuntimeTeardown(
+            reason: reason,
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
     }
 
     /// Marks the resume side of agent hibernation and primes the next runtime
