@@ -588,6 +588,52 @@ mod tests {
     }
 
     #[test]
+    fn digit_only_short_surface_id_resolves_or_reports_a_namespace_collision() {
+        let short_only = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 60466176, "short_id": "100000"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+        assert_eq!(short_only.resolve_surface("100000"), Ok(Some(60_466_176)));
+
+        let colliding = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 60466176, "short_id": "100000"},
+                            {"surface": 100000, "short_id": "00255s"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+        assert_eq!(colliding.resolve_surface("100000"), Err(AmbiguousSurfaceReference));
+    }
+
+    #[test]
     fn pane_parser_preserves_authoritative_focus_recency() {
         let pane = parse_pane(&json!({
             "id": 3,

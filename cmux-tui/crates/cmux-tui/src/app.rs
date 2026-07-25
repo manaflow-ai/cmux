@@ -11605,7 +11605,66 @@ mod tests {
         assert!(!app.menu.as_ref().unwrap().levels[0].items.iter().any(|item| {
             matches!(item, MenuItem::Submenu { label, .. } if label.starts_with("Connected clients"))
         }));
+        assert!(
+            !app.menu.as_ref().unwrap().levels[0].items.iter().any(|item| {
+                matches!(
+                    item.action(),
+                    Some(
+                        MenuAction::NewPaneSmart(_)
+                            | MenuAction::NewTab(_)
+                            | MenuAction::NewBrowserTab(_)
+                            | MenuAction::SplitRight(_)
+                            | MenuAction::SplitDown(_)
+                    )
+                )
+            }),
+            "single-surface context menu exposed a topology-creating action"
+        );
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+        for action in [
+            Action::NewTab,
+            Action::NewBrowserTab,
+            Action::NewPaneSmart,
+            Action::SplitRight,
+            Action::SplitDown,
+            Action::NewScreen,
+            Action::NewWorkspace,
+        ] {
+            assert!(
+                !app.shortcut_help
+                    .as_ref()
+                    .unwrap()
+                    .rows
+                    .iter()
+                    .any(|(candidate, _)| { *candidate == action }),
+                "single-surface shortcut help exposed {}",
+                action.definition().label_en
+            );
+        }
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_surface_client_rejects_hidden_browser_creation() {
+        let (mux, surface) = test_mux("single-surface-browser-creation-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let initial_surfaces = mux.with_state(|state| state.surfaces.len());
+
+        app.run_action_for_pane(Action::NewBrowserTab, Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        assert_eq!(surfaces.len(), initial_surfaces);
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
     }
 
     #[test]
