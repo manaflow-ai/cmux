@@ -61,7 +61,7 @@ struct TerminalDockKeyboardTransitionPlannerTests {
             return
         }
 
-        #expect(abs(duration - (0.25 * 186.0 / 336.0)) < 0.000_001)
+        #expect(duration == 0.25 * (186.0 / 336.0))
     }
 
     @Test("tiny remaining distance applies directly when an old animation is active")
