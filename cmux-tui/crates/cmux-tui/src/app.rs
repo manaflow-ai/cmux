@@ -14073,6 +14073,52 @@ mod tests {
     }
 
     #[test]
+    fn immediate_terminal_press_rejects_content_changed_before_surface_output() {
+        let (mux, surface) = test_mux("immediate-mouse-content-test", None);
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        surface.scroll_delta(-3).unwrap();
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued output event has not marked the rendered route stale yet"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::None,
+            "a click must not select terminal content that has changed since the rendered frame"
+        );
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
         let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -14164,6 +14210,61 @@ mod tests {
             "the retained press must replay against the same rendered terminal"
         );
         app.cancel_pty_mouse_drag();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn physical_release_queues_behind_a_contended_terminal_press() {
+        let (mux, surface) = test_mux("contended-mouse-release-order-test", None);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        let held_surface = surface.clone();
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            held_surface.with_terminal(|_| {
+                locked_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+        });
+        locked_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            ..press
+        })))
+        .unwrap();
+
+        assert_eq!(
+            app.deferred_input.len(),
+            2,
+            "the physical release must retain its order behind the deferred press"
+        );
+        assert!(app.drag.is_none());
+        app.replay_deferred_input().unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(app.drag.is_none(), "the replayed release must close the replayed press");
+        assert!(!app.active_pointer_buttons.contains(&MouseButton::Left));
         mux.close_surface(surface.id).unwrap();
     }
 
@@ -14322,6 +14423,14 @@ mod tests {
         assert!(
             Arc::ptr_eq(&levels, &routed),
             "motion routing must clone only the Arc, not menu items"
+        );
+    }
+
+    #[test]
+    fn graphics_only_repaint_is_a_pointer_replay_barrier() {
+        assert!(
+            PointerRoutePhase::Fresh.with_action(RenderAction::Graphics).is_stale(),
+            "browser input must wait until the replacement bitmap is presented"
         );
     }
 
