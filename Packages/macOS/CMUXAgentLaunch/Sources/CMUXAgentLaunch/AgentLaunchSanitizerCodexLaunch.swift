@@ -176,65 +176,69 @@ private func cmuxInjectedCodexHookArgumentPrefixEnd(_ args: [String]) -> Int? {
     } else {
         return nil
     }
-    if index < args.count, args[index] == "--dangerously-bypass-hook-trust" {
-        index += 1
+    guard index < args.count, args[index] == "--dangerously-bypass-hook-trust" else {
+        return nil
     }
+    index += 1
 
-    var strippedHookConfig = false
-    while index < args.count {
-        let arg = args[index]
-        if isCmuxInjectedCodexHookConfigOption(arg) {
-            strippedHookConfig = true
-            index += 1
-            continue
+    // The wrapper always prepends this complete ordered block in one operation.
+    // Requiring the entire structure distinguishes cmux injection from later
+    // user hook config, whose command text is normal user-controllable input.
+    for event in codexWrapperInjectedHookEvents {
+        guard let config = codexHookConfigValue(in: args, at: index),
+              isCmuxInjectedCodexHookConfigValue(config.value, event: event)
+        else {
+            return nil
         }
-        if (arg == "-c" || arg == "--config"),
-           index + 1 < args.count,
-           isCmuxInjectedCodexHookConfigValue(args[index + 1]) {
-            strippedHookConfig = true
-            index += 2
-            continue
-        }
-        break
+        index = config.nextIndex
     }
-    return strippedHookConfig ? index : nil
+    return index
 }
 
-private func isCmuxInjectedCodexHookConfigOption(_ arg: String) -> Bool {
-    for prefix in ["-c=", "--config="] where arg.hasPrefix(prefix) {
-        return isCmuxInjectedCodexHookConfigValue(String(arg.dropFirst(prefix.count)))
+private func codexHookConfigValue(
+    in args: [String],
+    at index: Int
+) -> (value: String, nextIndex: Int)? {
+    guard index < args.count else { return nil }
+    let argument = args[index]
+    for prefix in ["-c=", "--config="] where argument.hasPrefix(prefix) {
+        return (String(argument.dropFirst(prefix.count)), index + 1)
     }
-    return false
+    guard (argument == "-c" || argument == "--config"), index + 1 < args.count else {
+        return nil
+    }
+    return (args[index + 1], index + 2)
 }
 
-private func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
+private func isCmuxInjectedCodexHookConfigValue(
+    _ value: String,
+    event: CodexWrapperInjectedHookEvent
+) -> Bool {
     guard let equals = value.firstIndex(of: "=") else { return false }
     let key = String(value[..<equals])
-    guard key.hasPrefix("hooks.") else { return false }
-    let eventName = String(key.dropFirst("hooks.".count))
-    guard let event = codexWrapperInjectedHookEvents[eventName] else { return false }
+    guard key == "hooks.\(event.agentEvent)" else { return false }
 
     let body = String(value[value.index(after: equals)...])
     let prefix = "[{hooks=[{type=\"command\",command='''"
-    guard let suffix = event.timeoutMs
-        .map({ "''',timeout=\($0)}]}]" })
-        .first(where: { body.hasSuffix($0) }) else {
-        return false
-    }
+    let suffix = "''',timeout=\(event.timeoutMs)}]}]"
     guard body.hasPrefix(prefix), body.hasSuffix(suffix) else { return false }
     let command = String(body.dropFirst(prefix.count).dropLast(suffix.count))
     return isCmuxCodexHookCommand(command, subcommand: event.cmuxSubcommand)
 }
 
-private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, timeoutMs: [Int])] = [
-    "SessionStart": ("session-start", [10000]),
-    "UserPromptSubmit": ("prompt-submit", [10000]),
-    "Stop": ("stop", [10000]),
-    "SessionStop": ("stop", [10000]),
-    "PreToolUse": ("pre-tool-use", [120000, 10000]),
-    "PostToolUse": ("post-tool-use", [10000]),
-    "PermissionRequest": ("notification", [120000]),
-    "Notification": ("notification", [10000]),
+private struct CodexWrapperInjectedHookEvent {
+    let agentEvent: String
+    let cmuxSubcommand: String
+    let timeoutMs: Int
+}
+
+private let codexWrapperInjectedHookEvents: [CodexWrapperInjectedHookEvent] = [
+    .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
+    .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: 10000),
+    .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: 10000),
+    .init(agentEvent: "PreToolUse", cmuxSubcommand: "pre-tool-use", timeoutMs: 120000),
+    .init(agentEvent: "PostToolUse", cmuxSubcommand: "post-tool-use", timeoutMs: 10000),
+    .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification", timeoutMs: 120000),
 ]
 
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {

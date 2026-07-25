@@ -25,17 +25,12 @@ struct CodexHookInjectionStrippingTests {
 
     @Test("Strips inline cmux Codex hook snippets")
     func stripsInlineCmuxCodexHookSnippets() {
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            "payload=$(mktemp -t cmux-codex-hook.XXXXXX); sh -c 'echo ok' cmux-codex-hook \"$payload\" \"$cmux_cli\" hooks codex \(subcommand)"
+        } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--enable",
-                    "hooks",
-                    "-c",
-                    "hooks.SessionStart=[{hooks=[{type=\"command\",command='''payload=$(mktemp -t cmux-codex-hook.XXXXXX); sh -c 'echo ok' cmux-codex-hook \"$payload\" \"$cmux_cli\" hooks codex session-start''',timeout=10000}]}]",
-                    "--model",
-                    "gpt-5.5",
-                ],
+                arguments,
                 launcher: "",
                 fallbackKind: "codex"
             ) == ["codex", "--model", "gpt-5.5"]
@@ -44,19 +39,12 @@ struct CodexHookInjectionStrippingTests {
 
     @Test("Strips joined cmux Codex hook options")
     func stripsJoinedCmuxCodexHookOptions() {
+        let arguments = ["codex"] + codexWrapperHookArguments(joined: true) { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--enable=hooks",
-                    "--dangerously-bypass-hook-trust",
-                    "-c=hooks.SessionStart=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}]",
-                    "--config",
-                    "hooks.SessionStop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-session-stop.sh''',timeout=10000}]}]",
-                    "--config=hooks.Notification=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=10000}]}]",
-                    "--model",
-                    "gpt-5.5",
-                ],
+                arguments,
                 launcher: "",
                 fallbackKind: "codex"
             ) == ["codex", "--model", "gpt-5.5"]
@@ -65,18 +53,12 @@ struct CodexHookInjectionStrippingTests {
 
     @Test("Strips content-addressed cmux Codex hook scripts")
     func stripsContentAddressedCmuxCodexHookScripts() {
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--enable",
-                    "hooks",
-                    "--dangerously-bypass-hook-trust",
-                    "-c",
-                    "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh''',timeout=10000}]}]",
-                    "--model",
-                    "gpt-5.5",
-                ],
+                arguments,
                 launcher: "",
                 fallbackKind: "codex"
             ) == ["codex", "--model", "gpt-5.5"]
@@ -85,18 +67,12 @@ struct CodexHookInjectionStrippingTests {
 
     @Test("Strips content-addressed hooks below a spaced home path")
     func stripsContentAddressedHooksBelowSpacedHomePath() {
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            "/Volumes/Home Disk/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--enable",
-                    "hooks",
-                    "--dangerously-bypass-hook-trust",
-                    "-c",
-                    "hooks.Stop=[{hooks=[{type=\"command\",command='''/Volumes/Home Disk/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh''',timeout=10000}]}]",
-                    "--model",
-                    "gpt-5.5",
-                ],
+                arguments,
                 launcher: "",
                 fallbackKind: "codex"
             ) == ["codex", "--model", "gpt-5.5"]
@@ -168,22 +144,23 @@ struct CodexHookInjectionStrippingTests {
             "/usr/bin/env sh relative/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh",
             "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh*",
         ] {
-            let compoundCommandArguments = [
-                "codex",
+            let userHookArguments = [
                 "--enable",
                 "hooks",
-                "--dangerously-bypass-hook-trust",
                 "-c",
                 "hooks.Stop=[{hooks=[{type=\"command\",command='''\(command)''',timeout=10000}]}]",
                 "--model",
                 "gpt-5.5",
             ]
+            let compoundCommandArguments = ["codex"] + codexWrapperHookArguments { subcommand in
+                "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-\(subcommand).sh"
+            } + userHookArguments
             #expect(
                 AgentLaunchSanitizer.sanitizedLaunchArguments(
                     compoundCommandArguments,
                     launcher: "",
                     fallbackKind: "codex"
-                ) == compoundCommandArguments
+                ) == ["codex"] + userHookArguments
             )
         }
     }
@@ -193,22 +170,19 @@ struct CodexHookInjectionStrippingTests {
         // cmux splices exactly one `--enable hooks` + one trust flag alongside
         // its marker configs; the user's own enable flag and hook config after
         // them must survive stripping so the preserved hook stays enabled.
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + [
+            "--enable",
+            "hooks",
+            "-c",
+            "hooks.SessionStart=[{hooks=[{type=\"command\",command='''/Users/u/bin/cmux-codex-hook-wrapper.sh'''}]}]",
+            "--model",
+            "gpt-5.5",
+        ]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--enable",
-                    "hooks",
-                    "--dangerously-bypass-hook-trust",
-                    "-c",
-                    "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
-                    "--enable",
-                    "hooks",
-                    "-c",
-                    "hooks.SessionStart=[{hooks=[{type=\"command\",command='''/Users/u/bin/cmux-codex-hook-wrapper.sh'''}]}]",
-                    "--model",
-                    "gpt-5.5",
-                ],
+                arguments,
                 launcher: "",
                 fallbackKind: "codex"
             ) == [
@@ -516,28 +490,46 @@ struct CodexHookInjectionStrippingTests {
     }
 
     private func realisticCodexHookArgv() -> [String] {
-        [
-            codexExecutable,
-            "--enable",
-            "hooks",
-            "--dangerously-bypass-hook-trust",
-            "-c",
-            "hooks.SessionStart=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}]",
-            "-c",
-            "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-user-prompt-submit.sh''',timeout=10000}]}]",
-            "-c",
-            "hooks.PreToolUse=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-pre-tool-use.sh''',timeout=10000}]}]",
-            "-c",
-            "hooks.PostToolUse=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-post-tool-use.sh''',timeout=10000}]}]",
-            "-c",
-            "hooks.Notification=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=10000}]}]",
-            "-c",
-            "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+        [codexExecutable] + codexWrapperHookArguments { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + [
             "--dangerously-bypass-approvals-and-sandbox",
             "--model",
             "gpt-5.5",
             "-c",
             "model_reasoning_effort=xhigh",
+        ]
+    }
+
+    private func codexWrapperHookArguments(
+        joined: Bool = false,
+        command: (String) -> String
+    ) -> [String] {
+        var arguments = joined
+            ? ["--enable=hooks", "--dangerously-bypass-hook-trust"]
+            : ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
+        for (index, event) in codexWrapperHookEvents.enumerated() {
+            let value = "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''\(command(event.cmuxSubcommand))''',timeout=\(event.timeoutMs)}]}]"
+            let option = index.isMultiple(of: 2) ? "-c" : "--config"
+            if joined {
+                arguments.append("\(option)=\(value)")
+            } else {
+                arguments.append(contentsOf: [option, value])
+            }
+        }
+        return arguments
+    }
+
+    private var codexWrapperHookEvents: [
+        (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
+    ] {
+        [
+            ("SessionStart", "session-start", 10000),
+            ("UserPromptSubmit", "prompt-submit", 10000),
+            ("Stop", "stop", 10000),
+            ("PreToolUse", "pre-tool-use", 120000),
+            ("PostToolUse", "post-tool-use", 10000),
+            ("PermissionRequest", "notification", 120000),
         ]
     }
 
