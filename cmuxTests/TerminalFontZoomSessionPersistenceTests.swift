@@ -489,6 +489,39 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(inheritedPanel.surface.fontSizeLineageSnapshot() == resetLineage)
     }
 
+    @Test("completed Dock reset keeps future terminals on current configuration")
+    func completedDockResetDoesNotFreezeConfiguredFontSize() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+
+        dock.rememberTerminalFontSizeLineageForNewTerminals(
+            fallback: TerminalFontSizeLineage(
+                basePoints: 13,
+                isExplicitOverride: false
+            )
+        )
+
+        let rootPane = try #require(
+            dock.bonsplitController.allPaneIds.first
+        )
+        let panelId = try #require(
+            dock.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                focus: false
+            )
+        )
+        let panel = try #require(dock.panels[panelId] as? TerminalPanel)
+
+        #expect(
+            panel.surface.fontSizeLineageSnapshot() == nil,
+            "A non-explicit reset snapshot must not freeze a stale configured size"
+        )
+    }
+
     @Test("workspace zoom seeds a legacy Dock created afterward")
     func workspaceZoomSeedsLazyLegacyDock() throws {
         let workspace = Workspace()

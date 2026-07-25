@@ -381,6 +381,86 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testWorkspaceTerminalFontSizeRepeatEventsCoalesceAcrossRunLoopTurns() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let panel = workspace.terminalPanel(for: panelId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected a terminal and repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            let beforeLineage = panel.surface.fontSizeLineageSnapshot()
+            let configuredRuntimePoints = Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent:
+                        GlobalFontMagnification.storedPercent
+                ).fontSize
+            )
+            let beforeRuntimePoints = beforeLineage.map {
+                CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: $0.basePoints,
+                    percent: GlobalFontMagnification.storedPercent
+                )
+            } ?? configuredRuntimePoints
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+
+            XCTAssertEqual(
+                panel.surface.fontSizeLineageSnapshot(),
+                beforeLineage,
+                "Repeat events from separate run-loop turns must share a real coalescing window"
+            )
+            XCTAssertEqual(
+                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                1
+            )
+
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+#else
+            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+            return
+#endif
+
+            guard let afterLineage = panel.surface.fontSizeLineageSnapshot() else {
+                XCTFail("Expected the coalesced font-size lineage")
+                return
+            }
+            let afterRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: afterLineage.basePoints,
+                percent: GlobalFontMagnification.storedPercent
+            )
+            XCTAssertEqual(
+                afterRuntimePoints,
+                TerminalFontSizePolicy().clampedRuntimePoints(
+                    beforeRuntimePoints - 2
+                ),
+                accuracy: 0.001
+            )
+        }
+    }
+
     func testWorkspaceTerminalFontSizeResetRepeatDoesNotQueueFanout() {
         withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
