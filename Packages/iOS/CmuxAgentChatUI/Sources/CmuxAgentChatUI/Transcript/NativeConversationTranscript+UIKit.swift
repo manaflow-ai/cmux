@@ -300,7 +300,7 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
         }
 
         private func attachToTailIfReached(in tableView: UITableView) {
-            guard distanceFromTail(in: tableView) <= chatTranscriptAtBottomThreshold else { return }
+            guard tailIsVisiblyReached(in: tableView) else { return }
             followState.wrappedValue = .followingTail
         }
 
@@ -472,7 +472,7 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
             )
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
 
-            if distanceFromTail(in: tableView) <= chatTranscriptAtBottomThreshold {
+            if tailIsVisiblyReached(in: tableView) {
                 tailSettleBottomConfirmationCount += 1
             } else {
                 tailSettleBottomConfirmationCount = 0
@@ -490,7 +490,7 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
                 activeTailSettleGeneration = nil
                 tailSettleBottomConfirmationCount = 0
                 pendingSemanticScrollTarget = nil
-                if distanceFromTail(in: tableView) <= chatTranscriptAtBottomThreshold {
+                if tailIsVisiblyReached(in: tableView) {
                     followState.wrappedValue = .followingTail
                 } else {
                     detachAtCurrentViewport(in: tableView)
@@ -527,6 +527,20 @@ where Row: Identifiable & Equatable, Row.ID: Hashable & Sendable, RowContent: Vi
 
         private func distanceFromTail(in tableView: UITableView) -> CGFloat {
             max(0, maxOffsetY(in: tableView) - tableView.contentOffset.y)
+        }
+
+        private func tailIsVisiblyReached(in tableView: UITableView) -> Bool {
+            guard !orderedIDs.isEmpty else { return true }
+            let lastIndexPath = IndexPath(row: orderedIDs.count - 1, section: 0)
+            guard tableView.numberOfRows(inSection: 0) > lastIndexPath.row else { return false }
+            let visibleRows = tableView.indexPathsForVisibleRows ?? []
+            guard visibleRows.contains(lastIndexPath) else { return false }
+            let visibleBottomY = tableView.contentOffset.y
+                + tableView.bounds.height
+                - tableView.adjustedContentInset.bottom
+            let lastRowBottomY = tableView.rectForRow(at: lastIndexPath).maxY
+            return distanceFromTail(in: tableView) <= chatTranscriptAtBottomThreshold
+                && lastRowBottomY <= visibleBottomY + chatTranscriptAtBottomThreshold
         }
 
         private func maxOffsetY(in tableView: UITableView) -> CGFloat {
