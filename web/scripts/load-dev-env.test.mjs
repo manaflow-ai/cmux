@@ -59,6 +59,48 @@ function sourceDevEnv({
   }
 }
 
+function sourceSharePageEnv({
+  port,
+  configuredOrigin,
+  useExternalOrigin = false,
+}) {
+  const home = mkdtempSync(path.join(tmpdir(), "cmux-load-share-env-"));
+  const secrets = path.join(home, ".secrets");
+  const envFile = path.join(secrets, "cmuxterm-dev.env");
+  mkdirSync(secrets, { recursive: true });
+  writeFileSync(
+    envFile,
+    `CMUX_SHARE_PAGE_BASE_URL=${configuredOrigin}\n`,
+    { mode: 0o600 },
+  );
+
+  try {
+    return execFileSync(
+      "bash",
+      [
+        "-c",
+        `source "$1"; printf '%s' "\${CMUX_SHARE_PAGE_BASE_URL-}"`,
+        "bash",
+        scriptPath,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          CMUXTERM_ENV_FILE: envFile,
+          CMUX_PORT: String(port),
+          CMUX_DEV_USE_EXTERNAL_SHARE_PAGE_BASE_URL: useExternalOrigin
+            ? "1"
+            : "0",
+        },
+      },
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 test("blank downloaded relay secret falls back to the protected local key", () => {
   const privateKey = "-----BEGIN PRIVATE KEY-----\nlocal-dev\n-----END PRIVATE KEY-----\n";
   const [keyID, loadedPrivateKey] = sourceDevEnv({
@@ -102,4 +144,25 @@ test("custom local fallback key id remains coupled to its private key", () => {
 
   assert.equal(keyID, "custom-local-key-id");
   assert.equal(loadedPrivateKey, privateKey);
+});
+
+test("tagged dev share pages follow the current CMUX_PORT", () => {
+  assert.equal(
+    sourceSharePageEnv({
+      port: 4498,
+      configuredOrigin: "http://localhost:3777",
+    }),
+    "http://localhost:4498",
+  );
+});
+
+test("external share page origins remain an explicit opt-in", () => {
+  assert.equal(
+    sourceSharePageEnv({
+      port: 4498,
+      configuredOrigin: "https://preview.example.test",
+      useExternalOrigin: true,
+    }),
+    "https://preview.example.test",
+  );
 });
