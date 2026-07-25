@@ -73,8 +73,8 @@ extension CMUXCLI {
     /// `codex resume` subcommand. Codex accepts hook configuration as global
     /// arguments before `resume`, but resume project trust is parsed from the
     /// subcommand's argument scope and is ignored when prepended.
-    func emitCodexWrapperResumeArgs() {
-        emitNulSeparatedArguments(codexResumeTrustOverride())
+    func emitCodexWrapperResumeArgs() async {
+        emitNulSeparatedArguments(await codexResumeTrustOverride())
     }
 
     private func emitNulSeparatedArguments(_ arguments: [String]) {
@@ -94,7 +94,7 @@ extension CMUXCLI {
     /// unattended Codex resume. Existing explicit cwd or repository decisions
     /// remain authoritative; an undecided project resumes as untrusted instead
     /// of blocking the restored pane on Codex's trust picker.
-    private func codexResumeTrustOverride() -> [String] {
+    private func codexResumeTrustOverride() async -> [String] {
         let environment = ProcessInfo.processInfo.environment
         guard let arguments = codexCapturedLaunchArguments(environment),
               let currentDirectory = normalizedHookValue(
@@ -115,7 +115,7 @@ extension CMUXCLI {
         else {
             return []
         }
-        guard let projectDecisions = codexEffectiveProjectDecisionPaths(
+        guard let projectDecisions = await codexEffectiveProjectDecisionPaths(
             environment: environment,
             appServerConfigurationArguments: appServerConfigurationArguments,
             currentDirectory: effectiveDirectory,
@@ -155,7 +155,7 @@ extension CMUXCLI {
         appServerConfigurationArguments: [String],
         currentDirectory: String,
         policy: CodexResumeTrustPolicy
-    ) -> Set<String>? {
+    ) async -> Set<String>? {
         guard let executablePath = normalizedHookValue(
             environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
         ),
@@ -177,8 +177,8 @@ extension CMUXCLI {
 
         func readProjectDecisions(
             configurationArguments: [String]
-        ) -> Set<String>? {
-            let result = CLIProcessRunner.runJSONLinesProcess(
+        ) async -> Set<String>? {
+            let result = await CLIProcessRunner.runJSONLinesProcess(
                 executablePath: executablePath,
                 arguments: configurationArguments + ["app-server", "--stdio"],
                 stdinText: request,
@@ -200,7 +200,7 @@ extension CMUXCLI {
         // refresh or credential command from delaying every restored session.
         // A missing/invalid cache or managed requirement can reject this
         // session override, so retry the original effective configuration.
-        return CodexResumeTrustProbeCache(
+        return await CodexResumeTrustProbeCache(
             directory: codexResumeTrustProbeCacheDirectory(
                 environment: environment
             ),
@@ -213,13 +213,13 @@ extension CMUXCLI {
                     "-c",
                     "model_catalog_json=\(modelCatalogPath)",
                 ]
-                if let decisions = readProjectDecisions(
+                if let decisions = await readProjectDecisions(
                     configurationArguments: isolatedConfigurationArguments
                 ) {
                     return decisions
                 }
             }
-            return readProjectDecisions(
+            return await readProjectDecisions(
                 configurationArguments: appServerConfigurationArguments
             )
         }

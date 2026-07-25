@@ -3332,7 +3332,7 @@ struct CMUXCLI {
         return true
     }
 
-    func run() throws {
+    func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
@@ -3652,7 +3652,7 @@ struct CMUXCLI {
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
-            if try runHooksNoSocketCommand(commandArgs: commandArgs) {
+            if try await runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
             }
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
@@ -34762,7 +34762,7 @@ export default CMUXSessionRestore;
 
     // MARK: - Hooks namespace
 
-    private func runHooksNoSocketCommand(commandArgs: [String]) throws -> Bool {
+    private func runHooksNoSocketCommand(commandArgs: [String]) async throws -> Bool {
         guard let first = commandArgs.first?.lowercased() else {
             print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
             return true
@@ -34812,7 +34812,7 @@ export default CMUXSessionRestore;
                 // Hidden: emit the NUL-separated trust override that the
                 // wrapper appends after `codex resume` arguments. Codex ignores
                 // this project decision when it is placed before the subcommand.
-                emitCodexWrapperResumeArgs()
+                await emitCodexWrapperResumeArgs()
                 return true
             case "install":
                 try installHooksForAgent(def, arguments: actionArgs)
@@ -35618,7 +35618,7 @@ private enum CMUXCLIOutput {
 
 @main
 struct CMUXTermMain {
-    static func main() {
+    static func main() async {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
@@ -35627,7 +35627,7 @@ struct CMUXTermMain {
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
         )
         do {
-            try cli.run()
+            try await cli.run()
         } catch {
             CMUXCLIOutput.writeStandardError("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1

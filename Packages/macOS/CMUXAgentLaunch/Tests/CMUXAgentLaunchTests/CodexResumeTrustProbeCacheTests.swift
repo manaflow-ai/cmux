@@ -8,7 +8,7 @@ import Testing
 @Suite("Codex resume trust probe cache")
 struct CodexResumeTrustProbeCacheTests {
     @Test("Does not reuse successful probes across sequential invocations")
-    func doesNotCacheSuccessfulProbesAcrossInvocations() {
+    func doesNotCacheSuccessfulProbesAcrossInvocations() async {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = CodexResumeTrustProbeCache(
@@ -17,11 +17,11 @@ struct CodexResumeTrustProbeCacheTests {
         )
         var probeCount = 0
 
-        let first = cache.resolve(keyComponents: ["codex", "one"]) {
+        let first = await cache.resolve(keyComponents: ["codex", "one"]) {
             probeCount += 1
             return ["/project"]
         }
-        let second = cache.resolve(keyComponents: ["codex", "one"]) {
+        let second = await cache.resolve(keyComponents: ["codex", "one"]) {
             probeCount += 1
             return ["/updated"]
         }
@@ -32,7 +32,7 @@ struct CodexResumeTrustProbeCacheTests {
     }
 
     @Test("Does not reuse failed probes across sequential invocations")
-    func doesNotCacheFailedProbesAcrossInvocations() {
+    func doesNotCacheFailedProbesAcrossInvocations() async {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = CodexResumeTrustProbeCache(
@@ -41,11 +41,11 @@ struct CodexResumeTrustProbeCacheTests {
         )
         var probeCount = 0
 
-        let first: Set<String>? = cache.resolve(keyComponents: ["failure"]) {
+        let first: Set<String>? = await cache.resolve(keyComponents: ["failure"]) {
             probeCount += 1
             return nil
         }
-        let second: Set<String>? = cache.resolve(keyComponents: ["failure"]) {
+        let second: Set<String>? = await cache.resolve(keyComponents: ["failure"]) {
             probeCount += 1
             return ["/updated"]
         }
@@ -56,7 +56,7 @@ struct CodexResumeTrustProbeCacheTests {
     }
 
     @Test("A stuck probe owner cannot block a waiter indefinitely")
-    func stuckOwnerHasBoundedWait() throws {
+    func stuckOwnerHasBoundedWait() async throws {
         let directory = temporaryDirectory()
         try FileManager.default.createDirectory(
             at: directory,
@@ -82,17 +82,14 @@ struct CodexResumeTrustProbeCacheTests {
         guard ownerFD >= 0 else { return }
         #expect(flock(ownerFD, LOCK_EX | LOCK_NB) == 0)
 
-        let released = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            Darwin.usleep(3_000_000)
+        defer {
             _ = flock(ownerFD, LOCK_UN)
             Darwin.close(ownerFD)
-            released.signal()
         }
 
         var probeCount = 0
         let startedAt = Date()
-        let result = CodexResumeTrustProbeCache(
+        let result = await CodexResumeTrustProbeCache(
             directory: directory,
             fileManager: .default
         ).resolve(
@@ -106,7 +103,6 @@ struct CodexResumeTrustProbeCacheTests {
         #expect(result == ["/fallback"])
         #expect(probeCount == 1)
         #expect(elapsed < 2.75, "waited \(elapsed) seconds")
-        #expect(released.wait(timeout: .now() + 2) == .success)
     }
 
     private func temporaryDirectory() -> URL {

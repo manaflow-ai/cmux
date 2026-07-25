@@ -493,7 +493,7 @@ enum CLIProcessRunner {
         currentDirectoryPath: String? = nil,
         timeout: TimeInterval,
         maxOutputBytes: Int = 8 * 1024 * 1024
-    ) -> CLIProcessResult {
+    ) async -> CLIProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -507,45 +507,24 @@ enum CLIProcessRunner {
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        let terminationPair = AsyncStream<Int32>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        process.terminationHandler = { terminatedProcess in
+            terminationPair.continuation.yield(
+                terminatedProcess.terminationStatus
+            )
+            terminationPair.continuation.finish()
+        }
+        defer {
+            process.terminationHandler = nil
+            terminationPair.continuation.finish()
+        }
 
         let boundedMaxOutputBytes = max(1, maxOutputBytes)
-        var stdoutData = Data()
-        var stdoutScanOffset = 0
-        var matchedResponse = false
-        var stdoutLimitExceeded = false
-        var stderrData = Data()
-        var stderrLimitExceeded = false
-
-        func appendStdout(_ chunk: Data) {
-            guard !matchedResponse, !stdoutLimitExceeded else { return }
-
-            let remaining = boundedMaxOutputBytes - stdoutData.count
-            if remaining > 0 {
-                stdoutData.append(contentsOf: chunk.prefix(remaining))
-            }
-
-            while stdoutScanOffset < stdoutData.endIndex,
-                  let newline = stdoutData[stdoutScanOffset...]
-                    .firstIndex(of: 0x0a) {
-                let line = stdoutData[stdoutScanOffset..<newline]
-                stdoutScanOffset = stdoutData.index(after: newline)
-                guard let object = try? JSONSerialization.jsonObject(
-                    with: Data(line)
-                ) as? [String: Any],
-                      (object["id"] as? NSNumber)?.intValue == responseID else {
-                    continue
-                }
-                matchedResponse = true
-                break
-            }
-
-            if !matchedResponse, chunk.count > remaining {
-                stdoutLimitExceeded = true
-            }
-        }
 
         do {
             try cliRunProcess(process)
@@ -564,13 +543,6 @@ enum CLIProcessRunner {
             )
         }
 
-        let processExitGroup = DispatchGroup()
-        processExitGroup.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            processExitGroup.leave()
-        }
-
         // Process owns duplicated child endpoints after launch. Close the
         // parent's copies so child exit can produce HUP while stdin remains
         // open through its write endpoint.
@@ -586,141 +558,102 @@ enum CLIProcessRunner {
             )
         }
 
-        let stdoutFD = stdoutPipe.fileHandleForReading.fileDescriptor
-        let stderrFD = stderrPipe.fileHandleForReading.fileDescriptor
-        let requestedEvents = Int16(POLLIN | POLLHUP | POLLERR)
-        var descriptors = [
-            pollfd(fd: stdoutFD, events: requestedEvents, revents: 0),
-            pollfd(fd: stderrFD, events: requestedEvents, revents: 0),
-        ]
         let boundedTimeout = max(0, min(timeout, 3_600))
-        let timeoutNanoseconds = UInt64(boundedTimeout * 1_000_000_000)
-        let startNanoseconds = DispatchTime.now().uptimeNanoseconds
-        let (deadline, overflowed) = startNanoseconds.addingReportingOverflow(
-            timeoutNanoseconds
-        )
-        let effectiveDeadline = overflowed ? UInt64.max : deadline
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        var stdoutData = Data()
+        var stderrData = Data()
+        var matchedResponse = false
+        var stdoutLimitExceeded = false
+        var stderrLimitExceeded = false
         var timedOut = false
         var pipeError: String?
+        var finished = false
+        var cleanupStarted = false
 
-        func readPipeChunk(fileDescriptor: Int32) -> (data: Data?, error: Int32?) {
-            var bytes = [UInt8](repeating: 0, count: 64 * 1024)
-            while true {
-                let count = bytes.withUnsafeMutableBytes { buffer -> Int in
-                    guard let baseAddress = buffer.baseAddress else { return 0 }
-                    return Darwin.read(
-                        fileDescriptor,
-                        baseAddress,
-                        buffer.count
-                    )
-                }
-                if count > 0 {
-                    return (Data(bytes.prefix(count)), nil)
-                }
-                if count == 0 {
-                    return (nil, nil)
-                }
-                let errorCode = errno
-                if errorCode == EINTR {
-                    continue
-                }
-                if errorCode == EAGAIN || errorCode == EWOULDBLOCK {
-                    return (nil, nil)
-                }
-                return (nil, errorCode)
+        func stopChildAndClosePipes() {
+            guard !cleanupStarted else { return }
+            cleanupStarted = true
+            try? stdinPipe.fileHandleForWriting.close()
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            if process.isRunning {
+                process.terminate()
             }
         }
 
-        while !matchedResponse,
-              !stdoutLimitExceeded,
-              !stderrLimitExceeded,
-              pipeError == nil {
-            let now = DispatchTime.now().uptimeNanoseconds
-            if now >= effectiveDeadline {
-                timedOut = true
-                break
-            }
-            let remainingNanoseconds = effectiveDeadline - now
-            let remainingMilliseconds = max(
-                1,
-                Int((remainingNanoseconds + 999_999) / 1_000_000)
-            )
-            let pollTimeout = Int32(min(remainingMilliseconds, 50))
-            for index in descriptors.indices {
-                descriptors[index].revents = 0
-            }
-            let pollResult = descriptors.withUnsafeMutableBufferPointer {
-                poll($0.baseAddress, nfds_t($0.count), pollTimeout)
-            }
-            if pollResult < 0 {
-                if errno == EINTR {
-                    continue
-                }
-                pipeError = "pipe poll failed: \(String(cString: strerror(errno)))"
-                break
-            }
-            if pollResult == 0 {
-                continue
-            }
-
-            for index in descriptors.indices where descriptors[index].fd >= 0 {
-                let revents = descriptors[index].revents
-                if (revents & Int16(POLLNVAL)) != 0 {
-                    pipeError = "pipe became invalid"
-                    descriptors[index].fd = -1
-                    continue
-                }
-                guard (revents & requestedEvents) != 0 else { continue }
-
-                let result = readPipeChunk(
-                    fileDescriptor: descriptors[index].fd
+        await withTaskGroup(of: CLIJSONLinesReadEvent.self) { group in
+            group.addTask {
+                await readJSONLinesStandardOutput(
+                    stdoutHandle,
+                    responseID: responseID,
+                    maxOutputBytes: boundedMaxOutputBytes
                 )
-                if let errorCode = result.error {
-                    pipeError = "pipe read failed: \(String(cString: strerror(errorCode)))"
-                    descriptors[index].fd = -1
-                    continue
-                }
-                guard let chunk = result.data else {
-                    descriptors[index].fd = -1
-                    continue
-                }
-
-                if index == 0 {
-                    appendStdout(chunk)
-                } else {
-                    let remaining = max(
-                        0,
-                        boundedMaxOutputBytes - stderrData.count
+            }
+            group.addTask {
+                await readJSONLinesStandardError(
+                    stderrHandle,
+                    maxOutputBytes: boundedMaxOutputBytes
+                )
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(
+                        for: .seconds(boundedTimeout)
                     )
-                    if remaining > 0 {
-                        stderrData.append(contentsOf: chunk.prefix(remaining))
-                    }
-                    if chunk.count > remaining {
-                        stderrLimitExceeded = true
-                    }
+                } catch {
+                    return .cancelled
                 }
+                return .timeout
             }
-            if descriptors.allSatisfy({ $0.fd < 0 }) {
-                break
+
+            while let event = await group.next() {
+                switch event {
+                case .standardOutput(
+                    let data,
+                    let matched,
+                    let limitExceeded,
+                    let readError
+                ):
+                    stdoutData = data
+                    if !finished {
+                        matchedResponse = matched
+                        stdoutLimitExceeded = limitExceeded
+                        pipeError = readError
+                        finished = true
+                    }
+                case .standardError(
+                    let data,
+                    let limitExceeded,
+                    let readError
+                ):
+                    stderrData = data
+                    stderrLimitExceeded = limitExceeded
+                    if !finished, limitExceeded || readError != nil {
+                        pipeError = readError
+                        finished = true
+                    }
+                case .timeout:
+                    if !finished {
+                        timedOut = true
+                        finished = true
+                    }
+                case .cancelled:
+                    break
+                }
+
+                if finished, !cleanupStarted {
+                    group.cancelAll()
+                    stopChildAndClosePipes()
+                }
             }
         }
 
-        try? stdinPipe.fileHandleForWriting.close()
-        // Never wait for pipe EOF after the decision. A launcher descendant can
-        // inherit these descriptors, so close our readers before the bounded
-        // direct-child termination wait.
-        try? stdoutPipe.fileHandleForReading.close()
-        try? stderrPipe.fileHandleForReading.close()
-        var processExited = processExitGroup.wait(timeout: .now()) == .success
-        if !processExited {
-            kill(process.processIdentifier, SIGKILL)
-            // SIGKILL can remain pending while a process is stuck in
-            // uninterruptible kernel I/O. Bound the reap so one bad app server
-            // cannot extend the caller's advertised timeout indefinitely.
-            processExited = processExitGroup.wait(
-                timeout: .now() + .milliseconds(500)
-            ) == .success
-        }
+        stopChildAndClosePipes()
+        let childTerminationStatus = await reapJSONLinesProcess(
+            process,
+            terminationEvents: terminationPair.stream
+        )
 
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         var stderr = String(data: stderrData, encoding: .utf8) ?? ""
@@ -754,7 +687,7 @@ enum CLIProcessRunner {
         } else if pipeError != nil {
             status = 1
         } else {
-            let childStatus = processExited ? process.terminationStatus : 1
+            let childStatus = childTerminationStatus ?? 1
             status = childStatus == 0 ? 1 : childStatus
         }
         return CLIProcessResult(
@@ -763,6 +696,173 @@ enum CLIProcessRunner {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    private enum CLIJSONLinesReadEvent: Sendable {
+        case standardOutput(
+            Data,
+            matchedResponse: Bool,
+            limitExceeded: Bool,
+            error: String?
+        )
+        case standardError(
+            Data,
+            limitExceeded: Bool,
+            error: String?
+        )
+        case timeout
+        case cancelled
+    }
+
+    private enum CLIProcessTerminationWaitEvent: Sendable {
+        case exited(Int32)
+        case terminateGraceElapsed
+        case killGraceElapsed
+        case cancelled
+    }
+
+    /// Reaps the direct child from its Process termination event without
+    /// blocking a cooperative Swift thread. Escalate once if orderly
+    /// termination does not complete promptly, while keeping cleanup bounded.
+    private static func reapJSONLinesProcess(
+        _ process: Process,
+        terminationEvents: AsyncStream<Int32>
+    ) async -> Int32? {
+        await withTaskGroup(of: CLIProcessTerminationWaitEvent.self) { group in
+            group.addTask {
+                var iterator = terminationEvents.makeAsyncIterator()
+                guard let status = await iterator.next() else {
+                    return .cancelled
+                }
+                return .exited(status)
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: .milliseconds(100))
+                } catch {
+                    return .cancelled
+                }
+                return .terminateGraceElapsed
+            }
+
+            while let event = await group.next() {
+                switch event {
+                case .exited(let status):
+                    group.cancelAll()
+                    return status
+                case .terminateGraceElapsed:
+                    if process.isRunning {
+                        kill(process.processIdentifier, SIGKILL)
+                    }
+                    group.addTask {
+                        do {
+                            try await ContinuousClock().sleep(
+                                for: .milliseconds(400)
+                            )
+                        } catch {
+                            return .cancelled
+                        }
+                        return .killGraceElapsed
+                    }
+                case .killGraceElapsed:
+                    group.cancelAll()
+                    return nil
+                case .cancelled:
+                    if Task.isCancelled {
+                        group.cancelAll()
+                        return nil
+                    }
+                }
+            }
+            return process.isRunning ? nil : process.terminationStatus
+        }
+    }
+
+    private static func readJSONLinesStandardOutput(
+        _ handle: FileHandle,
+        responseID: Int,
+        maxOutputBytes: Int
+    ) async -> CLIJSONLinesReadEvent {
+        var data = Data()
+        var lineStart = data.startIndex
+        do {
+            for try await byte in handle.bytes {
+                guard !Task.isCancelled else { return .cancelled }
+                guard data.count < maxOutputBytes else {
+                    return .standardOutput(
+                        data,
+                        matchedResponse: false,
+                        limitExceeded: true,
+                        error: nil
+                    )
+                }
+                data.append(byte)
+                guard byte == 0x0a else { continue }
+
+                let newline = data.index(before: data.endIndex)
+                let line = data[lineStart..<newline]
+                lineStart = data.endIndex
+                guard let object = try? JSONSerialization.jsonObject(
+                    with: Data(line)
+                ) as? [String: Any],
+                    (object["id"] as? NSNumber)?.intValue == responseID
+                else {
+                    continue
+                }
+                return .standardOutput(
+                    data,
+                    matchedResponse: true,
+                    limitExceeded: false,
+                    error: nil
+                )
+            }
+            return .standardOutput(
+                data,
+                matchedResponse: false,
+                limitExceeded: false,
+                error: nil
+            )
+        } catch {
+            guard !Task.isCancelled else { return .cancelled }
+            return .standardOutput(
+                data,
+                matchedResponse: false,
+                limitExceeded: false,
+                error: error.localizedDescription
+            )
+        }
+    }
+
+    private static func readJSONLinesStandardError(
+        _ handle: FileHandle,
+        maxOutputBytes: Int
+    ) async -> CLIJSONLinesReadEvent {
+        var data = Data()
+        do {
+            for try await byte in handle.bytes {
+                guard !Task.isCancelled else { return .cancelled }
+                guard data.count < maxOutputBytes else {
+                    return .standardError(
+                        data,
+                        limitExceeded: true,
+                        error: nil
+                    )
+                }
+                data.append(byte)
+            }
+            return .standardError(
+                data,
+                limitExceeded: false,
+                error: nil
+            )
+        } catch {
+            guard !Task.isCancelled else { return .cancelled }
+            return .standardError(
+                data,
+                limitExceeded: false,
+                error: error.localizedDescription
+            )
+        }
     }
 
     private static func terminate(process: Process, finished: DispatchSemaphore) {

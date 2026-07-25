@@ -6,8 +6,8 @@ import Foundation
 ///
 /// Restoring several panes launches one wrapper process per pane. Equivalent
 /// wrappers use one of 256 stable lock shards so only one process runs the
-/// heavyweight app-server probe; waiters wake when the kernel lock is released
-/// and then read its atomic handoff record. A process that acquires the lock
+/// heavyweight app-server probe; waiters wake on the owner's atomic handoff
+/// write and read that record. A process that acquires the lock
 /// without first observing contention always probes again, so explicit config
 /// changes are visible to the next invocation instead of being hidden by a
 /// time-based cache.
@@ -17,8 +17,7 @@ public struct CodexResumeTrustProbeCache: Sendable {
     private static let maximumRecordBytes = 1_048_576
     private static let maximumDecisionPathCount = 8_192
     private static let lockShardCount = 256
-    private static let lockWaitNanoseconds: UInt64 = 2_000_000_000
-    private static let lockRetryMicroseconds: useconds_t = 10_000
+    private static let lockWait: Duration = .seconds(2)
 
     private let directory: URL
     // SAFETY: FileManager's filesystem methods are thread-safe, and this value
@@ -42,10 +41,10 @@ public struct CodexResumeTrustProbeCache: Sendable {
     /// probes that may run concurrently during one multi-pane restore.
     public func resolve(
         keyComponents: [String],
-        probe: () -> Set<String>?
-    ) -> Set<String>? {
+        probe: () async -> Set<String>?
+    ) async -> Set<String>? {
         guard prepareDirectory() else {
-            return probe()
+            return await probe()
         }
 
         let key = cacheKey(components: keyComponents)
@@ -69,41 +68,125 @@ public struct CodexResumeTrustProbeCache: Sendable {
             S_IRUSR | S_IWUSR
         )
         guard lockFD >= 0 else {
-            return probe()
+            return await probe()
         }
         defer { Darwin.close(lockFD) }
 
-        let deadline = DispatchTime.now().uptimeNanoseconds
-            &+ Self.lockWaitNanoseconds
-        var observedContention = false
         while flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
             let lockError = errno
             guard lockError == EWOULDBLOCK || lockError == EINTR else {
-                return probe()
+                return await probe()
             }
-            observedContention = observedContention
-                || lockError == EWOULDBLOCK
-            guard DispatchTime.now().uptimeNanoseconds < deadline else {
+            if lockError == EWOULDBLOCK {
+                let handoff = await waitForConcurrentHandoff(
+                    at: cacheURL,
+                    key: key
+                )
+                if handoff.found {
+                    return handoff.value
+                }
                 // The owner may be suspended indefinitely. Run an independent,
                 // already-bounded app-server probe instead of blocking resume.
-                return probe()
+                return await probe()
             }
-            Darwin.usleep(Self.lockRetryMicroseconds)
         }
         defer { _ = flock(lockFD, LOCK_UN) }
 
-        if observedContention {
-            let lockedLookup = lookup(at: cacheURL, key: key, now: Date())
-            if lockedLookup.found {
-                return lockedLookup.value
-            }
-        }
-
         try? fileManager.removeItem(at: cacheURL)
-        let result = probe()
+        let result = await probe()
         prune(now: Date())
         write(result, key: key, to: cacheURL)
         return result
+    }
+
+    private enum HandoffWaitResult: Sendable {
+        case found(Set<String>?)
+        case unavailable
+    }
+
+    /// Waits on directory changes from the kernel while the current probe
+    /// owner writes its atomic handoff. The paired clock task is cancellable,
+    /// so a suspended owner cannot hold restored sessions indefinitely.
+    private func waitForConcurrentHandoff(
+        at cacheURL: URL,
+        key: String
+    ) async -> (found: Bool, value: Set<String>?) {
+        guard let changes = directoryChangeEvents() else {
+            return (false, nil)
+        }
+
+        let initial = lookup(at: cacheURL, key: key, now: Date())
+        if initial.found {
+            return initial
+        }
+
+        return await withTaskGroup(of: HandoffWaitResult.self) { group in
+            group.addTask {
+                for await _ in changes {
+                    guard !Task.isCancelled else {
+                        return .unavailable
+                    }
+                    let handoff = lookup(
+                        at: cacheURL,
+                        key: key,
+                        now: Date()
+                    )
+                    if handoff.found {
+                        return .found(handoff.value)
+                    }
+                }
+                return .unavailable
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: Self.lockWait)
+                } catch {
+                    return .unavailable
+                }
+                return .unavailable
+            }
+
+            let result = await group.next() ?? .unavailable
+            group.cancelAll()
+            switch result {
+            case .found(let value):
+                return (true, value)
+            case .unavailable:
+                return (false, nil)
+            }
+        }
+    }
+
+    /// Bridges Darwin's vnode callback into a cancellation-aware async stream.
+    /// DispatchSource is required at this low-level filesystem boundary; all
+    /// cache state remains immutable and is read by the awaiting task.
+    private func directoryChangeEvents() -> AsyncStream<Void>? {
+        let directoryFD = Darwin.open(
+            directory.path,
+            O_EVTONLY | O_CLOEXEC
+        )
+        guard directoryFD >= 0 else {
+            return nil
+        }
+
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: directoryFD,
+                eventMask: [.write, .rename, .delete],
+                queue: nil
+            )
+            source.setEventHandler {
+                continuation.yield()
+            }
+            source.setCancelHandler {
+                Darwin.close(directoryFD)
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                source.cancel()
+            }
+            source.resume()
+        }
     }
 
     private func prepareDirectory() -> Bool {
