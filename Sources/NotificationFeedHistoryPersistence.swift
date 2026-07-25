@@ -22,6 +22,12 @@ actor NotificationFeedHistoryPersistence {
     private static let titleByteLimit = 512
     private static let subtitleByteLimit = 512
     private static let bodyByteLimit = 2_048
+    private static let oversizedSnapshotHeaderProbeByteCount = 64 * 1024
+
+    private struct SnapshotHeader {
+        var version: Int?
+        var revision: Int?
+    }
 
     private let fileURL: URL?
     private let fileManager: FileManager
@@ -62,9 +68,27 @@ actor NotificationFeedHistoryPersistence {
                 notificationFeedPersistenceLogger.error(
                     "Notification feed load rejected oversized file=\(fileURL.path, privacy: .private) limit=\(self.maxSnapshotBytes, privacy: .public)"
                 )
-                if quarantineOversizedSnapshotFile(fileURL) {
-                    outcome = .missing
+                let header = try oversizedSnapshotHeader(fileURL)
+                if let version = header.version,
+                   version != NotificationFeedHistorySnapshot.currentVersion {
+                    allowsWrites = false
+                    outcome = .unsupportedVersion(version)
+                } else if header.version == NotificationFeedHistorySnapshot.currentVersion,
+                          let revision = header.revision {
+                    if quarantineOversizedSnapshotFile(fileURL) {
+                        let snapshot = NotificationFeedHistorySnapshot(
+                            revision: max(0, revision),
+                            notifications: []
+                        )
+                        writeQuarantineReplacementSnapshot(snapshot, fileURL: fileURL)
+                        lastPersistedRevision = snapshot.revision
+                        outcome = .loaded(snapshot)
+                    } else {
+                        allowsWrites = false
+                        outcome = .corrupt
+                    }
                 } else {
+                    allowsWrites = false
                     outcome = .corrupt
                 }
                 loadOutcome = outcome
@@ -124,6 +148,55 @@ actor NotificationFeedHistoryPersistence {
         return size.uint64Value <= maxSnapshotBytes
     }
 
+    private func oversizedSnapshotHeader(_ fileURL: URL) throws -> SnapshotHeader {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer {
+            try? handle.close()
+        }
+        guard let data = try handle.read(
+            upToCount: Self.oversizedSnapshotHeaderProbeByteCount
+        ) else {
+            return SnapshotHeader()
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return SnapshotHeader()
+        }
+        let metadataText: Substring
+        if let notificationsKeyRange = text.range(of: "\"notifications\"") {
+            metadataText = text[..<notificationsKeyRange.lowerBound]
+        } else {
+            metadataText = text[...]
+        }
+        return SnapshotHeader(
+            version: Self.jsonIntegerValue(named: "version", in: metadataText),
+            revision: Self.jsonIntegerValue(named: "revision", in: metadataText)
+        )
+    }
+
+    private static func jsonIntegerValue(named key: String, in text: Substring) -> Int? {
+        guard let keyRange = text.range(of: "\"\(key)\"") else { return nil }
+        var index = keyRange.upperBound
+        while index < text.endIndex, text[index].isWhitespace {
+            index = text.index(after: index)
+        }
+        guard index < text.endIndex, text[index] == ":" else { return nil }
+        index = text.index(after: index)
+        while index < text.endIndex, text[index].isWhitespace {
+            index = text.index(after: index)
+        }
+        var sign = ""
+        if index < text.endIndex, text[index] == "-" {
+            sign = "-"
+            index = text.index(after: index)
+        }
+        let digitStart = index
+        while index < text.endIndex, text[index].isNumber {
+            index = text.index(after: index)
+        }
+        guard digitStart < index else { return nil }
+        return Int(sign + text[digitStart..<index])
+    }
+
     private func quarantineOversizedSnapshotFile(_ fileURL: URL) -> Bool {
         let quarantineURL = fileURL
             .deletingLastPathComponent()
@@ -142,6 +215,22 @@ actor NotificationFeedHistoryPersistence {
                 "Notification feed oversized file quarantine failed file=\(fileURL.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
             )
             return false
+        }
+    }
+
+    private func writeQuarantineReplacementSnapshot(
+        _ snapshot: NotificationFeedHistorySnapshot,
+        fileURL: URL
+    ) {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(snapshot)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            notificationFeedPersistenceLogger.error(
+                "Notification feed quarantine replacement write failed file=\(fileURL.path, privacy: .private) revision=\(snapshot.revision, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+            )
         }
     }
 

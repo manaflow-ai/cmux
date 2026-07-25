@@ -7,44 +7,107 @@ import Foundation
 extension TerminalController {
     private static let mobileNotificationFeedResponseByteLimit =
         MobileSyncFrameCodec.defaultMaximumFrameByteCount - (64 * 1024)
+    private static let mobileNotificationFeedTitleByteLimit = 512
+    private static let mobileNotificationFeedSubtitleByteLimit = 512
+    private static let mobileNotificationFeedBodyByteLimit = 4_096
+    private static let mobileNotificationFeedMetadataByteLimit = 512
+
+    private struct MobileNotificationFeedWireItem: Sendable {
+        let id: String
+        let workspaceID: String
+        let surfaceID: String?
+        let title: String
+        let subtitle: String
+        let body: String
+        let createdAt: Double
+        let isRead: Bool
+        let retargetsToLiveSurfaceOwner: Bool
+        let workspaceTitle: String?
+        let surfaceTitle: String?
+
+        var foundationPayload: [String: Any] {
+            var payload: [String: Any] = [
+                "id": id,
+                "workspace_id": workspaceID,
+                "title": title,
+                "subtitle": subtitle,
+                "body": body,
+                "created_at": createdAt,
+                "is_read": isRead,
+                "retargets_to_live_surface_owner": retargetsToLiveSurfaceOwner,
+            ]
+            if let surfaceID {
+                payload["surface_id"] = surfaceID
+            }
+            if let workspaceTitle {
+                payload["workspace_title"] = workspaceTitle
+            }
+            if let surfaceTitle {
+                payload["surface_title"] = surfaceTitle
+            }
+            return payload
+        }
+    }
 
     /// Returns the Mac-owned notification history, newest first. The paired
     /// phone merges snapshots from all connected Macs into its global feed.
-    func v2MobileNotificationFeedList(params _: [String: Any]) -> V2CallResult {
+    func v2MobileNotificationFeedList(
+        params _: [String: Any],
+        responseID: String? = "notification.feed.list"
+    ) async -> V2CallResult {
         let store = TerminalNotificationStore.shared
         store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
         let snapshot = store.notificationFeedHistory.snapshot
-        let notifications = mobileNotificationFeedPayloadsFittingFrame(
+        let items = snapshot.notifications.map(mobileNotificationFeedWireItem)
+        let fittedItems = await Self.mobileNotificationFeedItemsFittingFrame(
+            responseID: responseID,
             revision: snapshot.revision,
-            notifications: snapshot.notifications.map(mobileNotificationFeedPayload)
+            items: items
         )
         return .ok([
             "revision": snapshot.revision,
-            "notifications": notifications,
+            "notifications": fittedItems.map(\.foundationPayload),
         ])
     }
 
-    private func mobileNotificationFeedPayloadsFittingFrame(
+    private nonisolated static func mobileNotificationFeedItemsFittingFrame(
+        responseID: String?,
         revision: Int,
-        notifications: [[String: Any]]
-    ) -> [[String: Any]] {
-        guard !notifications.isEmpty,
-              !Self.mobileNotificationFeedResponseFits(
+        items: [MobileNotificationFeedWireItem]
+    ) async -> [MobileNotificationFeedWireItem] {
+        await Task.detached(priority: .utility) {
+            mobileNotificationFeedItemsFittingFrameOnWorker(
+                responseID: responseID,
+                revision: revision,
+                items: items
+            )
+        }.value
+    }
+
+    private nonisolated static func mobileNotificationFeedItemsFittingFrameOnWorker(
+        responseID: String?,
+        revision: Int,
+        items: [MobileNotificationFeedWireItem]
+    ) -> [MobileNotificationFeedWireItem] {
+        guard !items.isEmpty,
+              !mobileNotificationFeedResponseFits(
+                  responseID: responseID,
                   revision: revision,
-                  notifications: notifications
+                  items: items
               ) else {
-            return notifications
+            return items
         }
 
         var lowerBound = 0
-        var upperBound = notifications.count
-        var best: [[String: Any]] = []
+        var upperBound = items.count
+        var best: [MobileNotificationFeedWireItem] = []
         while lowerBound <= upperBound {
             let candidateCount = (lowerBound + upperBound) / 2
-            let candidate = Array(notifications.prefix(candidateCount))
-            if Self.mobileNotificationFeedResponseFits(
+            let candidate = Array(items.prefix(candidateCount))
+            if mobileNotificationFeedResponseFits(
+                responseID: responseID,
                 revision: revision,
-                notifications: candidate
+                items: candidate
             ) {
                 best = candidate
                 lowerBound = candidateCount + 1
@@ -55,16 +118,17 @@ extension TerminalController {
         return best
     }
 
-    private static func mobileNotificationFeedResponseFits(
+    private nonisolated static func mobileNotificationFeedResponseFits(
+        responseID: String?,
         revision: Int,
-        notifications: [[String: Any]]
+        items: [MobileNotificationFeedWireItem]
     ) -> Bool {
         let payload: [String: Any] = [
             "revision": revision,
-            "notifications": notifications,
+            "notifications": items.map(\.foundationPayload),
         ]
         let encoded = MobileHostRPCEnvelope.encodeResponse(
-            id: "notification.feed.list",
+            id: responseID,
             result: .ok(payload)
         )
         return encoded.count <= mobileNotificationFeedResponseByteLimit
@@ -201,9 +265,9 @@ extension TerminalController {
         ])
     }
 
-    private func mobileNotificationFeedPayload(
+    private func mobileNotificationFeedWireItem(
         _ record: NotificationFeedHistoryRecord
-    ) -> [String: Any] {
+    ) -> MobileNotificationFeedWireItem {
         let targetSurfaceID = record.panelId ?? record.surfaceId
         var targetWorkspaceID = record.tabId
         if record.retargetsToLiveSurfaceOwner,
@@ -211,32 +275,69 @@ extension TerminalController {
            let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
                claimedTabId: record.tabId,
                surfaceId: targetSurfaceID
-           ) {
+        ) {
             targetWorkspaceID = liveTarget.tabId
         }
-        var payload: [String: Any] = [
-            "id": record.id.uuidString,
-            "workspace_id": targetWorkspaceID.uuidString,
-            "title": record.title,
-            "subtitle": record.subtitle,
-            "body": record.body,
-            "created_at": record.createdAt.timeIntervalSince1970,
-            "is_read": record.isRead,
-            "retargets_to_live_surface_owner": record.retargetsToLiveSurfaceOwner,
-        ]
-        if let targetSurfaceID {
-            payload["surface_id"] = targetSurfaceID.uuidString
-        }
+        var workspaceTitle: String?
+        var surfaceTitle: String?
         if let workspace = AppDelegate.shared?
             .tabManagerFor(tabId: targetWorkspaceID)?
             .workspacesById[targetWorkspaceID] {
-            payload["workspace_title"] = workspace.title
+            workspaceTitle = workspace.title
             if let targetSurfaceID,
-               let surfaceTitle = workspace.panelTitle(panelId: targetSurfaceID) {
-                payload["surface_title"] = surfaceTitle
+               let resolvedSurfaceTitle = workspace.panelTitle(panelId: targetSurfaceID) {
+                surfaceTitle = resolvedSurfaceTitle
             }
         }
-        return payload
+        return MobileNotificationFeedWireItem(
+            id: record.id.uuidString,
+            workspaceID: targetWorkspaceID.uuidString,
+            surfaceID: targetSurfaceID?.uuidString,
+            title: Self.mobileNotificationFeedString(
+                record.title,
+                limitedToUTF8Bytes: Self.mobileNotificationFeedTitleByteLimit
+            ),
+            subtitle: Self.mobileNotificationFeedString(
+                record.subtitle,
+                limitedToUTF8Bytes: Self.mobileNotificationFeedSubtitleByteLimit
+            ),
+            body: Self.mobileNotificationFeedString(
+                record.body,
+                limitedToUTF8Bytes: Self.mobileNotificationFeedBodyByteLimit
+            ),
+            createdAt: record.createdAt.timeIntervalSince1970,
+            isRead: record.isRead,
+            retargetsToLiveSurfaceOwner: record.retargetsToLiveSurfaceOwner,
+            workspaceTitle: workspaceTitle.map {
+                Self.mobileNotificationFeedString(
+                    $0,
+                    limitedToUTF8Bytes: Self.mobileNotificationFeedMetadataByteLimit
+                )
+            },
+            surfaceTitle: surfaceTitle.map {
+                Self.mobileNotificationFeedString(
+                    $0,
+                    limitedToUTF8Bytes: Self.mobileNotificationFeedMetadataByteLimit
+                )
+            }
+        )
+    }
+
+    private nonisolated static func mobileNotificationFeedString(
+        _ value: String,
+        limitedToUTF8Bytes maxBytes: Int
+    ) -> String {
+        guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
+        var byteCount = 0
+        var endIndex = value.startIndex
+        while endIndex < value.endIndex {
+            let nextIndex = value.index(after: endIndex)
+            let characterByteCount = value[endIndex..<nextIndex].utf8.count
+            guard byteCount + characterByteCount <= maxBytes else { break }
+            byteCount += characterByteCount
+            endIndex = nextIndex
+        }
+        return String(value[..<endIndex])
     }
 
     private func mobileNotificationFeedIDs(params: [String: Any]) -> Set<UUID>? {
