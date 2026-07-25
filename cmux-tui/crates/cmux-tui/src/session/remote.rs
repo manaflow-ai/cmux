@@ -21,8 +21,8 @@ use cmux_tui_core::{
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
-    TerminalColorOverrides, parse_color,
+    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderState, Screen,
+    Terminal, TerminalColorOverrides, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::Zeroize;
@@ -1131,10 +1131,10 @@ impl RemoteSession {
         surface: SurfaceId,
         fallback_key: &KeyInput,
     ) -> anyhow::Result<()> {
-        let supports_atomic_clear = {
+        let (supports_clear, supports_atomic_clear) = {
             let capabilities = self.capabilities.lock().unwrap();
-            capabilities.contains(CLEAR_HISTORY_CAPABILITY)
-                && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
+            let supports_clear = capabilities.contains(CLEAR_HISTORY_CAPABILITY);
+            (supports_clear, supports_clear && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY))
         };
         if supports_atomic_clear {
             return self
@@ -1146,13 +1146,24 @@ impl RemoteSession {
         if surface.kind != SurfaceKind::Pty {
             anyhow::bail!("browser surface does not accept PTY bytes");
         }
+        // Intermediate peers support emulator-side clearing but cannot choose
+        // atomically between clear and key fallback. Use the mirrored screen
+        // only for that legacy capability combination; current peers make the
+        // decision authoritatively in the single request above.
         let encoded = {
             let term = surface.term.lock().unwrap();
-            let mut encoder = KeyEncoder::new()?;
-            let mut encoded = Vec::new();
-            encoder.sync_from_terminal(&term);
-            encoder.encode(fallback_key, &mut encoded)?;
-            encoded
+            if supports_clear && term.active_screen() != Screen::Alternate {
+                None
+            } else {
+                let mut encoder = KeyEncoder::new()?;
+                let mut encoded = Vec::new();
+                encoder.sync_from_terminal(&term);
+                encoder.encode(fallback_key, &mut encoded)?;
+                Some(encoded)
+            }
+        };
+        let Some(encoded) = encoded else {
+            return self.clear_history_request(surface.id, None);
         };
         if encoded.is_empty() {
             return Ok(());
@@ -2145,11 +2156,23 @@ mod tests {
 
         session.clear_history_or_send_key(7, &fallback).unwrap();
 
-        let requests = requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0]["cmd"], "clear-history");
-        assert_eq!(requests[0]["surface"], 7);
-        assert_eq!(requests[0]["fallback_key"], Value::Null);
+        {
+            let recorded = requests.lock().unwrap();
+            assert_eq!(recorded.len(), 1);
+            assert_eq!(recorded[0]["cmd"], "clear-history");
+            assert_eq!(recorded[0]["surface"], 7);
+            assert_eq!(recorded[0]["fallback_key"], Value::Null);
+        }
+
+        session.surface(7).unwrap().term.lock().unwrap().vt_write(b"\x1b[?1049h");
+        requests.lock().unwrap().clear();
+        session.clear_history_or_send_key(7, &fallback).unwrap();
+
+        let recorded = requests.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0]["cmd"], "send");
+        let encoded = recorded[0]["bytes"].as_str().unwrap();
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap(), b"\x0c");
     }
 
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
