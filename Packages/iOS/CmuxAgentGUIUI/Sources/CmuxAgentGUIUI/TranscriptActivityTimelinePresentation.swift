@@ -13,7 +13,10 @@ struct TranscriptActivityTimelinePresentation: Equatable {
         let resolvedLimit = max(0, itemLimit)
         models = details.summary.items
             .prefix(resolvedLimit)
-            .map(TranscriptActivityDetailModel.init(item:))
+            .enumerated()
+            .map { index, item in
+                TranscriptActivityDetailModel(item: item, ordinal: index)
+            }
         omittedCount = max(0, details.summary.items.count - models.count)
     }
 }

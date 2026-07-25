@@ -3,6 +3,15 @@ import CmuxAgentReplica
 import Foundation
 
 struct TranscriptActivityDetailModel: Equatable, Identifiable {
+    struct ID: Equatable, Hashable, CustomStringConvertible {
+        let sourceID: TranscriptRowID
+        let ordinal: Int
+
+        var description: String {
+            "\(sourceID.description)#\(ordinal)"
+        }
+    }
+
     struct Section: Equatable, Identifiable {
         let id: String
         let label: Label
@@ -30,7 +39,8 @@ struct TranscriptActivityDetailModel: Equatable, Identifiable {
         case diagnostic
     }
 
-    let id: TranscriptRowID
+    let id: ID
+    let sourceID: TranscriptRowID
     let kind: TranscriptActivityKind
     let title: String
     let sections: [Section]
@@ -38,8 +48,9 @@ struct TranscriptActivityDetailModel: Equatable, Identifiable {
     private static let maximumTitleCharacters = 180
     private static let maximumSectionCharacters = 40_000
 
-    init(item: TranscriptActivityItem) {
-        id = item.id
+    init(item: TranscriptActivityItem, ordinal: Int = 0) {
+        id = ID(sourceID: item.id, ordinal: ordinal)
+        sourceID = item.id
         kind = item.kind
         title = Self.title(for: item)
         guard let payload = item.sourceEntry?.content.payload else {

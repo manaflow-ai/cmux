@@ -147,6 +147,49 @@ struct TranscriptActivityDetailModelTests {
         #expect(presentation.omittedCount == 2)
     }
 
+    @Test("activity timeline presentation disambiguates duplicate source identities")
+    func activityTimelinePresentationDisambiguatesDuplicateSourceIdentities() {
+        let journal = JournalID(rawValue: "detail")
+        let duplicateID = TranscriptRowID.entry(journalID: journal, seq: EntrySeq(rawValue: 7))
+        let items = [
+            TranscriptActivityItem(
+                id: duplicateID,
+                kind: .tool,
+                summary: "Processed 1 event",
+                isRunning: false,
+                sourceEntry: nil
+            ),
+            TranscriptActivityItem(
+                id: duplicateID,
+                kind: .attachment,
+                summary: "Hook_Success attachment",
+                isRunning: false,
+                sourceEntry: nil
+            ),
+        ]
+        let details = TranscriptActivityDetails(
+            turnID: TranscriptTurnID(journalID: journal, promptSeq: nil, segmentAnchorSeq: EntrySeq(rawValue: 1)),
+            summary: TranscriptActivitySummary(
+                editedFileCount: 0,
+                readFileCount: 0,
+                searchedCode: false,
+                listedFiles: false,
+                commandCount: 0,
+                eventCount: items.count,
+                items: items
+            )
+        )
+
+        let presentation = TranscriptActivityTimelinePresentation(details: details)
+
+        #expect(presentation.models.map(\.sourceID) == [duplicateID, duplicateID])
+        #expect(Set(presentation.models.map(\.id)).count == presentation.models.count)
+        #expect(presentation.models.map(\.id.description) == [
+            "entry:detail:7#0",
+            "entry:detail:7#1",
+        ])
+    }
+
     private static func model(payload: EntryPayload) -> TranscriptActivityDetailModel {
         model(payload: payload, itemKind: .tool, itemSummary: "summary")
     }
