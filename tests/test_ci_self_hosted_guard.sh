@@ -871,13 +871,8 @@ check_web_test_runner_behavior() {
   fixture_dir="$(mktemp -d)"
   fixture_runner="$fixture_dir/web/scripts/run-tests.sh"
   args_log="$fixture_dir/bun-args.log"
-  mkdir -p "$fixture_dir/web/scripts" "$fixture_dir/web/tests/nested" "$fixture_dir/bin"
+  mkdir -p "$fixture_dir/web/scripts" "$fixture_dir/bin"
   cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_runner"
-  touch \
-    "$fixture_dir/web/tests/z-last.test.ts" \
-    "$fixture_dir/web/tests/a-first.test.tsx" \
-    "$fixture_dir/web/tests/ignored.ts" \
-    "$fixture_dir/web/tests/nested/ignored.test.ts"
 
   cat > "$fixture_dir/bin/bun" <<'EOF'
 #!/usr/bin/env bash
@@ -894,33 +889,16 @@ EOF
     exit 1
   fi
 
-  expected_args=$'test\n--isolate\ntests/a-first.test.tsx\ntests/z-last.test.ts'
+  expected_args=$'test\n--isolate'
   if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
-    echo "FAIL: shared web test runner must sort top-level test files and ignore other paths"
+    echo "FAIL: shared web test runner must preserve Bun's default discovery with isolation"
     cat "$args_log"
     rm -rf "$fixture_dir"
     exit 1
   fi
 
-  mkdir -p "$fixture_dir/empty/scripts" "$fixture_dir/empty/tests"
-  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"
-  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
-    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
-    /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \
-    >"$fixture_dir/empty.stdout" 2>"$fixture_dir/empty.stderr"; then
-    rm -rf "$fixture_dir"
-    echo "FAIL: shared web test runner must fail when no top-level tests exist"
-    exit 1
-  fi
-  if ! grep -Fq "No top-level web test files found" "$fixture_dir/empty.stderr"; then
-    echo "FAIL: shared web test runner must explain an empty top-level test suite"
-    cat "$fixture_dir/empty.stderr"
-    rm -rf "$fixture_dir"
-    exit 1
-  fi
-
   rm -rf "$fixture_dir"
-  echo "PASS: shared web test runner sorts default discovery and fails closed when empty"
+  echo "PASS: shared web test runner delegates default discovery to Bun with isolation"
 }
 
 check_tmux_terminal_nightly_isolation() {
