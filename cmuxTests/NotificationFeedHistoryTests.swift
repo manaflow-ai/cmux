@@ -184,7 +184,7 @@ struct NotificationFeedHistoryTests {
         #expect(persisted.notifications.map(\.title) == loadedTitles)
     }
 
-    @Test func oversizedHistoryFileIsRejectedBeforeFullDecode() async throws {
+    @Test func oversizedHistoryFileIsQuarantinedBeforeFullDecodeAndWritesRecover() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-size-limit-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -213,13 +213,27 @@ struct NotificationFeedHistoryTests {
             maxSnapshotBytes: UInt64(data.count - 1)
         )
 
-        #expect(await persistence.load() == .corrupt)
+        #expect(await persistence.load() == .missing)
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+        let quarantinedURLs = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("history.json.oversized-")
+        }
+        #expect(quarantinedURLs.count == 1)
         await persistence.persist(NotificationFeedHistorySnapshot(revision: 7, notifications: []))
-        let decodable = try JSONDecoder().decode(
+        let quarantined = try JSONDecoder().decode(
+            NotificationFeedHistorySnapshot.self,
+            from: Data(contentsOf: try #require(quarantinedURLs.first))
+        )
+        #expect(quarantined.revision == 6)
+        let recovered = try JSONDecoder().decode(
             NotificationFeedHistorySnapshot.self,
             from: Data(contentsOf: fileURL)
         )
-        #expect(decodable.revision == 6)
+        #expect(recovered.revision == 7)
+        #expect(recovered.notifications.isEmpty)
     }
 
     @Test func persistFitsSnapshotToLoadBudgetBeforeWriting() async throws {
@@ -265,6 +279,39 @@ struct NotificationFeedHistoryTests {
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         let size = try #require(attributes[.size] as? NSNumber)
         #expect(size.uint64Value <= 512)
+    }
+
+    @Test func feedListResponseStaysWithinMobileFrameLimit() async throws {
+        let store = TerminalNotificationStore.shared
+        let workspaceID = UUID()
+        let baseDate = Date(timeIntervalSince1970: 1_800)
+        let body = String(repeating: "x", count: 8_192)
+        let notifications = (0..<NotificationFeedHistoryStore.totalRetentionLimit).map { offset in
+            notification(
+                workspaceID: workspaceID,
+                title: "Frame budget \(offset)",
+                body: body,
+                date: baseDate.addingTimeInterval(Double(offset)),
+                isRead: false
+            )
+        }
+        store.replaceNotificationsForTesting(notifications)
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "feed-list",
+                method: "notification.feed.list",
+                params: [:],
+                auth: nil
+            )
+        )
+        let encoded = MobileHostRPCEnvelope.encodeResponse(id: "feed-list", result: response)
+        #expect(encoded.count <= MobileSyncFrameCodec.defaultMaximumFrameByteCount)
+        let payload = try responsePayload(response)
+        let rows = try #require(payload["notifications"] as? [[String: Any]])
+        #expect(rows.count < notifications.count)
+        #expect(rows.first?["title"] as? String == "Frame budget \(notifications.count - 1)")
     }
 
     @Test func persistenceReloadsAndRejectsAnOlderRevisionWrite() async throws {

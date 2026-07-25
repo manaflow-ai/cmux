@@ -1,19 +1,73 @@
+import CMUXMobileCore
 import Foundation
 
 /// Mobile-host notification verbs (cross-device dismiss-sync): the
 /// `notification.dismiss` and `notification.reconcile` RPC handlers dispatched
 /// from `mobileHostHandleRPC(_:)`.
 extension TerminalController {
+    private static let mobileNotificationFeedResponseByteLimit =
+        MobileSyncFrameCodec.defaultMaximumFrameByteCount - (64 * 1024)
+
     /// Returns the Mac-owned notification history, newest first. The paired
     /// phone merges snapshots from all connected Macs into its global feed.
     func v2MobileNotificationFeedList(params _: [String: Any]) -> V2CallResult {
         let store = TerminalNotificationStore.shared
         store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
         let snapshot = store.notificationFeedHistory.snapshot
+        let notifications = mobileNotificationFeedPayloadsFittingFrame(
+            revision: snapshot.revision,
+            notifications: snapshot.notifications.map(mobileNotificationFeedPayload)
+        )
         return .ok([
             "revision": snapshot.revision,
-            "notifications": snapshot.notifications.map(mobileNotificationFeedPayload),
+            "notifications": notifications,
         ])
+    }
+
+    private func mobileNotificationFeedPayloadsFittingFrame(
+        revision: Int,
+        notifications: [[String: Any]]
+    ) -> [[String: Any]] {
+        guard !notifications.isEmpty,
+              !Self.mobileNotificationFeedResponseFits(
+                  revision: revision,
+                  notifications: notifications
+              ) else {
+            return notifications
+        }
+
+        var lowerBound = 0
+        var upperBound = notifications.count
+        var best: [[String: Any]] = []
+        while lowerBound <= upperBound {
+            let candidateCount = (lowerBound + upperBound) / 2
+            let candidate = Array(notifications.prefix(candidateCount))
+            if Self.mobileNotificationFeedResponseFits(
+                revision: revision,
+                notifications: candidate
+            ) {
+                best = candidate
+                lowerBound = candidateCount + 1
+            } else {
+                upperBound = candidateCount - 1
+            }
+        }
+        return best
+    }
+
+    private static func mobileNotificationFeedResponseFits(
+        revision: Int,
+        notifications: [[String: Any]]
+    ) -> Bool {
+        let payload: [String: Any] = [
+            "revision": revision,
+            "notifications": notifications,
+        ]
+        let encoded = MobileHostRPCEnvelope.encodeResponse(
+            id: "notification.feed.list",
+            result: .ok(payload)
+        )
+        return encoded.count <= mobileNotificationFeedResponseByteLimit
     }
 
     /// Marks the supplied feed records read and mirrors matching active

@@ -19,9 +19,9 @@ nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
 /// work never runs on the main actor. Writes are serialized and stale revisions
 /// are rejected.
 actor NotificationFeedHistoryPersistence {
-    private static let titleByteLimit = 1_024
-    private static let subtitleByteLimit = 1_024
-    private static let bodyByteLimit = 8_192
+    private static let titleByteLimit = 512
+    private static let subtitleByteLimit = 512
+    private static let bodyByteLimit = 2_048
 
     private let fileURL: URL?
     private let fileManager: FileManager
@@ -62,8 +62,11 @@ actor NotificationFeedHistoryPersistence {
                 notificationFeedPersistenceLogger.error(
                     "Notification feed load rejected oversized file=\(fileURL.path, privacy: .private) limit=\(self.maxSnapshotBytes, privacy: .public)"
                 )
-                allowsWrites = false
-                outcome = .corrupt
+                if quarantineOversizedSnapshotFile(fileURL) {
+                    outcome = .missing
+                } else {
+                    outcome = .corrupt
+                }
                 loadOutcome = outcome
                 return outcome
             }
@@ -109,16 +112,37 @@ actor NotificationFeedHistoryPersistence {
 
     private static func defaultMaxSnapshotBytes(totalRetentionLimit: Int) -> UInt64 {
         let minimumBudget = UInt64(1_048_576)
-        let perRecordBudget = UInt64(16_384)
-        let maximumBudget = UInt64(67_108_864)
+        let perRecordBudget = UInt64(2_048)
+        let maximumWireCompatibleBudget = UInt64(4 * 1024 * 1024)
         let retainedRecordBudget = UInt64(max(1, totalRetentionLimit)) * perRecordBudget
-        return min(max(minimumBudget, retainedRecordBudget), maximumBudget)
+        return min(max(minimumBudget, retainedRecordBudget), maximumWireCompatibleBudget)
     }
 
     private func snapshotFileFitsLoadBudget(_ fileURL: URL) throws -> Bool {
         let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
         guard let size = attributes[.size] as? NSNumber else { return true }
         return size.uint64Value <= maxSnapshotBytes
+    }
+
+    private func quarantineOversizedSnapshotFile(_ fileURL: URL) -> Bool {
+        let quarantineURL = fileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(fileURL.lastPathComponent).oversized-\(UUID().uuidString).quarantine",
+                isDirectory: false
+            )
+        do {
+            try fileManager.moveItem(at: fileURL, to: quarantineURL)
+            notificationFeedPersistenceLogger.notice(
+                "Notification feed oversized file quarantined source=\(fileURL.path, privacy: .private) destination=\(quarantineURL.path, privacy: .private)"
+            )
+            return true
+        } catch {
+            notificationFeedPersistenceLogger.error(
+                "Notification feed oversized file quarantine failed file=\(fileURL.path, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return false
+        }
     }
 
     private func compactLoadedSnapshotIfNeeded(

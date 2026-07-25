@@ -22,6 +22,12 @@ final class NotificationFeedHistoryStore {
         var marked = 0
     }
 
+    private enum InsertionChange {
+        case none
+        case insertedNew(UUID)
+        case replacedExisting
+    }
+
     private(set) var revision = 0
     private(set) var notifications: [NotificationFeedHistoryRecord] = []
 
@@ -260,9 +266,9 @@ final class NotificationFeedHistoryStore {
         readRetentionLimit: Int,
         totalRetentionLimit: Int
     ) -> MutationResult {
-        let originalRecords = records
-        let originalReadRecordCount = readRecordCount
         var result = MutationResult()
+        var insertedNewIDs = Set<UUID>()
+        var changedExistingState = false
         switch mutation {
         case .record(let record, let supersededIDs):
             for index in records.indices
@@ -270,8 +276,16 @@ final class NotificationFeedHistoryStore {
                 records[index].isRead = true
                 readRecordCount += 1
                 result.changed = true
+                changedExistingState = true
             }
-            if insertOrReplace(record, in: &records, readRecordCount: &readRecordCount) {
+            switch insertOrReplace(record, in: &records, readRecordCount: &readRecordCount) {
+            case .none:
+                break
+            case .insertedNew(let id):
+                insertedNewIDs.insert(id)
+                result.changed = true
+            case .replacedExisting:
+                changedExistingState = true
                 result.changed = true
             }
 
@@ -283,6 +297,7 @@ final class NotificationFeedHistoryStore {
             ) where knownIDs.insert(record.id).inserted {
                 insert(record, in: &records)
                 if record.isRead { readRecordCount += 1 }
+                insertedNewIDs.insert(record.id)
                 result.changed = true
             }
 
@@ -293,6 +308,7 @@ final class NotificationFeedHistoryStore {
                 result.marked += 1
             }
             result.changed = result.marked > 0
+            changedExistingState = result.changed
 
         case .markReadWorkspace(let tabId):
             for index in records.indices where records[index].tabId == tabId && !records[index].isRead {
@@ -301,6 +317,7 @@ final class NotificationFeedHistoryStore {
                 result.marked += 1
             }
             result.changed = result.marked > 0
+            changedExistingState = result.changed
 
         case .markReadSurface(let tabId, let surfaceId):
             for index in records.indices
@@ -310,6 +327,7 @@ final class NotificationFeedHistoryStore {
                 result.marked += 1
             }
             result.changed = result.marked > 0
+            changedExistingState = result.changed
 
         case .markAllRead:
             for index in records.indices where !records[index].isRead {
@@ -318,6 +336,7 @@ final class NotificationFeedHistoryStore {
                 result.marked += 1
             }
             result.changed = result.marked > 0
+            changedExistingState = result.changed
 
         case .markUnreadIDs(let ids):
             for index in records.indices where ids.contains(records[index].id) && records[index].isRead {
@@ -326,6 +345,7 @@ final class NotificationFeedHistoryStore {
                 result.marked += 1
             }
             result.changed = result.marked > 0
+            changedExistingState = result.changed
 
         case .rebindSurface(let sourceTabId, let destinationTabId, let surfaceId):
             for index in records.indices {
@@ -335,6 +355,7 @@ final class NotificationFeedHistoryStore {
                 }
                 records[index].tabId = destinationTabId
                 result.changed = true
+                changedExistingState = true
             }
         }
 
@@ -349,8 +370,9 @@ final class NotificationFeedHistoryStore {
                 readRecordCount: &readRecordCount,
                 totalRetentionLimit: totalRetentionLimit
             )
-            if records == originalRecords,
-               readRecordCount == originalReadRecordCount {
+            if !changedExistingState,
+               !insertedNewIDs.isEmpty,
+               !records.contains(where: { insertedNewIDs.contains($0.id) }) {
                 result.changed = false
             }
         }
@@ -370,16 +392,19 @@ final class NotificationFeedHistoryStore {
         _ record: NotificationFeedHistoryRecord,
         in records: inout [NotificationFeedHistoryRecord],
         readRecordCount: inout Int
-    ) -> Bool {
+    ) -> InsertionChange {
         if let existingIndex = records.firstIndex(where: { $0.id == record.id }) {
             let existing = records[existingIndex]
-            guard existing != record else { return false }
+            guard existing != record else { return .none }
             records.remove(at: existingIndex)
             if existing.isRead { readRecordCount -= 1 }
+            insert(record, in: &records)
+            if record.isRead { readRecordCount += 1 }
+            return .replacedExisting
         }
         insert(record, in: &records)
         if record.isRead { readRecordCount += 1 }
-        return true
+        return .insertedNew(record.id)
     }
 
     private static func insert(
