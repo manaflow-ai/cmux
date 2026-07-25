@@ -16,7 +16,11 @@ extension TextBoxAttachment {
         self.submissionText = submissionText
         self.submissionPath = submissionPath ?? standardizedURL.path
         self.localURL = standardizedURL
-        self.thumbnail = preparedAttachment.thumbnailPNGData.flatMap(NSImage.init(data:))
+        let thumbnail = preparedAttachment.thumbnailPNGData.flatMap(NSImage.init(data:))
+        self.thumbnail = thumbnail
+        self.inlineThumbnailSource = thumbnail.map { _ in
+            TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
+        }
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
     }
 }
