@@ -160,6 +160,41 @@ struct NotificationFeedHistoryTests {
         #expect(revisions == [1])
     }
 
+    @Test func activeReconcileCapsBeforeMaterializingHistoryRecords() {
+        let history = NotificationFeedHistoryStore(
+            fileURL: nil,
+            readRetentionLimit: 10,
+            totalRetentionLimit: 2
+        )
+        let workspaceID = UUID()
+        let dropped = notification(
+            workspaceID: workspaceID,
+            title: "Dropped oversized active",
+            body: String(repeating: "x", count: NotificationFeedHistoryRecord.historyBodyByteLimit * 8),
+            date: Date(timeIntervalSince1970: 1_250),
+            isRead: false
+        )
+        let retainedOlder = notification(
+            workspaceID: workspaceID,
+            title: "Retained older",
+            date: Date(timeIntervalSince1970: 1_251),
+            isRead: false
+        )
+        let retainedNewer = notification(
+            workspaceID: workspaceID,
+            title: "Retained newer",
+            date: Date(timeIntervalSince1970: 1_252),
+            isRead: false
+        )
+
+        history.reconcileActiveNotifications([dropped, retainedOlder, retainedNewer])
+
+        #expect(history.notifications.map(\.title) == ["Retained newer", "Retained older"])
+        #expect(history.notifications.allSatisfy {
+            $0.body.utf8.count <= NotificationFeedHistoryRecord.historyBodyByteLimit
+        })
+    }
+
     @Test func loadingOversizedHistoryPersistsCompactedSnapshot() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-compaction-\(UUID().uuidString)", isDirectory: true)

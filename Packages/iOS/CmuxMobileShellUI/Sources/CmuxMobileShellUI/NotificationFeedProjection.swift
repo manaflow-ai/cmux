@@ -67,7 +67,6 @@ final class NotificationFeedProjection {
         sourceRevision &+= 1
         sourceItemCount = boundedItems.count
         sourceUnreadCount = boundedItems.lazy.filter { !$0.isRead }.count
-        sections = []
         isSourceRebuilding = true
         scheduleRebuild()
     }
@@ -76,9 +75,9 @@ final class NotificationFeedProjection {
         await rebuildTask?.value
     }
 
-    /// Debounces query changes and cancels superseded work. Stale rows are
-    /// removed before the async rebuild starts, and results publish only while
-    /// both captured revisions still match the current projection.
+    /// Debounces query changes and cancels superseded work. The last completed
+    /// sections stay visible during rebuilds, and results publish atomically
+    /// only while both captured revisions still match the current projection.
     private func scheduleRebuild(debounce: Duration? = nil) {
         rebuildRevision &+= 1
         let requestedRebuildRevision = rebuildRevision
@@ -89,7 +88,6 @@ final class NotificationFeedProjection {
         let requestedCalendar = calendar
         let requestedSourceItems = sourceItems
 
-        sections = []
         isSourceRebuilding = true
 
         rebuildTask?.cancel()

@@ -96,6 +96,10 @@ final class NotificationFeedHistoryStore {
     /// durable history. Existing historical rows remain unchanged; only missing
     /// UUIDs are inserted.
     func reconcileActiveNotifications(_ activeNotifications: [TerminalNotification]) {
+        let activeNotifications = Self.retainableActiveNotifications(
+            activeNotifications,
+            totalRetentionLimit: totalRetentionLimit
+        )
         guard !activeNotifications.isEmpty else { return }
         _ = commit(
             .reconcileActive(
@@ -314,7 +318,6 @@ final class NotificationFeedHistoryStore {
             }
 
         case .reconcileActive(let activeRecords):
-            let activeRecords = activeRecords.map { $0.boundedForHistory() }
             var knownIDs = Set(records.map(\.id))
             for record in retainableActiveRecords(
                 activeRecords,
@@ -404,6 +407,19 @@ final class NotificationFeedHistoryStore {
         return result
     }
 
+    private static func retainableActiveNotifications(
+        _ notifications: [TerminalNotification],
+        totalRetentionLimit: Int
+    ) -> [TerminalNotification] {
+        guard totalRetentionLimit > 0 else { return [] }
+        guard notifications.count > totalRetentionLimit else { return notifications }
+        var heap = RetainedActiveNotificationHeap(limit: totalRetentionLimit)
+        for notification in notifications {
+            heap.insert(notification)
+        }
+        return heap.sortedNewestFirst()
+    }
+
     private static func retainableActiveRecords(
         _ records: [NotificationFeedHistoryRecord],
         totalRetentionLimit: Int
@@ -411,6 +427,65 @@ final class NotificationFeedHistoryStore {
         guard totalRetentionLimit > 0 else { return [] }
         guard records.count > totalRetentionLimit else { return records }
         return Array(records.sorted(by: recordPrecedes).prefix(totalRetentionLimit))
+    }
+
+    private struct RetainedActiveNotificationHeap {
+        let limit: Int
+        private var storage: [TerminalNotification] = []
+
+        init(limit: Int) {
+            self.limit = limit
+            storage.reserveCapacity(limit)
+        }
+
+        mutating func insert(_ notification: TerminalNotification) {
+            guard limit > 0 else { return }
+            guard storage.count >= limit else {
+                storage.append(notification)
+                siftUp(from: storage.count - 1)
+                return
+            }
+            guard let oldest = storage.first,
+                  activeNotificationPrecedes(notification, oldest) else {
+                return
+            }
+            storage[0] = notification
+            siftDown(from: 0)
+        }
+
+        func sortedNewestFirst() -> [TerminalNotification] {
+            storage.sorted(by: activeNotificationPrecedes)
+        }
+
+        private mutating func siftUp(from startIndex: Int) {
+            var child = startIndex
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard activeNotificationIsOlder(storage[child], than: storage[parent]) else { return }
+                storage.swapAt(child, parent)
+                child = parent
+            }
+        }
+
+        private mutating func siftDown(from startIndex: Int) {
+            var parent = startIndex
+            while true {
+                let left = parent * 2 + 1
+                let right = left + 1
+                var candidate = parent
+                if left < storage.count,
+                   activeNotificationIsOlder(storage[left], than: storage[candidate]) {
+                    candidate = left
+                }
+                if right < storage.count,
+                   activeNotificationIsOlder(storage[right], than: storage[candidate]) {
+                    candidate = right
+                }
+                guard candidate != parent else { return }
+                storage.swapAt(parent, candidate)
+                parent = candidate
+            }
+        }
     }
 
     private static func insertOrReplace(
@@ -484,5 +559,22 @@ final class NotificationFeedHistoryStore {
             return lhs.createdAt > rhs.createdAt
         }
         return lhs.id.uuidString > rhs.id.uuidString
+    }
+
+    private nonisolated static func activeNotificationPrecedes(
+        _ lhs: TerminalNotification,
+        _ rhs: TerminalNotification
+    ) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id.uuidString > rhs.id.uuidString
+    }
+
+    private nonisolated static func activeNotificationIsOlder(
+        _ lhs: TerminalNotification,
+        than rhs: TerminalNotification
+    ) -> Bool {
+        activeNotificationPrecedes(rhs, lhs)
     }
 }

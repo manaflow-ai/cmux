@@ -44,7 +44,7 @@ import Testing
         #expect(projection.sourceUnreadCount == 1)
     }
 
-    @Test @MainActor func filterChangeRetiresPriorRowsBeforeAsyncRebuild() async throws {
+    @Test @MainActor func filterChangeRetainsPriorRowsUntilAsyncRebuildPublishes() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -58,7 +58,7 @@ import Testing
 
         projection.filter = .unread
 
-        #expect(projection.sections.isEmpty)
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["read", "unread"])
         #expect(projection.isSourceRebuilding)
 
         await projection.waitForPendingRebuild()
@@ -102,7 +102,7 @@ import Testing
         #expect(projection.sourceUnreadCount == 1)
     }
 
-    @Test @MainActor func searchChangeRetiresPriorRowsBeforeAsyncRebuild() async throws {
+    @Test @MainActor func searchChangeRetainsPriorRowsUntilAsyncRebuildPublishes() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -126,7 +126,7 @@ import Testing
 
         projection.searchText = "tests"
 
-        #expect(projection.sections.isEmpty)
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["approval", "tests"])
         #expect(projection.isSourceRebuilding)
 
         await projection.waitForPendingRebuild()
@@ -217,7 +217,7 @@ import Testing
         #expect(!projection.isSourceRebuilding)
     }
 
-    @Test @MainActor func sourceUpdateRetiresPriorRowsBeforeAsyncRebuild() async throws {
+    @Test @MainActor func sourceUpdateRetainsPriorRowsUntilAsyncRebuildPublishes() async throws {
         let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
@@ -240,7 +240,7 @@ import Testing
             ),
         ], referenceDate: referenceDate)
 
-        #expect(projection.sections.isEmpty)
+        #expect(projection.sections.flatMap(\.items).map(\.notificationID) == ["old-scope"])
         #expect(projection.isSourceRebuilding)
 
         await projection.waitForPendingRebuild()
