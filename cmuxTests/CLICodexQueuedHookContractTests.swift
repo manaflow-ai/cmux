@@ -57,15 +57,85 @@ struct CLICodexQueuedHookContractTests {
         #expect(!permissionBody.contains("hooks enqueue"))
     }
 
+    @Test("Codex generated decision hooks propagate CLI failure while lifecycle hooks fail open")
+    func generatedScriptsPreserveFailureSemantics() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-codex-generated-hook-failure-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let injection = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": root.appendingPathComponent(".codex").path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 3
+        )
+        #expect(!injection.timedOut, Comment(rawValue: injection.stderr))
+        #expect(injection.status == 0, Comment(rawValue: injection.stderr))
+        let arguments = injection.stdout.split(separator: "\0").map(String.init)
+        let environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SURFACE_ID": "surface-codex-hook-failure",
+            "CMUX_CODEX_HOOK_CMUX_BIN": "/usr/bin/false",
+            "CMUX_BUNDLED_CLI_PATH": "/usr/bin/true",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let payload = #"{"session_id":"codex-hook-failure","tool_name":"Write"}"#
+
+        for event in ["PreToolUse", "PermissionRequest"] {
+            let configuration = try injectedConfiguration(event: event, arguments: arguments)
+            let command = try injectedCommand(configuration: configuration)
+            #expect(FileManager.default.isExecutableFile(atPath: command))
+            let result = runCodexHookProcess(
+                executablePath: command,
+                arguments: [],
+                environment: environment,
+                standardInput: payload,
+                timeout: 2
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status != 0, "A direct \(event) hook must propagate its CLI failure")
+            #expect(result.stdout.isEmpty, "A direct \(event) hook must not synthesize a decision")
+        }
+
+        let stopConfiguration = try injectedConfiguration(event: "Stop", arguments: arguments)
+        let stopCommand = try injectedCommand(configuration: stopConfiguration)
+        #expect(FileManager.default.isExecutableFile(atPath: stopCommand))
+        let stop = runCodexHookProcess(
+            executablePath: stopCommand,
+            arguments: [],
+            environment: environment,
+            standardInput: payload,
+            timeout: 2
+        )
+        #expect(!stop.timedOut, Comment(rawValue: stop.stderr))
+        #expect(stop.status == 0, Comment(rawValue: stop.stderr))
+        #expect(stop.stdout == "{}\n")
+    }
+
     private func injectedConfiguration(event: String, arguments: [String]) throws -> String {
         try #require(arguments.first { $0.hasPrefix("hooks.\(event)=") })
     }
 
-    private func injectedCommandBody(configuration: String) throws -> String {
+    private func injectedCommand(configuration: String) throws -> String {
         let marker = "command='''"
         let start = try #require(configuration.range(of: marker)?.upperBound)
         let end = try #require(configuration.range(of: "'''", range: start..<configuration.endIndex)?.lowerBound)
-        let command = String(configuration[start..<end])
+        return String(configuration[start..<end])
+    }
+
+    private func injectedCommandBody(configuration: String) throws -> String {
+        let command = try injectedCommand(configuration: configuration)
         if FileManager.default.fileExists(atPath: command) {
             return try String(contentsOfFile: command, encoding: .utf8)
         }
