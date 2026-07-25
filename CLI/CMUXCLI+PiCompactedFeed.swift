@@ -77,7 +77,12 @@ extension CMUXCLI {
         socketPath: String?,
         socketPassword: String?
     ) throws -> String? {
-        guard rawObject["cmux_compacted_terminal_events"] is [[String: Any]] else { return nil }
+        guard let rawCompactedEvents = rawObject["cmux_compacted_terminal_events"] else {
+            return nil
+        }
+        guard rawCompactedEvents is [[String: Any]] else {
+            throw piFeedAcknowledgmentError()
+        }
 
         if let client {
             return try sendPiCompactedFeedEvents(
@@ -155,6 +160,9 @@ extension CMUXCLI {
         }
 
         let workspace = normalizedHandleValue(arguments.workspace)
+        if arguments.explicitWorkspace != nil, workspace == nil {
+            throw piHookSurfaceNotFoundError(arguments.explicitWorkspace ?? "")
+        }
         if isUUID(surface), workspace == nil || workspace.map(isUUID) == true {
             return (workspace, surface)
         }

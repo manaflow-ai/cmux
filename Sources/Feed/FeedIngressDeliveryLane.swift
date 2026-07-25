@@ -38,7 +38,9 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
     /// Runs acknowledged or actionable ingress after its earlier same-key deliveries.
     ///
     /// The delivery must call ``FeedIngressSynchronousResult/commit(_:)`` only
-    /// at its short, non-suspending mutation boundary.
+    /// at its short, non-suspending mutation boundary. The caller is resolved
+    /// after the delivery returns so any subsequent publication stays ordered
+    /// before acknowledgment.
     func perform<Result: Sendable>(
         metadata: FeedIngressDeliveryMetadata,
         timeout: TimeInterval,
@@ -54,6 +56,7 @@ final class FeedIngressDeliveryLane: @unchecked Sendable {
                 isZeroWait: false,
                 execute: {
                     guard result.begin() else { return }
+                    defer { result.complete() }
                     delivery(result)
                 }
             )
