@@ -104,8 +104,12 @@ final class MobilePairingWindowController: ReleasingWindowController {
             dy: Self.screenMargin / 2
         )
         let contentChromeHeight = window.frame.height - window.contentLayoutRect.height
+        // setFrame(_:display:) does not enforce contentMinSize, so clamp here
+        // or a small in-flight measurement (e.g. the loading spinner) could
+        // shrink the window below the usable floor.
+        let minContentHeight = window.contentMinSize.height
         let targetFrameHeight = min(
-            idealContentHeight + contentChromeHeight,
+            max(idealContentHeight, minContentHeight) + contentChromeHeight,
             visibleFrame.height
         )
         guard targetFrameHeight > 0 else { return }
