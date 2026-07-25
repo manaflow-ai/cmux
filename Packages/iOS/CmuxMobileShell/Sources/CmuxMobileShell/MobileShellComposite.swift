@@ -961,6 +961,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalColdReplayNeedsBarrierUpgradeSurfaceIDs: Set<String>
     var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
+    var terminalOutputRegistrationTokensBySurfaceID: [String: UUID]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
@@ -1200,6 +1201,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
+        self.terminalOutputRegistrationTokensBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         if let terminalLaneProvider = runtime?.terminalLaneProvider {
@@ -7564,8 +7566,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) -> UUID {
+        let registrationToken = UUID()
         let streamToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        terminalOutputRegistrationTokensBySurfaceID[surfaceID] = registrationToken
         terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -7582,18 +7586,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
-        return streamToken
+        return registrationToken
     }
 
-    private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
-        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
+    private func unregisterTerminalOutput(surfaceID: String, registrationToken: UUID) {
+        guard terminalOutputRegistrationTokensBySurfaceID[surfaceID] == registrationToken else { return }
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
             Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }
         }
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
-        terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        let continuation = terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputRegistrationTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -7635,28 +7640,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
         clearTerminalViewport(surfaceID: surfaceID)
+        continuation?.finish()
     }
 
     /// The output byte stream for a terminal surface.
     ///
     /// Obtaining the stream arms a cold-attach replay so the surface catches up
-    /// to current state; ending iteration (or cancelling the consuming task)
-    /// unregisters the surface and clears its viewport pin on the Mac.
+    /// to current state. The mounted view must cancel the returned lease when
+    /// it detaches so the store unregisters the surface and clears its viewport
+    /// pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
-    /// - Returns: An `AsyncStream` of output byte chunks.
-    public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
-        AsyncStream { continuation in
-            let streamToken = registerTerminalOutput(
+    /// - Returns: A cancellable stream lease of output byte chunks.
+    public func terminalOutputStream(surfaceID: String) -> MobileTerminalOutputStream {
+        MobileTerminalOutputStream { continuation, cancellation in
+            let registrationToken = registerTerminalOutput(
                 surfaceID: surfaceID,
                 continuation: continuation
             )
-            continuation.onTermination = { [weak self] _ in
+            cancellation.install { [weak self] in
                 Task { @MainActor in
                     self?.unregisterTerminalOutput(
                         surfaceID: surfaceID,
-                        streamToken: streamToken
+                        registrationToken: registrationToken
                     )
                 }
+            }
+            continuation.onTermination = { [weak self] _ in
+                guard self != nil else { return }
+                cancellation.cancel()
             }
         }
     }

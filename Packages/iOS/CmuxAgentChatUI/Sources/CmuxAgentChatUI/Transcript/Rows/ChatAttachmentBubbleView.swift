@@ -11,6 +11,7 @@ import AppKit
 /// other files keep a compact filename-and-path treatment.
 public struct ChatAttachmentBubbleView: View {
     private let attachment: ChatAttachment
+    private let role: ChatRole
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
     private let timestamp: Date
@@ -29,6 +30,7 @@ public struct ChatAttachmentBubbleView: View {
     ///
     /// - Parameters:
     ///   - attachment: The attachment metadata.
+    ///   - role: Who authored the attachment row.
     ///   - groupPosition: Position inside the visual bubble group.
     ///   - showsTimestamp: Whether the group timestamp renders under this
     ///     bubble.
@@ -37,12 +39,14 @@ public struct ChatAttachmentBubbleView: View {
     ///     navigation stack. When omitted, the standalone bubble uses a sheet.
     public init(
         attachment: ChatAttachment,
+        role: ChatRole = .user,
         groupPosition: ChatGroupPosition,
         showsTimestamp: Bool,
         timestamp: Date,
         onOpenArtifact: ((String) -> Void)? = nil
     ) {
         self.attachment = attachment
+        self.role = role
         self.groupPosition = groupPosition
         self.showsTimestamp = showsTimestamp
         self.timestamp = timestamp
@@ -51,10 +55,10 @@ public struct ChatAttachmentBubbleView: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: 64)
-            VStack(alignment: .trailing, spacing: 3) {
+            if isUser { Spacer(minLength: 64) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 3) {
                 attachmentContent
-                    .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
+                    .frame(maxWidth: bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
                 if showsTimestamp {
                     Text(timestamp.formatted(.dateTime.hour().minute()))
                         .font(.caption2)
@@ -62,13 +66,16 @@ public struct ChatAttachmentBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
+            if !isUser { Spacer(minLength: 64) }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .sheet(item: $fallbackSelection) { selection in
             ChatArtifactViewerSheet(path: selection.path)
                 .environment(\.chatArtifactLoader, artifactLoader)
         }
     }
+
+    private var isUser: Bool { role == .user }
 
     @ViewBuilder
     private var attachmentContent: some View {
@@ -132,18 +139,26 @@ public struct ChatAttachmentBubbleView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(fileBubbleTextStyle)
             if let hostPath = attachment.hostPath, !hostPath.isEmpty {
                 Text(hostPath)
                     .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(fileBubbleSecondaryTextStyle)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(theme.outgoingBubbleFill, in: bubbleShape)
+        .background(isUser ? theme.outgoingBubbleFill : theme.incomingBubbleFill, in: bubbleShape)
+    }
+
+    private var fileBubbleTextStyle: Color {
+        isUser ? .white : .primary
+    }
+
+    private var fileBubbleSecondaryTextStyle: Color {
+        isUser ? .white.opacity(0.7) : .secondary
     }
 
     private var imagePreview: some View {
@@ -247,6 +262,14 @@ public struct ChatAttachmentBubbleView: View {
         let tight = theme.bubbleGroupedCornerRadius
         let tightTop = groupPosition == .middle || groupPosition == .last
         let tightBottom = groupPosition == .first || groupPosition == .middle
+        if !isUser {
+            return UnevenRoundedRectangle(
+                topLeadingRadius: tightTop ? tight : full,
+                bottomLeadingRadius: tightBottom ? tight : full,
+                bottomTrailingRadius: full,
+                topTrailingRadius: full
+            )
+        }
         return UnevenRoundedRectangle(
             topLeadingRadius: full,
             bottomLeadingRadius: full,

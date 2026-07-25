@@ -178,6 +178,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        private var outputStream: MobileTerminalOutputStream?
         var outputStartContinuation: AsyncStream<Void>.Continuation?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
@@ -309,13 +310,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 }
             )
             // Drive every output chunk into the libghostty surface. Ending this
-            // task terminates the stream, which unregisters the surface and
-            // clears its viewport pin on the Mac (see `terminalOutputStream`).
+            // stream lease unregisters the surface and clears its viewport pin
+            // on the Mac (see `terminalOutputStream`).
+            let terminalOutputStream = store.terminalOutputStream(surfaceID: surfaceID)
+            outputStream = terminalOutputStream
             outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
                 for await _ in outputStartSignal { break }
                 guard !Task.isCancelled else { return }
                 guard let store else { return }
-                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in terminalOutputStream {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
@@ -424,6 +427,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
+            outputStream?.cancel()
+            outputStream = nil
             outputTask?.cancel()
             outputTask = nil
             verifiedReplayState.invalidate()

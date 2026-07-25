@@ -139,10 +139,13 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             return
         }
         if let text = content.string {
-            let payload: EntryPayload = role == "user"
-                ? .userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: 0, hasImage: false))
-                : .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
-            accumulator.emit(payload: payload, journalID: journalID, lineIndex: lineIndex)
+            let payloads = decodedTextPayloads(text, role: role)
+            guard !payloads.isEmpty else { return }
+            if payloads.count == 1 {
+                accumulator.emit(payload: payloads[0], journalID: journalID, lineIndex: lineIndex)
+            } else {
+                accumulator.emit(payloads: payloads, journalID: journalID, lineIndex: lineIndex)
+            }
             return
         }
         guard let blocks = content.array else {
@@ -184,12 +187,11 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         switch type {
         case "text":
             let text = object["text"]?.string ?? ""
-            let payload: EntryPayload = role == "user"
-                ? .userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: 0, hasImage: false))
-                : .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
-            return [ClaudeDecodedBlock(summary: text, payload: payload)]
+            return decodedTextPayloads(text, role: role).map {
+                ClaudeDecodedBlock(summary: summary(for: $0), payload: $0)
+            }
         case "image":
-            return [decodeImageBlock(object)]
+            return [decodeImageBlock(object, role: role)]
         case "thinking":
             let text = object["thinking"]?.string ?? object["text"]?.string ?? ""
             let bounded = textBudget.body(text)
@@ -204,7 +206,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         }
     }
 
-    private func decodeImageBlock(_ object: [String: JSONValue]) -> ClaudeDecodedBlock {
+    private func decodeImageBlock(_ object: [String: JSONValue], role: String = "agent") -> ClaudeDecodedBlock {
         let source = object["source"]?.object
         let hostPath = source?["path"]?.string ?? object["path"]?.string
         let mimeType = source?["media_type"]?.string
@@ -226,7 +228,8 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             mimeType: mimeType,
             byteCount: metadata.byteCount ?? base64EncodedData.map(estimatedDecodedByteCount),
             width: object["width"]?.int ?? metadata.width,
-            height: object["height"]?.int ?? metadata.height
+            height: object["height"]?.int ?? metadata.height,
+            authorRole: normalizedAttachmentRole(role)
         )
         return ClaudeDecodedBlock(
             summary: "Image attachment",
@@ -237,6 +240,51 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
                     base64EncodedData: $0
                 )
             }
+        )
+    }
+
+    private func decodedTextPayloads(_ text: String, role: String) -> [EntryPayload] {
+        guard normalizedAttachmentRole(role) != "user" else {
+            return [.userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: 0, hasImage: false))]
+        }
+        let segments = TranscriptMarkdownImageReferenceExtractor.segments(in: text)
+        guard segments.contains(where: {
+            if case .image = $0 { return true }
+            return false
+        }) else {
+            return [.agentProse(AgentProsePayload(markdown: textBudget.body(text)))]
+        }
+
+        return segments.compactMap { segment in
+            switch segment {
+            case .text(let markdown):
+                let bounded = textBudget.body(markdown)
+                return bounded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil
+                    : .agentProse(AgentProsePayload(markdown: bounded))
+            case .image(let reference):
+                return .attachment(markdownImageAttachment(reference: reference, role: role))
+            }
+        }
+    }
+
+    private func markdownImageAttachment(
+        reference: TranscriptMarkdownImageReference,
+        role: String
+    ) -> AttachmentPayload {
+        let mimeType = imageMIMEType(for: reference.hostPath)
+        let metadata = TranscriptImageMetadataProbe.metadata(hostPath: reference.hostPath, base64EncodedData: nil)
+        let displayName = reference.altText ?? imageDisplayName(for: reference.hostPath)
+        return AttachmentPayload(
+            kind: "image",
+            summary: displayName ?? "Image attachment",
+            displayName: displayName,
+            hostPath: reference.hostPath,
+            mimeType: mimeType,
+            byteCount: metadata.byteCount,
+            width: metadata.width,
+            height: metadata.height,
+            authorRole: normalizedAttachmentRole(role)
         )
     }
 
@@ -300,7 +348,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             }
             switch type {
             case "image":
-                return decodeImageBlock(object)
+                return decodeImageBlock(object, role: "agent")
             case "attachment":
                 let attachmentObject = object["attachment"]?.object ?? object
                 return ClaudeDecodedBlock(
@@ -557,6 +605,22 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         case "bmp": "image/bmp"
         case "svg": "image/svg+xml"
         default: nil
+        }
+    }
+
+    private func imageDisplayName(for path: String) -> String? {
+        let displayName = URL(fileURLWithPath: path).lastPathComponent
+        return displayName.isEmpty ? nil : displayName
+    }
+
+    private func normalizedAttachmentRole(_ role: String) -> String? {
+        switch role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "assistant", "agent", "model":
+            return "agent"
+        case "user", "human":
+            return "user"
+        default:
+            return nil
         }
     }
 

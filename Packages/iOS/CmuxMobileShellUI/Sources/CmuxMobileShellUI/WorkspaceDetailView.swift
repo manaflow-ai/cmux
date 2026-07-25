@@ -185,6 +185,7 @@ struct WorkspaceDetailView: View {
                 WorkspaceChangesToolbarButton(
                     chip: workspaceChangesChip,
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    compact: agentGUIAvailability != nil,
                     action: openWorkspaceChanges
                 )
                 // The chrome sits on the terminal theme's background, not the

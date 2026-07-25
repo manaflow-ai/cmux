@@ -1241,6 +1241,23 @@
         }
       }
     },
+    "agent.transcript.image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像"
+          }
+        }
+      }
+    },
     "agent.transcript.empty": {
       "extractionState": "manual",
       "localizations": {

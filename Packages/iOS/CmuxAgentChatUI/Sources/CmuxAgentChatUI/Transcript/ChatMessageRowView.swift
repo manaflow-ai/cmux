@@ -69,6 +69,7 @@ public struct ChatMessageRowView: View {
             case .attachment(let attachment):
                 ChatAttachmentBubbleView(
                     attachment: attachment,
+                    role: snapshot.message.role,
                     groupPosition: snapshot.groupPosition,
                     showsTimestamp: snapshot.showsTimestamp,
                     timestamp: snapshot.message.timestamp,

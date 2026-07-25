@@ -190,13 +190,15 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         accumulator: inout TranscriptDecodeAccumulator
     ) {
         let role = payload["role"]?.string ?? "assistant"
-        guard role == "user" else {
+        guard normalizedAttachmentRole(role) == "user" else {
             let text = payload["content"]?.textFragments().joined(separator: "\n") ?? ""
-            accumulator.emit(
-                payload: .agentProse(AgentProsePayload(markdown: textBudget.body(text))),
-                journalID: journalID,
-                lineIndex: lineIndex
-            )
+            let payloads = decodedAgentTextPayloads(text, role: role)
+            guard !payloads.isEmpty else { return }
+            if payloads.count == 1 {
+                accumulator.emit(payload: payloads[0], journalID: journalID, lineIndex: lineIndex)
+            } else {
+                accumulator.emit(payloads: payloads, journalID: journalID, lineIndex: lineIndex)
+            }
             return
         }
 
@@ -599,6 +601,48 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         return displayName.isEmpty ? nil : displayName
     }
 
+    private func decodedAgentTextPayloads(_ text: String, role: String) -> [EntryPayload] {
+        let segments = TranscriptMarkdownImageReferenceExtractor.segments(in: text)
+        guard segments.contains(where: {
+            if case .image = $0 { return true }
+            return false
+        }) else {
+            return [.agentProse(AgentProsePayload(markdown: textBudget.body(text)))]
+        }
+
+        return segments.compactMap { segment in
+            switch segment {
+            case .text(let markdown):
+                let bounded = textBudget.body(markdown)
+                return bounded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil
+                    : .agentProse(AgentProsePayload(markdown: bounded))
+            case .image(let reference):
+                return .attachment(markdownImageAttachment(reference: reference, role: role))
+            }
+        }
+    }
+
+    private func markdownImageAttachment(
+        reference: TranscriptMarkdownImageReference,
+        role: String
+    ) -> AttachmentPayload {
+        let mimeType = imageMIMEType(for: reference.hostPath)
+        let metadata = TranscriptImageMetadataProbe.metadata(hostPath: reference.hostPath, base64EncodedData: nil)
+        let displayName = reference.altText ?? imageDisplayName(for: reference.hostPath)
+        return AttachmentPayload(
+            kind: "image",
+            summary: displayName ?? "Image attachment",
+            displayName: displayName,
+            hostPath: reference.hostPath,
+            mimeType: mimeType,
+            byteCount: metadata.byteCount,
+            width: metadata.width,
+            height: metadata.height,
+            authorRole: normalizedAttachmentRole(role)
+        )
+    }
+
     private func imageMIMEType(for path: String) -> String? {
         switch URL(fileURLWithPath: path).pathExtension.lowercased() {
         case "png": "image/png"
@@ -611,6 +655,17 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         case "bmp": "image/bmp"
         case "svg": "image/svg+xml"
         default: nil
+        }
+    }
+
+    private func normalizedAttachmentRole(_ role: String) -> String? {
+        switch role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "assistant", "agent", "model":
+            return "agent"
+        case "user", "human":
+            return "user"
+        default:
+            return nil
         }
     }
 

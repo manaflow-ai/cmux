@@ -162,7 +162,7 @@ public struct ChatAttachment: Sendable, Equatable, Codable {
         guard let candidatePath else { return nil }
         let lowercasedExtension = URL(fileURLWithPath: candidatePath).pathExtension.lowercased()
         switch lowercasedExtension {
-        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff", "webp":
+        case "apng", "avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp":
             return .image
         default:
             return nil

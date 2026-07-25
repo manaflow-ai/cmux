@@ -357,6 +357,27 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexAssistantMarkdownImageEmitsPreviewMetadataInSourceOrder() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-markdown-\(UUID().uuidString).png")
+        try Self.png1x1Data.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let line = #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Before\n\n![Codex Preview](\#(imageURL.path))\n\nAfter"}]}}"#
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:agentProse", "1:attachment", "2:agentProse"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 1))
+        #expect(attachment.hostPath == imageURL.path)
+        #expect(attachment.displayName == "Codex Preview")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
+        #expect(attachment.authorRole == "agent")
+    }
+
+    @Test
     func claudeAttachmentRecordDerivesImageDimensionsFromFileHeader() throws {
         let imageURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-attachment-\(UUID().uuidString).png")
@@ -394,6 +415,27 @@ struct TranscriptDecoderTests {
         #expect(attachment.width == 480)
         #expect(attachment.height == 270)
         #expect(attachment.byteCount == data.count)
+    }
+
+    @Test
+    func claudeAssistantMarkdownImageEmitsPreviewMetadataInSourceOrder() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-markdown-\(UUID().uuidString).png")
+        try Self.png1x1Data.write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        let line = #"{"type":"assistant","message":{"role":"assistant","content":"Before\n\n![Claude Preview](\#(imageURL.path))\n\nAfter"}}"#
+        var decoder = ClaudeTranscriptDecoder()
+        let batch = decoder.feed([line], startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(kindTable(batch.entries) == ["0:agentProse", "1:attachment", "2:agentProse"])
+        let attachment = try #require(attachmentPayload(in: batch, seq: 1))
+        #expect(attachment.hostPath == imageURL.path)
+        #expect(attachment.displayName == "Claude Preview")
+        #expect(attachment.mimeType == "image/png")
+        #expect(attachment.width == 1)
+        #expect(attachment.height == 1)
+        #expect(attachment.byteCount == Self.png1x1Data.count)
+        #expect(attachment.authorRole == "agent")
     }
 
     @Test
