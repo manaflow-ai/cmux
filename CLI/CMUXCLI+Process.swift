@@ -564,6 +564,13 @@ enum CLIProcessRunner {
             )
         }
 
+        let processExitGroup = DispatchGroup()
+        processExitGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            processExitGroup.leave()
+        }
+
         // Process owns duplicated child endpoints after launch. Close the
         // parent's copies so child exit can produce HUP while stdin remains
         // open through its write endpoint.
@@ -704,17 +711,15 @@ enum CLIProcessRunner {
         // direct-child termination wait.
         try? stdoutPipe.fileHandleForReading.close()
         try? stderrPipe.fileHandleForReading.close()
-        if process.isRunning {
+        var processExited = processExitGroup.wait(timeout: .now()) == .success
+        if !processExited {
             kill(process.processIdentifier, SIGKILL)
             // SIGKILL can remain pending while a process is stuck in
             // uninterruptible kernel I/O. Bound the reap so one bad app server
             // cannot extend the caller's advertised timeout indefinitely.
-            let reapDeadline = DispatchTime.now().uptimeNanoseconds
-                &+ 500_000_000
-            while process.isRunning,
-                  DispatchTime.now().uptimeNanoseconds < reapDeadline {
-                Darwin.usleep(10_000)
-            }
+            processExited = processExitGroup.wait(
+                timeout: .now() + .milliseconds(500)
+            ) == .success
         }
 
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
@@ -749,7 +754,7 @@ enum CLIProcessRunner {
         } else if pipeError != nil {
             status = 1
         } else {
-            let childStatus = process.isRunning ? 1 : process.terminationStatus
+            let childStatus = processExited ? process.terminationStatus : 1
             status = childStatus == 0 ? 1 : childStatus
         }
         return CLIProcessResult(
