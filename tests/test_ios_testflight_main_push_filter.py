@@ -19,6 +19,32 @@ IOS_PATHS = (
     "scripts/validate-xcframework-archive.py",
     ".github/workflows/ios-testflight.yml",
 )
+DEMO_VARIANT_GUARD = (
+    "github.event_name == 'workflow_dispatch' "
+    "&& github.event.inputs.variant == 'demo'"
+)
+MARKETING_OVERRIDE_GUARD = "github.event.inputs.marketing_version_override != ''"
+
+
+def variant_choice(demo: str, internal: str) -> str:
+    return f"${{{{ {DEMO_VARIANT_GUARD} && '{demo}' || '{internal}' }}}}"
+
+
+def summary_choice(external: str, demo: str, internal: str) -> str:
+    return (
+        "${{ "
+        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
+        f"|| {DEMO_VARIANT_GUARD} && '{demo}' "
+        f"|| '{internal}' }}"
+    )
+
+
+def override_choice(external: str, normal: str) -> str:
+    return (
+        "${{ "
+        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
+        f"|| '{normal}' }}"
+    )
 
 
 def workflow_text() -> str:
@@ -131,23 +157,65 @@ def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
 
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     text = workflow_text()
+    upload = mapping_block(text, "upload", indent=2)
+    assignment = mapping_block(text, "assign-internal-group", indent=2)
 
+    bundle_choice = variant_choice("dev.cmux.app.demo", "dev.cmux.app.internal")
+    display_name_choice = variant_choice("cmux DEMO", "cmux INTERNAL")
+    group_choice = (
+        "${{ "
+        f"{DEMO_VARIANT_GUARD} "
+        "&& 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' "
+        "|| vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}"
+    )
+
+    assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
+    assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
     assert (
-        "IOS_BETA_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' "
-        "&& 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}"
-        in text
+        "CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "
+        f'{override_choice("1", "0")}'
+        in upload
     )
     assert (
-        "IOS_BETA_DISPLAY_NAME: ${{ github.event.inputs.variant == 'demo' "
-        "&& 'cmux DEMO' || 'cmux INTERNAL' }}"
-        in text
+        "UPLOAD_BUNDLE_ID: "
+        f"{summary_choice('dev.cmux.app.beta', 'dev.cmux.app.demo', 'dev.cmux.app.internal')}"
+        in upload
     )
     assert (
-        "ASSIGN_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' "
-        "&& 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}"
-        in text
+        "UPLOAD_DISPLAY_NAME: "
+        f"{summary_choice('cmux BETA', 'cmux DEMO', 'cmux INTERNAL')}"
+        in upload
     )
-    assert '--bundle-id "$ASSIGN_BUNDLE_ID"' in text
+    assert (
+        "UPLOAD_AUDIENCE: "
+        f"{override_choice('external TestFlight testers', 'internal TestFlight group')}"
+        in upload
+    )
+    assert (
+        "UPLOAD_REVIEW_NOTE: "
+        f"{override_choice('Beta App Review may be required', 'no beta review needed')}"
+        in upload
+    )
+    assert f"if: {DEMO_VARIANT_GUARD}" in upload
+    assert (
+        'echo "- lane: \\`beta\\` '
+        '(bundle id \\`${UPLOAD_BUNDLE_ID}\\`, ${UPLOAD_AUDIENCE})"'
+        in upload
+    )
+    assert (
+        'echo "- audience: ${UPLOAD_AUDIENCE} (${UPLOAD_DISPLAY_NAME}) '
+        'on the ${UPLOAD_BUNDLE_ID} app; ${UPLOAD_REVIEW_NOTE}"'
+        in upload
+    )
+    assert f"ASSIGN_BUNDLE_ID: {bundle_choice}" in assignment
+    assert f"CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: {group_choice}" in assignment
+    assert assignment.count("needs: [decide, upload]") == 1
+    assert (
+        "if: github.ref == 'refs/heads/main' "
+        "&& needs.upload.result == 'success' "
+        "&& github.event.inputs.marketing_version_override == ''"
+        in assignment
+    )
 
 
 if __name__ == "__main__":
