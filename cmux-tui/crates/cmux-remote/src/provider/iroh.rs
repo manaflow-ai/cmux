@@ -515,6 +515,11 @@ async fn connect_iroh_connection(
     Ok(connection)
 }
 
+fn initial_iroh_dial_addr(path_mode: IrohPathMode, node_addr: &NodeAddr) -> NodeAddr {
+    let _ = path_mode;
+    node_addr.clone()
+}
+
 fn iroh_connect_error(remote_node_id: NodeId) -> ProviderError {
     ProviderError::Link(LinkError::Transport(format!(
         "could not connect to Iroh node {remote_node_id}"
@@ -556,7 +561,8 @@ impl TransportProvider for IrohProvider {
         let remote_node_id = route.node_id();
         let node_addr = route.into_node_addr();
         let endpoint = self.endpoint().await?.clone();
-        let connection = connect_iroh_connection(&endpoint, &node_addr, &self.config.alpn).await?;
+        let dial_addr = initial_iroh_dial_addr(self.config.path_mode, &node_addr);
+        let connection = connect_iroh_connection(&endpoint, &dial_addr, &self.config.alpn).await?;
         let description = format!("iroh://{remote_node_id}");
         let transport = iroh_transport_snapshot(&description, &connection);
 
@@ -1186,6 +1192,34 @@ mod tests {
 
         let direct = IrohProviderConfig::default().with_path_mode(IrohPathMode::DirectOnly);
         assert!(matches!(direct.relay_mode, RelayMode::Disabled));
+    }
+
+    #[test]
+    fn auto_bootstrap_uses_relay_before_testing_direct_paths() {
+        let node_id = secret(48).public();
+        let route = IrohRoute::from_request(&request(
+            node_id,
+            BTreeMap::from([
+                (
+                    ROUTING_RELAY_URL.into(),
+                    "https://relay.example.test".into(),
+                ),
+                (ROUTING_DIRECT_ADDRS.into(), "203.0.113.7:4010".into()),
+            ]),
+        ))
+        .unwrap();
+
+        let auto = initial_iroh_dial_addr(IrohPathMode::Auto, route.node_addr());
+        assert_eq!(auto.id, node_id);
+        assert_eq!(auto.relay_urls().count(), 1);
+        assert_eq!(
+            auto.ip_addrs().count(),
+            0,
+            "auto bootstrap must not let a blackholed direct candidate starve relay"
+        );
+
+        let direct = initial_iroh_dial_addr(IrohPathMode::DirectOnly, route.node_addr());
+        assert_eq!(direct.ip_addrs().count(), 1);
     }
 
     #[tokio::test]
