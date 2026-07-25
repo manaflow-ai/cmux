@@ -115,6 +115,35 @@ private final class ResultBox: @unchecked Sendable {
         #expect(handled.wait(timeout: .now() + 1.0) == .success)
     }
 
+    @Test func probeCommandPreservesUTF8SplitAcrossReadBuffers() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let prefix = String(repeating: "a", count: 4_095)
+        let scalar = Array("🙂".utf8)
+        let handled = UnixSocketFixture.acceptSingleClient(on: listenerFD) {
+            clientFD in
+            var command = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &command, command.count)
+
+            var firstWrite = Data(prefix.utf8)
+            firstWrite.append(scalar[0])
+            var secondWrite = Data(scalar.dropFirst())
+            secondWrite.append(contentsOf: "\n".utf8)
+            #expect(SocketTransport().writeAll(firstWrite, to: clientFD))
+            #expect(SocketTransport().writeAll(secondWrite, to: clientFD))
+        }
+
+        let response = transport.probeCommand("ping", at: path, timeout: 0.5)
+
+        #expect(response == prefix + "🙂")
+        #expect(handled.wait(timeout: .now() + 1.0) == .success)
+    }
+
     @Test func probeCommandRejectsPeerBeforeSendingCommand() throws {
         let path = UnixSocketFixture.makeTempSocketPath()
         let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
