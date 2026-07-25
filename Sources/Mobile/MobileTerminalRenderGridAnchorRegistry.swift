@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Foundation
+import os
 
 /// Tracks which render-grid anchor each mobile connection negotiated on
 /// `mobile.events.subscribe`, so the render observer produces only the payload
@@ -12,46 +13,33 @@ import Foundation
 ///   viewport/scrollback and primary-screen scrolling never round-trips.
 ///
 /// Registered at subscribe time, replaced idempotently, and removed when the
-/// connection closes. Safe from any actor/queue.
-enum MobileTerminalRenderGridAnchorRegistry {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var anchorsByConnectionID:
-        [UUID: MobileTerminalRenderGridFrame.Anchor] = [:]
+/// connection closes. Safe from any actor/queue. Constructable for tests; the
+/// process-wide instance lives alongside `MobileHostConnectionRegistry.shared`,
+/// whose connection lifecycle drives this registry's entries.
+final class MobileTerminalRenderGridAnchorRegistry: Sendable {
+    static let shared = MobileTerminalRenderGridAnchorRegistry()
 
-    static func set(_ anchor: MobileTerminalRenderGridFrame.Anchor, connectionID: UUID) {
-        lock.lock()
-        defer { lock.unlock() }
-        anchorsByConnectionID[connectionID] = anchor
+    private let anchorsByConnectionID =
+        OSAllocatedUnfairLock<[UUID: MobileTerminalRenderGridFrame.Anchor]>(initialState: [:])
+
+    func set(_ anchor: MobileTerminalRenderGridFrame.Anchor, connectionID: UUID) {
+        anchorsByConnectionID.withLock { $0[connectionID] = anchor }
     }
 
-    static func remove(connectionID: UUID) {
-        lock.lock()
-        defer { lock.unlock() }
-        anchorsByConnectionID.removeValue(forKey: connectionID)
+    func remove(connectionID: UUID) {
+        anchorsByConnectionID.withLock { $0.removeValue(forKey: connectionID) }
     }
 
     /// The anchor this connection negotiated; `.viewport` when it never
     /// subscribed to render-grid events or predates anchor negotiation.
-    static func anchor(connectionID: UUID) -> MobileTerminalRenderGridFrame.Anchor {
-        lock.lock()
-        defer { lock.unlock() }
-        return anchorsByConnectionID[connectionID] ?? .viewport
+    func anchor(connectionID: UUID) -> MobileTerminalRenderGridFrame.Anchor {
+        anchorsByConnectionID.withLock { $0[connectionID] ?? .viewport }
     }
 
     /// The set of anchors with at least one registered connection. The
     /// producer skips building payload variants nobody consumes; an empty set
     /// (subscribers predating anchor negotiation) means viewport-only.
-    static func activeAnchors() -> Set<MobileTerminalRenderGridFrame.Anchor> {
-        lock.lock()
-        defer { lock.unlock() }
-        return Set(anchorsByConnectionID.values)
+    func activeAnchors() -> Set<MobileTerminalRenderGridFrame.Anchor> {
+        anchorsByConnectionID.withLock { Set($0.values) }
     }
-
-    #if DEBUG
-    static func resetForTesting() {
-        lock.lock()
-        defer { lock.unlock() }
-        anchorsByConnectionID.removeAll()
-    }
-    #endif
 }

@@ -279,7 +279,7 @@ final class MobileTerminalRenderObserver {
         // mirrors the Mac's scroll position; screen (v2) anchors to the active
         // area so the phone owns its local viewport/scrollback. An empty
         // registry (subscribers predating anchor negotiation) means v1 only.
-        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.activeAnchors()
+        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.shared.activeAnchors()
         var anchors: [MobileTerminalRenderGridFrame.Anchor] = []
         if activeAnchors.contains(.viewport) || activeAnchors.isEmpty { anchors.append(.viewport) }
         if activeAnchors.contains(.screen) { anchors.append(.screen) }

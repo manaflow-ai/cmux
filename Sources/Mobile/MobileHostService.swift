@@ -464,7 +464,7 @@ final class MobileHostService {
         guard !encodedByAnchor.isEmpty else { return }
         deliverEventFrames(topic: topic, coalesceKey: surfaceID) { connection in
             encodedByAnchor[
-                MobileTerminalRenderGridAnchorRegistry.anchor(connectionID: connection.connectionID)
+                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
             ]
         }
     }
@@ -1996,7 +1996,7 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
-        MobileTerminalRenderGridAnchorRegistry.remove(connectionID: id)
+        MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -2263,7 +2263,7 @@ actor MobileHostConnection {
                         == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
                     ? .screen
                     : .viewport
-                MobileTerminalRenderGridAnchorRegistry.set(anchor, connectionID: id)
+                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: id)
             }
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
