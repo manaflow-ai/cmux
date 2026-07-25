@@ -282,31 +282,41 @@ struct NotificationFeedHistoryTests {
             isDirectory: false
         )
         let workspaceID = UUID()
-        let largeRecord = NotificationFeedHistoryRecord(notification: notification(
-            workspaceID: workspaceID,
-            title: "Large",
-            body: String(repeating: "x", count: 1_024),
-            date: Date(timeIntervalSince1970: 1_600),
-            isRead: false
-        ))
+        let baseDate = Date(timeIntervalSince1970: 1_600)
+        let records = (0..<5).reversed().map { offset in
+            NotificationFeedHistoryRecord(notification: notification(
+                workspaceID: workspaceID,
+                title: "Recovered \(offset)",
+                body: String(repeating: "x", count: 128),
+                date: baseDate.addingTimeInterval(Double(offset)),
+                isRead: false
+            ))
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data("stale backup".utf8).write(to: staleBackupURL)
         let data = try write(
             NotificationFeedHistorySnapshot(
                 revision: 6,
-                notifications: [largeRecord]
+                notifications: records
             ),
             to: fileURL,
             sortedKeys: true
         )
+        let compactEncoder = JSONEncoder()
+        compactEncoder.outputFormatting = [.sortedKeys]
+        let compactData = try compactEncoder.encode(NotificationFeedHistorySnapshot(
+            revision: 6,
+            notifications: Array(records.prefix(3))
+        ))
 
         let persistence = NotificationFeedHistoryPersistence(
             fileURL: fileURL,
             fileManager: .default,
             readRetentionLimit: 10,
             totalRetentionLimit: 3,
-            maxSnapshotBytes: UInt64(data.count - 1)
+            maxSnapshotBytes: UInt64(compactData.count)
         )
+        #expect(data.count > compactData.count)
 
         let outcome = await persistence.load()
         guard case .loaded(let loaded) = outcome else {
@@ -314,13 +324,14 @@ struct NotificationFeedHistoryTests {
             return
         }
         #expect(loaded.revision == 6)
-        #expect(loaded.notifications.isEmpty)
+        let loadedTitles = loaded.notifications.map(\.title)
+        #expect(loadedTitles == ["Recovered 4", "Recovered 3", "Recovered 2"])
         let replacement = try JSONDecoder().decode(
             NotificationFeedHistorySnapshot.self,
             from: Data(contentsOf: fileURL)
         )
         #expect(replacement.revision == 6)
-        #expect(replacement.notifications.isEmpty)
+        #expect(replacement.notifications.map(\.title) == loadedTitles)
         let replacementQuarantines = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
@@ -329,7 +340,10 @@ struct NotificationFeedHistoryTests {
         }
         #expect(replacementQuarantines.count == 1)
         #expect(!FileManager.default.fileExists(atPath: staleBackupURL.path))
-        await persistence.persist(NotificationFeedHistorySnapshot(revision: 7, notifications: []))
+        await persistence.persist(NotificationFeedHistorySnapshot(
+            revision: 7,
+            notifications: loaded.notifications
+        ))
         let remainingQuarantines = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
@@ -342,7 +356,7 @@ struct NotificationFeedHistoryTests {
             from: Data(contentsOf: fileURL)
         )
         #expect(recovered.revision == 7)
-        #expect(recovered.notifications.isEmpty)
+        #expect(recovered.notifications.map(\.title) == loadedTitles)
 
         try FileManager.default.removeItem(at: fileURL)
         let verifier = NotificationFeedHistoryPersistence(fileURL: fileURL, fileManager: .default)
@@ -485,13 +499,19 @@ struct NotificationFeedHistoryTests {
             return
         }
         #expect(loaded.revision == 21)
-        #expect(loaded.notifications.isEmpty)
-        await persistence.persist(NotificationFeedHistorySnapshot(revision: 22, notifications: []))
+        let loadedRecord = try #require(loaded.notifications.first)
+        #expect(loadedRecord.title == "Current tail")
+        #expect(loadedRecord.body.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit)
+        await persistence.persist(NotificationFeedHistorySnapshot(
+            revision: 22,
+            notifications: loaded.notifications
+        ))
         let recovered = try JSONDecoder().decode(
             NotificationFeedHistorySnapshot.self,
             from: Data(contentsOf: fileURL)
         )
         #expect(recovered.revision == 22)
+        #expect(recovered.notifications.map(\.title) == ["Current tail"])
     }
 
     @Test func oversizedHistoryMetadataIntegerOverflowFailsClosed() async throws {

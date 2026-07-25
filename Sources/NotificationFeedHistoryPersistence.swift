@@ -20,6 +20,7 @@ nonisolated enum NotificationFeedHistoryLoadOutcome: Equatable, Sendable {
 /// are rejected.
 actor NotificationFeedHistoryPersistence {
     private static let oversizedSnapshotHeaderChunkByteCount = 64 * 1024
+    private static let oversizedSnapshotRecordMigrationByteLimit = 8 * 1024 * 1024
 
     private struct SnapshotHeader {
         var version: Int?
@@ -262,9 +263,9 @@ actor NotificationFeedHistoryPersistence {
                 } else if header.version == NotificationFeedHistorySnapshot.currentVersion,
                           let revision = header.revision {
                     do {
-                        let snapshot = NotificationFeedHistorySnapshot(
-                            revision: max(0, revision),
-                            notifications: []
+                        let snapshot = try recoverOversizedCurrentSnapshot(
+                            fileURL,
+                            revision: max(0, revision)
                         )
                         try replaceOversizedSnapshotFile(
                             fileURL,
@@ -425,6 +426,282 @@ actor NotificationFeedHistoryPersistence {
             cursor = previous
         }
         return !backslashCount.isMultiple(of: 2)
+    }
+
+    private func recoverOversizedCurrentSnapshot(
+        _ fileURL: URL,
+        revision: Int
+    ) throws -> NotificationFeedHistorySnapshot {
+        guard totalRetentionLimit > 0 else {
+            return NotificationFeedHistorySnapshot(revision: revision, notifications: [])
+        }
+
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer {
+            try? handle.close()
+        }
+
+        let decoder = JSONDecoder()
+        var scanner = OversizedCurrentSnapshotRecordScanner(
+            maxRecordBytes: Self.oversizedSnapshotRecordMigrationByteLimit
+        )
+        var retainedRecords: [NotificationFeedHistoryRecord] = []
+        retainedRecords.reserveCapacity(totalRetentionLimit)
+        var remainingReadSlots = readRetentionLimit
+        var shouldContinue = true
+
+        while shouldContinue {
+            guard let chunk = try handle.read(
+                upToCount: Self.oversizedSnapshotHeaderChunkByteCount
+            ), !chunk.isEmpty else {
+                break
+            }
+            shouldContinue = try scanner.consume(chunk) { recordData in
+                guard retainedRecords.count < totalRetentionLimit else {
+                    return false
+                }
+                guard let record = try? decoder.decode(
+                    NotificationFeedHistoryRecord.self,
+                    from: recordData
+                ).boundedForHistory() else {
+                    return true
+                }
+                if record.isRead {
+                    guard remainingReadSlots > 0 else { return true }
+                    remainingReadSlots -= 1
+                }
+                retainedRecords.append(record)
+                return retainedRecords.count < totalRetentionLimit
+            }
+        }
+
+        let normalizedRecords = Self.normalized(
+            retainedRecords,
+            readRetentionLimit: readRetentionLimit,
+            totalRetentionLimit: totalRetentionLimit
+        )
+        guard let fitted = try encodedSnapshot(
+            revision: revision,
+            version: NotificationFeedHistorySnapshot.currentVersion,
+            records: normalizedRecords,
+            maxBytes: maxSnapshotBytes
+        ) else {
+            return NotificationFeedHistorySnapshot(revision: revision, notifications: [])
+        }
+        return fitted.snapshot
+    }
+
+    private struct OversizedCurrentSnapshotRecordScanner {
+        let maxRecordBytes: Int
+        private var depth = 0
+        private var isInString = false
+        private var isEscapingString = false
+        private var isCapturingKey = false
+        private var keyBytes: [UInt8] = []
+        private var isExpectingKey = false
+        private var isExpectingValue = false
+        private var currentKey: String?
+        private var didStartNotificationsArray = false
+        private var didFinishNotificationsArray = false
+        private var recordObjectDepth = 0
+        private var recordBytes = Data()
+        private var recordOverflowed = false
+        private var recordIsInString = false
+        private var recordIsEscapingString = false
+
+        init(maxRecordBytes: Int) {
+            self.maxRecordBytes = max(0, maxRecordBytes)
+        }
+
+        mutating func consume(
+            _ data: Data,
+            onRecord: (Data) throws -> Bool
+        ) rethrows -> Bool {
+            guard !didFinishNotificationsArray else { return false }
+            for byte in data {
+                let shouldContinue: Bool
+                if didStartNotificationsArray {
+                    shouldContinue = try consumeNotificationsArrayByte(
+                        byte,
+                        onRecord: onRecord
+                    )
+                } else {
+                    shouldContinue = consumeTopLevelByte(byte)
+                }
+                guard shouldContinue else { return false }
+            }
+            return true
+        }
+
+        private mutating func consumeTopLevelByte(_ byte: UInt8) -> Bool {
+            if isInString {
+                if isEscapingString {
+                    isEscapingString = false
+                    if isCapturingKey {
+                        keyBytes.append(byte)
+                    }
+                    return true
+                }
+                if byte == TopLevelSnapshotHeaderScanner.backslash {
+                    isEscapingString = true
+                    if isCapturingKey {
+                        keyBytes.append(byte)
+                    }
+                    return true
+                }
+                if byte == TopLevelSnapshotHeaderScanner.quote {
+                    isInString = false
+                    if isCapturingKey {
+                        currentKey = String(bytes: keyBytes, encoding: .utf8)
+                        keyBytes.removeAll(keepingCapacity: true)
+                        isCapturingKey = false
+                    }
+                    return true
+                }
+                if isCapturingKey {
+                    keyBytes.append(byte)
+                }
+                return true
+            }
+
+            guard !TopLevelSnapshotHeaderScanner.isWhitespace(byte) else {
+                return true
+            }
+
+            switch byte {
+            case TopLevelSnapshotHeaderScanner.leftBrace:
+                if depth == 0 {
+                    isExpectingKey = true
+                }
+                depth += 1
+                isExpectingValue = false
+            case TopLevelSnapshotHeaderScanner.rightBrace,
+                 TopLevelSnapshotHeaderScanner.rightBracket:
+                if depth > 0 {
+                    depth -= 1
+                }
+                if depth == 1 {
+                    currentKey = nil
+                    isExpectingValue = false
+                }
+            case TopLevelSnapshotHeaderScanner.leftBracket:
+                if depth == 1,
+                   isExpectingValue,
+                   currentKey == "notifications" {
+                    didStartNotificationsArray = true
+                    currentKey = nil
+                    isExpectingValue = false
+                    isExpectingKey = false
+                    return true
+                }
+                depth += 1
+                isExpectingValue = false
+            case TopLevelSnapshotHeaderScanner.comma:
+                if depth == 1 {
+                    currentKey = nil
+                    isExpectingKey = true
+                    isExpectingValue = false
+                }
+            case TopLevelSnapshotHeaderScanner.colon:
+                if depth == 1, currentKey != nil {
+                    isExpectingKey = false
+                    isExpectingValue = true
+                }
+            case TopLevelSnapshotHeaderScanner.quote:
+                isInString = true
+                if depth == 1, isExpectingKey {
+                    isCapturingKey = true
+                    keyBytes.removeAll(keepingCapacity: true)
+                    isExpectingKey = false
+                } else {
+                    isCapturingKey = false
+                    isExpectingValue = false
+                }
+            default:
+                if depth == 1, isExpectingValue {
+                    isExpectingValue = false
+                }
+            }
+            return true
+        }
+
+        private mutating func consumeNotificationsArrayByte(
+            _ byte: UInt8,
+            onRecord: (Data) throws -> Bool
+        ) rethrows -> Bool {
+            guard recordObjectDepth == 0 else {
+                return try consumeRecordByte(byte, onRecord: onRecord)
+            }
+
+            if TopLevelSnapshotHeaderScanner.isWhitespace(byte)
+                || byte == TopLevelSnapshotHeaderScanner.comma {
+                return true
+            }
+            if byte == TopLevelSnapshotHeaderScanner.rightBracket {
+                didFinishNotificationsArray = true
+                return false
+            }
+            guard byte == TopLevelSnapshotHeaderScanner.leftBrace else {
+                return true
+            }
+            return try consumeRecordByte(byte, onRecord: onRecord)
+        }
+
+        private mutating func consumeRecordByte(
+            _ byte: UInt8,
+            onRecord: (Data) throws -> Bool
+        ) rethrows -> Bool {
+            appendRecordByte(byte)
+
+            if recordIsInString {
+                if recordIsEscapingString {
+                    recordIsEscapingString = false
+                    return true
+                }
+                if byte == TopLevelSnapshotHeaderScanner.backslash {
+                    recordIsEscapingString = true
+                    return true
+                }
+                if byte == TopLevelSnapshotHeaderScanner.quote {
+                    recordIsInString = false
+                }
+                return true
+            }
+
+            switch byte {
+            case TopLevelSnapshotHeaderScanner.quote:
+                recordIsInString = true
+            case TopLevelSnapshotHeaderScanner.leftBrace:
+                recordObjectDepth += 1
+            case TopLevelSnapshotHeaderScanner.rightBrace:
+                recordObjectDepth -= 1
+                guard recordObjectDepth == 0 else { return true }
+                defer { resetRecord() }
+                guard !recordOverflowed else { return true }
+                return try onRecord(recordBytes)
+            default:
+                break
+            }
+            return true
+        }
+
+        private mutating func appendRecordByte(_ byte: UInt8) {
+            guard !recordOverflowed else { return }
+            guard recordBytes.count < maxRecordBytes else {
+                recordOverflowed = true
+                recordBytes.removeAll(keepingCapacity: false)
+                return
+            }
+            recordBytes.append(byte)
+        }
+
+        private mutating func resetRecord() {
+            recordObjectDepth = 0
+            recordBytes.removeAll(keepingCapacity: true)
+            recordOverflowed = false
+            recordIsInString = false
+            recordIsEscapingString = false
+        }
     }
 
     private func replaceOversizedSnapshotFile(

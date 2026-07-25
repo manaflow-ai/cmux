@@ -10,11 +10,11 @@ private let notificationFeedLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
-    private static let notificationFeedIdentifierByteLimit = 512
-    private static let notificationFeedTitleByteLimit = 512
-    private static let notificationFeedSubtitleByteLimit = 512
-    private static let notificationFeedBodyByteLimit = 2_048
-    private static let notificationFeedMetadataByteLimit = 512
+    nonisolated private static let notificationFeedIdentifierByteLimit = 512
+    nonisolated private static let notificationFeedTitleByteLimit = 512
+    nonisolated private static let notificationFeedSubtitleByteLimit = 512
+    nonisolated private static let notificationFeedBodyByteLimit = 2_048
+    nonisolated private static let notificationFeedMetadataByteLimit = 512
 
     /// Refreshes the chronological feed from every currently connected capable Mac.
     ///
@@ -492,7 +492,15 @@ extension MobileShellComposite {
                 params: [:]
             )
             let data = try await client.sendRequest(request)
-            let response = try MobileNotificationFeedListResponse.decode(data)
+            let stringLimits = Self.notificationFeedListStringLimits()
+            let maxNotifications = MobileNotificationFeedAggregation.maxItemCount
+            let response = try await Task.detached(priority: .userInitiated) {
+                try MobileNotificationFeedListResponse.decodeBounded(
+                    data,
+                    maxNotifications: maxNotifications,
+                    stringLimits: stringLimits
+                )
+            }.value
             guard notificationFeedClient(for: macDeviceID) === client else { return }
             _ = applyNotificationFeedSnapshot(
                 response,
@@ -505,6 +513,16 @@ extension MobileShellComposite {
                 "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
             )
         }
+    }
+
+    nonisolated private static func notificationFeedListStringLimits() -> MobileNotificationFeedListStringLimits {
+        MobileNotificationFeedListStringLimits(
+            identifierByteLimit: notificationFeedIdentifierByteLimit,
+            titleByteLimit: notificationFeedTitleByteLimit,
+            subtitleByteLimit: notificationFeedSubtitleByteLimit,
+            bodyByteLimit: notificationFeedBodyByteLimit,
+            metadataByteLimit: notificationFeedMetadataByteLimit
+        )
     }
 
     private func markAllNotificationFeedItemsRead(on target: NotificationFeedClientTarget) async {
