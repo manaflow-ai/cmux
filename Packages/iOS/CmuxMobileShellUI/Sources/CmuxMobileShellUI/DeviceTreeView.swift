@@ -4,7 +4,6 @@ import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import CmuxMobileToast
 import SwiftUI
 
 /// The Computers screen: the Macs signed in to the user's account, each shown
@@ -25,9 +24,10 @@ struct DeviceTreeView: View {
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-    /// App-wide toast layer (injected by `.toastHost` at the root and inherited
-    /// into this sheet), used to surface a failed Forget without mutating the row.
-    @Environment(ToastCenter.self) private var toasts
+    /// Message for the always-visible failure alert shown when a Forget cannot be
+    /// completed. An alert, not a toast, so the error still surfaces when the
+    /// Toasts beta flag is off.
+    @State private var forgetFailureMessage: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -114,6 +114,26 @@ struct DeviceTreeView: View {
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
+        .alert(
+            L10n.string(
+                "mobile.computers.forget.failureTitle",
+                defaultValue: "Couldn't forget computer"
+            ),
+            isPresented: Binding(
+                get: { forgetFailureMessage != nil },
+                set: { presented in if !presented { forgetFailureMessage = nil } }
+            ),
+            presenting: forgetFailureMessage
+        ) { _ in
+            Button(
+                L10n.string("mobile.common.ok", defaultValue: "OK"),
+                role: .cancel
+            ) {
+                forgetFailureMessage = nil
+            }
+        } message: { message in
+            Text(message)
+        }
     }
 
     /// End-of-list affordance mirroring the top-left toolbar button, so users who
@@ -149,17 +169,10 @@ struct DeviceTreeView: View {
             forget: { computer in
                 let forgot = await store.forgetHiddenComputer(computer)
                 if !forgot {
-                    toasts.present(.failure(
-                        L10n.string(
-                            "mobile.computers.forget.failureMessage",
-                            defaultValue: "It's still signed in. Check your connection and try again."
-                        ),
-                        title: L10n.string(
-                            "mobile.computers.forget.failureTitle",
-                            defaultValue: "Couldn't forget computer"
-                        ),
-                        coalescingKey: "computers.forget.failure"
-                    ))
+                    forgetFailureMessage = L10n.string(
+                        "mobile.computers.forget.failureMessage",
+                        defaultValue: "It's still signed in. Check your connection and try again."
+                    )
                 }
             }
         )

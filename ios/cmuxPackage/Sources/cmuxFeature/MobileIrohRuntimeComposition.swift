@@ -2507,6 +2507,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
 enum MobileIrohForgetError: Error {
     /// No account is authenticated, so no bindings can be revoked.
     case notAuthenticated
+    /// The authenticated account changed after the forget began, so the revoke
+    /// was aborted rather than applied to a different account's bindings.
+    case accountChanged
 }
 
 extension MobileIrohRuntimeComposition {
@@ -2518,14 +2521,18 @@ extension MobileIrohRuntimeComposition {
     /// the caller knows the app instance, then revokes each match. A no-match
     /// discovery is treated as already-forgotten and succeeds.
     public func forgetComputer(macDeviceID: String, instanceTag: String?) async throws {
-        guard let accountID = observedAccountID ?? activeAccountID else {
+        guard let expectedAccountID = observedAccountID ?? activeAccountID else {
             throw MobileIrohForgetError.notAuthenticated
         }
         let broker = try makeBrokerBundle(
-            accountID: accountID,
-            tokenSource: liveBrokerTokenSource()
+            accountID: expectedAccountID,
+            tokenSource: brokerTokenSource(pinnedTo: expectedAccountID)
         ).client
         let snapshot = try await broker.discover()
+        // The authenticated account can change while discover() is in flight
+        // (sign-out then sign-in as a different user). Revoking now would target
+        // the NEW account's bindings, so re-validate identity before any mutation.
+        try ensureAccountUnchanged(expectedAccountID)
         let canonicalTarget = cmxCanonicalDeviceID(macDeviceID)
         let matches = snapshot.bindings.filter { binding in
             guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
@@ -2535,21 +2542,40 @@ extension MobileIrohRuntimeComposition {
             return true
         }
         for binding in matches {
+            try ensureAccountUnchanged(expectedAccountID)
             try await broker.revoke(bindingID: binding.bindingID)
         }
     }
 
-    /// Broker token source backed by auth's live token pair, matching the
-    /// activation path so a forget revoke authenticates the same way.
-    private func liveBrokerTokenSource() -> CmxIrohBrokerTokenSource {
+    /// Throws if the authenticated account is no longer the one that initiated the
+    /// forget, so a revoke can never land on a different account's bindings.
+    private func ensureAccountUnchanged(_ expected: String) throws {
+        guard (observedAccountID ?? activeAccountID) == expected else {
+            throw MobileIrohForgetError.accountChanged
+        }
+    }
+
+    private func accountMatches(_ expected: String) -> Bool {
+        (observedAccountID ?? activeAccountID) == expected
+    }
+
+    /// Broker token source that authenticates as the live session ONLY while it
+    /// still matches `expectedAccountID`. If the user switches accounts mid-forget,
+    /// the closures return `nil` rather than handing a different account's tokens
+    /// to a broker scoped to the original account, so the revoke fails safely
+    /// instead of acting as the wrong user. Matches the activation path's live
+    /// token pair otherwise.
+    private func brokerTokenSource(pinnedTo expectedAccountID: String) -> CmxIrohBrokerTokenSource {
         CmxIrohBrokerTokenSource(
-            accessToken: { [weak auth] in
-                guard let auth,
+            accessToken: { [weak self, weak auth] in
+                guard await self?.accountMatches(expectedAccountID) == true,
+                      let auth,
                       let tokens = try? await auth.currentTokens() else { return nil }
                 return tokens.accessToken
             },
-            refreshToken: { [weak auth] in
-                guard let auth,
+            refreshToken: { [weak self, weak auth] in
+                guard await self?.accountMatches(expectedAccountID) == true,
+                      let auth,
                       let tokens = try? await auth.currentTokens() else { return nil }
                 return tokens.refreshToken
             }

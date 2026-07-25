@@ -285,7 +285,7 @@ import Testing
         // Stable across a fresh accessor reading the same store (relaunch proxy).
         #expect(UUID(uuidString: first) != nil)
         // The generated id is persisted to the authoritative (Keychain) store.
-        #expect(store.read() == first)
+        #expect(store.read() == .found(first))
     }
 
     @Test func deviceIdentityMigratesLegacyUserDefaultsValue() {
@@ -300,7 +300,7 @@ import Testing
         // The pre-Keychain id is preserved, not replaced, so the binding slot survives.
         #expect(resolved == legacy)
         // And it is promoted into the authoritative store for future reads.
-        #expect(store.read() == legacy)
+        #expect(store.read() == .found(legacy))
     }
 
     @Test func deviceIdentitySurvivesUserDefaultsWipe() {
@@ -313,6 +313,46 @@ import Testing
 
         let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
         #expect(resolved == kept)
+        // The authoritative read path re-mirrors the id into UserDefaults so a
+        // later downgrade to a UserDefaults-only build keeps the same slot.
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == kept)
+    }
+
+    @Test func deviceIdentityFailsClosedWhenStoreUnavailableWithLegacyMirror() {
+        // Locked-Keychain proxy: the store cannot be read, but a UserDefaults
+        // mirror exists. Reuse it instead of minting a new id that would strand
+        // the existing binding.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mirrored = "mirrored-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(mirrored, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(resolved == mirrored)
+        // The unreadable store must not have been overwritten with a new id.
+        #expect(store.read() == .unavailable)
+    }
+
+    @Test func deviceIdentityFailsClosedWithEphemeralWhenStoreUnavailableAndNoMirror() {
+        // Worst case: store unreadable AND no UserDefaults mirror (background
+        // launch before first unlock on a fresh install). Return a process-stable
+        // id WITHOUT persisting it, so the next unlocked launch mints the durable
+        // id rather than freezing this throwaway value.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let first = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        let second = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(!first.isEmpty)
+        // Stable within the process so repeated lookups agree.
+        #expect(first == second)
+        // Nothing was persisted: neither the store nor the mirror was written.
+        #expect(store.read() == .unavailable)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
     }
 
     @Test func deviceIdentityKeychainWinsOverUserDefaults() {

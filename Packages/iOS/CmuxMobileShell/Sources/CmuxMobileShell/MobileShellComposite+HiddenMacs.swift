@@ -157,6 +157,11 @@ extension MobileShellComposite {
     /// error instead of a silent no-op.
     public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
         guard let personalIrohForget else { return false }
+        // Capture the scope BEFORE the network revoke so local cleanup targets the
+        // account/team that owned the row, not whatever scope is current after the
+        // await (the user can sign out or switch accounts while the call is in
+        // flight).
+        guard let scope = await currentScopeSnapshot() else { return false }
         do {
             try await personalIrohForget.forgetComputer(
                 macDeviceID: computer.macDeviceID,
@@ -168,38 +173,55 @@ extension MobileShellComposite {
             )
             return false
         }
-        await removeStoredPairedMacRow(
+        // If the scope changed while the revoke was in flight, the row belongs to
+        // a session that is no longer front-of-house. The revoke itself landed, so
+        // report success and leave local cleanup to the next scope-correct refresh
+        // (a retry is idempotent: discover finds no binding and re-removes the row).
+        guard await isScopeCurrent(scope) else { return true }
+        return await removeStoredPairedMacRow(
             macDeviceID: computer.macDeviceID,
-            instanceTag: computer.instanceTag
+            instanceTag: computer.instanceTag,
+            scope: scope
         )
-        return true
     }
 
-    /// Clears one pairing's hidden marker and stored row so it fully disappears.
+    /// Drops one pairing's stored row and hidden marker so it fully disappears.
     ///
-    /// The marker is cleared first so that when a still-online Mac re-registers,
-    /// a stale local marker does not re-hide the fresh row.
+    /// Removes the durable row first (the only step that can fail): if it throws,
+    /// the hidden marker is left intact so the forgotten computer stays hidden
+    /// rather than resurfacing as a normal computer, and `false` is returned so the
+    /// caller surfaces a retryable error instead of a silent partial cleanup. The
+    /// marker is cleared only after the row is gone, so a still-online Mac that
+    /// re-registers a fresh row is not re-hidden by a stale marker.
     private func removeStoredPairedMacRow(
         macDeviceID: String,
-        instanceTag: String?
-    ) async {
-        guard let scope = await currentScopeSnapshot() else { return }
+        instanceTag: String?,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        if let pairedMacStore {
+            do {
+                try await pairedMacStore.remove(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )
+            } catch {
+                hiddenMacsLog.error(
+                    "forget hidden computer row removal failed: \(String(describing: error), privacy: .private)"
+                )
+                return false
+            }
+        }
         await clearHiddenMacDeviceID(
             macDeviceID,
             instanceTag: instanceTag,
             scope: scope
         )
-        if let pairedMacStore {
-            try? await pairedMacStore.remove(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: scope.userID,
-                teamID: scope.teamID
-            )
-        }
-        guard await isScopeCurrent(scope) else { return }
+        guard await isScopeCurrent(scope) else { return true }
         await loadPairedMacs()
         await loadRegistryDevices()
+        return true
     }
 
     /// Unhides one stored pairing immediately without requiring network access.
