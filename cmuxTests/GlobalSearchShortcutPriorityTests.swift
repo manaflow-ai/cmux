@@ -172,6 +172,7 @@ final class GlobalSearchShortcutPriorityTests {
         }
         BrowserOmnibarNativeFieldRegistry.shared.unregister(harness.field, panelId: harness.panel.id)
         harness.field.removeFromSuperview()
+        webView.allowsFirstResponderAcquisition = true
         #expect(harness.window.makeFirstResponder(webView))
         #expect(harness.window.firstResponder === webView)
 
