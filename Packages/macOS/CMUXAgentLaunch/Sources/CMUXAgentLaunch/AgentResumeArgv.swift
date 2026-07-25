@@ -15,13 +15,19 @@ private func isCodexWrapperShellExecutableToken(_ value: String) -> Bool {
     value.hasPrefix(codexWrapperShellShimGuardPrefix)
 }
 
-private func codexCommandExecutableIndex(_ parts: [String]) -> Int? {
+private func codexCommandExecutableIndex(
+    _ parts: [String],
+    generatedSystemEnvPrefix: Bool
+) -> Int? {
     guard !parts.isEmpty else { return nil }
     let first = (parts[0] as NSString).lastPathComponent
     guard first == "env" else { return 0 }
     // Only parse the macOS system env grammar. A captured custom executable
     // named `env` may implement different options and must remain unchanged.
-    guard parts[0] == "env" || parts[0] == "/usr/bin/env" else { return 0 }
+    guard parts[0] == "/usr/bin/env"
+        || (parts[0] == "env" && generatedSystemEnvPrefix) else {
+        return 0
+    }
     var index = 1
     var parsesOptions = true
     while index < parts.count {
@@ -415,7 +421,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
         "/bin/sh -c " + posixSingleQuoted(posixCommand)
     }
 
-    /// Renders codex command `parts` through ``renderingCodexWrapperExecutable(parts:quote:)``
+    /// Renders codex command `parts` through
+    /// ``renderingCodexWrapperExecutable(parts:generatedSystemEnvPrefix:quote:)``
     /// and joins them, wrapping via ``portableCodexResumeShellCommand(posixCommand:)`` only
     /// when the wrapper token was actually substituted.
     ///
@@ -424,9 +431,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// codex resume that emitted no bare `codex` executable stays unwrapped.
     public static func renderedPortableCodexResumeShellCommand(
         parts: [String],
+        generatedSystemEnvPrefix: Bool = false,
         quote: (String) -> String
     ) -> String {
-        let rendered = renderingCodexWrapperExecutable(parts: parts, quote: quote)
+        let rendered = renderingCodexWrapperExecutable(
+            parts: parts,
+            generatedSystemEnvPrefix: generatedSystemEnvPrefix,
+            quote: quote
+        )
         let joined = rendered.joined(separator: " ")
         guard rendered.contains(where: isCodexWrapperShellExecutableToken) else {
             return joined
@@ -442,13 +454,19 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// absolute executable whose basename is `codex` is routed through the same
     /// token with ``codexCustomExecutableEnvironmentKey`` set, preserving the
     /// exact captured installation while restoring cmux's hook injection. Every
-    /// other token is quoted normally. Call only for the codex kind.
+    /// other token is quoted normally. Set `generatedSystemEnvPrefix` only when
+    /// the caller prepended bare `env`; otherwise bare `env` remains PATH-resolved
+    /// and is not interpreted as `/usr/bin/env`. Call only for the codex kind.
     /// https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
+        generatedSystemEnvPrefix: Bool = false,
         quote: (String) -> String
     ) -> [String] {
-        guard let executableIndex = codexCommandExecutableIndex(parts) else {
+        guard let executableIndex = codexCommandExecutableIndex(
+            parts,
+            generatedSystemEnvPrefix: generatedSystemEnvPrefix
+        ) else {
             return parts.map(quote)
         }
         let executable = parts[executableIndex]
@@ -469,7 +487,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
             let isBareCodex = part == "codex"
             let isAbsoluteCodex = part.hasPrefix("/")
                 && (part as NSString).lastPathComponent == "codex"
-            if index == 0, part == "env", routesThroughCodexWrapper {
+            if index == 0,
+               part == "env",
+               generatedSystemEnvPrefix,
+               routesThroughCodexWrapper {
                 rendered.append(quote("/usr/bin/env"))
                 continue
             }

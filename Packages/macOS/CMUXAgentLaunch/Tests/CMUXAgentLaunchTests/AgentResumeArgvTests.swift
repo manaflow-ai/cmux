@@ -335,6 +335,7 @@ struct AgentResumeArgvTests {
                     "resume",
                     "SID",
                 ],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ) == "/bin/sh -c '" + absoluteSubstituted.replacingOccurrences(of: "'", with: "'\\''") + "'"
         )
@@ -375,6 +376,7 @@ struct AgentResumeArgvTests {
                     "resume",
                     "SID",
                 ],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ) == [
                 "'env'",
@@ -388,6 +390,7 @@ struct AgentResumeArgvTests {
         #expect(
             AgentResumeArgv.renderingCodexWrapperExecutable(
                 parts: ["env", "-i", "codex", "resume", "SID"],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ) == [
                 "'env'",
@@ -401,6 +404,7 @@ struct AgentResumeArgvTests {
         #expect(
             AgentResumeArgv.renderingCodexWrapperExecutable(
                 parts: ["env", "-u", "CODEX_HOME", "codex", "resume", "SID"],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ) == [
                 "'/usr/bin/env'",
@@ -446,6 +450,7 @@ struct AgentResumeArgvTests {
                     "resume",
                     "SID",
                 ],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ).contains(wrapper)
         )
@@ -460,6 +465,7 @@ struct AgentResumeArgvTests {
                     "resume",
                     "SID",
                 ],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ).contains(wrapper),
             "env stops parsing options after its first environment assignment."
@@ -467,6 +473,7 @@ struct AgentResumeArgvTests {
         #expect(
             !AgentResumeArgv.renderingCodexWrapperExecutable(
                 parts: ["env", "-S", "codex resume SID", "codex", "resume", "SID"],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ).contains(wrapper),
             "A split-string can contain env's real utility, so a later token is ambiguous."
@@ -480,6 +487,7 @@ struct AgentResumeArgvTests {
                     "resume",
                     "SID",
                 ],
+                generatedSystemEnvPrefix: true,
                 quote: quote
             ).contains("'CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex'"),
             "A captured absolute executable remains authoritative when env changes PATH."

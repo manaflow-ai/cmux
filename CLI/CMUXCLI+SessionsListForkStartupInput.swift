@@ -42,6 +42,7 @@ extension CMUXCLI {
         let shellCommand = agent == "codex"
             ? AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                 parts: sanitizedCommandParts,
+                generatedSystemEnvPrefix: !environmentParts.isEmpty,
                 quote: sessionsListShellSingleQuoted
             )
             : agent == "claude"

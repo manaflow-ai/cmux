@@ -429,6 +429,7 @@ enum AgentResumeCommandBuilder {
         case .codex where routesThroughResumeWrapper:
             shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                 parts: sanitizedCommandParts,
+                generatedSystemEnvPrefix: !environmentParts.isEmpty,
                 quote: shellSingleQuoted
             )
         default:
