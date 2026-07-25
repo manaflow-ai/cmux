@@ -67,6 +67,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var contextMenuDidClose: (() -> Void)?
     private var isEditing = false
     private var pumpCancellables: [AnyCancellable] = []
+    private var isPresentationActive = true
 
 #if DEBUG
     /// Test seam: observes every full model application (configure, pump,
@@ -243,19 +244,55 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        pumpCancellables.removeAll()
+        suspendPresentation()
         model = nil
         hintPill.resetForReuse()
     }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // Detachment without a configure pass must not leave the status
-        // popover attached to an unmounted row (its presentation state is
-        // cell-local, so closing is the full teardown).
-        if window == nil, statusPopoverPresenter.isShown {
+    func setPresentationActive(_ isActive: Bool) {
+        isPresentationActive = isActive
+        leadingSpinner?.isPresentationActive = isActive
+        trailingSpinner?.isPresentationActive = isActive
+    }
+
+    func suspendPresentation(commitEdits: Bool = false) {
+        for action in detachPresentation(commitEdits: commitEdits) {
+            action()
+        }
+    }
+
+    func detachPresentation(commitEdits: Bool = false) -> [@MainActor () -> Void] {
+        var postUpdateActions: [@MainActor () -> Void] = []
+        if commitEdits, isEditing {
+            let commitRename = actions?.commitRename
+            let text = renameField.stringValue
+            endInlineRename(commit: true)
+            postUpdateActions.append { commitRename?(text) }
+        }
+        renameField.onCommit = nil
+        renameField.onCancel = nil
+        if let checklistAction = checklistSection.detachPresentation(commitEdits: commitEdits) {
+            postUpdateActions.append(checklistAction)
+        }
+        if statusPopoverPresenter.isShown {
             statusPopoverPresenter.close()
         }
+        lastStatusPopoverModel = nil
+        actions = nil
+        contextMenuDidOpen = nil
+        contextMenuDidClose = nil
+        contextMenuVisible = false
+        pumpCancellables.removeAll()
+        setPresentationActive(false)
+        return postUpdateActions
+    }
+
+    func configurePresentation(model: SidebarWorkspaceRowModel) {
+        suspendPresentation()
+        guard self.model != model else { return }
+        self.model = model
+        applyModel(model)
+        needsLayout = true
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -275,6 +312,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let requiresFullApply = self.actions == nil
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
@@ -288,7 +326,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
             lastStatusPopoverModel = nil
         }
-        guard previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged else { return }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -587,12 +625,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
             color: spinnerColor,
+            presentationActive: isPresentationActive,
             in: contentContainer
         )
         trailingSpinner = Self.updateSpinner(
             existing: trailingSpinner,
             visible: trailingSpinnerVisible && !showsCloseNow,
             color: spinnerColor,
+            presentationActive: isPresentationActive,
             in: contentContainer
         )
         let agentCount = model.snapshot.activeCodingAgentCount
@@ -610,12 +650,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         existing: GPUSpinnerNSView?,
         visible: Bool,
         color: NSColor,
+        presentationActive: Bool,
         in parent: NSView
     ) -> GPUSpinnerNSView? {
         if visible {
             let spinner = existing ?? GPUSpinnerNSView()
             spinner.style = .macOSSpokes
             spinner.color = color
+            spinner.isPresentationActive = presentationActive
             if spinner.superview == nil {
                 parent.addSubview(spinner)
             }
@@ -980,16 +1022,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let actions else { return nil }
+        // The menu owns its tracking lifetime; row retirement clears the
+        // cell's live callbacks before AppKit sends menuDidClose.
+        let didOpen = contextMenuDidOpen
+        let didClose = contextMenuDidClose
         return actions.commands.makeContextMenu(
             onOpen: { [weak self] in
                 self?.contextMenuVisible = true
                 self?.updateCloseVisibility()
-                self?.contextMenuDidOpen?()
+                didOpen?()
             },
             onClose: { [weak self] in
                 self?.contextMenuVisible = false
                 self?.updateCloseVisibility()
-                self?.contextMenuDidClose?()
+                didClose?()
             }
         )
     }

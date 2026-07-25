@@ -30,6 +30,11 @@ public struct StoredShortcut: Sendable, Equatable, Hashable, Codable, SettingCod
     /// True when the binding fires on two consecutive strokes.
     public var hasChord: Bool { second != nil }
 
+    /// Returns the binding with both strokes using canonical persisted keys.
+    public func canonicalized() -> StoredShortcut {
+        StoredShortcut(first: first.canonicalized(), second: second?.canonicalized())
+    }
+
     // MARK: - SettingCodable
 
     public static func decodeFromUserDefaults(_ raw: Any?) -> StoredShortcut? {

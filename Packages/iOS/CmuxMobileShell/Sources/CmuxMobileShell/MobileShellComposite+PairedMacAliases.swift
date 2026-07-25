@@ -88,13 +88,30 @@ extension MobileShellComposite {
     }
 
     /// User customization for every stored id represented by visible paired-Mac rows.
+    ///
+    /// Workspaces carry no instance tag, so when sibling builds of one Mac are
+    /// both customized the active pairing's customization represents the
+    /// device; without that preference the result depended on iteration order.
     func pairedMacCustomizationsByAliasID() -> [String: MobilePairedMac] {
-        displayPairedMacs.reduce(into: [String: MobilePairedMac]()) { result, mac in
-            guard mac.customColor != nil || mac.customIcon != nil else { return }
-            for aliasID in pairedMacAliasIDs(for: mac.macDeviceID, instanceTag: mac.instanceTag) {
+        Self.customizationsByAliasID(for: displayPairedMacs) { mac in
+            pairedMacAliasIDs(for: mac.macDeviceID, instanceTag: mac.instanceTag)
+        }
+    }
+
+    /// Deterministic alias→customization resolution: the active pairing first,
+    /// then remaining display order, first write wins per alias id.
+    static func customizationsByAliasID(
+        for macs: [MobilePairedMac],
+        aliasesFor: (MobilePairedMac) -> [String]
+    ) -> [String: MobilePairedMac] {
+        let preferredMacs = macs.filter(\.isActive) + macs.filter { !$0.isActive }
+        var result: [String: MobilePairedMac] = [:]
+        for mac in preferredMacs where mac.customColor != nil || mac.customIcon != nil {
+            for aliasID in aliasesFor(mac) where result[aliasID] == nil {
                 result[aliasID] = mac
             }
         }
+        return result
     }
 
 }
