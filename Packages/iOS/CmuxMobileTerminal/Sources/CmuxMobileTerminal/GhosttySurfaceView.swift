@@ -3481,8 +3481,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         surfaceConfig.io_write_userdata = bridgePointer
+        // A C function pointer can only be formed from a global func or a
+        // capture-free closure literal, not a static method reference.
         guard let createdSurface = ghostty_surface_new_with_owned_userdata(
-            app, &surfaceConfig, GhosttySurfaceBridge.releaseRetainedOpaque
+            app, &surfaceConfig, { userdata in
+                GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
+            }
         ) else {
             retainedBridge.release()
             return nil
