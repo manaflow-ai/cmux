@@ -13286,29 +13286,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let globalSearchShortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
         let matchesGlobalSearchShortcut = matchCachedGlobalSearchShortcut(event: event)
+        let commandPaletteConsumesShortcut = shouldConsumeShortcutWhileCommandPaletteVisible(
+            isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
+            normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
+        )
+        let commandPaletteCanRouteUnarmedGlobalSearch =
+            commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
         if matchesGlobalSearchShortcut,
-           activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteEffectiveInTargetWindow || GlobalSearchCoordinator.shared.isPaletteVisible() {
-            // An armed chord owns its suffix; the command palette routes before
-            // swallowing, and visible Search owns its auxiliary popover.
+           activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteCanRouteUnarmedGlobalSearch
+            || GlobalSearchCoordinator.shared.isPaletteVisible() {
+            // Armed chords own their suffix, while visible Search owns its popover.
             toggleGlobalSearchPalette()
             return true
         }
         if globalSearchShortcut.hasChord,
-           commandPaletteEffectiveInTargetWindow || GlobalSearchCoordinator.shared.isPaletteVisible(),
+           commandPaletteCanRouteUnarmedGlobalSearch || GlobalSearchCoordinator.shared.isPaletteVisible(),
            activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            globalSearchShortcutWhenClauseAllows(event: event),
            armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
             return true
         }
-
-        if shouldConsumeShortcutWhileCommandPaletteVisible(
-            isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
-            normalizedFlags: normalizedFlags,
-            chars: chars,
-            keyCode: event.keyCode
-        ) {
-            return true
-        }
+        if commandPaletteConsumesShortcut { return true }
+        if commandPaletteEffectiveInTargetWindow,
+           activeConfiguredShortcutChordPrefixForCurrentEvent == nil { return false }
 
         if isPlainEscape {
             let escapeWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
