@@ -15,7 +15,7 @@ extension TranscriptRow {
         case .pendingAsk(let ask):
             ask.promptSummary
         case .status(let code, let detail):
-            [AgentGUIL10n.statusCode(code), detail].compactMap(\.self).joined(separator: " ")
+            AgentGUIL10n.compactStatusTitle(code: code, detail: detail)
         case .dateHeader(let dayKey):
             dayKey
         case .boundary:
@@ -29,13 +29,13 @@ extension TranscriptRow {
                 upperBound: range.upperBound.rawValue
             )
         case .genericActivity(let activity):
-            "\(AgentGUIL10n.activityKind(activity.kindLabel)) \(activity.summary)"
+            AgentGUIL10n.compactActivityTitle(kindLabel: activity.kindLabel, summary: activity.summary)
         case .activitySummary(let summary):
             AgentGUIL10n.activitySummary(summary)
         case .activityItem(let item):
             AgentGUIL10n.activityAccessibility(item)
         case .unsupported(let rawKind, let summary):
-            "\(rawKind) \(summary)"
+            AgentGUIL10n.compactUnsupportedTitle(rawKind: rawKind, summary: summary)
         }
     }
 }

@@ -36,6 +36,31 @@ enum AgentGUIL10n {
         }
     }
 
+    static func compactActivityTitle(kindLabel: String, summary: String) -> String {
+        nonempty(summary) ?? knownActivityKindTitle(kindLabel) ?? activityFallbackTitle()
+    }
+
+    static func compactUnsupportedTitle(rawKind: String, summary: String) -> String {
+        let raw = nonempty(rawKind)
+        if let summary = nonempty(summary), summary != raw {
+            return summary
+        }
+        return activityFallbackTitle()
+    }
+
+    static func compactStatusTitle(code: StatusCode, detail: String?) -> String {
+        let title = statusCode(code)
+        guard let detail = nonempty(detail), detail != code.rawValue, detail != title else {
+            return title
+        }
+        switch code {
+        case .other:
+            return detail
+        case .compacted, .turnAborted, .apiError, .sessionMeta:
+            return [title, detail].joined(separator: " · ")
+        }
+    }
+
     static func activityKind(_ kind: TranscriptActivityKind) -> String {
         switch kind {
         case .assistant: string("agent.activity.assistant", defaultValue: "Assistant")
@@ -162,8 +187,28 @@ enum AgentGUIL10n {
         case .turnAborted: string("agent.status.turnAborted", defaultValue: "Turn aborted")
         case .apiError: string("agent.status.apiError", defaultValue: "API error")
         case .sessionMeta: string("agent.status.sessionMeta", defaultValue: "Session updated")
-        case .other(let rawValue): rawValue
+        case .other: string("agent.activity.status", defaultValue: "Status")
         }
+    }
+
+    private static func knownActivityKindTitle(_ kind: String) -> String? {
+        let trimmed = kind.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch trimmed.lowercased() {
+        case "command", "tool", "file", "question", "permission", "thought":
+            return activityKind(trimmed)
+        default:
+            return nil
+        }
+    }
+
+    private static func activityFallbackTitle() -> String {
+        string("agent.activity.details.title", defaultValue: "Activity")
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func hole(lowerBound: Int, upperBound: Int) -> String {

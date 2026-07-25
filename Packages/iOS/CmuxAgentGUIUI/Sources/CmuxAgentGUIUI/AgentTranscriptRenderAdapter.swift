@@ -56,9 +56,12 @@ struct AgentTranscriptRenderAdapter {
                 )
             ))
         case .genericActivity(let activity):
-            content = .metadata([activity.kindLabel, activity.summary].joined(separator: ": "))
+            content = .metadata(AgentGUIL10n.compactActivityTitle(
+                kindLabel: activity.kindLabel,
+                summary: activity.summary
+            ))
         case .status(let code, let detail):
-            content = .metadata([AgentGUIL10n.statusCode(code), detail].compactMap(\.self).joined(separator: " · "))
+            content = .metadata(AgentGUIL10n.compactStatusTitle(code: code, detail: detail))
         case .boundary:
             content = .metadata(AgentGUIL10n.string(
                 "agent.transcript.boundary",
@@ -70,7 +73,7 @@ struct AgentTranscriptRenderAdapter {
                 upperBound: range.upperBound.rawValue
             ))
         case .unsupported(let rawKind, let summary):
-            content = .metadata([rawKind, summary].joined(separator: ": "))
+            content = .metadata(AgentGUIL10n.compactUnsupportedTitle(rawKind: rawKind, summary: summary))
         case .dateHeader:
             return nil
         }
