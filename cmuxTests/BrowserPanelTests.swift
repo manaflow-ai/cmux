@@ -3642,7 +3642,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         viewportHost.invalidateBrowserPortalPresentation()
 
         XCTAssertTrue(viewportHost.needsLayout)
-        XCTAssertTrue(viewportHost.needsDisplay)
+        XCTAssertTrue(viewportHost.needsToDraw(viewportHost.bounds))
     }
 
     func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() async {
