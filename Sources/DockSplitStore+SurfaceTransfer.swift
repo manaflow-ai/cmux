@@ -77,6 +77,23 @@ extension DockSplitStore {
                 )
         }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+        let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
+            workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
+            panelId: panelId
+        )
+        let coordinatedRestorableAgent = restoredAgentLifecycle.continuationSnapshot(
+            panelId: panelId,
+            observation: restoredAgentObservation,
+            currentProcessIdentity: Workspace.agentPIDProcessIdentity(pid:)
+        )
+        let preservedRestorableAgent = coordinatedRestorableAgent ?? preservedTransfer?.restorableAgent
+        let preservedResumeState = restoredAgentLifecycle.resumeStatesByPanelId[panelId]
+            ?? preservedTransfer?.restorableAgentResumeState
+        let preservedCompletedGeneration = restoredAgentLifecycle.completedGeneration(panelId: panelId)
+            ?? preservedTransfer?.restoredAgentCompletedGeneration
+        let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId] ?? preservedTransfer?.resumeBinding
+        let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
+            ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
@@ -127,14 +144,14 @@ extension DockSplitStore {
             return Self.dockAgentPIDHasExited(pid)
         }
         let restoredResumeSessionWorkingDirectory = Self.dockRestoredResumeSessionWorkingDirectory(
-            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            preservedSessionDirectory: preservedResumeSessionDirectory,
             detachedDirectory: detachedDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
         )
         let resumeBinding = Self.dockResumeBinding(
-            preservedBinding: preservedTransfer?.resumeBinding,
-            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            preservedBinding: preservedResumeBinding,
+            preservedSessionDirectory: preservedResumeSessionDirectory,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
@@ -176,8 +193,9 @@ extension DockSplitStore {
                 )
         }
 
-        return Workspace.DetachedSurfaceTransfer(
+        let detached = Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
+            sessionRestoreSourceWorkspaceId: preservedTransfer?.sessionRestoreWorkspaceId,
             panelId: panelId,
             panel: panel,
             title: transferTitle ?? panel.displayTitle,
@@ -199,11 +217,11 @@ extension DockSplitStore {
             customTitleSource: preservedTransfer?.customTitleSource,
             manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
-            restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
-            restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restorableAgent: agentProvenExited ? nil : preservedRestorableAgent,
+            restorableAgentResumeState: agentProvenExited ? nil : preservedResumeState,
             restoredAgentCompletedGeneration: agentProvenExited
                 ? nil
-                : preservedTransfer?.restoredAgentCompletedGeneration,
+                : preservedCompletedGeneration,
             shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
@@ -213,6 +231,8 @@ extension DockSplitStore {
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
+        clearSessionRestoreState(panelId: panelId)
+        return detached
     }
 
     /// Attaches a detached live panel into this Dock at `paneId`. Re-targets the
@@ -244,6 +264,7 @@ extension DockSplitStore {
         // lose the rescue for live agents whenever the detach-time live cwd
         // read is unavailable.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        adoptSessionRestoreState(from: detached)
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
@@ -259,6 +280,7 @@ extension DockSplitStore {
         ) else {
             panels.removeValue(forKey: detached.panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
@@ -332,6 +354,7 @@ extension DockSplitStore {
 
         panels[detached.panelId] = panel
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        adoptSessionRestoreState(from: detached)
         surfaceIdToPanelId[tab.id] = detached.panelId
 
         let newPane = withProgrammaticDockSplit {
@@ -346,6 +369,7 @@ extension DockSplitStore {
             surfaceIdToPanelId.removeValue(forKey: tab.id)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
 

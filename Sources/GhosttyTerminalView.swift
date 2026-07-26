@@ -4871,6 +4871,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualLineActive || ghostty_surface_has_selection(surface)
     }
 
+    /// Keep the standard Copy shortcut a native no-op when AppKit disables
+    /// Copy. Replaying this menu miss into Ghostty lets the failed Copy binding
+    /// enter its terminal-input path, which moves scrollback to the bottom when
+    /// `scroll-to-bottom=keystroke` is enabled even if the terminal program
+    /// does not visibly echo that input.
+    func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard event.type == .keyDown,
+              normalizedFlags == [.command],
+              KeyboardLayout.normalizedCharacters(for: event) == "c" else {
+            return false
+        }
+        guard let surface = ensureSurfaceReadyForInput(),
+              !hasCopyableTerminalSelection(surface: surface) else {
+            return false
+        }
+
+        return ghosttyConsumeMenuAction(
+            "copy_to_clipboard",
+            for: event,
+            surface: surface
+        )
+    }
+
     private func copyCurrentViewportLinesToClipboard(
         surface: ghostty_surface_t,
         startRow: Int,
@@ -5581,16 +5607,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         // Check if this event matches a Ghostty keybinding.
-        let bindingFlags: ghostty_binding_flags_e? = {
-            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
-            var flags = ghostty_binding_flags_e(0)
-            let isBinding = text.withCString { ptr in
-                keyEvent.text = ptr
-                return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-            }
-            return isBinding ? flags : nil
-        }()
+        let bindingFlags = ghosttyBindingFlags(for: event, surface: surface)
 
         if let bindingFlags {
             let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
@@ -5674,6 +5691,47 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    private func ghosttyBindingFlags(
+        for event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> ghostty_binding_flags_e? {
+        var flags = ghostty_binding_flags_e(0)
+        let isBinding = withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
+            return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+        }
+        return isBinding ? flags : nil
+    }
+
+    private func ghosttyConsumeMenuAction(
+        _ action: String,
+        for event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
+            action.withCString { actionPointer in
+                ghostty_surface_key_consume_if_menu_action(
+                    surface,
+                    keyEvent,
+                    actionPointer,
+                    UInt(action.utf8.count)
+                )
+            }
+        }
+    }
+
+    private func withGhosttyBindingKeyEvent<Result>(
+        for event: NSEvent,
+        surface: ghostty_surface_t,
+        _ body: (ghostty_input_key_s) -> Result
+    ) -> Result {
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
+        return text.withCString { pointer in
+            keyEvent.text = pointer
+            return body(keyEvent)
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -8158,7 +8216,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
         switch reason {
-        case .navigation:
+        case .navigation, .userInitiated:
             return .navigation
         case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return .notification

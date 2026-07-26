@@ -95,7 +95,7 @@
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "rgba(0, 0, 0, 0.88)" : "white";
   };
 
-  // Captured annotation cards: one immutable context artifact per stroke.
+  // Captured annotation regions: one immutable context artifact per stroke.
   const regionReferences = [];
   const marqueeThresholdPixels = 5;
   let pendingPointer = null;
@@ -629,7 +629,7 @@
     };
   };
 
-  // Annotation snapshots translate page-anchored cards to current viewport
+  // Annotation snapshots translate page-anchored regions to current viewport
   // coordinates while keeping a stable identity across scrolling.
   const regionSnapshotFor = (region) => {
     const x = region.pageX - (globalThis.scrollX || 0);
@@ -1012,8 +1012,8 @@
       background: "rgba(10, 132, 255, 0.07)",
     });
 
-    // Freehand ink is the only visible feedback until native capture returns
-    // the context-rich composited card.
+    // Freehand ink is the only visible feedback while native captures context;
+    // completion replaces it with a transparent region outline.
     const svgNS = "http://www.w3.org/2000/svg";
     const strokeSvg = document.createElementNS(svgNS, "svg");
     Object.assign(strokeSvg.style, {
@@ -1072,7 +1072,7 @@
     return element;
   };
 
-  const annotationCard = () => {
+  const annotationOutline = () => {
     const element = document.createElement("div");
     Object.assign(element.style, {
       display: "none",
@@ -1081,12 +1081,8 @@
       boxSizing: "border-box",
       border: "1.5px dashed rgb(10, 132, 255)",
       borderRadius: "14px",
-      backgroundColor: "white",
-      backgroundPosition: "center",
-      backgroundRepeat: "no-repeat",
-      backgroundSize: "100% 100%",
-      boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)",
-      overflow: "hidden",
+      backgroundColor: "transparent",
+      boxShadow: "none",
     });
     return element;
   };
@@ -1120,7 +1116,7 @@
   const refreshRegionOutlines = () => {
     if (!overlay) return;
     while (overlay.regionOutlines.length < regionReferences.length) {
-      const outline = annotationCard();
+      const outline = annotationOutline();
       overlay.regionOutlines.push(outline);
       overlay.selectionLayer.append(outline);
     }
@@ -1135,9 +1131,8 @@
       const isHovered = hoveredSelectionIndex === selectedReferences.length + index;
       outline.style.borderColor = tint;
       outline.style.boxShadow = isHovered
-        ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}, 0 8px 24px rgba(0, 0, 0, 0.18)`
-        : "0 8px 24px rgba(0, 0, 0, 0.18)";
-      outline.style.backgroundImage = `url("${region.imageURL}")`;
+        ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}`
+        : "none";
       place(outline, {
         x: region.pageX - (globalThis.scrollX || 0),
         y: region.pageY - (globalThis.scrollY || 0),
@@ -2060,7 +2055,6 @@
       y,
       width,
       height,
-      imageURL,
       expectedScrollX,
       expectedScrollY,
       expectedViewportWidth,
@@ -2074,8 +2068,7 @@
           || descriptor.scroll_x !== expectedScrollX
           || descriptor.scroll_y !== expectedScrollY
           || descriptor.viewport.width !== expectedViewportWidth
-          || descriptor.viewport.height !== expectedViewportHeight
-          || !String(imageURL || "").startsWith("data:image/png;base64,")) {
+          || descriptor.viewport.height !== expectedViewportHeight) {
         return null;
       }
       regionReferences.push({
@@ -2084,12 +2077,9 @@
         pageY: y + expectedScrollY,
         width,
         height,
-        imageURL: String(imageURL),
         colorIndex: pendingAnnotation.colorIndex,
       });
-      // Each card retains screenshot-sized encoded and decoded image data.
-      // Keep a useful multi-stroke stack while evicting the oldest card so a
-      // long drawing session has a fixed memory ceiling.
+      // Keep the prompt and overlay bounded during a long drawing session.
       if (regionReferences.length > maxAnnotationReferences) {
         regionReferences.splice(0, regionReferences.length - maxAnnotationReferences);
         hoveredSelectionIndex = null;
@@ -2104,7 +2094,7 @@
       revision += 1;
       // Native capture completion is the authoritative phase transition.
       // Reconcile it directly so a frame request paused during WebKit's
-      // snapshot cannot strand the card behind an outstanding frame token.
+      // snapshot cannot strand the outline behind an outstanding frame token.
       refreshOverlay();
       return emit();
     },

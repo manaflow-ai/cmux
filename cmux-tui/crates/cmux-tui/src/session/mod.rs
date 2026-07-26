@@ -46,6 +46,16 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_timeout)
 }
 
+pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
+    error.downcast_ref::<remote::RemoteRequestError>().is_some_and(|error| {
+        matches!(
+            error,
+            remote::RemoteRequestError::Rejected(message)
+                if message == &format!("unknown surface {surface}")
+        )
+    })
+}
+
 #[cfg(test)]
 pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
     remote::RemoteRequestError::Timeout.into()
@@ -62,7 +72,12 @@ pub(crate) fn test_remote_transport_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
-    remote::RemoteRequestError::Rejected("unknown surface".to_string()).into()
+    test_remote_rejected_error_with_message("unknown surface")
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
+    remote::RemoteRequestError::Rejected(message.to_string()).into()
 }
 
 pub struct SidebarPluginSurface {
@@ -76,6 +91,8 @@ pub struct ClientSizeInfo {
     pub surface: SurfaceId,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
+    #[serde(default = "default_true")]
+    pub size_participating: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -89,8 +106,6 @@ pub struct ClientInfo {
     pub sizes: Vec<ClientSizeInfo>,
     #[serde(rename = "self")]
     pub is_self: bool,
-    #[serde(default = "default_true")]
-    pub size_participating: bool,
 }
 
 fn default_true() -> bool {
@@ -142,15 +157,22 @@ impl Session {
         serde_json::from_value(value).map_err(Into::into)
     }
 
-    pub fn set_client_sizing(&self, client: u64, enabled: bool) -> anyhow::Result<()> {
+    pub fn set_client_sizing(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux
-                .set_client_size_participation(client, enabled)
-                .map(|_| ())
-                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Local(mux) => {
+                mux.set_client_size_participation(surface, client, enabled).map(|_| ()).ok_or_else(
+                    || anyhow::anyhow!("client {client} is not attached to terminal {surface}"),
+                )
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "client": client,
                     "enabled": enabled,
                 }))
@@ -158,15 +180,17 @@ impl Session {
         }
     }
 
-    pub fn use_only_client_sizing(&self, client: u64) -> anyhow::Result<()> {
+    pub fn use_only_client_sizing(&self, surface: SurfaceId, client: u64) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux
-                .use_only_client_size(client)
-                .map(|_| ())
-                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
+            Session::Local(mux) => {
+                mux.use_only_client_size(surface, client).map(|_| ()).ok_or_else(|| {
+                    anyhow::anyhow!("client {client} has no reported size for terminal {surface}")
+                })
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "client": client,
                     "enabled": true,
                     "exclusive": true,
@@ -175,15 +199,16 @@ impl Session {
         }
     }
 
-    pub fn use_all_client_sizing(&self) -> anyhow::Result<()> {
+    pub fn use_all_client_sizing(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.use_all_client_sizes();
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .use_all_client_sizes(surface)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
+                    "surface": surface,
                     "enabled": true,
                 }))
                 .map(|_| ()),
@@ -208,6 +233,13 @@ impl Session {
     pub fn begin_shutdown(&self) {
         if let Session::Remote(remote) = self {
             remote.begin_shutdown();
+        }
+    }
+
+    pub fn daemon_shutdown_requested(&self) -> bool {
+        match self {
+            Session::Local(mux) => mux.daemon_shutdown_requested(),
+            Session::Remote(_) => false,
         }
     }
     pub fn invalidate_remote_tree(&self) {
@@ -643,8 +675,11 @@ impl Session {
     pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_screen(screen);
-                Ok(())
+                if mux.close_screen(screen)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown screen {screen}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-screen", "screen": screen})).map(|_| ())
@@ -676,15 +711,20 @@ impl Session {
         }
     }
 
-    pub fn zoom_pane(&self, pane: Option<PaneId>) -> anyhow::Result<()> {
+    pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                let _ = mux.zoom_pane(pane, ZoomMode::Toggle);
+                let _ = mux.zoom_pane(pane, mode);
                 Ok(())
             }
-            Session::Remote(remote) => remote
-                .request(json!({"cmd": "zoom-pane", "pane": pane, "mode": "toggle"}))
-                .map(|_| ()),
+            Session::Remote(remote) => {
+                let mode = match mode {
+                    ZoomMode::Toggle => "toggle",
+                    ZoomMode::On => "on",
+                    ZoomMode::Off => "off",
+                };
+                remote.request(json!({"cmd": "zoom-pane", "pane": pane, "mode": mode})).map(|_| ())
+            }
         }
     }
 
@@ -734,8 +774,11 @@ impl Session {
     pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_surface(surface);
-                Ok(())
+                if mux.close_surface(surface)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown surface {surface}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
@@ -746,8 +789,11 @@ impl Session {
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_pane(pane);
-                Ok(())
+                if mux.close_pane(pane)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown pane {pane}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-pane", "pane": pane})).map(|_| ())
@@ -972,7 +1018,7 @@ impl Session {
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_workspace(workspace, index);
+                mux.move_workspace_at_revision(workspace, index, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -1458,10 +1504,34 @@ pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Ses
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
+    reached: Arc<std::sync::Barrier>,
+    release: Arc<std::sync::Barrier>,
+) -> Session {
+    Session::Remote(remote::test_session_with_blocked_attach_transport_failure(reached, release))
+}
+
+#[cfg(test)]
 mod tests {
     use cmux_tui_core::{Mux, SurfaceOptions};
 
-    use super::{Session, resize_action};
+    use super::{
+        Session, is_remote_surface_unavailable, resize_action,
+        test_remote_rejected_error_with_message, test_remote_transport_error,
+    };
+
+    #[test]
+    fn remote_surface_unavailable_matches_only_the_requested_surface_rejection() {
+        assert!(is_remote_surface_unavailable(
+            &test_remote_rejected_error_with_message("unknown surface 77"),
+            77
+        ));
+        assert!(!is_remote_surface_unavailable(
+            &test_remote_rejected_error_with_message("unknown surface 78"),
+            77
+        ));
+        assert!(!is_remote_surface_unavailable(&test_remote_transport_error(), 77));
+    }
 
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {
@@ -1500,7 +1570,11 @@ mod tests {
     fn local_provider_guard_surfaces_actionable_ordinary_mutation_errors() {
         let mux = Mux::new("local-provider-guard-test", SurfaceOptions::default());
         let workspace = mux
-            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .create_empty_workspace(
+                Some("managed".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000aa06".into()),
+                None,
+            )
             .unwrap();
         let session = Session::Local(mux.clone());
         session.mark_workspaces_provider_managed().unwrap();

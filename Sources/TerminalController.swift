@@ -3049,9 +3049,7 @@ class TerminalController {
         selected: Bool
     ) -> [String: Any] {
         let topology = controlSystemTreeWorkspaceNode(
-            workspace: workspace,
-            index: index,
-            selected: selected
+            workspace: workspace, index: index, selected: selected, dockStores: []
         )
         let panes = topology.panes.map { pane in
             return [
@@ -6506,7 +6504,63 @@ class TerminalController {
         }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
+        let profileKeys = ["profile", "profile_id", "profile_name"]
+        let suppliedProfileKeys = profileKeys.filter { v2HasNonNullParam(params, $0) }
+        if suppliedProfileKeys.count > 1 {
+            return .err(
+                code: "invalid_params",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                data: ["profile_parameters": suppliedProfileKeys]
+            )
+        }
+        if let invalidProfileKey = profileKeys.first(where: {
+            v2HasNonNullParam(params, $0) && v2String(params, $0) == nil
+        }) {
+            return .err(
+                code: "invalid_params",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                data: ["profile_parameter": invalidProfileKey]
+            )
+        }
+
+        let profileSelector = v2String(params, "profile")
+            ?? v2String(params, "profile_id")
+            ?? v2String(params, "profile_name")
+        let preferredProfileID: UUID?
+        if let selector = profileSelector {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredProfileID = profile.id
+            case .notFound:
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    data: ["profile": selector]
+                )
+            case .ambiguous(let profiles):
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    data: [
+                        "profile": selector,
+                        "candidates": profiles.map {
+                            ["id": $0.id.uuidString, "name": $0.displayName]
+                        },
+                    ]
+                )
+            }
+        } else {
+            preferredProfileID = nil
+        }
+
         if BrowserAvailabilitySettings.isDisabled() {
+            if let profileSelector {
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    data: ["profile": profileSelector]
+                )
+            }
             if v2IsDiffViewerURL(url) {
                 return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
             }
@@ -6522,8 +6576,17 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
+            if let profileSelector, preferredProfileID != nil, ws.isRemoteWorkspace {
+                result = .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                    data: ["profile": profileSelector]
+                )
+                return
+            }
             if let url,
                respectExternalOpenRules,
+               preferredProfileID == nil,
                BrowserLinkOpenSettings.shouldOpenExternally(url) {
                 guard NSWorkspace.shared.open(url) else {
                     result = .err(
@@ -6578,6 +6641,7 @@ class TerminalController {
                     url: url,
                     focus: focus,
                     selectWhenNotFocused: true,
+                    preferredProfileID: preferredProfileID,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
                     transparentBackground: transparentBackground,
@@ -6590,6 +6654,7 @@ class TerminalController {
                     from: sourceSurfaceId,
                     orientation: .horizontal,
                     url: url,
+                    preferredProfileID: preferredProfileID,
                     focus: focus,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
@@ -13967,6 +14032,16 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.workspace.changes.summary":
+            result = await v2MobileWorkspaceChangesSummary(params: request.params)
+        case "mobile.workspace.changes.files":
+            result = await v2MobileWorkspaceChangesFiles(params: request.params)
+        case "mobile.workspace.changes.file_diff":
+            result = await v2MobileWorkspaceChangesFileDiff(params: request.params)
+        case "mobile.workspace.changes.file_stat":
+            result = await v2MobileWorkspaceChangesFileStat(params: request.params)
+        case "mobile.workspace.changes.file_fetch":
+            result = await v2MobileWorkspaceChangesFileFetch(params: request.params)
         case "mobile.directory.search":
             result = await v2MobileDirectorySearch(
                 params: request.params,
@@ -14024,7 +14099,10 @@ class TerminalController {
         case "notification.reconcile":
             result = v2MobileNotificationReconcile(params: request.params)
         case "notification.feed.list":
-            result = v2MobileNotificationFeedList(params: request.params)
+            result = await v2MobileNotificationFeedList(
+                params: request.params,
+                responseID: request.id.map { String(describing: $0) }
+            )
         case "notification.feed.mark_read":
             result = v2MobileNotificationFeedMarkRead(params: request.params)
         case "notification.feed.mark_unread":
@@ -14143,7 +14221,8 @@ class TerminalController {
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
     func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
-        guard Self.mobileAllowsWorkspaceAction(rawAction) else {
+        guard let action = Self.mobileWorkspaceActionKey(rawAction),
+              Self.mobileAllowsWorkspaceAction(rawAction) else {
             return .err(
                 code: "method_not_found",
                 message: "Unsupported workspace action for mobile",
@@ -14158,10 +14237,44 @@ class TerminalController {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
-        guard v2UUID(params, "workspace_id") != nil else {
+        guard let targetWorkspaceID = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
-        return v2WorkspaceAction(params: params)
+        if action == "set_description" || action == "clear_description" {
+            guard let tabManager = v2ResolveTabManager(params: params),
+                  let workspace = tabManager.tabs.first(where: { $0.id == targetWorkspaceID }) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+            if MobileWorkspaceMetadataLimits
+                .projectedCustomDescription(workspace.customDescription)
+                .isTruncated {
+                return .err(
+                    code: "conflict",
+                    message: "Workspace description is too long to edit from mobile",
+                    data: ["workspace_id": targetWorkspaceID.uuidString]
+                )
+            }
+        }
+        var sanitizedParams = params
+        switch action {
+        case "set_description":
+            guard let normalized = MobileWorkspaceMetadataLimits.normalizedCustomDescription(
+                v2String(params, "description")
+            ) else {
+                return .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
+            }
+            sanitizedParams["description"] = normalized
+        case "set_color":
+            guard let colorRaw = v2String(params, "color")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !colorRaw.isEmpty,
+                  colorRaw.utf8.count <= MobileWorkspaceMetadataLimits.customColorMaxUTF8Bytes else {
+                return .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
+            }
+            sanitizedParams["color"] = colorRaw
+        default:
+            break
+        }
+        return v2WorkspaceAction(params: sanitizedParams)
     }
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
         switch result {
@@ -14383,10 +14496,27 @@ class TerminalController {
         }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
+        // Screen-anchored replays hydrate the phone's local scrollback: honor
+        // the client's requested history depth up to the shared budget so the
+        // replay reset does not truncate what the phone can scroll through.
+        let anchor: MobileTerminalRenderGridFrame.Anchor =
+            v2String(params, "anchor") == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+            ? .screen
+            : .viewport
+        let scrollbackLines: Int
+        if anchor == .screen {
+            let requested = v2Int(params, "max_scrollback_rows")
+                ?? MobileTerminalScrollbackPreference.defaultRows
+            scrollbackLines = MobileTerminalScrollbackPreference.clamped(requested)
+        } else {
+            scrollbackLines = TerminalController.mobileReplayScrollbackLineBudget
+        }
         let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
-            seq: seq
+            seq: seq,
+            scrollbackLines: scrollbackLines,
+            anchor: anchor
         )
         if let expectedViewport,
            let renderGrid,

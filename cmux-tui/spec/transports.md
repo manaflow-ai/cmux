@@ -4,7 +4,7 @@ The command schema is transport-independent. Protocol v5 introduced the Unix dom
 
 ## Protocol Negotiation
 
-The current server reports `protocol:9` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9.
+The current server reports `protocol:10` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9. A client using `set-client-sizing` must require protocol 10 and include its target surface.
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
@@ -25,7 +25,13 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 The implementation uses Rust `std::env::temp_dir()` for `$TMPDIR`, appends `cmux-tui-<uid>`, and then appends `<session>.sock`. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`.
 
-The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path.
+The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit temporary `--socket` derives an isolated `<socket>.state` root unless `--state` is supplied. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
+
+One process holds an exclusive cross-platform writer lease for each session
+database. SQLite uses WAL, foreign keys, `synchronous=FULL`, and macOS
+`fullfsync`. A second daemon for the same state/session fails startup instead
+of racing. Corruption or an unsupported schema also fails closed; the daemon
+never silently falls back to ephemeral state.
 
 ### Framing And Canonical Envelope
 

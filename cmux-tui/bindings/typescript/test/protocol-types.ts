@@ -22,7 +22,7 @@ const requests = [
   { cmd: "set-client-info", name: "browser", kind: "web" },
   { cmd: "list-clients" },
   { cmd: "detach-client", client: 2 },
-  { cmd: "set-client-sizing", client: 2, enabled: false },
+  { cmd: "set-client-sizing", surface: 1, client: 2, enabled: false },
   { cmd: "reload-config" },
   { cmd: "set-window-title", title: "cmux" },
   { cmd: "clear-window-title" },
@@ -86,11 +86,13 @@ type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
 const identify: IdentifyData = {
   app: "cmux-tui",
   version: "0.1.2",
-  build_commit: "cmux-sha",
-  ghostty_commit: null,
-  protocol: 8,
+  protocol: 7,
   session: "main",
   pid: 1,
+  registry_id: "registry",
+  generation: "generation",
+  workspace_revision: 1,
+  terminal_revision: 2,
 };
 void identify;
 

@@ -145,6 +145,25 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("agentSession")]))
     }
 
+    @Test func surfaceResumePendingApprovalReturnsRetryableBusyError() {
+        let context = FakeSurfaceControlCommandContext()
+        let message = "Resume approval data is still loading. Retry the request."
+        context.resumeResolution = .approvalPending(message: message)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: ["command": .string("tmux attach -t work")]
+        ))
+
+        #expect(result == .err(
+            code: "busy",
+            message: message,
+            data: .object(["retryable": .bool(true)])
+        ))
+    }
+
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .dockUnsupportedType(
