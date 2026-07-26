@@ -3046,6 +3046,52 @@ mod unix {
         }
 
         #[test]
+        fn clear_history_ack_preserves_known_not_delivered_failure() {
+            let (record_path, record, lease) = record_fixture("clear-history-ack");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses =
+                Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) });
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::ClearHistory);
+                let mut response =
+                    Frame::new(MessageKind::ClearHistoryAck, vec![CLEAR_HISTORY_ACK_FAILED]);
+                response.request_id = request.request_id;
+                assert!(control_responses.resolve(&response));
+            });
+
+            let failure = attachment.send_clear_history(None).unwrap_err();
+            responder.join().unwrap();
+
+            assert_eq!(failure.delivery(), crate::surface::ClearHistoryDelivery::KnownNotDelivered);
+            assert_eq!(failure.into_error().to_string(), crate::CLEAR_HISTORY_PRESERVATION_ERROR);
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn process_nonce_proves_stale_record_even_if_pid_is_live_and_reused() {
             let (record_path, record, lease) = record_fixture("liveness");
             assert_eq!(

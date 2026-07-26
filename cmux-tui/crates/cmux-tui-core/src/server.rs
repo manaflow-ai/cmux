@@ -5706,6 +5706,63 @@ mod tests {
         assert!(scheduler.state.lock().unwrap().lanes.is_empty());
     }
 
+    fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: usize) -> usize {
+        let mux = test_mux();
+        let writer = test_writer();
+        let schedulers = [
+            Arc::new(ConnectionSurfaceScheduler::default()),
+            Arc::new(ConnectionSurfaceScheduler::default()),
+        ];
+        let surfaces = (0..request_count)
+            .map(|_| {
+                let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+                surface.with_terminal(|term| {
+                    term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+                });
+                surface
+            })
+            .collect::<Vec<_>>();
+
+        for (index, surface) in surfaces.iter().enumerate() {
+            let scheduler = &schedulers[index % schedulers.len()];
+            let mut request = Some(Request {
+                id: Some(json!(index)),
+                cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            });
+            assert_eq!(
+                scheduler.dispatch(mux.clone(), 0, &mut request, retained_bytes, writer.clone(),),
+                Some(true)
+            );
+        }
+        let active =
+            schedulers.iter().map(|scheduler| scheduler.state.lock().unwrap().lanes.len()).sum();
+
+        for scheduler in &schedulers {
+            let _ = scheduler.close_and_wait(Duration::from_secs(1));
+        }
+        for surface in surfaces {
+            mux.close_surface(surface.id).unwrap();
+        }
+        active
+    }
+
+    #[test]
+    fn surface_worker_limit_is_process_wide_across_connections() {
+        assert!(
+            active_clear_lanes_across_connections(17, 0) <= 16,
+            "per-connection limits allowed more than 16 process-wide clear workers"
+        );
+    }
+
+    #[test]
+    fn active_surface_request_bytes_count_toward_process_budget() {
+        const FOUR_MIB: usize = 4 * 1024 * 1024;
+        assert!(
+            active_clear_lanes_across_connections(5, FOUR_MIB) <= 4,
+            "active first requests bypassed the 16 MiB process-wide byte budget"
+        );
+    }
+
     #[test]
     fn stalled_websocket_handshake_times_out() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
