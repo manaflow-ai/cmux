@@ -475,7 +475,48 @@ def detect_fixed_port_bind(line: str) -> bool:
     return False
 
 
-def _sleep_in_loop(lines: list[str], idx: int) -> bool:
+_SHELL_LOOP_TOKEN = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*|&&|\|\||[;&|(){}]"
+)
+
+
+def _shell_sleep_in_loop(lines: list[str], idx: int) -> bool:
+    """Track shell loop reserved words without relying on indentation."""
+    pending_loops = 0
+    active_loops = 0
+    command_position = True
+    for line in lines[:idx]:
+        for match in _SHELL_LOOP_TOKEN.finditer(line):
+            token = match.group()
+            if token in (";", "&", "|", "&&", "||", "(", ")", "{", "}"):
+                command_position = True
+                continue
+            if (
+                token in ("while", "until", "for", "select")
+                and command_position
+            ):
+                pending_loops += 1
+                command_position = False
+                continue
+            if token == "do" and pending_loops:
+                pending_loops -= 1
+                active_loops += 1
+                command_position = True
+                continue
+            if token == "done" and command_position and active_loops:
+                active_loops -= 1
+                command_position = False
+                continue
+            command_position = token in ("then", "do", "else", "elif")
+        command_position = True
+    return active_loops > 0
+
+
+def _sleep_in_loop(
+    lines: list[str],
+    idx: int,
+    path_suffix: str,
+) -> bool:
     """True if the sleep on lines[idx] is plausibly a poll-loop body.
 
     A poll is allowed: it returns the instant the predicate holds and only the
@@ -491,6 +532,8 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     flat `sleep(); assert` at the same indent (no enclosing loop) is not.
     """
     if _LOOP_HEADER.search(lines[idx]):
+        return True
+    if path_suffix == ".sh" and _shell_sleep_in_loop(lines, idx):
         return True
     sleep_indent = len(lines[idx]) - len(lines[idx].lstrip())
     if sleep_indent == 0:
@@ -661,7 +704,7 @@ def _swift_type_member_bindings(
     return result
 
 
-def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
+def _swift_closure_bindings(text: str, opening: int) -> dict[str, bool]:
     """Return closure-local bindings introduced immediately after a brace."""
     snippet = text[opening + 1 : opening + 513]
     candidate = re.match(
@@ -683,10 +726,10 @@ def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
             prefix.startswith(("[", "(", "@"))
             and re.search(r"\bin\b", prefix)
         ):
-            return {"*"}
-        return set()
+            return {"*": False}
+        return {}
 
-    result: set[str] = set()
+    result: dict[str, bool] = {}
     captures = candidate.group("captures")
     if captures is not None:
         for capture in captures.split(","):
@@ -699,16 +742,27 @@ def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
                 ),
                 None,
             )
-            if local_name is not None:
-                result.add(local_name)
+            if local_name is not None and "=" in capture:
+                result[local_name] = False
 
     typed_parameters = candidate.group("typed_parameters")
     if typed_parameters is not None:
-        result.update(_swift_parameter_names(typed_parameters))
+        result.update(
+            {
+                name: False
+                for name in _swift_parameter_names(typed_parameters)
+            }
+        )
     simple_parameters = candidate.group("simple_parameters")
     if simple_parameters is not None:
         result.update(
-            re.findall(_SWIFT_IDENTIFIER_PATTERN, simple_parameters)
+            {
+                name: False
+                for name in re.findall(
+                    _SWIFT_IDENTIFIER_PATTERN,
+                    simple_parameters,
+                )
+            }
         )
     return result
 
@@ -735,8 +789,9 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
                 name: False
                 for name in callable_parameters.get(event.start(), set())
             })
-            for name in _swift_closure_parameter_names(text, event.start()):
-                bindings[name] = False
+            bindings.update(
+                _swift_closure_bindings(text, event.start())
+            )
             scopes.append((scope_kind, bindings))
             continue
         if event.group("close_brace") is not None:
@@ -1194,7 +1249,7 @@ def _python_direct_calls_in_block(
     current = bindings.copy()
     for statement in body:
         result.extend(_python_direct_calls_in_statement(statement, current))
-        current.update(_python_binding_updates(statement))
+        current = _python_bindings_after_statement(statement, current)
     return result
 
 
@@ -1205,7 +1260,7 @@ def _python_bindings_after_block(
     """Return conservative bindings after a block executes in source order."""
     result = bindings.copy()
     for statement in body:
-        result.update(_python_binding_updates(statement))
+        result = _python_bindings_after_statement(statement, result)
     return result
 
 
@@ -1222,6 +1277,140 @@ def _python_merge_binding_variants(
             if len(values) == 1 and None not in values
             else _PYTHON_SHADOWED_BINDING
         )
+    return result
+
+
+def _python_bindings_after_statement(
+    statement: ast.stmt,
+    bindings: dict[str, str],
+) -> dict[str, str]:
+    """Merge bindings across every path that can continue past a statement."""
+    if isinstance(statement, ast.If):
+        condition_bindings = bindings.copy()
+        condition_bindings.update(_python_binding_updates(statement.test))
+        return _python_merge_binding_variants(
+            [
+                _python_bindings_after_block(
+                    statement.body,
+                    condition_bindings,
+                ),
+                _python_bindings_after_block(
+                    statement.orelse,
+                    condition_bindings,
+                ),
+            ]
+        )
+
+    if isinstance(statement, (ast.For, ast.AsyncFor)):
+        iteration_bindings = bindings.copy()
+        iteration_bindings.update(_python_binding_updates(statement.iter))
+        body_bindings = iteration_bindings.copy()
+        body_bindings.update(_python_binding_updates(statement.target))
+        return _python_merge_binding_variants(
+            [
+                iteration_bindings,
+                _python_bindings_after_block(
+                    statement.body,
+                    body_bindings,
+                ),
+                _python_bindings_after_block(
+                    statement.orelse,
+                    iteration_bindings,
+                ),
+            ]
+        )
+
+    if isinstance(statement, ast.While):
+        condition_bindings = bindings.copy()
+        condition_bindings.update(_python_binding_updates(statement.test))
+        return _python_merge_binding_variants(
+            [
+                condition_bindings,
+                _python_bindings_after_block(
+                    statement.body,
+                    condition_bindings,
+                ),
+                _python_bindings_after_block(
+                    statement.orelse,
+                    condition_bindings,
+                ),
+            ]
+        )
+
+    if isinstance(statement, (ast.With, ast.AsyncWith)):
+        body_bindings = bindings.copy()
+        for item in statement.items:
+            body_bindings.update(
+                _python_binding_updates(item.context_expr)
+            )
+            if item.optional_vars is not None:
+                body_bindings.update(
+                    _python_binding_updates(item.optional_vars)
+                )
+        return _python_bindings_after_block(
+            statement.body,
+            body_bindings,
+        )
+
+    if isinstance(statement, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+        body_states = [bindings.copy()]
+        body_bindings = bindings.copy()
+        for body_statement in statement.body:
+            body_bindings = _python_bindings_after_statement(
+                body_statement,
+                body_bindings,
+            )
+            body_states.append(body_bindings.copy())
+        handler_entry = _python_merge_binding_variants(body_states)
+        completion_states = [
+            _python_bindings_after_block(
+                statement.orelse,
+                body_bindings,
+            )
+        ]
+        for handler in statement.handlers:
+            handler_bindings = handler_entry.copy()
+            if handler.name is not None:
+                handler_bindings[
+                    handler.name
+                ] = _PYTHON_SHADOWED_BINDING
+            completion_states.append(
+                _python_bindings_after_block(
+                    handler.body,
+                    handler_bindings,
+                )
+            )
+        completion_states.append(handler_entry)
+        merged = _python_merge_binding_variants(completion_states)
+        return _python_bindings_after_block(
+            statement.finalbody,
+            merged,
+        )
+
+    match_type = getattr(ast, "Match", None)
+    if match_type is not None and isinstance(statement, match_type):
+        subject_bindings = bindings.copy()
+        subject_bindings.update(
+            _python_binding_updates(statement.subject)
+        )
+        variants = [subject_bindings]
+        for case in statement.cases:
+            case_bindings = subject_bindings.copy()
+            case_bindings.update(_python_binding_updates(case.pattern))
+            if case.guard is not None:
+                case_bindings.update(
+                    _python_binding_updates(case.guard)
+                )
+            variants.append(
+                _python_bindings_after_block(
+                    case.body,
+                    case_bindings,
+                )
+            )
+        return _python_merge_binding_variants(variants)
+
+    result = bindings.copy()
+    result.update(_python_binding_updates(statement))
     return result
 
 
@@ -1392,7 +1581,10 @@ def _python_direct_call_bindings(
             nested = _python_direct_call_bindings(statement.body)
             for node_id, binding_variants in nested.items():
                 result.setdefault(node_id, []).extend(binding_variants)
-            ordered_bindings.update(_python_binding_updates(statement))
+            ordered_bindings = _python_bindings_after_statement(
+                statement,
+                ordered_bindings,
+            )
             continue
 
         calls = _python_direct_calls_in_statement(
@@ -1406,7 +1598,10 @@ def _python_direct_call_bindings(
             result.setdefault(id(definition), []).append(
                 bindings_at_call
             )
-        ordered_bindings.update(_python_binding_updates(statement))
+        ordered_bindings = _python_bindings_after_statement(
+            statement,
+            ordered_bindings,
+        )
     return result
 
 
@@ -3883,7 +4078,7 @@ def detect_sleep_then_assert(
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
         return False
-    if _sleep_in_loop(lines, idx):
+    if _sleep_in_loop(masked_lines, idx, path_suffix):
         return False
 
     if known_sleep_positions is not None:
