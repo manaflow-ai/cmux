@@ -2726,6 +2726,16 @@ mod tests {
     }
 
     #[test]
+    fn shift_is_preserved_without_a_shifted_ascii_character() {
+        for (raw, character) in [("shift+space", ' '), ("shift+é", 'é')] {
+            let chord = parse_chord(raw).unwrap();
+            assert_eq!(chord, Chord { code: KeyCode::Char(character), mods: KeyModifiers::SHIFT });
+            assert!(chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::SHIFT,)));
+            assert!(!chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE,)));
+        }
+    }
+
+    #[test]
     fn sidebar_view_defaults_parses_and_unknown_values_fall_back_with_warning() {
         assert_eq!(Sidebar::default().view, SidebarView::Workspaces);
         assert_eq!(parse_sidebar_view("files"), Ok(SidebarView::Files));
