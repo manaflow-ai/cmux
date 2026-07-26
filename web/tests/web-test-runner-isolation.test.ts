@@ -160,9 +160,17 @@ function runChild(
   args: string[],
   cwd: string,
 ): { status: number | null; output: string } {
+  const environment = { ...process.env };
+  // Bun's agent reporter hides passing-file headings, which these discovery
+  // assertions intentionally inspect.
+  delete environment.CLAUDECODE;
+  delete environment.REPL_ID;
+  delete environment.AGENT;
+
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
+    env: environment,
     timeout: 30_000,
     killSignal: "SIGKILL",
   });
