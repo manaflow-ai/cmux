@@ -11678,9 +11678,10 @@ mod tests {
         MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
         MachineUpdate, ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
         ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-        ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
-        ProviderActionFieldKind, ProviderActionTarget, ProviderActionValue, ProviderPresentation,
-        ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+        ManagedWorkspaceStatus, ProviderActionContext, ProviderActionDescriptor,
+        ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionTarget,
+        ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind,
+        WorkspaceCreationMode, WorkspaceCreationPolicy,
     };
     use crate::pty_input::{
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
@@ -17807,6 +17808,72 @@ mod tests {
                 machine_id: Some("managed-41".into()),
                 workspace_id: Some(workspace_key.into()),
             })
+        );
+    }
+
+    #[test]
+    fn provider_action_context_excludes_a_client_local_overlay_machine() {
+        let mux = Mux::new("provider-action-local-overlay-test", SurfaceOptions::default());
+        mux.create_empty_workspace(
+            Some("local".into()),
+            Some("00000000-0000-4000-8000-000000000123".into()),
+            None,
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
+        ui.snapshot.machines.push(MachineDescriptor {
+            key: local_key,
+            id: "managed-41".into(),
+            name: "Local".into(),
+            subtitle: "client local".into(),
+            status: MachineStatus::Running,
+        });
+        ui.snapshot.active = Some(local_key);
+        ui.selection = ui.snapshot.active_index().unwrap();
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+
+        assert_eq!(app.provider_action_context(), ProviderActionContext::default());
+    }
+
+    #[test]
+    fn provider_action_context_accepts_only_the_active_provider_machines_workspaces() {
+        let mux = Mux::new("provider-action-workspace-ownership-test", SurfaceOptions::default());
+        let stale_workspace = "00000000-0000-4000-8000-000000000123";
+        mux.create_empty_workspace(Some("stale".into()), Some(stale_workspace.into()), None)
+            .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        app.machine_ui = Some(ui.clone());
+
+        assert_eq!(
+            app.provider_action_context(),
+            ProviderActionContext { machine_id: Some("managed-41".into()), workspace_id: None }
+        );
+
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![ManagedWorkspaceDescriptor {
+                id: stale_workspace.into(),
+                name: "owned".into(),
+                mode: WorkspaceCreationMode::Isolated,
+                status: ManagedWorkspaceStatus::Active,
+                version: 1,
+                recoverable_until: None,
+                capabilities: ManagedWorkspaceCapabilities::default(),
+            }],
+        );
+        app.machine_ui = Some(ui);
+        assert_eq!(
+            app.provider_action_context(),
+            ProviderActionContext {
+                machine_id: Some("managed-41".into()),
+                workspace_id: Some(stale_workspace.into()),
+            }
         );
     }
 

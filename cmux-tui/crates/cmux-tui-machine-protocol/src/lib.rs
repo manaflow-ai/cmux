@@ -1236,6 +1236,23 @@ mod tests {
     }
 
     #[test]
+    fn unknown_provider_action_targets_do_not_reject_the_action_list() {
+        let actions: Vec<ProviderAction> = serde_json::from_value(serde_json::json!([
+            {
+                "id": "workspace.pane.inspect",
+                "label": "Inspect selected pane",
+                "target": "selected_pane"
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            serde_json::to_value(actions[0].target).unwrap(),
+            serde_json::json!("unsupported")
+        );
+    }
+
+    #[test]
     fn snapshot_request_matches_the_v1_golden_document() {
         let request = RequestEnvelope::new(
             id("17"),
