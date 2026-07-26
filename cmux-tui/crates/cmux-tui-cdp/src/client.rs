@@ -275,15 +275,26 @@ enum Outbound {
 
 impl CdpClient {
     pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
+        Self::connect_with_timeout(web_socket_url, events, Duration::from_secs(5))
+    }
+
+    pub fn connect_with_timeout(
+        web_socket_url: &str,
+        events: SyncSender<CdpEvent>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        if timeout.is_zero() {
+            anyhow::bail!("CDP connection deadline expired");
+        }
         let endpoint = WsEndpoint::parse(web_socket_url)?;
         let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
         let addr = addrs.next().ok_or_else(|| {
             anyhow::anyhow!("no socket address for {}:{}", endpoint.host, endpoint.port)
         })?;
-        let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
+        let stream = TcpStream::connect_timeout(&addr, timeout)?;
         stream.set_nodelay(true)?;
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
         let request = web_socket_url.into_client_request()?;
         let (ws, _) = client(request, stream)?;
         // The reader thread owns the socket and drains queued outbound
@@ -291,7 +302,7 @@ impl CdpClient {
         // read starts can wait for this window, but writers never contend
         // on the socket itself.
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
-        ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
+        ws.get_ref().set_write_timeout(Some(timeout))?;
         let (outbound_tx, outbound_rx) = channel();
         let event_queue = Arc::new(EventQueue::new());
         let client = CdpClient {
@@ -424,6 +435,21 @@ impl CdpClient {
             timeout,
         )
         .map(|_| ())
+    }
+
+    pub fn target_exists_with_timeout(
+        &self,
+        target_id: &str,
+        timeout: Duration,
+    ) -> anyhow::Result<bool> {
+        let result = self.call_with_timeout("Target.getTargets", json!({}), None, timeout)?;
+        let targets = result
+            .get("targetInfos")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Target.getTargets response missing targetInfos"))?;
+        Ok(targets
+            .iter()
+            .any(|target| target.get("targetId").and_then(Value::as_str) == Some(target_id)))
     }
 
     pub fn close_target_detached(&self, target_id: &str) -> anyhow::Result<()> {

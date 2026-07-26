@@ -237,6 +237,7 @@ struct BrowserWorkerErrorState {
 
 pub struct BrowserRuntime {
     client: CdpClient,
+    web_socket_url: String,
     chrome: Option<Chrome>,
     source: BrowserSource,
     stealth_user_agent: Option<String>,
@@ -265,6 +266,12 @@ struct SurfaceRouteState {
 struct QueuedSurfaceEvent {
     event: CdpEvent,
     retained_bytes: usize,
+}
+
+enum ExternalTargetShutdown {
+    Closed,
+    StillOpen,
+    Unreachable,
 }
 
 impl SurfaceRoute {
@@ -405,6 +412,7 @@ impl BrowserRuntime {
         };
         let runtime = Arc::new(BrowserRuntime {
             client,
+            web_socket_url: web_socket_url.to_string(),
             chrome,
             source,
             stealth_user_agent,
@@ -541,13 +549,64 @@ impl BrowserRuntime {
             // exited before shutdown can succeed.
             return true;
         }
-        if self.is_closed() {
-            return false;
+        if !self.is_closed() {
+            match Self::close_external_target_until(&self.client, target_id, deadline) {
+                ExternalTargetShutdown::Closed => return true,
+                ExternalTargetShutdown::StillOpen => return false,
+                ExternalTargetShutdown::Unreachable => {}
+            }
         }
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             return false;
         };
-        self.client.close_target_with_timeout(target_id, remaining).is_ok()
+        let (event_tx, _event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
+        let Ok(client) = CdpClient::connect_with_timeout(&self.web_socket_url, event_tx, remaining)
+        else {
+            return false;
+        };
+        matches!(
+            Self::close_external_target_until(&client, target_id, deadline),
+            ExternalTargetShutdown::Closed
+        )
+    }
+
+    fn close_external_target_until(
+        client: &CdpClient,
+        target_id: &str,
+        deadline: Instant,
+    ) -> ExternalTargetShutdown {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return ExternalTargetShutdown::Unreachable;
+        };
+        let query_timeout = remaining / 3;
+        if query_timeout.is_zero() {
+            return ExternalTargetShutdown::Unreachable;
+        }
+        match client.target_exists_with_timeout(target_id, query_timeout) {
+            Ok(false) => return ExternalTargetShutdown::Closed,
+            Ok(true) => {}
+            Err(_) => return ExternalTargetShutdown::Unreachable,
+        }
+
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return ExternalTargetShutdown::StillOpen;
+        };
+        let close_timeout = remaining / 3;
+        if close_timeout.is_zero() {
+            return ExternalTargetShutdown::StillOpen;
+        }
+        if client.close_target_with_timeout(target_id, close_timeout).is_ok() {
+            return ExternalTargetShutdown::Closed;
+        }
+
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return ExternalTargetShutdown::Unreachable;
+        };
+        match client.target_exists_with_timeout(target_id, remaining) {
+            Ok(false) => ExternalTargetShutdown::Closed,
+            Ok(true) => ExternalTargetShutdown::StillOpen,
+            Err(_) => ExternalTargetShutdown::Unreachable,
+        }
     }
 
     pub fn shutdown(&self) {
@@ -557,7 +616,7 @@ impl BrowserRuntime {
     pub(crate) fn shutdown_until(&self, deadline: Instant) -> bool {
         let outbound_flushed = if self.source == BrowserSource::External {
             if self.is_closed() {
-                false
+                true
             } else {
                 deadline
                     .checked_duration_since(Instant::now())
@@ -1166,7 +1225,7 @@ impl BrowserSurface {
             self.close_taps();
             self.close_command_sender();
         }
-        self.session.lock().unwrap().clone().map(BrowserShutdownOwner)
+        self.session.lock().unwrap().take().map(BrowserShutdownOwner)
     }
 
     pub fn latest_frame(&self) -> Option<BrowserFrame> {
@@ -1224,37 +1283,10 @@ impl BrowserSurface {
             return;
         }
         self.close_taps();
-        if let Some(session) = self.session.lock().unwrap().take() {
+        if let Some(session) = self.session.lock().unwrap().clone() {
             session.runtime.close_surface_detached(&session.target_id, &session.session_id);
         }
         self.close_command_sender();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
-        if !self.dead.swap(true, Ordering::AcqRel) {
-            self.close_taps();
-            self.close_command_sender();
-        }
-        let Some(session) = self.session.lock().unwrap().clone() else {
-            return true;
-        };
-        let terminated = session.runtime.close_surface_for_shutdown(
-            &session.target_id,
-            &session.session_id,
-            deadline,
-        );
-        if terminated {
-            let mut current = self.session.lock().unwrap();
-            if current.as_ref().is_some_and(|candidate| {
-                candidate.target_id == session.target_id
-                    && candidate.session_id == session.session_id
-                    && Arc::ptr_eq(&candidate.runtime, &session.runtime)
-            }) {
-                current.take();
-            }
-        }
-        terminated
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
@@ -2817,6 +2849,15 @@ mod tests {
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
             write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let query = read_ws_json(&mut ws);
+            assert_eq!(query["method"], "Target.getTargets");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": query["id"],
+                    "result": {"targetInfos": [{"targetId": "target-1"}]}
+                }),
+            );
             let close = read_ws_json(&mut ws);
             assert_eq!(close["method"], "Target.closeTarget");
             assert_eq!(close["params"]["targetId"], "target-1");
@@ -2834,7 +2875,7 @@ mod tests {
         assert!(!runtime.close_surface_for_shutdown(
             "target-1",
             "session-1",
-            started + Duration::from_millis(50),
+            started + Duration::from_millis(150),
         ));
         assert!(started.elapsed() < Duration::from_millis(500));
         close_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -2855,14 +2896,41 @@ mod tests {
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
             write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
 
-            let first = read_ws_json(&mut ws);
-            assert_eq!(first["method"], "Target.closeTarget");
+            let first_query = read_ws_json(&mut ws);
+            assert_eq!(first_query["method"], "Target.getTargets");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": first_query["id"],
+                    "result": {"targetInfos": [{"targetId": "target-1"}]}
+                }),
+            );
+            let first_close = read_ws_json(&mut ws);
+            assert_eq!(first_close["method"], "Target.closeTarget");
+            let first_confirmation = read_ws_json(&mut ws);
+            assert_eq!(first_confirmation["method"], "Target.getTargets");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": first_confirmation["id"],
+                    "result": {"targetInfos": [{"targetId": "target-1"}]}
+                }),
+            );
             close_tx.send(1).unwrap();
 
-            let second = read_ws_json(&mut ws);
-            assert_eq!(second["method"], "Target.closeTarget");
-            assert_eq!(second["params"]["targetId"], "target-1");
-            write_ws_json(&mut ws, json!({"id": second["id"], "result": {"success": true}}));
+            let second_query = read_ws_json(&mut ws);
+            assert_eq!(second_query["method"], "Target.getTargets");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": second_query["id"],
+                    "result": {"targetInfos": [{"targetId": "target-1"}]}
+                }),
+            );
+            let second_close = read_ws_json(&mut ws);
+            assert_eq!(second_close["method"], "Target.closeTarget");
+            assert_eq!(second_close["params"]["targetId"], "target-1");
+            write_ws_json(&mut ws, json!({"id": second_close["id"], "result": {"success": true}}));
             close_tx.send(2).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
@@ -2878,13 +2946,13 @@ mod tests {
             target_id: "target-1".to_string(),
             session_id: "session-1".to_string(),
         });
+        let owner = browser.shutdown_owner().unwrap();
 
-        assert!(!browser.terminate_for_server_shutdown(Instant::now() + Duration::from_millis(50)));
+        assert!(!owner.terminate_until(Instant::now() + Duration::from_millis(200)));
         assert_eq!(close_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
-        assert!(browser.session.lock().unwrap().is_some());
-        assert!(browser.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1)));
-        assert_eq!(close_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
         assert!(browser.session.lock().unwrap().is_none());
+        assert!(owner.terminate_until(Instant::now() + Duration::from_secs(1)));
+        assert_eq!(close_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
 
         runtime.shutdown();
         server.join().unwrap();
@@ -2947,10 +3015,11 @@ mod tests {
 
         let terminated = owner.terminate_until(Instant::now() + Duration::from_millis(500));
 
-        runtime.shutdown();
+        let runtime_released = runtime.shutdown_until(Instant::now() + Duration::from_millis(100));
         let reconnected = server.join().unwrap();
         assert!(terminated, "closed runtime made target cleanup permanently unretryable");
         assert!(reconnected, "shutdown did not reconnect to query the target");
+        assert!(runtime_released, "closed external runtime remained permanently retained");
     }
 
     #[test]
@@ -3102,6 +3171,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("closed surface route did not close its CDP target");
         assert!(browser.is_dead());
+        assert!(browser.shutdown_owner().is_some());
         assert!(browser.session.lock().unwrap().is_none());
 
         runtime.shutdown();
