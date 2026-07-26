@@ -502,7 +502,7 @@ impl ProviderMachineRuntime {
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
                     self.client.select_scope(protocol::OpaqueId::new(scope_id)?)?.snapshot;
-                self.accepted_selection = Some(AcceptedSelectionIntent {
+                self.accept_selection_intent(AcceptedSelectionIntent {
                     scope_id: Some(selected.selected_scope_id.clone()),
                     machine_id: None,
                 });
@@ -546,7 +546,7 @@ impl ProviderMachineRuntime {
                 }
                 let restarts_updates = selected_scope_id.is_some() || selected_machine_id.is_some();
                 if restarts_updates {
-                    self.accepted_selection = Some(AcceptedSelectionIntent {
+                    self.accept_selection_intent(AcceptedSelectionIntent {
                         scope_id: selected_scope_id,
                         machine_id: selected_machine_id,
                     });
@@ -1435,6 +1435,11 @@ impl ProviderMachineRuntime {
             anyhow::bail!("machine-provider mutation sequence is exhausted");
         }
         Ok(protocol::OpaqueId::new(format!("cmux-{}-{sequence}", self.mutation_nonce))?)
+    }
+
+    fn accept_selection_intent(&mut self, intent: AcceptedSelectionIntent) {
+        self.pending_external_connect = None;
+        self.accepted_selection = Some(intent);
     }
 
     fn reconcile_keys(&mut self) {
