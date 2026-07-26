@@ -484,6 +484,45 @@ struct SimulatorControlServiceTests {
         ).allSatisfy { $0.pathExtension != "json" })
     }
 
+    @Test("Equal legacy and durable paths behave as one journal store")
+    func equalCameraJournalPathsDoNotSelfReconcile() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(
+            "camera-equal-paths-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: directory) }
+        let deviceIdentifier = UUID().uuidString
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let store = SimulatorCameraAuthorizationStore(
+            directory: directory,
+            legacyDirectory: directory
+        )
+        try await store.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
+
+        let scan = try await store.records()
+
+        #expect(scan.records.count == 1)
+        #expect(scan.records[0].authorization == .denied)
+        #expect(try await store.authorization(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ) == .denied)
+        #expect(try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).contains { $0.pathExtension == "json" })
+    }
+
     @Test("A corrupt durable duplicate blocks legacy recovery")
     func corruptDurableDuplicateBlocksLegacyRecovery() async throws {
         let fileManager = FileManager.default
