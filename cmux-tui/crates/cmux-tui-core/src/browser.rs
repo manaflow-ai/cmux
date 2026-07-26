@@ -3375,6 +3375,67 @@ mod tests {
     }
 
     #[test]
+    fn setup_seeds_main_frame_before_page_events_are_enabled() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::Builder::new()
+            .name("browser-main-frame-seed-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let discover = read_ws_json(&mut ws);
+                assert_eq!(discover["method"], "Target.setDiscoverTargets");
+                write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+                let frame_tree = read_ws_json(&mut ws);
+                assert_eq!(
+                    frame_tree["method"], "Page.getFrameTree",
+                    "the root frame must be known before Page events are enabled"
+                );
+                write_ws_json(
+                    &mut ws,
+                    json!({
+                        "id": frame_tree["id"],
+                        "result": {
+                            "frameTree": {
+                                "frame": {
+                                    "id": "main-frame",
+                                    "url": "https://example.test"
+                                }
+                            }
+                        }
+                    }),
+                );
+
+                for expected in
+                    ["Page.enable", "Emulation.setDeviceMetricsOverride", "Page.startScreencast"]
+                {
+                    let request = read_ws_json(&mut ws);
+                    assert_eq!(request["method"], expected);
+                    write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+                }
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+
+        runtime
+            .setup_attached_surface(&surface, "target-1", "session-1", "https://example.test")
+            .unwrap();
+
+        server.join().unwrap();
+        runtime.shutdown();
+    }
+
+    #[test]
     fn latest_navigation_slot_drains_once() {
         let latest_nav = Arc::new(Mutex::new(Some(SequencedBrowserCommand {
             sequence: 7,
@@ -3725,6 +3786,30 @@ mod tests {
     }
 
     #[test]
+    fn ingress_navigation_epoch_revokes_pointer_before_surface_event_delivery() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_, capture_generation) =
+            browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
+
+        browser.frame_epoch.advance();
+
+        assert!(
+            browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none(),
+            "a queued navigation event must close guarded pointer admission at CDP ingress"
+        );
+        assert!(
+            browser.capture_guarded_input_point(1, 1.0, 1.0).is_none(),
+            "a queued navigation event must reject a new pointer capture"
+        );
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_none(),
+            "a queued navigation event must revoke an existing pointer capture"
+        );
+    }
+
+    #[test]
     fn navigation_invalidates_pointer_admission_until_a_new_frame() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -3814,6 +3899,108 @@ mod tests {
         assert_eq!(browser.latest_frame_seq(), None);
         assert_eq!(browser.state.lock().unwrap().pending_frame_epoch, Some(expected_epoch));
         assert_ne!(browser.url(), "https://old.test");
+    }
+
+    #[test]
+    fn reconfigure_completion_dominates_queued_older_navigation_epoch() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        browser.begin_reconfigure_frame_transition(queued.geometry);
+
+        let navigation_epoch = browser.frame_epoch.advance();
+        let reconfigure_epoch = browser.frame_epoch.advance();
+        browser.confirm_reconfigure(queued, reconfigure_epoch);
+        handle_frame_navigated(
+            browser,
+            json!({"frame": {"url": "https://next.test", "name": "next"}}),
+            navigation_epoch,
+        );
+        browser.store_frame_for_epoch(test_frame(2), reconfigure_epoch);
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(
+            state.accepted_frame_epoch, reconfigure_epoch,
+            "an older queued navigation must not roll frame admission behind a completed resize"
+        );
+        assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(
+            state.latest_frame.as_ref().map(|frame| frame.seq),
+            Some(2),
+            "frames from the newest reconciled epoch must remain live"
+        );
+    }
+
+    #[test]
+    fn no_commit_reload_does_not_poison_the_next_navigation_epoch() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let reload = read_ws_json(&mut ws);
+            assert_eq!(reload["method"], "Page.reload");
+            write_ws_json(&mut ws, json!({"id": reload["id"], "result": {}}));
+
+            let navigate = read_ws_json(&mut ws);
+            assert_eq!(navigate["method"], "Page.navigate");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.frameNavigated",
+                    "sessionId": "session-1",
+                    "params": {
+                        "frame": {
+                            "id": "main-frame",
+                            "url": "https://next.test"
+                        }
+                    }
+                }),
+            );
+            write_ws_json(&mut ws, json!({"id": navigate["id"], "result": {}}));
+            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let route = runtime.register("target-1", "session-1");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        start_surface_thread(surface.clone(), route, Weak::new(), Arc::downgrade(&runtime))
+            .unwrap();
+        browser.store_frame(test_frame(1));
+
+        browser.reload_blocking().unwrap();
+        browser.navigate_blocking("https://next.test").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline && browser.url() != "https://next.test" {
+            thread::yield_now();
+        }
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(state.accepted_frame_epoch, browser.frame_epoch.current());
+        drop(state);
+        assert_eq!(browser.url(), "https://next.test");
+
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]
