@@ -19,14 +19,18 @@ const fixtureTestSource = `
 import { test } from "bun:test";
 test("fixture runs", () => {});
 `;
+const ignoredFixtureTestSource = `
+import { test } from "bun:test";
+test("fixture stays ignored", () => {
+  throw new Error("ignored fixture ran");
+});
+`;
 
 test("shared web test runner isolates module mocks across files", () => {
   const result = runChild(
-    process.execPath,
+    "/bin/bash",
     [
-      "run",
-      "test",
-      "--",
+      "scripts/run-tests.sh",
       "--randomize",
       "--seed=1",
       "tests/feedback-route.test.ts",
@@ -45,17 +49,37 @@ test("shared web test runner isolates module mocks across files", () => {
   expect(result.output).toContain("0 fail");
 });
 
-test("shared web test runner preserves recursive default discovery", () => {
+test("shared web test runner preserves sorted recursive discovery", () => {
   const fixtureRoot = createRunnerFixture();
   try {
+    mkdirSync(join(fixtureRoot, ".hidden"));
+    mkdirSync(join(fixtureRoot, "node_modules", "fixture"), {
+      recursive: true,
+    });
     mkdirSync(join(fixtureRoot, "tests", "nested"), { recursive: true });
     writeFileSync(
-      join(fixtureRoot, "tests", "top-level.test.ts"),
+      join(fixtureRoot, "scripts", "alpha_spec.mts"),
       fixtureTestSource,
     );
     writeFileSync(
-      join(fixtureRoot, "tests", "nested", "nested.test.ts"),
+      join(fixtureRoot, "tests", "beta.test.ts"),
       fixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, "tests", "nested", "gamma_test.tsx"),
+      fixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, "tests", "nested", "omega.spec.mjs"),
+      fixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, ".hidden", "ignored.test.ts"),
+      ignoredFixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, "node_modules", "fixture", "ignored.test.ts"),
+      ignoredFixtureTestSource,
     );
 
     const result = runChild(
@@ -68,8 +92,19 @@ test("shared web test runner preserves recursive default discovery", () => {
         `shared web test runner skipped recursive discovery:\n${result.output}`,
       );
     }
-    expect(result.output).toContain("tests/top-level.test.ts:");
-    expect(result.output).toContain("tests/nested/nested.test.ts:");
+    const expectedHeadings = [
+      "scripts/alpha_spec.mts:",
+      "tests/beta.test.ts:",
+      "tests/nested/gamma_test.tsx:",
+      "tests/nested/omega.spec.mjs:",
+    ];
+    let previousIndex = -1;
+    for (const heading of expectedHeadings) {
+      const index = result.output.indexOf(heading);
+      expect(index).toBeGreaterThan(previousIndex);
+      previousIndex = index;
+    }
+    expect(result.output).not.toContain("ignored.test.ts:");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -85,6 +120,7 @@ test("shared web test runner fails when default discovery finds no tests", () =>
       fixtureRoot,
     );
     expect(result.status).not.toBe(0);
+    expect(result.output).toContain("No web test files found");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
