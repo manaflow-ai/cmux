@@ -1027,6 +1027,13 @@ fn run_server(
     }
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
+    #[cfg(debug_assertions)]
+    if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
+        loop {
+            std::thread::park();
+        }
+    }
+
     let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
         .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));
     let result = if args.headless {
