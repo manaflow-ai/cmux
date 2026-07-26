@@ -13,6 +13,7 @@ import {
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   RENDER_GRAPHIC_CANVAS_COUNT_CAP,
   RENDER_GRAPHIC_DECODED_BYTE_CAP,
+  renderGraphicImageKey,
   renderGraphicRgbaByteLength,
   resolveRenderGraphicPlacement,
   type DecodedRenderGraphicImage,
@@ -38,7 +39,7 @@ interface RenderGraphicCandidate {
 
 interface GraphicsSelection {
   placements: ReadonlySet<RenderGraphicCandidate>;
-  images: ReadonlySet<RenderGraphicImage>;
+  images: ReadonlySet<string>;
 }
 
 interface RenderedPlacement extends RenderGraphicCandidate {
@@ -193,7 +194,7 @@ class GraphicsBudgetRegistry {
 
   private recalculate(): void {
     const nextPlacements = new Map<symbol, Set<RenderGraphicCandidate>>();
-    const nextImages = new Map<symbol, Set<RenderGraphicImage>>();
+    const nextImages = new Map<symbol, Set<string>>();
     for (const owner of this.candidates.keys()) {
       nextPlacements.set(owner, new Set());
       nextImages.set(owner, new Set());
@@ -233,11 +234,12 @@ class GraphicsBudgetRegistry {
       if (candidate.placement.backingBytes
         > RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) continue;
       const images = nextImages.get(owner)!;
-      if (!images.has(candidate.image)
+      const imageKey = renderGraphicImageKey(candidate.image);
+      if (!images.has(imageKey)
         && candidate.decodedBytes > RENDER_GRAPHIC_DECODED_BYTE_CAP - decodedBytes) continue;
       nextPlacements.get(owner)!.add(candidate);
-      if (!images.has(candidate.image)) {
-        images.add(candidate.image);
+      if (!images.has(imageKey)) {
+        images.add(imageKey);
         decodedBytes += candidate.decodedBytes;
       }
       backingBytes += candidate.placement.backingBytes;
@@ -256,7 +258,7 @@ class GraphicsBudgetRegistry {
         || [...selection.placements].some((candidate) =>
           !previous.placements.has(candidate)
         )
-        || [...selection.images].some((image) => !previous.images.has(image));
+        || [...selection.images].some((imageKey) => !previous.images.has(imageKey));
       if (!changed) continue;
       this.selections.set(owner, selection);
       this.revisions.set(owner, (this.revisions.get(owner) ?? 0) + 1);
@@ -341,7 +343,7 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
   );
   const selected = graphicsBudget.selected(owner);
   const admittedImages = useMemo(
-    () => images.filter((image) => selected.images.has(image)),
+    () => images.filter((image) => selected.images.has(renderGraphicImageKey(image))),
     [budgetRevision, images, selected],
   );
   const decodedImages = useDecodedRenderGraphicImages(admittedImages);

@@ -1,8 +1,8 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::TryRecvError;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;

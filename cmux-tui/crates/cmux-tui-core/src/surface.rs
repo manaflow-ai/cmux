@@ -751,7 +751,13 @@ struct RenderHub {
     state: Box<RenderState>,
     built_generation: u64,
     latest: Option<Arc<SurfaceRenderFrame>>,
+    initial_graphics: Option<InitialGraphicsSnapshot>,
     taps: Vec<RenderTap>,
+}
+
+struct InitialGraphicsSnapshot {
+    source: Arc<ghostty_vt::KittyGraphicsSnapshot>,
+    snapshot: Arc<ghostty_vt::KittyGraphicsSnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1106,6 +1112,7 @@ impl Surface {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
+                initial_graphics: None,
                 taps: Vec::new(),
             }),
             render_generation: AtomicU64::new(1),
@@ -1376,6 +1383,7 @@ impl Surface {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
+                initial_graphics: None,
                 taps: Vec::new(),
             }),
             render_generation: AtomicU64::new(1),
@@ -1949,6 +1957,7 @@ impl Surface {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
+                initial_graphics: None,
                 taps: Vec::new(),
             }),
             render_generation: AtomicU64::new(1),
@@ -2035,6 +2044,7 @@ impl Surface {
                 state: Box::new(render_state),
                 built_generation: 0,
                 latest: None,
+                initial_graphics: None,
                 taps: Vec::new(),
             }),
             render_generation: AtomicU64::new(1),
@@ -2650,13 +2660,25 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
-        let initial_graphics = term.kitty_graphics_snapshot()?;
         let (tap, stream) = RenderTap::pair();
         let initial = {
             let mut render = pty.render.lock().unwrap();
             let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
+            let initial_graphics = match render.initial_graphics.as_ref() {
+                Some(cached) if Arc::ptr_eq(&cached.source, &shared.frame.kitty_graphics) => {
+                    cached.snapshot.clone()
+                }
+                _ => {
+                    let snapshot = render.state.snapshot_kitty_graphics(&term, true)?;
+                    render.initial_graphics = Some(InitialGraphicsSnapshot {
+                        source: shared.frame.kitty_graphics.clone(),
+                        snapshot: snapshot.clone(),
+                    });
+                    snapshot
+                }
+            };
             let mut initial = (*shared).clone();
-            initial.frame.kitty_graphics = Arc::new(initial_graphics);
+            initial.frame.kitty_graphics = initial_graphics;
             render.taps.push(tap);
             Arc::new(initial)
         };
@@ -2980,6 +3002,13 @@ impl PtySurface {
                     palette_colors,
                     palette_overridden,
                 });
+                if render
+                    .initial_graphics
+                    .as_ref()
+                    .is_some_and(|cached| !Arc::ptr_eq(&cached.source, &frame.frame.kitty_graphics))
+                {
+                    render.initial_graphics = None;
+                }
                 render.built_generation = generation;
                 render.latest = Some(frame.clone());
                 render.taps.retain(|tap| tap.send(RenderAttachFrame::Frame(frame.clone())));

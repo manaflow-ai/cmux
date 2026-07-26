@@ -3,6 +3,7 @@ import type { RenderGraphicImage } from "cmux/browser";
 import {
   decodeRenderGraphicImage,
   renderGraphicDecodedByteLength,
+  renderGraphicImageKey,
   type DecodedRenderGraphicImage,
 } from "../lib/renderGraphics";
 import type {
@@ -16,8 +17,13 @@ interface DecodedPixels {
 
 const RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES = 256 * 1024;
 
-function imageKey(image: RenderGraphicImage): string {
-  return `${image.id}:${image.generation}`;
+function sameImageGenerations(
+  left: readonly RenderGraphicImage[],
+  right: readonly RenderGraphicImage[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const leftKeys = new Set(left.map(renderGraphicImageKey));
+  return right.every((image) => leftKeys.has(renderGraphicImageKey(image)));
 }
 
 function decodeWithoutWorker(
@@ -45,19 +51,26 @@ export function useDecodedRenderGraphicImages(
 ): ReadonlyMap<number, DecodedRenderGraphicImage> {
   const cacheRef = useRef(new Map<string, DecodedPixels | null>());
   const requestRef = useRef(0);
+  const stableImagesRef = useRef(images);
+  if (!sameImageGenerations(stableImagesRef.current, images)) {
+    stableImagesRef.current = images;
+  }
+  const stableImages = stableImagesRef.current;
   const [revision, setRevision] = useState(0);
   const decoded = useMemo(() => {
     const current = new Map<number, DecodedRenderGraphicImage>();
-    for (const image of images) {
-      const cached = cacheRef.current.get(imageKey(image));
+    for (const image of stableImages) {
+      const cached = cacheRef.current.get(renderGraphicImageKey(image));
       if (cached != null) current.set(image.id, { image, pixels: cached.pixels });
     }
     return current;
-  }, [images, revision]);
+  }, [stableImages, revision]);
 
   useEffect(() => {
-    const activeKeys = new Set(images.map(imageKey));
-    const pending = images.filter((image) => !cacheRef.current.has(imageKey(image)));
+    const activeKeys = new Set(stableImages.map(renderGraphicImageKey));
+    const pending = stableImages.filter(
+      (image) => !cacheRef.current.has(renderGraphicImageKey(image)),
+    );
     for (const key of cacheRef.current.keys()) {
       if (!activeKeys.has(key)) cacheRef.current.delete(key);
     }
@@ -126,7 +139,7 @@ export function useDecodedRenderGraphicImages(
       canceled = true;
       worker?.terminate();
     };
-  }, [images]);
+  }, [stableImages]);
 
   return decoded;
 }

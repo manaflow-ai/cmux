@@ -43,6 +43,10 @@ export interface ResolvedRenderGraphicPlacement {
   };
 }
 
+export function renderGraphicImageKey(image: RenderGraphicImage): string {
+  return `${image.id}:${image.generation}`;
+}
+
 function nonnegativeInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
 }

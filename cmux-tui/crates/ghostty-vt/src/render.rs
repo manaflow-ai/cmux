@@ -250,6 +250,16 @@ impl RenderState {
         Ok(())
     }
 
+    /// Snapshot all Kitty images while sharing this renderer's immutable pixel
+    /// cache with its live frames.
+    pub fn snapshot_kitty_graphics(
+        &mut self,
+        terminal: &Terminal,
+        include_unplaced: bool,
+    ) -> Result<Arc<KittyGraphicsSnapshot>> {
+        Ok(Arc::new(kitty::snapshot(terminal, &mut self.kitty_pixel_cache, include_unplaced)?))
+    }
+
     fn get<T: Default>(&self, data: sys::GhosttyRenderStateData) -> Result<T> {
         let mut out = T::default();
         check(unsafe {

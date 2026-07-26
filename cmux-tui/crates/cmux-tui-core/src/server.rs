@@ -38,8 +38,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tungstenite::protocol::CloseFrame;
+use tungstenite::protocol::WebSocketConfig;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
@@ -706,8 +706,6 @@ const RENDER_ATTACH_MAX_BYTES: usize = crate::REMOTE_SESSION_MESSAGE_MAX_BYTES;
 // unbounded second copy of terminal pixel state process-wide.
 const RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES: usize = RENDER_GRAPHIC_MAX_ENCODED_BYTES * 2;
 const RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES: usize = 4_096;
-// A server-to-client frame with a 64-bit payload length adds a 10-byte header.
-const WEBSOCKET_OUTBOUND_BUFFER_MAX_BYTES: usize = RENDER_ATTACH_MAX_BYTES + 10;
 const _: () = assert!(
     RENDER_GRAPHIC_MAX_ENCODED_BYTES + RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES
         < RENDER_ATTACH_MAX_BYTES
@@ -818,7 +816,8 @@ impl OutboundByteBudget {
 }
 
 struct BudgetedText {
-    text: Box<str>,
+    text: String,
+    retained_bytes: usize,
     budget: Arc<OutboundByteBudget>,
 }
 
@@ -832,7 +831,7 @@ impl Deref for BudgetedText {
 
 impl Drop for BudgetedText {
     fn drop(&mut self) {
-        self.budget.release(self.text.len());
+        self.budget.release(self.retained_bytes);
     }
 }
 
@@ -847,23 +846,66 @@ impl BudgetedJsonWriter {
         Self { bytes: Vec::new(), retained_bytes: 0, budget }
     }
 
-    fn finish(mut self) -> Arc<BudgetedText> {
-        let bytes = std::mem::take(&mut self.bytes);
-        self.retained_bytes = 0;
-        let text = String::from_utf8(bytes).expect("serde_json emits UTF-8").into_boxed_str();
-        Arc::new(BudgetedText { text, budget: self.budget.clone() })
+    fn with_reservation(
+        budget: Arc<OutboundByteBudget>,
+        reserved_bytes: usize,
+    ) -> std::io::Result<Self> {
+        let mut writer = Self::new(budget);
+        writer.ensure_capacity(reserved_bytes)?;
+        Ok(writer)
     }
-}
 
-impl Write for BudgetedJsonWriter {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if !self.budget.try_retain(bytes.len()) {
+    fn ensure_capacity(&mut self, required_len: usize) -> std::io::Result<()> {
+        if required_len <= self.bytes.capacity() {
+            return Ok(());
+        }
+        let target = required_len.checked_next_power_of_two().unwrap_or(required_len).max(8);
+        let additional_retained = target.saturating_sub(self.retained_bytes);
+        if !self.budget.try_retain(additional_retained) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "global outbound byte budget overflowed",
             ));
         }
-        self.retained_bytes += bytes.len();
+        self.retained_bytes += additional_retained;
+        if let Err(error) = self.bytes.try_reserve_exact(target.saturating_sub(self.bytes.len())) {
+            self.retained_bytes -= additional_retained;
+            self.budget.release(additional_retained);
+            return Err(std::io::Error::other(error));
+        }
+        let actual_capacity = self.bytes.capacity();
+        if actual_capacity > self.retained_bytes {
+            let additional = actual_capacity - self.retained_bytes;
+            if !self.budget.try_retain(additional) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "global outbound byte budget overflowed",
+                ));
+            }
+            self.retained_bytes = actual_capacity;
+        } else if actual_capacity < self.retained_bytes {
+            let unused = self.retained_bytes - actual_capacity;
+            self.retained_bytes = actual_capacity;
+            self.budget.release(unused);
+        }
+        Ok(())
+    }
+
+    fn finish(mut self) -> Arc<BudgetedText> {
+        let bytes = std::mem::take(&mut self.bytes);
+        let retained_bytes = self.retained_bytes;
+        self.retained_bytes = 0;
+        let text = String::from_utf8(bytes).expect("serde_json emits UTF-8");
+        Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone() })
+    }
+}
+
+impl Write for BudgetedJsonWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let required_len = self.bytes.len().checked_add(bytes.len()).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "serialized message is too large")
+        })?;
+        self.ensure_capacity(required_len)?;
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
@@ -951,6 +993,13 @@ impl RenderService {
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
         writer.write_all(b"}")?;
         Ok(writer.finish())
+    }
+
+    fn reserved_control_writer(&self) -> std::io::Result<BudgetedJsonWriter> {
+        BudgetedJsonWriter::with_reservation(
+            self.control_budget.clone(),
+            OUTBOUND_CONTROL_BYTE_RESERVE,
+        )
     }
 }
 
@@ -1116,6 +1165,17 @@ impl MessageWriter {
             .render_service
             .serialize_control(value)
             .and_then(|text| self.sink.send_control(text));
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    fn send_serialized_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_control(text);
         if result.is_err() {
             self.close();
         }
@@ -1427,6 +1487,49 @@ impl SynchronizedTcpStream {
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.stream.set_write_timeout(timeout)
+    }
+
+    fn write_websocket_text(&mut self, text: &str) -> std::io::Result<()> {
+        if text.len() > RENDER_ATTACH_MAX_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "WebSocket outbound message exceeds the protocol limit",
+            ));
+        }
+        self.write_websocket_frame(0x1, text.as_bytes())
+    }
+
+    fn write_websocket_close(&mut self) -> std::io::Result<()> {
+        self.write_websocket_frame(0x8, &[])
+    }
+
+    fn write_websocket_frame(&mut self, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
+        let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
+        let _guard = self.write_lock.lock().unwrap();
+        self.stream.write_all(&header[..header_len])?;
+        self.stream.write_all(payload)?;
+        self.stream.flush()
+    }
+}
+
+fn websocket_server_frame_header(opcode: u8, payload_len: usize) -> ([u8; 10], usize) {
+    let mut header = [0_u8; 10];
+    header[0] = 0x80 | (opcode & 0x0f);
+    match payload_len {
+        0..=125 => {
+            header[1] = payload_len as u8;
+            (header, 2)
+        }
+        126..=65_535 => {
+            header[1] = 126;
+            header[2..4].copy_from_slice(&(payload_len as u16).to_be_bytes());
+            (header, 4)
+        }
+        _ => {
+            header[1] = 127;
+            header[2..10].copy_from_slice(&(payload_len as u64).to_be_bytes());
+            (header, 10)
+        }
     }
 }
 
@@ -2119,19 +2222,14 @@ fn handle_websocket_connection(
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
-            let outbound_config = WebSocketConfig::default()
-                .write_buffer_size(0)
-                .max_write_buffer_size(WEBSOCKET_OUTBOUND_BUFFER_MAX_BYTES);
-            let mut websocket =
-                WebSocket::from_raw_socket(writer_stream, Role::Server, Some(outbound_config));
+            let mut writer_stream = writer_stream;
             while let Some(text) = writer_outbound.recv() {
-                if websocket.send(Message::Text(text.to_string().into())).is_err() {
+                if writer_stream.write_websocket_text(&text).is_err() {
                     writer_outbound.close();
                     break;
                 }
             }
-            let _ = websocket.close(None);
-            let _ = websocket.flush();
+            let _ = writer_stream.write_websocket_close();
             let _ = writer_shutdown.shutdown(Shutdown::Both);
         })
     else {
@@ -2256,26 +2354,43 @@ pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
 }
 
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
-    let mut detach_self = false;
-    let mut shutdown_daemon = false;
-    let response = match serde_json::from_str::<Request>(message) {
-        Ok(req) => {
-            let id = req.id.clone();
-            detach_self =
-                matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
-            shutdown_daemon = matches!(&req.cmd, Command::ShutdownDaemon { .. });
-            match handle_command(mux, client, req.cmd, writer) {
-                Ok(data) => Response { id, ok: true, data: Some(data), error: None },
-                Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
-            }
-        }
-        Err(e) => {
-            Response { id: None, ok: false, data: None, error: Some(format!("bad request: {e}")) }
+    let Request { id, cmd } = match serde_json::from_str::<Request>(message) {
+        Ok(request) => request,
+        Err(error) => {
+            let response = Response {
+                id: None,
+                ok: false,
+                data: None,
+                error: Some(format!("bad request: {error}")),
+            };
+            return writer.send_control(&response).is_ok();
         }
     };
+    let cmd = match cmd {
+        Command::VtState { surface } => {
+            return match send_vt_state_command_response(mux, id.clone(), surface, writer) {
+                Ok(()) => true,
+                Err(error) => writer
+                    .send_control(&Response {
+                        id,
+                        ok: false,
+                        data: None,
+                        error: Some(error.to_string()),
+                    })
+                    .is_ok(),
+            };
+        }
+        cmd => cmd,
+    };
+
+    let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
+    let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
+    let response = match handle_command(mux, client, cmd, writer) {
+        Ok(data) => Response { id, ok: true, data: Some(data), error: None },
+        Err(error) => Response { id, ok: false, data: None, error: Some(error.to_string()) },
+    };
     let response_ok = response.ok;
-    let sent =
-        serde_json::to_value(&response).is_ok_and(|value| writer.send_control(&value).is_ok());
+    let sent = writer.send_control(&response).is_ok();
     // Queue the successful acknowledgement before making the owning loop
     // leave. The headless loop polls at a bounded interval, giving the writer
     // thread time to flush the response before normal process teardown.
@@ -2291,6 +2406,66 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
         return false;
     }
     sent
+}
+
+fn send_vt_state_command_response(
+    mux: &Mux,
+    id: Option<Value>,
+    surface: SurfaceId,
+    writer: &MessageWriter,
+) -> anyhow::Result<()> {
+    // Reserve and allocate the entire wire-frame allowance before copying a
+    // replay or starting its base64 encoder. Concurrent large commands are
+    // rejected before they can build unaccounted response buffers.
+    let mut output = writer.render_service.reserved_control_writer()?;
+    let surface = get_surface(mux, surface)?;
+    require_pty(&surface)?;
+    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
+        terminal
+            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+            .map(|replay| (terminal.cols(), terminal.rows(), replay))
+    })??;
+
+    write_vt_state_command_json(
+        &mut output,
+        id.as_ref(),
+        cols,
+        rows,
+        &replay.bytes,
+        &replay.kitty_image_aliases,
+    )?;
+    writer.send_serialized_control(output.finish())?;
+    Ok(())
+}
+
+fn write_vt_state_command_json(
+    output: &mut BudgetedJsonWriter,
+    id: Option<&Value>,
+    cols: u16,
+    rows: u16,
+    replay: &[u8],
+    kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
+) -> std::io::Result<()> {
+    output.write_all(b"{")?;
+    if let Some(id) = id {
+        output.write_all(b"\"id\":")?;
+        serde_json::to_writer(&mut *output, id).map_err(json_error_to_io)?;
+        output.write_all(b",")?;
+    }
+    write!(output, "\"ok\":true,\"data\":{{\"cols\":{cols},\"rows\":{rows},\"data\":\"")?;
+    {
+        let mut encoder = base64::write::EncoderWriter::new(
+            &mut *output,
+            &base64::engine::general_purpose::STANDARD,
+        );
+        encoder.write_all(replay)?;
+        encoder.finish()?;
+    }
+    output.write_all(b"\",\"kitty_image_aliases\":")?;
+    serde_json::to_writer(&mut *output, &kitty_image_aliases_json(kitty_image_aliases))
+        .map_err(json_error_to_io)?;
+    output.write_all(b"}}")?;
+    Ok(())
 }
 
 fn auth_token(message: &str) -> Option<String> {
@@ -3966,20 +4141,7 @@ fn handle_command(
                 "session": record.session,
             }))
         }
-        Command::VtState { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let (cols, rows, replay) = surface.try_with_terminal(|t| {
-                t.vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-                    .map(|replay| (t.cols(), t.rows(), replay))
-            })??;
-            Ok(json!({
-                "cols": cols,
-                "rows": rows,
-                "data": base64::engine::general_purpose::STANDARD.encode(replay.bytes),
-                "kitty_image_aliases": kitty_image_aliases_json(&replay.kitty_image_aliases),
-            }))
-        }
+        Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
         Command::MintTerminalRenderer { surface, ttl_ms } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -5815,24 +5977,47 @@ mod tests {
 
     #[test]
     fn maximum_vt_state_command_response_fits_the_control_reserve() {
-        let encoded_replay_bytes = crate::surface::VT_REPLAY_MAX_BYTES.div_ceil(3) * 4;
-        let response = json!({
-            "id": 1,
-            "ok": true,
-            "data": {
-                "cols": 80,
-                "rows": 24,
-                "data": "A".repeat(encoded_replay_bytes),
-                "kitty_image_aliases": [],
-            },
-        });
         let service = RenderService::new();
         let outbound = BoundedOutbound::default();
+        let replay = vec![0_u8; crate::surface::VT_REPLAY_MAX_BYTES];
 
-        let serialized = service.serialize_control(&response).unwrap();
+        let mut output = service.reserved_control_writer().unwrap();
+        write_vt_state_command_json(&mut output, Some(&json!(1)), 80, 24, &replay, &[]).unwrap();
+        let serialized = output.finish();
         assert!(serialized.len() < OUTBOUND_CONTROL_BYTE_RESERVE);
+        assert_eq!(serialized.retained_bytes, OUTBOUND_CONTROL_BYTE_RESERVE);
+        assert!(serialized.starts_with(r#"{"id":1,"ok":true,"data":{"cols":80,"#));
         outbound.push_control(serialized).unwrap();
         assert!(outbound.try_pop().is_some());
+    }
+
+    #[test]
+    fn vt_state_reserves_its_full_control_allocation_before_encoding() {
+        let budget = Arc::new(OutboundByteBudget::new(128));
+        let reservation = BudgetedJsonWriter::with_reservation(budget.clone(), 128).unwrap();
+
+        assert_eq!(budget.retained_bytes.load(Ordering::Acquire), 128);
+        assert_eq!(
+            BudgetedJsonWriter::with_reservation(budget.clone(), 1).err().unwrap().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        drop(reservation);
+        assert_eq!(budget.retained_bytes.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn websocket_server_headers_cover_every_outbound_payload_width() {
+        let (small, small_len) = websocket_server_frame_header(0x1, 125);
+        assert_eq!(&small[..small_len], &[0x81, 125]);
+
+        let (medium, medium_len) = websocket_server_frame_header(0x1, 126);
+        assert_eq!(&medium[..medium_len], &[0x81, 126, 0, 126]);
+
+        let (large, large_len) = websocket_server_frame_header(0x1, RENDER_ATTACH_MAX_BYTES);
+        assert_eq!(large_len, 10);
+        assert_eq!(large[0], 0x81);
+        assert_eq!(large[1], 127);
+        assert_eq!(&large[2..10], &(RENDER_ATTACH_MAX_BYTES as u64).to_be_bytes());
     }
 
     #[test]
@@ -6133,6 +6318,24 @@ mod tests {
                 .iter()
                 .any(|info| { info["client"] == client })
         );
+    }
+
+    #[test]
+    fn websocket_direct_writer_emits_a_tungstenite_compatible_text_frame() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let mut writer = SynchronizedTcpStream::new(server);
+        let write = std::thread::spawn(move || {
+            writer.write_websocket_text(&"x".repeat(65_536)).unwrap();
+        });
+        let mut websocket =
+            WebSocket::from_raw_socket(client, tungstenite::protocol::Role::Client, None);
+
+        let message = websocket.read().unwrap();
+
+        assert_eq!(message.into_text().unwrap().len(), 65_536);
+        write.join().unwrap();
     }
 
     #[test]

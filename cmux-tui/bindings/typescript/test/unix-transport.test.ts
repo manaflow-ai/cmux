@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { CmuxClient } from "../src/node-client.js";
-import { UnixSocketTransport } from "../src/node-transport.js";
-
-const MAX_UNIX_SOCKET_MESSAGE_BYTES = 32 * 1024 * 1024;
+import {
+  UNIX_SOCKET_MESSAGE_MAX_BYTES,
+  UnixSocketTransport,
+} from "../src/node-transport.js";
 
 test("Unix transport preserves JSON-lines request and response framing", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cmux-typescript-"));
@@ -48,7 +49,7 @@ test("Unix transport rejects an oversized unterminated message", async () => {
   const socketPath = join(directory, "session.sock");
   const server = createServer((socket) => {
     socket.on("error", () => {});
-    socket.write(Buffer.alloc(MAX_UNIX_SOCKET_MESSAGE_BYTES + 1, 0x61));
+    socket.write(Buffer.alloc(UNIX_SOCKET_MESSAGE_MAX_BYTES + 1, 0x61));
   });
   let transport: UnixSocketTransport | undefined;
 
