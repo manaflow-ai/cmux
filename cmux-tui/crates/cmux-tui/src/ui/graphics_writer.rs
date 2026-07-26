@@ -124,6 +124,7 @@ impl GraphicsFenceNotifier {
 }
 
 struct BufferedGraphicsResponse {
+    expected: u32,
     events: Vec<Event>,
     payload: String,
 }
@@ -142,19 +143,40 @@ impl GraphicsResponseFilter {
     }
 
     pub fn filter(&mut self, event: Event) -> Vec<Event> {
+        if self
+            .buffered
+            .as_ref()
+            .is_some_and(|buffered| buffered.expected != self.notifier.expected())
+        {
+            let mut replay = self.buffered.take().unwrap().events;
+            replay.extend(self.filter(event));
+            return replay;
+        }
         if self.buffered.is_none() {
-            if self.notifier.expected() != 0 && is_apc_boundary(&event, '_') {
-                self.buffered =
-                    Some(BufferedGraphicsResponse { events: vec![event], payload: String::new() });
+            let expected = self.notifier.expected();
+            if expected != 0 && is_apc_boundary(&event, '_') {
+                self.buffered = Some(BufferedGraphicsResponse {
+                    expected,
+                    events: vec![event],
+                    payload: String::new(),
+                });
                 return Vec::new();
             }
             return vec![event];
         }
 
         if is_apc_boundary(&event, '_') {
-            let replay = self.buffered.take().unwrap().events;
-            self.buffered =
-                Some(BufferedGraphicsResponse { events: vec![event], payload: String::new() });
+            let mut replay = self.buffered.take().unwrap().events;
+            let expected = self.notifier.expected();
+            if expected == 0 {
+                replay.push(event);
+            } else {
+                self.buffered = Some(BufferedGraphicsResponse {
+                    expected,
+                    events: vec![event],
+                    payload: String::new(),
+                });
+            }
             return replay;
         }
 
@@ -418,7 +440,7 @@ where
                 graphics.frame_batches(submission.session_generation, &submission.placements);
             let fence_id = processing_fence_id(submission.id);
             processing_fence_waiter.prepare(fence_id);
-            let processed = {
+            let output_result = {
                 let _guard = stdout_lock.lock();
                 let mut result = Ok(());
                 for batch in batches {
@@ -432,11 +454,9 @@ where
                 if result.is_ok() {
                     result = output.flush();
                 }
-                if result.is_ok() {
-                    result = processing_fence_waiter.wait(fence_id);
-                }
                 result
             };
+            let processed = output_result.and_then(|()| processing_fence_waiter.wait(fence_id));
             if processed.is_err() {
                 processing_fence_waiter.cancel(fence_id);
                 *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);

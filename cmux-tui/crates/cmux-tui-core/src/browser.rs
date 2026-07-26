@@ -1242,7 +1242,7 @@ fn start_browser_worker(
                 let first = match rx.recv_timeout(BROWSER_WORKER_IDLE_TICK) {
                     Ok(first) => first,
                     Err(RecvTimeoutError::Timeout) => {
-                        expire_legacy_pointer_presses(
+                        release_abandoned_pointer_presses(
                             &surface,
                             &mux,
                             id,
@@ -1270,7 +1270,7 @@ fn start_browser_worker(
                 batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
                 coalesce_worker_mouse_moves(&mut batch);
                 for queued in batch {
-                    expire_legacy_pointer_presses(
+                    release_abandoned_pointer_presses(
                         &surface,
                         &mux,
                         id,
@@ -1286,17 +1286,26 @@ fn start_browser_worker(
         });
 }
 
-fn expire_legacy_pointer_presses(
+fn release_abandoned_pointer_presses(
     surface: &Surface,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
     now: Instant,
 ) {
+    let active_clients = mux.upgrade();
     let expired = failures
         .active_pointer_presses
         .iter()
-        .filter(|(_, press)| press.legacy_expires_at.is_some_and(|deadline| deadline <= now))
+        .filter(|(_, press)| match press.input_owner {
+            BrowserPointerOwner::Local => false,
+            BrowserPointerOwner::Legacy => {
+                press.legacy_expires_at.is_some_and(|deadline| deadline <= now)
+            }
+            BrowserPointerOwner::Client(client) => {
+                active_clients.as_ref().is_none_or(|mux| !mux.control_clients.contains(client))
+            }
+        })
         .map(|(button, _)| button.clone())
         .collect::<Vec<_>>();
     for button in expired {
@@ -1304,7 +1313,7 @@ fn expire_legacy_pointer_presses(
             continue;
         };
         let result = surface.as_browser().map_or(Ok(()), |browser| {
-            browser.release_expired_pointer_press_blocking(&button, press)
+            browser.release_abandoned_pointer_press_blocking(&button, press)
         });
         record_browser_worker_result(surface, mux, id, true, result, failures);
     }
@@ -1352,22 +1361,16 @@ fn run_browser_worker_command(
         BrowserCommand::Reconfigure { queued, .. } => Some(*queued),
         _ => None,
     };
-    if matches!(&command, BrowserCommand::Mouse { .. })
-        && let Some(mux) = mux.upgrade()
-    {
-        failures.active_pointer_presses.retain(|_, press| match press.input_owner {
-            BrowserPointerOwner::Local | BrowserPointerOwner::Legacy => true,
-            BrowserPointerOwner::Client(client) => mux.control_clients.contains(client),
-        });
-        if matches!(
-            &command,
-            BrowserCommand::Mouse {
-                input_owner: BrowserPointerOwner::Client(client),
-                ..
-            } if !mux.control_clients.contains(*client)
-        ) {
-            return;
-        }
+    if matches!(
+        &command,
+        BrowserCommand::Mouse {
+            input_owner: BrowserPointerOwner::Client(client),
+            ..
+        } if mux
+            .upgrade()
+            .is_none_or(|mux| !mux.control_clients.contains(*client))
+    ) {
+        return;
     }
     let result = {
         let Some(browser) = surface.as_browser() else {
@@ -3027,7 +3030,7 @@ impl BrowserSurface {
         Ok(())
     }
 
-    fn release_expired_pointer_press_blocking(
+    fn release_abandoned_pointer_press_blocking(
         &self,
         button: &str,
         press: ActivePointerPress,
@@ -3164,7 +3167,13 @@ impl BrowserSurface {
                     return Ok(());
                 }
                 Err(_) if self.frame_epoch.latest_navigation() != navigation_epoch => return Ok(()),
-                Err(error) => last_error = Some(error),
+                Err(error) => {
+                    let timed_out = is_cdp_timeout_error(&error.to_string());
+                    last_error = Some(error);
+                    if timed_out {
+                        break;
+                    }
+                }
             }
         }
         self.release_failed_document_authority(navigation_epoch);
@@ -3204,7 +3213,13 @@ impl BrowserSurface {
                     }
                     return Ok(());
                 }
-                Err(error) => last_error = Some(error),
+                Err(error) => {
+                    let timed_out = is_cdp_timeout_error(&error.to_string());
+                    last_error = Some(error);
+                    if timed_out {
+                        break;
+                    }
+                }
             }
         }
         self.release_failed_same_document_authority();
@@ -3251,7 +3266,13 @@ impl BrowserSurface {
                     }
                     return Ok(());
                 }
-                Err(error) => last_error = Some(error),
+                Err(error) => {
+                    let timed_out = is_cdp_timeout_error(&error.to_string());
+                    last_error = Some(error);
+                    if timed_out {
+                        break;
+                    }
+                }
             }
         }
         let _ =
@@ -5372,7 +5393,7 @@ mod tests {
             source.split("\n#[cfg(test)]\nmod tests {").next().expect("production browser source");
         assert!(
             production.contains("LEGACY_POINTER_PRESS_LEASE")
-                && production.contains("expire_legacy_pointer_presses"),
+                && production.contains("release_abandoned_pointer_presses"),
             "owner-zero compatibility captures need periodic expiry and a balancing release"
         );
 
@@ -5398,7 +5419,7 @@ mod tests {
         let mut failures = super::BrowserWorkerErrorState::default();
         failures.active_pointer_presses.insert("left".to_string(), press);
 
-        super::expire_legacy_pointer_presses(
+        super::release_abandoned_pointer_presses(
             &surface,
             &Weak::new(),
             surface.id,
@@ -5437,7 +5458,7 @@ mod tests {
         failures.active_pointer_presses.insert("left".to_string(), press);
         let mux = Mux::new("disconnected-pointer-owner-test", SurfaceOptions::default());
 
-        super::expire_legacy_pointer_presses(
+        super::release_abandoned_pointer_presses(
             &surface,
             &Arc::downgrade(&mux),
             surface.id,
