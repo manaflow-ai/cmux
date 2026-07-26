@@ -2807,6 +2807,103 @@ mod tests {
     }
 
     #[test]
+    fn server_shutdown_retries_an_unconfirmed_external_target() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (close_tx, close_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let first = read_ws_json(&mut ws);
+            assert_eq!(first["method"], "Target.closeTarget");
+            close_tx.send(1).unwrap();
+
+            let second = read_ws_json(&mut ws);
+            assert_eq!(second["method"], "Target.closeTarget");
+            assert_eq!(second["params"]["targetId"], "target-1");
+            write_ws_json(&mut ws, json!({"id": second["id"], "result": {"success": true}}));
+            close_tx.send(2).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().unwrap();
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+
+        assert!(!browser.terminate_for_server_shutdown(Instant::now() + Duration::from_millis(50)));
+        assert_eq!(close_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        assert!(browser.session.lock().unwrap().is_some());
+        assert!(browser.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1)));
+        assert_eq!(close_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+        assert!(browser.session.lock().unwrap().is_none());
+
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn runtime_shutdown_waits_for_a_backpressured_detached_target_close() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (close_tx, close_rx) = mpsc::channel();
+        let (read_tx, read_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            if read_rx.recv_timeout(Duration::from_secs(2)).is_err() {
+                return;
+            }
+            let close = read_ws_json(&mut ws);
+            assert_eq!(close["method"], "Target.closeTarget");
+            assert_eq!(close["params"]["targetId"].as_str().map(str::len), Some(8 * 1024 * 1024));
+            close_tx.send(()).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+
+        runtime.close_surface_detached(&"x".repeat(8 * 1024 * 1024), "session-1");
+        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let shutdown_runtime = runtime.clone();
+        let shutdown = thread::spawn(move || {
+            shutdown_tx
+                .send(shutdown_runtime.shutdown_until(Instant::now() + Duration::from_secs(2)))
+                .unwrap();
+        });
+        assert!(
+            shutdown_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "runtime shutdown returned before its queued target close was flushed"
+        );
+        read_tx.send(()).unwrap();
+        assert!(shutdown_rx.recv_timeout(Duration::from_secs(2)).unwrap());
+        close_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("runtime shutdown dropped the detached target close");
+
+        shutdown.join().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn closed_surface_route_closes_its_cdp_target() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
