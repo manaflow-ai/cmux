@@ -491,9 +491,40 @@
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
   };
 
+  // Formats a React source location ({ fileName, lineNumber, columnNumber })
+  // as "file:line:col", tolerating a missing line or column. Returns "" when
+  // there is no usable file name.
+  const reactSourceLocation = (source) => {
+    if (!source || typeof source !== "object") return "";
+    const file = typeof source.fileName === "string" ? source.fileName.trim() : "";
+    if (!file) return "";
+    const line = Number.isFinite(source.lineNumber) ? source.lineNumber : null;
+    const column = Number.isFinite(source.columnNumber) ? source.columnNumber : null;
+    if (line === null) return file;
+    return column === null ? `${file}:${line}` : `${file}:${line}:${column}`;
+  };
+
+  // Build-time source stamp fallback for React 19 / apps without fiber
+  // _debugSource: a plugin that writes data-source="file:line:col" onto the
+  // DOM. Read-only attribute walk up a few ancestors; no fiber internals.
+  const domSourceAttribute = (element) => {
+    let node = element;
+    let hops = 0;
+    while (node && typeof node.getAttribute === "function" && hops < 4) {
+      const value = node.getAttribute("data-source");
+      if (value && value.trim()) return value.trim().slice(0, 300);
+      node = node.parentElement;
+      hops += 1;
+    }
+    return "";
+  };
+
   // React component identity from the fiber tree (Cursor-style): nearest
   // named components up the owner chain plus the nearest component's prop
-  // KEYS. Prop values are never captured — they can carry user data.
+  // KEYS. Prop values are never captured — they can carry user data. Also
+  // captures a source "file:line:col" from the nearest fiber that exposes it
+  // in a dev build (_debugSource, or the __source prop emitted by
+  // @babel/plugin-transform-react-jsx-source).
   const reactContextFor = (element) => {
     try {
       let node = element;
@@ -503,6 +534,7 @@
         if (fiberKey) {
           const components = [];
           let propKeys = null;
+          let source = "";
           let fiber = node[fiberKey];
           let steps = 0;
           while (fiber && components.length < 4 && steps < 64) {
@@ -516,10 +548,16 @@
                 propKeys = Object.keys(fiber.memoizedProps).filter((key) => key !== "children").slice(0, 12);
               }
             }
+            if (!source) {
+              source = reactSourceLocation(fiber._debugSource)
+                || (fiber.memoizedProps && typeof fiber.memoizedProps === "object"
+                  ? reactSourceLocation(fiber.memoizedProps.__source)
+                  : "");
+            }
             fiber = fiber.return;
             steps += 1;
           }
-          if (components.length) return { components, propKeys: propKeys || [] };
+          if (components.length) return { components, propKeys: propKeys || [], source };
           return null;
         }
         node = node.parentElement;
@@ -544,6 +582,7 @@
       computed_styles: computedStylesFor(element),
       react_components: react?.components || [],
       react_prop_keys: react?.propKeys || [],
+      react_source: react?.source || domSourceAttribute(element),
     };
   };
 

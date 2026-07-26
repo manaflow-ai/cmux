@@ -145,6 +145,59 @@ import Testing
         #expect(payload.requestedChange == "Make this heading more prominent.")
     }
 
+    @Test func carriesReactSourceLocationWhenPresentAndOmitsItWhenEmpty() throws {
+        let sourced = BrowserDesignModeSelection(
+            selector: "#cta",
+            selectors: ["#cta"],
+            tagName: "button",
+            domSnippet: #"<button id="cta">Buy</button>"#,
+            textContent: "Buy",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 0, y: 0, width: 10, height: 10),
+            viewport: BrowserDesignModeViewport(width: 100, height: 100),
+            computedStyles: [:],
+            reactComponents: ["PrimaryButton"],
+            reactPropKeys: ["variant"],
+            reactSource: "src/components/Button.tsx:42:8"
+        )
+        let sourcedPayload = try decodePayload(from: BrowserDesignModePromptFormatter().format(
+            BrowserDesignModePromptContext(
+                pageURL: "http://localhost:3000",
+                snapshot: BrowserDesignModeSnapshot(
+                    revision: 1, enabled: true, selection: sourced, edits: [], cssDiff: ""
+                ),
+                screenshotPath: nil,
+                requestedChange: "Match the design system button."
+            )
+        ))
+        #expect(sourcedPayload.selections.last?.selection.reactSource == "src/components/Button.tsx:42:8")
+
+        let unsourced = BrowserDesignModeSelection(
+            selector: "#cta",
+            selectors: ["#cta"],
+            tagName: "button",
+            domSnippet: #"<button id="cta">Buy</button>"#,
+            textContent: "Buy",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 0, y: 0, width: 10, height: 10),
+            viewport: BrowserDesignModeViewport(width: 100, height: 100),
+            computedStyles: [:]
+        )
+        let unsourcedResult = BrowserDesignModePromptFormatter().format(
+            BrowserDesignModePromptContext(
+                pageURL: "http://localhost:3000",
+                snapshot: BrowserDesignModeSnapshot(
+                    revision: 1, enabled: true, selection: unsourced, edits: [], cssDiff: ""
+                ),
+                screenshotPath: nil,
+                requestedChange: "Match the design system button."
+            )
+        )
+        // Empty source is omitted from the payload, and decodes back to "".
+        let unsourcedPayload = try decodePayload(from: unsourcedResult)
+        #expect(unsourcedPayload.selections.last?.selection.reactSource == "")
+    }
+
     @Test func redactsCredentialsFromThePageURL() throws {
         let selection = BrowserDesignModeSelection(
             selector: "#hero",

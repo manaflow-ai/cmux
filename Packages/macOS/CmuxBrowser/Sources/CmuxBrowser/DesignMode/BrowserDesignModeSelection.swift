@@ -28,6 +28,9 @@ public struct BrowserDesignModeSelection: Codable, Equatable, Sendable {
     public let reactComponents: [String]
     /// Prop keys of the nearest React component (never prop values).
     public let reactPropKeys: [String]
+    /// Source location "file:line:col" of the nearest component, when the dev
+    /// build exposes it (fiber `_debugSource`/`__source` or a `data-source` stamp).
+    public let reactSource: String
 
     private enum CodingKeys: String, CodingKey {
         case selector
@@ -43,6 +46,7 @@ public struct BrowserDesignModeSelection: Codable, Equatable, Sendable {
         case computedStyles = "computed_styles"
         case reactComponents = "react_components"
         case reactPropKeys = "react_prop_keys"
+        case reactSource = "react_source"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -62,6 +66,7 @@ public struct BrowserDesignModeSelection: Codable, Equatable, Sendable {
         computedStyles = try container.decodeIfPresent([String: String].self, forKey: .computedStyles) ?? [:]
         reactComponents = try container.decodeIfPresent([String].self, forKey: .reactComponents) ?? []
         reactPropKeys = try container.decodeIfPresent([String].self, forKey: .reactPropKeys) ?? []
+        reactSource = try container.decodeIfPresent(String.self, forKey: .reactSource) ?? ""
     }
 
     /// Creates selected-element context.
@@ -88,7 +93,8 @@ public struct BrowserDesignModeSelection: Codable, Equatable, Sendable {
         viewport: BrowserDesignModeViewport,
         computedStyles: [String: String],
         reactComponents: [String] = [],
-        reactPropKeys: [String] = []
+        reactPropKeys: [String] = [],
+        reactSource: String = ""
     ) {
         self.selector = selector
         self.selectors = selectors
@@ -103,5 +109,6 @@ public struct BrowserDesignModeSelection: Codable, Equatable, Sendable {
         self.computedStyles = computedStyles
         self.reactComponents = reactComponents
         self.reactPropKeys = reactPropKeys
+        self.reactSource = reactSource
     }
 }
