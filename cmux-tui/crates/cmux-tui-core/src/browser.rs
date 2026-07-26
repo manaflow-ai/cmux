@@ -5635,7 +5635,7 @@ mod tests {
     }
 
     #[test]
-    fn negotiated_pointer_capture_has_a_bounded_worker_lease() {
+    fn negotiated_pointer_capture_has_no_idle_lease() {
         let mut failures = super::BrowserWorkerErrorState::default();
         failures.active_pointer_presses.insert(
             "left".to_string(),
@@ -5649,8 +5649,8 @@ mod tests {
         );
 
         assert!(
-            super::next_pointer_lifecycle_deadline(&failures).is_some(),
-            "a half-open negotiated client must not retain browser capture indefinitely"
+            super::next_pointer_lifecycle_deadline(&failures).is_none(),
+            "a live negotiated client must retain a stationary browser capture"
         );
     }
 
@@ -5851,7 +5851,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_document_capture_releases_later_navigation_without_reopening_pointer() {
+    fn failed_document_capture_exposes_a_retryable_terminal_failure() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (stop_tx, stop_rx) = mpsc::channel();
@@ -5964,6 +5964,19 @@ mod tests {
             None,
             "capture failure must not restore pointer authority to the previous document"
         );
+        assert!(
+            matches!(
+                browser.status(),
+                BrowserStatus::Failed(ref error) if error.contains("reload to retry")
+            ),
+            "exhausted document verification must expose a bounded recovery action"
+        );
+        browser.store_frame_for_epoch(test_frame(2), browser.frame_epoch.current());
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "later unverified frames must not escape the terminal failure"
+        );
         let next_navigation = browser.begin_targeted_navigation_frame_transition();
 
         stop_tx.send(()).unwrap();
@@ -5973,7 +5986,7 @@ mod tests {
         let next_error = next_navigation.as_ref().err().map(ToString::to_string);
         assert!(
             next_navigation.is_ok(),
-            "a failed authority capture must not permanently reject later navigation: {next_error:?}"
+            "reload must be able to start a fresh navigation after terminal failure: {next_error:?}"
         );
     }
 

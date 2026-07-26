@@ -2396,6 +2396,25 @@ mod tests {
     }
 
     #[test]
+    fn guarded_pointer_timeout_uses_transport_disconnect_lifecycle() {
+        let source = include_str!("remote.rs");
+        let production =
+            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production remote source");
+        let guarded_request = production
+            .split("fn request_guarded_pointer")
+            .nth(1)
+            .expect("guarded pointer request helper")
+            .split("\n    }")
+            .next()
+            .expect("guarded pointer request body");
+
+        assert!(
+            guarded_request.contains("disconnect_transport"),
+            "an ambiguous guarded-pointer timeout must close the connection so the server balances its capture"
+        );
+    }
+
+    #[test]
     fn initialization_failures_after_reader_spawn_close_the_transport() {
         for (failure, expected_error) in [
             (InitializationFailure::IdentifyRejected, "identify rejected"),
