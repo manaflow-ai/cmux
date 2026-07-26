@@ -1,5 +1,41 @@
 import Foundation
 
+/// Stable currency carried by a terminal while accepted font mutations cross
+/// container and window coordinators.
+@MainActor
+final class WorkspaceTerminalFontSizePanelTransfer {
+    fileprivate let id = UUID()
+    let panelId: UUID
+    fileprivate weak var arbiter:
+        WorkspaceTerminalFontSizeArbiter?
+
+    fileprivate init(
+        panelId: UUID,
+        arbiter: WorkspaceTerminalFontSizeArbiter
+    ) {
+        self.panelId = panelId
+        self.arbiter = arbiter
+    }
+
+    func attach(to workspace: Workspace) {
+        arbiter?.associatePanelTransfer(
+            self,
+            with: workspace
+        )
+    }
+
+    func attach(to windowDock: DockSplitStore) {
+        arbiter?.associatePanelTransfer(
+            self,
+            with: windowDock
+        )
+    }
+
+    var isActive: Bool {
+        arbiter?.isPanelTransferActive(self) == true
+    }
+}
+
 /// An event that joins two independently busy coordinators waits here
 /// until either prior owner becomes available. The remaining owner then
 /// appends it to its ledger, preserving both resource orderings.
@@ -30,6 +66,78 @@ final class WorkspaceTerminalFontSizeArbiter {
     private typealias FontSizeWorkIdleAction =
         @MainActor () -> Void
 
+    private enum PanelTransferDestinationKey: Hashable {
+        case workspace(ObjectIdentifier)
+        case windowDock(ObjectIdentifier)
+    }
+
+    private final class PanelTransferStage {
+        let token = UUID()
+        weak var coordinator:
+            WorkspaceTerminalFontSizeCoordinator?
+        weak var previous: PanelTransferStage?
+        var next: PanelTransferStage?
+
+        init(
+            coordinator:
+                WorkspaceTerminalFontSizeCoordinator
+        ) {
+            self.coordinator = coordinator
+        }
+    }
+
+    private final class PanelTransferState {
+        let handle: WorkspaceTerminalFontSizePanelTransfer
+        var destination: PanelTransferDestinationKey?
+        var stageHead: PanelTransferStage?
+        var stageTail: PanelTransferStage?
+        var stagesByToken: [UUID: PanelTransferStage] = [:]
+
+        init(
+            handle:
+                WorkspaceTerminalFontSizePanelTransfer
+        ) {
+            self.handle = handle
+        }
+
+        func append(
+            _ stage: PanelTransferStage
+        ) {
+            stage.previous = stageTail
+            stageTail?.next = stage
+            if stageHead == nil {
+                stageHead = stage
+            }
+            stageTail = stage
+            stagesByToken[stage.token] = stage
+        }
+
+        @discardableResult
+        func remove(
+            token: UUID
+        ) -> Bool {
+            guard let stage =
+                    stagesByToken.removeValue(
+                        forKey: token
+                    ) else {
+                return false
+            }
+            let previous = stage.previous
+            let next = stage.next
+            previous?.next = next
+            next?.previous = previous
+            if stageHead === stage {
+                stageHead = next
+            }
+            if stageTail === stage {
+                stageTail = previous
+            }
+            stage.previous = nil
+            stage.next = nil
+            return true
+        }
+    }
+
     private let maximumDeferredCoordinatorJoinCount: Int
     private var deferredCoordinatorJoins:
         [DeferredCoordinatorJoin] = []
@@ -41,6 +149,10 @@ final class WorkspaceTerminalFontSizeArbiter {
     private var isDeferredCoordinatorJoinPromotionScheduled = false
     private var retainedCoordinators:
         [ObjectIdentifier: WorkspaceTerminalFontSizeCoordinator] = [:]
+    private var panelTransferStates:
+        [UUID: PanelTransferState] = [:]
+    private var panelTransferDestinationCounts:
+        [PanelTransferDestinationKey: Int] = [:]
     private var fontSizeWorkIdleActions:
         [FontSizeWorkIdleAction] = []
     private var fontSizeWorkIdleActionHead = 0
@@ -71,6 +183,206 @@ final class WorkspaceTerminalFontSizeArbiter {
         )
         promoteDeferredCoordinatorJoins()
         performFontSizeWorkIdleActionsIfPossible()
+    }
+
+    func appendPanelTransferStage(
+        panelId: UUID,
+        existing:
+            WorkspaceTerminalFontSizePanelTransfer?,
+        coordinator:
+            WorkspaceTerminalFontSizeCoordinator
+    ) -> (
+        handle: WorkspaceTerminalFontSizePanelTransfer,
+        stageToken: UUID
+    ) {
+        let state: PanelTransferState
+        if let existing,
+           existing.panelId == panelId,
+           let activeState =
+                panelTransferStates[existing.id] {
+            state = activeState
+        } else {
+            let handle =
+                WorkspaceTerminalFontSizePanelTransfer(
+                    panelId: panelId,
+                    arbiter: self
+                )
+            state = PanelTransferState(handle: handle)
+            panelTransferStates[handle.id] = state
+        }
+        let stage = PanelTransferStage(
+            coordinator: coordinator
+        )
+        state.append(stage)
+        return (state.handle, stage.token)
+    }
+
+    func isPanelTransferStageReady(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer,
+        stageToken: UUID,
+        coordinator:
+            WorkspaceTerminalFontSizeCoordinator
+    ) -> Bool {
+        guard let state = panelTransferStates[handle.id],
+              state.handle === handle,
+              let head = state.stageHead else {
+            return true
+        }
+        return head.token == stageToken
+            && head.coordinator === coordinator
+    }
+
+    @discardableResult
+    func completePanelTransferStage(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer,
+        stageToken: UUID,
+        coordinator:
+            WorkspaceTerminalFontSizeCoordinator
+    ) -> Bool {
+        guard let state = panelTransferStates[handle.id],
+              state.handle === handle,
+              state.stagesByToken[stageToken]?
+                .coordinator === coordinator,
+              state.remove(token: stageToken) else {
+            return !isPanelTransferActive(handle)
+        }
+        guard state.stageHead == nil else {
+            signalRetainedCoordinators()
+            return false
+        }
+        removePanelTransferState(state)
+        signalRetainedCoordinators()
+        promoteDeferredCoordinatorJoins()
+        return true
+    }
+
+    func panelTransferCurrentCoordinator(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer
+    ) -> WorkspaceTerminalFontSizeCoordinator? {
+        panelTransferStates[handle.id]?
+            .stageHead?
+            .coordinator
+    }
+
+    func isPanelTransferActive(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer
+    ) -> Bool {
+        panelTransferStates[handle.id]?.handle === handle
+    }
+
+    func associatePanelTransfer(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer,
+        with workspace: Workspace
+    ) {
+        associatePanelTransfer(
+            handle,
+            destination:
+                .workspace(ObjectIdentifier(workspace))
+        )
+    }
+
+    func associatePanelTransfer(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer,
+        with windowDockSlot:
+            WorkspaceTerminalFontSizeCoordinator.WindowDockSlot
+    ) {
+        guard let windowDock = windowDockSlot.value else {
+            return
+        }
+        associatePanelTransfer(
+            handle,
+            with: windowDock
+        )
+    }
+
+    func associatePanelTransfer(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer,
+        with windowDock: DockSplitStore
+    ) {
+        associatePanelTransfer(
+            handle,
+            destination:
+                .windowDock(
+                    ObjectIdentifier(windowDock)
+                )
+        )
+    }
+
+    func hasPanelTransfer(
+        targeting workspace: Workspace,
+        or windowDockSlot:
+            WorkspaceTerminalFontSizeCoordinator.WindowDockSlot
+    ) -> Bool {
+        panelTransferDestinationCounts[
+            .workspace(ObjectIdentifier(workspace))
+        ] != nil
+            || windowDockSlot.value.map {
+                panelTransferDestinationCounts[
+                    .windowDock(ObjectIdentifier($0))
+                ] != nil
+            } == true
+    }
+
+    func signalPanelTransferProgress() {
+        guard !panelTransferStates.isEmpty else { return }
+        signalRetainedCoordinators()
+    }
+
+    private func associatePanelTransfer(
+        _ handle:
+            WorkspaceTerminalFontSizePanelTransfer,
+        destination: PanelTransferDestinationKey
+    ) {
+        guard let state = panelTransferStates[handle.id],
+              state.handle === handle,
+              state.destination != destination else {
+            return
+        }
+        if let previous = state.destination {
+            decrementPanelTransferDestination(previous)
+        }
+        state.destination = destination
+        panelTransferDestinationCounts[destination, default: 0]
+            += 1
+    }
+
+    private func removePanelTransferState(
+        _ state: PanelTransferState
+    ) {
+        guard panelTransferStates.removeValue(
+            forKey: state.handle.id
+        ) === state else {
+            return
+        }
+        if let destination = state.destination {
+            decrementPanelTransferDestination(destination)
+        }
+    }
+
+    private func decrementPanelTransferDestination(
+        _ destination: PanelTransferDestinationKey
+    ) {
+        guard let count =
+                panelTransferDestinationCounts[
+                    destination
+                ] else {
+            return
+        }
+        if count <= 1 {
+            panelTransferDestinationCounts.removeValue(
+                forKey: destination
+            )
+        } else {
+            panelTransferDestinationCounts[destination] =
+                count - 1
+        }
     }
 
     /// Runs configuration work after every previously accepted font
@@ -186,6 +498,12 @@ final class WorkspaceTerminalFontSizeArbiter {
                 popDeferredCoordinatorJoin()
                 preferred.releaseRetentionIfIdle()
                 continue
+            }
+            if hasPanelTransfer(
+                targeting: workspace,
+                or: join.windowDockSlot
+            ) {
+                return
             }
             let workspaceCoordinator =
                 preferred.coordinatorOwningWork(for: workspace)

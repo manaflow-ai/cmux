@@ -6614,8 +6614,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func rememberTerminalConfigInheritanceSource(
         _ terminalPanel: TerminalPanel,
-        magnificationPercent: Int =
-            GlobalFontMagnification.storedPercent
+        magnificationPercent: Int? = nil
     ) {
         guard let mountedPanel = panels[terminalPanel.id] as? TerminalPanel,
               mountedPanel === terminalPanel else { return }
@@ -9279,6 +9278,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
+            terminalPanel.fontSizePanelTransfer?.attach(
+                to: self
+            )
             terminalFontSizeChangeCoordinator?
                 .terminalDidEnterWorkspace(
                     terminalPanel,

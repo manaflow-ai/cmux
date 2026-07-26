@@ -152,6 +152,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
         weak var resourceState: TransferResourceState?
         var nextRequest: TransferRequestRecord?
         var throughRequest: TransferRequestRecord
+        var panelTransfer:
+            WorkspaceTerminalFontSizePanelTransfer?
+        var panelTransferStageToken: UUID?
         var heapIndex: Int?
         var heapOrder: UInt64 = 0
 
@@ -232,6 +235,21 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
         var obligations: Dictionary<UUID, TransferObligation>.Values {
             obligationsByPanelId.values
+        }
+
+        func hasStagedObligation(
+            containing request: PendingRequest
+        ) -> Bool {
+            obligationsByPanelId.values.contains { obligation in
+                guard obligation.panelTransferStageToken != nil,
+                      let nextRequest = obligation.nextRequest else {
+                    return false
+                }
+                return nextRequest.request.sequence
+                        <= request.sequence
+                    && request.sequence
+                        <= obligation.throughRequest.request.sequence
+            }
         }
     }
 
@@ -464,6 +482,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
                         preferredCoordinator: self,
                         deferFlush: deferFlush
                     ) {
+            return accepted
+        }
+        if arbiter.hasPanelTransfer(
+            targeting: workspace,
+            or: windowDockSlot
+        ) {
+            let accepted = deferCoordinatorJoin(
+                change,
+                workspace: workspace,
+                workspaceReference: workspaceReference,
+                windowDockSlot: windowDockSlot,
+                deferFlush: deferFlush
+            )
+            arbiter.signalPanelTransferProgress()
             return accepted
         }
         workspace.terminalFontSizeChangeCoordinator?
@@ -835,6 +867,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
         closingManager: TabManager?,
         windowDockSlot closingWindowDockSlot: WindowDockSlot
     ) -> Bool {
+        if transferResourceStates[request.resourceKey]?
+            .hasStagedObligation(containing: request) == true {
+            return false
+        }
         switch request.target {
         case .workspace(_, let reference):
             guard let workspace = reference.value else { return true }
@@ -1213,7 +1249,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         registerTransfer(
             terminalPanel,
             resourceKey: .workspace(workspace.id),
-            processImmediately: false
+            processImmediately: false,
+            createsPanelTransferStage: true
         )
     }
 
@@ -1224,11 +1261,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
         guard workspace.terminalFontSizeChangeCoordinator === self else {
             return
         }
+        terminalPanel.fontSizePanelTransfer?.attach(
+            to: workspace
+        )
+        let createsPanelTransferStage =
+            terminalPanel.fontSizePanelTransfer.map {
+                $0.isActive
+                    && arbiter
+                        .panelTransferCurrentCoordinator($0)
+                        !== self
+            } ?? false
         sealPendingEventBatch()
         registerTransfer(
             terminalPanel,
             resourceKey: .workspace(workspace.id),
-            processImmediately: true
+            processImmediately: true,
+            createsPanelTransferStage:
+                createsPanelTransferStage
         )
     }
 
@@ -1265,7 +1314,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         registerTransfer(
             terminalPanel,
             resourceKey: resourceKey,
-            processImmediately: false
+            processImmediately: false,
+            createsPanelTransferStage: true
         )
     }
 
@@ -1285,10 +1335,26 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 windowDockResourceKeys[ObjectIdentifier(dock)] else {
             return
         }
+        if let panelTransfer =
+                terminalPanel.fontSizePanelTransfer {
+            arbiter.associatePanelTransfer(
+                panelTransfer,
+                with: windowDockSlot
+            )
+        }
+        let createsPanelTransferStage =
+            terminalPanel.fontSizePanelTransfer.map {
+                $0.isActive
+                    && arbiter
+                        .panelTransferCurrentCoordinator($0)
+                        !== self
+            } ?? false
         registerTransfer(
             terminalPanel,
             resourceKey: resourceKey,
-            processImmediately: true
+            processImmediately: true,
+            createsPanelTransferStage:
+                createsPanelTransferStage
         )
     }
 
@@ -1332,7 +1398,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func registerTransfer(
         _ terminalPanel: TerminalPanel,
         resourceKey: RequestResourceKey,
-        processImmediately: Bool
+        processImmediately: Bool,
+        createsPanelTransferStage: Bool = false
     ) {
         signalMutationRetry(scheduleIfOutstanding: false)
 #if DEBUG
@@ -1349,6 +1416,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
         if registration.isNew {
             appendTransferObligation(registration.obligation)
+        }
+        if createsPanelTransferStage,
+           registration.obligation
+                .panelTransferStageToken == nil {
+            let stage = arbiter.appendPanelTransferStage(
+                panelId: terminalPanel.id,
+                existing:
+                    terminalPanel.fontSizePanelTransfer,
+                coordinator: self
+            )
+            terminalPanel.fontSizePanelTransfer =
+                stage.handle
+            registration.obligation.panelTransfer =
+                stage.handle
+            registration.obligation
+                .panelTransferStageToken =
+                stage.stageToken
         }
         let obligationSequence =
             registration.obligation.nextRequest?.request.sequence
@@ -1386,6 +1470,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
               transferObligations.indices.contains(index),
               transferObligations[index] === obligation else {
             obligation.resourceState?.remove(obligation)
+            completePanelTransferStage(for: obligation)
             return
         }
         let lastIndex = transferObligations.count - 1
@@ -1398,6 +1483,32 @@ final class WorkspaceTerminalFontSizeCoordinator {
             repairTransferObligationHeap(at: index)
         }
         obligation.resourceState?.remove(obligation)
+        completePanelTransferStage(for: obligation)
+    }
+
+    private func completePanelTransferStage(
+        for obligation: TransferObligation
+    ) {
+        guard let panelTransfer =
+                obligation.panelTransfer,
+              let stageToken =
+                obligation.panelTransferStageToken else {
+            return
+        }
+        obligation.panelTransfer = nil
+        obligation.panelTransferStageToken = nil
+        let didFinishTransfer =
+            arbiter.completePanelTransferStage(
+                panelTransfer,
+                stageToken: stageToken,
+                coordinator: self
+            )
+        guard didFinishTransfer,
+              obligation.panel?.fontSizePanelTransfer
+                === panelTransfer else {
+            return
+        }
+        obligation.panel?.fontSizePanelTransfer = nil
     }
 
     private func transferObligationPrecedes(
@@ -1486,6 +1597,21 @@ final class WorkspaceTerminalFontSizeCoordinator {
               let terminalPanel = obligation.panel else {
             removeTransferObligation(obligation)
             return true
+        }
+        if let panelTransfer = obligation.panelTransfer,
+           let stageToken =
+                obligation.panelTransferStageToken,
+           !arbiter.isPanelTransferStageReady(
+                panelTransfer,
+                stageToken: stageToken,
+                coordinator: self
+           ) {
+            arbiter
+                .panelTransferCurrentCoordinator(
+                    panelTransfer
+                )?
+                .signalMutationRetry()
+            return false
         }
         guard budget.reserveRequestVisit(),
               budget.reservePanelVisit() else {

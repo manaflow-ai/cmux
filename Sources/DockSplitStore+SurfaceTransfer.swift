@@ -273,6 +273,16 @@ extension DockSplitStore {
             reconcileReason: "dock.attachDetachedSurface"
         )
         if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
             terminalFontSizeChangeCoordinator?
                 .terminalDidEnterDock(
                     terminalPanel,
@@ -348,6 +358,16 @@ extension DockSplitStore {
             reconcileReason: "dock.attachDetachedSurface.split"
         )
         if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
             terminalFontSizeChangeCoordinator?
                 .terminalDidEnterDock(
                     terminalPanel,
