@@ -24,6 +24,47 @@ private func rendererReleaseWasOccluded() -> Bool
 
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
+    @Test func visibleRuntimeWaitsForUsableDrawableGeometry() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        surface.paneHost.frame = .zero
+        surface.surfaceView.frame = .zero
+        window.contentView?.addSubview(surface.paneHost)
+        surface.attachedView = surface.surfaceView
+
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(true)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+            window.contentView = nil
+            window.close()
+        }
+
+        #expect(surface.isRendererPortalVisible)
+        #expect(!surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false])
+
+        surface.paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        surface.surfaceView.frame = surface.paneHost.bounds
+        surface.rendererPresentationAttachmentDidBecomeReady()
+
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false, true])
+    }
+
     @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
