@@ -66,12 +66,32 @@ struct HTMLPlainTextParser: Sendable {
                 .documentTidyHTML,
                 .nodeLoadExternalEntitiesNever,
             ]
-        ), let root = document.rootElement() else {
+        ) else {
             return nil
         }
+        return plainText(from: document, sourceLength: html.count)
+    }
 
+    func plainText(from data: Data) -> String? {
+        guard let document = try? XMLDocument(
+            data: data,
+            options: [
+                .documentTidyHTML,
+                .nodeLoadExternalEntitiesNever,
+            ]
+        ) else {
+            return nil
+        }
+        return plainText(from: document, sourceLength: data.count)
+    }
+
+    private func plainText(
+        from document: XMLDocument,
+        sourceLength: Int
+    ) -> String? {
+        guard let root = document.rootElement() else { return nil }
         var output = ""
-        output.reserveCapacity(min(html.count, 16_384))
+        output.reserveCapacity(min(sourceLength, 16_384))
         appendVisibleText(
             from: root,
             preservingWhitespace: false,

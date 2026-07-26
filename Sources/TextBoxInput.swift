@@ -3173,14 +3173,13 @@ struct TextBoxInputView: NSViewRepresentable {
         }
 
         private func publishTextViewContent(_ textView: TextBoxInputTextView) {
-            let nextText = textView.plainText()
-            let nextAttachments = textView.inlineAttachments()
+            let nextContent = textView.bindingContentForPreservation()
             let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            let contentChanged = parent.text != nextText
-                || parent.attachments.map(\.id) != nextAttachments.map(\.id)
+            let contentChanged = parent.text != nextContent.text
+                || parent.attachments.map(\.id) != nextContent.attachments.map(\.id)
                 || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
-            parent.text = nextText
-            parent.attachments = nextAttachments
+            parent.text = nextContent.text
+            parent.attachments = nextContent.attachments
             parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
             if contentChanged {
                 parent.onContentChanged()

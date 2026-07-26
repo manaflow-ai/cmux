@@ -102,13 +102,12 @@ extension TerminalPasteboardService {
     private func htmlPlainTextContents(
         from pasteboard: NSPasteboard
     ) -> String? {
-        let html =
-            pasteboard.string(forType: .html)
-            ?? pasteboard.data(forType: .html).flatMap {
-                String(data: $0, encoding: .utf8)
-            }
-        guard let html else { return nil }
-        return HTMLPlainTextParser().plainText(from: html)
+        let parser = HTMLPlainTextParser()
+        if let html = pasteboard.string(forType: .html) {
+            return parser.plainText(from: html)
+        }
+        guard let data = pasteboard.data(forType: .html) else { return nil }
+        return parser.plainText(from: data)
     }
 
     private func plainTextContents(from pasteboard: NSPasteboard) -> String? {
