@@ -1956,6 +1956,15 @@ impl Mux {
         self.subscribers.subscribe_attached_surface(surface)
     }
 
+    pub fn subscribe_surface_session(&self, surface: SurfaceId) -> Option<MuxEventReceiver> {
+        let state = self.state.lock().unwrap();
+        let pane = state.pane_of(surface)?;
+        let (workspace_index, screen_index) = state.screen_of(pane)?;
+        let workspace = state.workspaces.get(workspace_index)?;
+        let screen = workspace.screens.get(screen_index)?;
+        Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
+    }
+
     pub fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
     }
@@ -3666,6 +3675,10 @@ impl Mux {
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> CellPixelUpdate {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
+    }
+
+    pub fn cell_pixel_size(&self) -> (u16, u16) {
+        *self.cell_pixels.lock().unwrap()
     }
 
     pub fn set_cell_pixel_size_reporting(
@@ -7767,12 +7780,18 @@ fn move_tab_in_state(
     let new_idx = index.min(target.tabs.len());
     target.tabs.insert(new_idx, surface);
     target.active_tab = new_idx;
-    if let Some((wi, si)) = state.screen_of(target_pane) {
+    let destination_path = if let Some((wi, si)) = state.screen_of(target_pane) {
         state.active_workspace = wi;
         let ws = &mut state.workspaces[wi];
         ws.active_screen = si;
         let screen = &mut ws.screens[si];
         screen.active_pane = target_pane;
+        Some((ws.id, screen.id))
+    } else {
+        None
+    };
+    if let Some((workspace, screen)) = destination_path {
+        mux.subscribers.update_surface_session_path(surface, workspace, screen, target_pane);
     }
     (true, topology_changed)
 }
@@ -9650,6 +9669,57 @@ mod tests {
             assert_eq!(s.pane_revision, pane_revision + 1);
         });
         assert_eq!(mux.surface_count(), original_count);
+    }
+
+    #[test]
+    fn surface_session_subscription_tracks_real_tab_moves_without_layout_churn() {
+        let mux = test_mux();
+        let source_workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let target = mux
+            .create_browser_surface_in_workspace(
+                source_workspace.workspace,
+                "about:blank#target".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+        let destination_workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let destination = mux
+            .create_browser_surface_in_workspace(
+                destination_workspace.workspace,
+                "about:blank#destination".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+        let (source_screen, destination_screen, destination_pane) = mux.with_state(|state| {
+            let source_pane = state.pane_of(target.id).unwrap();
+            let destination_pane = state.pane_of(destination.id).unwrap();
+            let (source_workspace_index, source_screen_index) =
+                state.screen_of(source_pane).unwrap();
+            let (destination_workspace_index, destination_screen_index) =
+                state.screen_of(destination_pane).unwrap();
+            (
+                state.workspaces[source_workspace_index].screens[source_screen_index].id,
+                state.workspaces[destination_workspace_index].screens[destination_screen_index].id,
+                destination_pane,
+            )
+        });
+        let events = mux.subscribe_surface_session(target.id).unwrap();
+
+        assert!(mux.move_tab(target.id, destination_pane, 0));
+        mux.emit(MuxEvent::LayoutChanged(source_screen));
+        mux.emit(MuxEvent::LayoutChanged(destination_screen));
+
+        let received = events.try_iter().collect::<Vec<_>>();
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+        let layouts = received
+            .iter()
+            .filter_map(|event| match event {
+                MuxEvent::LayoutChanged(screen) => Some(*screen),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(layouts.is_empty());
+        mux.shutdown();
     }
 
     #[test]
