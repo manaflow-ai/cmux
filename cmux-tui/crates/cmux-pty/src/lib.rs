@@ -119,3 +119,19 @@ mod platform {
         slave.0.spawn_command(builder)
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_program_fails_before_the_child_is_published() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let result = pair.spawn(PtyCommand::new("/definitely/missing/cmux-pty-program"));
+
+        if let Ok(mut spawned) = result {
+            let status = spawned.child.wait().unwrap();
+            panic!("missing PTY program was published as child status {status:?}");
+        }
+    }
+}

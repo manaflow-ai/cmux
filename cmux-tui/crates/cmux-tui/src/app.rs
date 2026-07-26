@@ -12926,8 +12926,14 @@ mod tests {
         app.content_area.height = 8;
 
         app.session.sidebar_plugin((11, 9), false);
-        while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        let mut failure_status_seen = false;
+        while !failure_status_seen || app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            failure_status_seen |= matches!(
+                &event,
+                AppEvent::SidebarPluginUpdated { status, .. } if status.error.is_some()
+            );
+            app.handle(event).unwrap();
         }
 
         assert!(app.sidebar_plugin_error.is_some());
