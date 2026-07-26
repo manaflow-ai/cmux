@@ -571,6 +571,28 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
 
+    task_sync_groups = [
+        group
+        for group in post_tool_use_groups
+        if group.get("matcher") == "TaskCreate|TaskUpdate|TaskGet|TaskList"
+    ]
+    expect(
+        task_sync_groups,
+        f"PostToolUse should install a Claude task snapshot bridge, got {post_tool_use_groups}",
+        failures,
+    )
+    if task_sync_groups:
+        task_sync_hooks = task_sync_groups[0].get("hooks", [])
+        expect(
+            any(
+                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude task-sync'
+                and h.get("async") is True
+                for h in task_sync_hooks
+            ),
+            f"Claude task snapshot bridge should asynchronously call hooks claude task-sync, got {task_sync_hooks}",
+            failures,
+        )
+
     # General PreToolUse telemetry should remain async to avoid blocking tool execution.
     pre_tool_use_hooks = [
         hook
