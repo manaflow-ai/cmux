@@ -196,9 +196,31 @@ fn state_mods(state: KeyEventState) -> Mods {
     mods
 }
 
-pub(crate) fn shifted_ascii_char(c: char) -> char {
-    match c {
+pub(crate) fn shifted_ascii_char(c: char) -> Option<char> {
+    Some(match c {
         'a'..='z' => c.to_ascii_uppercase(),
+        'A'..='Z'
+        | '~'
+        | '!'
+        | '@'
+        | '#'
+        | '$'
+        | '%'
+        | '^'
+        | '&'
+        | '*'
+        | '('
+        | ')'
+        | '_'
+        | '+'
+        | '{'
+        | '}'
+        | '|'
+        | ':'
+        | '"'
+        | '<'
+        | '>'
+        | '?' => c,
         '`' => '~',
         '1' => '!',
         '2' => '@',
@@ -220,8 +242,8 @@ pub(crate) fn shifted_ascii_char(c: char) -> char {
         ',' => '<',
         '.' => '>',
         '/' => '?',
-        _ => c,
-    }
+        _ => return None,
+    })
 }
 
 fn physical_key_for_char(c: char) -> sys::GhosttyKey {

@@ -915,6 +915,28 @@ pub struct Chord {
     pub mods: KeyModifiers,
 }
 
+fn normalize_chord(code: KeyCode, mut mods: KeyModifiers) -> (KeyCode, KeyModifiers) {
+    match code {
+        KeyCode::Tab if mods.contains(KeyModifiers::SHIFT) => {
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        KeyCode::Char(c) if mods.contains(KeyModifiers::SHIFT) => {
+            let Some(shifted) = crate::keys::shifted_ascii_char(c) else {
+                return (code, mods);
+            };
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::Char(shifted), mods)
+        }
+        KeyCode::BackTab => {
+            // Crossterm reports BackTab with an implied Shift modifier.
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        _ => (code, mods),
+    }
+}
+
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
         const TRACKED: KeyModifiers = KeyModifiers::CONTROL
@@ -923,20 +945,8 @@ impl Chord {
             .union(KeyModifiers::SUPER)
             .union(KeyModifiers::HYPER)
             .union(KeyModifiers::META);
-        let normalize = |code, mut mods: KeyModifiers| match code {
-            KeyCode::Char(c) if mods.contains(KeyModifiers::SHIFT) => {
-                mods.remove(KeyModifiers::SHIFT);
-                (KeyCode::Char(crate::keys::shifted_ascii_char(c)), mods)
-            }
-            KeyCode::BackTab => {
-                // Crossterm reports BackTab with an implied Shift modifier.
-                mods.remove(KeyModifiers::SHIFT);
-                (KeyCode::BackTab, mods)
-            }
-            _ => (code, mods),
-        };
-        let (configured_code, configured_mods) = normalize(self.code, self.mods);
-        let (event_code, event_mods) = normalize(key.code, key.modifiers);
+        let (configured_code, configured_mods) = normalize_chord(self.code, self.mods);
+        let (event_code, event_mods) = normalize_chord(key.code, key.modifiers);
         configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
     }
 }
@@ -1215,19 +1225,10 @@ fn parse_chord(s: &str) -> Option<Chord> {
             }
         }
     }
-    let mut code = code?;
-    if code == KeyCode::Tab && mods.contains(KeyModifiers::SHIFT) {
-        code = KeyCode::BackTab;
-        mods.remove(KeyModifiers::SHIFT);
-    } else if let KeyCode::Char(c) = code
-        && mods.contains(KeyModifiers::SHIFT)
-    {
-        code = KeyCode::Char(crate::keys::shifted_ascii_char(c));
-        // Store the resulting character so `D` and `shift+d` stay equivalent.
-        // `Chord::matches` applies the same conversion to enhanced base-key
-        // events before comparison.
-        mods.remove(KeyModifiers::SHIFT);
-    }
+    let code = code?;
+    // Store a shifted ASCII result so `D` and `shift+d` stay equivalent.
+    // Shift stays explicit when the character itself cannot represent it.
+    let (code, mods) = normalize_chord(code, mods);
     Some(Chord { code, mods })
 }
 
