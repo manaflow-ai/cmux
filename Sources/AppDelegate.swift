@@ -570,7 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// App-lifecycle ordering owner shared by every window's font-size queue.
     /// Window coordinators receive it explicitly instead of using global state.
     let workspaceTerminalFontSizeArbiter =
-        WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        WorkspaceTerminalFontSizeArbiter()
 #if DEBUG
     var debugWorkspaceTerminalFontSizeEnqueueResultOverride: Bool?
 #endif
@@ -615,7 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
         private let workspaceTerminalFontSizeArbiter:
-            WorkspaceTerminalFontSizeCoordinator.Arbiter
+            WorkspaceTerminalFontSizeArbiter
         /// Window-scoped font-size queue. Requests contain stable workspace ids;
         /// teardown cancels the queue before any surface owner is released.
         lazy var workspaceTerminalFontSizeCoordinator =
@@ -633,7 +633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxConfigStore: CmuxConfigStore?,
             window: NSWindow?,
             workspaceTerminalFontSizeArbiter:
-                WorkspaceTerminalFontSizeCoordinator.Arbiter
+                WorkspaceTerminalFontSizeArbiter
         ) {
             self.windowId = windowId
             self.tabManager = tabManager

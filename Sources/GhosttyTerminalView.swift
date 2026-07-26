@@ -469,6 +469,8 @@ class GhosttyApp {
     }
     private var pendingConfigurationReload:
         PendingConfigurationReload?
+    private let terminalFontConfigurationReloadReconciler =
+        TerminalFontConfigurationReloadReconciler()
     private var isWaitingForFontSizeWorkBeforeConfigurationReload =
         false
     private(set) var appliedGlobalFontMagnificationPercent =
@@ -1843,29 +1845,50 @@ class GhosttyApp {
         isWaitingForFontSizeWorkBeforeConfigurationReload = true
         guard let arbiter =
                 AppDelegate.shared?.workspaceTerminalFontSizeArbiter else {
-            performPendingConfigurationReload()
+            performPendingConfigurationReload(completion: {})
             return
         }
-        arbiter.performWhenFontSizeWorkIsIdle { [weak self] in
-            self?.performPendingConfigurationReload()
+        arbiter.performWhenFontSizeWorkIsIdle {
+            [weak self, weak arbiter] in
+            guard let self else { return }
+            guard let arbiter else {
+                self.performPendingConfigurationReload(completion: {})
+                return
+            }
+            let releaseBarrier =
+                arbiter.extendCurrentFontSizeWorkIdleBarrier()
+            self.performPendingConfigurationReload(
+                completion: releaseBarrier
+            )
         }
     }
 
     @MainActor
-    private func performPendingConfigurationReload() {
+    private func performPendingConfigurationReload(
+        completion: @escaping @MainActor () -> Void
+    ) {
         guard let request = pendingConfigurationReload else {
             isWaitingForFontSizeWorkBeforeConfigurationReload = false
+            completion()
             return
         }
         pendingConfigurationReload = nil
-        performConfigurationReload(request)
-        isWaitingForFontSizeWorkBeforeConfigurationReload = false
-        schedulePendingConfigurationReload()
+        performConfigurationReload(request) { [weak self] in
+            guard let self else {
+                completion()
+                return
+            }
+            self.isWaitingForFontSizeWorkBeforeConfigurationReload =
+                false
+            self.schedulePendingConfigurationReload()
+            completion()
+        }
     }
 
     @MainActor
     private func performConfigurationReload(
-        _ request: PendingConfigurationReload
+        _ request: PendingConfigurationReload,
+        completion: @escaping @MainActor () -> Void
     ) {
         let soft = request.soft
         let source = request.source
@@ -1882,6 +1905,7 @@ class GhosttyApp {
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
+            completion()
             return
         }
         // Use the appearance preference while loading conditional theme pairs. For cmux
@@ -1908,11 +1932,13 @@ class GhosttyApp {
                 preferredColorScheme: effectiveReloadColorScheme
             )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
+            completion()
             return
         }
 
         guard let newConfig = ghostty_config_new() else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
+            completion()
             return
         }
         let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
@@ -1962,35 +1988,55 @@ class GhosttyApp {
                 config: newConfig,
                 magnificationPercent: reloadMagnificationPercent
             )
-        for (surface, reloadState) in terminalFontReloadStates {
-            guard Self.terminalSurfaceRegistry.terminalSurface(
-                id: surface.id
-            ) === surface else {
-                continue
+        let reconciliationWork:
+            [TerminalFontConfigurationReloadReconciler.Work] =
+            terminalFontReloadStates.map { surface, reloadState in
+                { [weak surface] in
+                    guard let surface,
+                          Self.terminalSurfaceRegistry
+                            .terminalSurface(id: surface.id)
+                            === surface else {
+                        return
+                    }
+                    let outcome =
+                        surface
+                            .reconcileFontSizeAfterConfigurationReload(
+                                from: reloadState,
+                                configuredRuntimePoints:
+                                    terminalFontConfiguration
+                                        .configuredRuntimePoints,
+                                magnificationPercent:
+                                    terminalFontConfiguration
+                                        .magnificationPercent
+                            )
+                    if outcome == .failed {
+                        Self.initializationLogger.error(
+                            "Terminal font reconciliation failed after config reload surface=\(surface.id.uuidString, privacy: .public)"
+                        )
+                    }
+                }
             }
-            let outcome =
-                surface.reconcileFontSizeAfterConfigurationReload(
-                    from: reloadState,
-                    configuredRuntimePoints:
-                        terminalFontConfiguration
-                            .configuredRuntimePoints,
-                    magnificationPercent:
-                        terminalFontConfiguration
-                            .magnificationPercent
-                )
-            if outcome == .failed {
-                Self.initializationLogger.error(
-                    "Terminal font reconciliation failed after config reload surface=\(surface.id.uuidString, privacy: .public)"
-                )
+        terminalFontConfigurationReloadReconciler.reconcile(
+            reconciliationWork
+        ) { [weak self] in
+            guard let self else {
+                completion()
+                return
             }
+            self.lastAppearanceColorScheme = reloadColorScheme
+            NotificationCenter.default.post(
+                name: .ghosttyConfigDidReload,
+                object: nil
+            )
+            self.refreshSurfacesAfterConfigurationReload(
+                source: source,
+                preferredColorScheme: effectiveReloadColorScheme
+            )
+            self.logThemeAction(
+                "reload end source=\(source) soft=\(soft) mode=full"
+            )
+            completion()
         }
-        lastAppearanceColorScheme = reloadColorScheme
-        NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-        refreshSurfacesAfterConfigurationReload(
-            source: source,
-            preferredColorScheme: effectiveReloadColorScheme
-        )
-        logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
     @MainActor

@@ -13,11 +13,11 @@ struct MobileViewportFontFitState: Equatable {
     }
 
     mutating func updateDurableBase(to runtimePointSize: Float32) {
-        let wasTemporarilyFitted =
-            fittedRuntimePointSize < baseRuntimePointSize - 0.05
-        let nextFittedRuntimePointSize = wasTemporarilyFitted
-            ? min(fittedRuntimePointSize, runtimePointSize)
-            : runtimePointSize
+        // The state's presence records active viewport-fit ownership. Equality
+        // can occur when the durable base shrinks to the fitted size; it must
+        // not make a later increase escape the installed viewport constraint.
+        let nextFittedRuntimePointSize =
+            min(fittedRuntimePointSize, runtimePointSize)
         baseRuntimePointSize = runtimePointSize
         fittedRuntimePointSize = nextFittedRuntimePointSize
     }

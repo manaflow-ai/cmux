@@ -1906,6 +1906,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		EC010B01 /* TerminalCustomUploadRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010B02 /* TerminalCustomUploadRunner.swift */; };
 		0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */; };
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
+		F87910030000000000000001 /* TerminalFontConfigurationReloadReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910030000000000000002 /* TerminalFontConfigurationReloadReconciler.swift */; };
 		851500000000000000000001 /* TerminalFontZoomSessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851500000000000000000002 /* TerminalFontZoomSessionPersistenceTests.swift */; };
 		A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1304 /* TerminalForegroundCommandCapture.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
@@ -2183,8 +2184,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E30750000000000000000002 /* WorkspaceTabColorResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000001 /* WorkspaceTabColorResolution.swift */; };
 		E3B7A4000000000000000001 /* WorkspaceTabColorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */; };
 		6342F0C10000000000000001 /* WorkspaceTerminalFocusRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6342F0C20000000000000001 /* WorkspaceTerminalFocusRecoveryTests.swift */; };
+		F87910040000000000000001 /* WorkspaceTerminalFontSizeArbiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910040000000000000002 /* WorkspaceTerminalFontSizeArbiter.swift */; };
 		F87910010000000000000001 /* WorkspaceTerminalFontSizeChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910010000000000000002 /* WorkspaceTerminalFontSizeChange.swift */; };
 		F87910020000000000000001 /* WorkspaceTerminalFontSizeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910020000000000000002 /* WorkspaceTerminalFontSizeCoordinator.swift */; };
+		F87910050000000000000001 /* WorkspaceTerminalFontSizePanelDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910050000000000000002 /* WorkspaceTerminalFontSizePanelDiscovery.swift */; };
 		6047C0DE6047C0DE60470001 /* WorkspaceTerminalTabWorkingDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6047C0DE6047C0DE60470002 /* WorkspaceTerminalTabWorkingDirectoryTests.swift */; };
 		634AA6233A5BBF781FE83E89 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08850489C70ECFACA540C2F3 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift */; };
 		5732A0075732A0075732A007 /* WorkspaceTitlebarModeLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0075732B0075732B007 /* WorkspaceTitlebarModeLayer.swift */; };
@@ -4087,6 +4090,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		EC010B02 /* TerminalCustomUploadRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCustomUploadRunner.swift; sourceTree = "<group>"; };
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
+		F87910030000000000000002 /* TerminalFontConfigurationReloadReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontConfigurationReloadReconciler.swift; sourceTree = "<group>"; };
 		851500000000000000000002 /* TerminalFontZoomSessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalFontZoomSessionPersistenceTests.swift; sourceTree = "<group>"; };
 		A5FB1304 /* TerminalForegroundCommandCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalForegroundCommandCapture.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
@@ -4364,8 +4368,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E30750000000000000000001 /* WorkspaceTabColorResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorResolution.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000002 /* WorkspaceTabColorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorSettings.swift; sourceTree = "<group>"; };
 		6342F0C20000000000000001 /* WorkspaceTerminalFocusRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFocusRecoveryTests.swift; sourceTree = "<group>"; };
+		F87910040000000000000002 /* WorkspaceTerminalFontSizeArbiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeArbiter.swift; sourceTree = "<group>"; };
 		F87910010000000000000002 /* WorkspaceTerminalFontSizeChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeChange.swift; sourceTree = "<group>"; };
 		F87910020000000000000002 /* WorkspaceTerminalFontSizeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeCoordinator.swift; sourceTree = "<group>"; };
+		F87910050000000000000002 /* WorkspaceTerminalFontSizePanelDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizePanelDiscovery.swift; sourceTree = "<group>"; };
 		6047C0DE6047C0DE60470002 /* WorkspaceTerminalTabWorkingDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalTabWorkingDirectoryTests.swift; sourceTree = "<group>"; };
 		08850489C70ECFACA540C2F3 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalWorkingDirectoryFallbackTests.swift; sourceTree = "<group>"; };
 		5732B0075732B0075732B007 /* WorkspaceTitlebarModeLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTitlebarModeLayer.swift; sourceTree = "<group>"; };
@@ -5165,6 +5171,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */,
 				F87910010000000000000002 /* WorkspaceTerminalFontSizeChange.swift */,
 				F87910020000000000000002 /* WorkspaceTerminalFontSizeCoordinator.swift */,
+				F87910030000000000000002 /* TerminalFontConfigurationReloadReconciler.swift */,
+				F87910040000000000000002 /* WorkspaceTerminalFontSizeArbiter.swift */,
+				F87910050000000000000002 /* WorkspaceTerminalFontSizePanelDiscovery.swift */,
 				1A1B2C3D4E5F607180000002 /* WorkspacePromptSubmit.swift */,
 				D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */,
 				C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */,
@@ -8344,6 +8353,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EC010B01 /* TerminalCustomUploadRunner.swift in Sources */,
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
+				F87910030000000000000001 /* TerminalFontConfigurationReloadReconciler.swift in Sources */,
 				A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */,
@@ -8543,8 +8553,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E3B7A4000000000000000003 /* WorkspaceTabColorEntry.swift in Sources */,
 				E30750000000000000000002 /* WorkspaceTabColorResolution.swift in Sources */,
 				E3B7A4000000000000000001 /* WorkspaceTabColorSettings.swift in Sources */,
+				F87910040000000000000001 /* WorkspaceTerminalFontSizeArbiter.swift in Sources */,
 				F87910010000000000000001 /* WorkspaceTerminalFontSizeChange.swift in Sources */,
 				F87910020000000000000001 /* WorkspaceTerminalFontSizeCoordinator.swift in Sources */,
+				F87910050000000000000001 /* WorkspaceTerminalFontSizePanelDiscovery.swift in Sources */,
 					5732A0075732A0075732A007 /* WorkspaceTitlebarModeLayer.swift in Sources */,
 				7D7D087CAACD917D8163F844 /* WorkspaceTodoFeature.swift in Sources */,
 				249969F7EAC03A99E20C753B /* WorkspaceTodoPanel.swift in Sources */,
