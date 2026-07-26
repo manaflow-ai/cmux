@@ -17451,7 +17451,7 @@ private extension NSWindow {
             }
 #endif
             if !consumedByMenu {
-                if firstResponderGhosttyView.shouldConsumeUnavailableCopyKeyEquivalent(event) {
+                if firstResponderGhosttyView.consumeUnavailableCopyMenuAction(event) {
 #if DEBUG
                     cmuxDebugLog("  → mainMenu miss; consumed unavailable terminal Copy")
 #endif

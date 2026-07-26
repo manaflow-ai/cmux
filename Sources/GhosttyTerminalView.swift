@@ -4586,7 +4586,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// enter its terminal-input path, which moves scrollback to the bottom when
     /// `scroll-to-bottom=keystroke` is enabled even if the terminal program
     /// does not visibly echo that input.
-    func shouldConsumeUnavailableCopyKeyEquivalent(_ event: NSEvent) -> Bool {
+    func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
         let normalizedFlags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
@@ -4595,28 +4595,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               KeyboardLayout.normalizedCharacters(for: event) == "c" else {
             return false
         }
-        guard let surface else { return true }
-        let hasCopyableSelection = hasCopyableTerminalSelection(surface: surface)
-        guard !hasCopyableSelection else { return false }
+        guard let surface = ensureSurfaceReadyForInput(),
+              !hasCopyableTerminalSelection(surface: surface) else {
+            return false
+        }
 
-        return Self.shouldConsumeUnavailableCopy(
-            hasCopyableSelection: hasCopyableSelection,
-            bindingIsExactCopyAction: ghosttyBindingIsExactAction(
-                "copy_to_clipboard",
-                for: event,
-                surface: surface
-            )
+        return ghosttyConsumeMenuAction(
+            "copy_to_clipboard",
+            for: event,
+            surface: surface
         )
-    }
-
-    /// Only Ghostty's exact Copy action is safe to consume here.
-    /// Configured actions, explicit unbinds, and key-sequence misses must still
-    /// reach Ghostty's normal binding/input path.
-    static func shouldConsumeUnavailableCopy(
-        hasCopyableSelection: Bool,
-        bindingIsExactCopyAction: Bool
-    ) -> Bool {
-        !hasCopyableSelection && bindingIsExactCopyAction
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -5426,14 +5414,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return isBinding ? flags : nil
     }
 
-    private func ghosttyBindingIsExactAction(
+    private func ghosttyConsumeMenuAction(
         _ action: String,
         for event: NSEvent,
         surface: ghostty_surface_t
     ) -> Bool {
         withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
             action.withCString { actionPointer in
-                ghostty_surface_key_binding_is_exact_action(
+                ghostty_surface_key_consume_if_menu_action(
                     surface,
                     keyEvent,
                     actionPointer,

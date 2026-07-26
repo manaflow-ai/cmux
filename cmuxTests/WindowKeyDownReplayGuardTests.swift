@@ -44,8 +44,15 @@ struct WindowKeyDownReplayGuardTests {
 
     private final class TerminalCommandEquivalentProbeView: GhosttyNSView {
         private(set) var afterMenuMissEvents: [NSEvent] = []
+        private(set) var unavailableCopyMenuEvents: [NSEvent] = []
         private(set) var keyDownEvents: [NSEvent] = []
         var performAfterMenuMissResult = true
+        var consumeUnavailableCopyResult = false
+
+        override func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
+            unavailableCopyMenuEvents.append(event)
+            return consumeUnavailableCopyResult
+        }
 
         override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
             afterMenuMissEvents.append(event)
@@ -320,6 +327,7 @@ struct WindowKeyDownReplayGuardTests {
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
         let (window, terminal) = makeWindowWithTerminalResponder()
+        terminal.consumeUnavailableCopyResult = true
         let previousMenu = installUnavailableCopyMenu(target: terminal)
         defer {
             NSApp.mainMenu = previousMenu
@@ -333,6 +341,7 @@ struct WindowKeyDownReplayGuardTests {
         }
 
         #expect(window.performKeyEquivalent(with: event))
+        #expect(terminal.unavailableCopyMenuEvents.count == 1)
         #expect(
             terminal.afterMenuMissEvents.isEmpty,
             Comment(rawValue: "Unavailable terminal Copy must remain a native no-op instead of replaying Cmd+C into Ghostty's terminal-input path")
@@ -341,19 +350,29 @@ struct WindowKeyDownReplayGuardTests {
     }
 
     @Test
-    func unavailableCopyPolicyPreservesConfiguredGhosttyBinding() {
-        #expect(GhosttyNSView.shouldConsumeUnavailableCopy(
-            hasCopyableSelection: false,
-            bindingIsExactCopyAction: true
-        ))
-        #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
-            hasCopyableSelection: false,
-            bindingIsExactCopyAction: false
-        ), "A custom performable Cmd+C action must reach Ghostty")
-        #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
-            hasCopyableSelection: true,
-            bindingIsExactCopyAction: true
-        ))
+    func terminalConfiguredCopyBindingFlowsThroughGhosttyAfterMenuMiss() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        let previousMenu = installUnavailableCopyMenu(target: terminal)
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandCKeyDownEvent(windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(terminal.unavailableCopyMenuEvents.count == 1)
+        #expect(
+            terminal.afterMenuMissEvents.count == 1,
+            Comment(rawValue: "A configured Cmd+C binding rejected by Ghostty's menu transaction must continue through normal binding processing")
+        )
     }
 
     @Test
@@ -365,7 +384,7 @@ struct WindowKeyDownReplayGuardTests {
         }
 
         #expect(
-            !terminal.shouldConsumeUnavailableCopyKeyEquivalent(event),
+            !terminal.consumeUnavailableCopyMenuAction(event),
             Comment(rawValue: "A transient missing surface must fall through so Ghostty can recover it and resolve the live binding")
         )
     }
