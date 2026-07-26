@@ -854,4 +854,28 @@ mod tests {
             Some(PathBuf::from("/Applications/cmux-browser.app/Contents/Resources/ghostty"))
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_converts_local_osc7_urls_without_trusting_remote_hosts() {
+        let mut hostname = [0_u8; 256];
+        assert_eq!(unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) }, 0);
+        let hostname_end =
+            hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+        let hostname = std::str::from_utf8(&hostname[..hostname_end]).unwrap();
+
+        assert_eq!(
+            terminal_pwd_to_local_path(&format!("file://{hostname}/tmp/a%20b")),
+            Some(PathBuf::from("/tmp/a b"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("file://localhost/tmp/local"),
+            Some(PathBuf::from("/tmp/local"))
+        );
+        assert_eq!(
+            terminal_pwd_to_local_path("/tmp/plain"),
+            Some(PathBuf::from("/tmp/plain"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
 }
