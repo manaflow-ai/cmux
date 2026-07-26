@@ -38,36 +38,39 @@ struct BrowserDesignModePromptPayload: Encodable {
                     : nil
             )
         }
-        prompt = Self.promptSegments(runs: context.prompt, selections: snapshot.selections)
+        prompt = browserDesignModePromptSegments(
+            runs: context.prompt,
+            selections: snapshot.selections
+        )
     }
+}
 
-    private static func promptSegments(
-        runs: [BrowserDesignModePromptRun],
-        selections: [BrowserDesignModeSelection]
-    ) -> [BrowserDesignModePromptPayloadSegment] {
-        var selectionIndices: [String: Int] = [:]
-        for (index, selection) in selections.enumerated()
-        where selectionIndices[selection.selector] == nil {
-            selectionIndices[selection.selector] = index
-        }
-        var segments: [BrowserDesignModePromptPayloadSegment] = []
-        var resolvedToken = false
-        for run in runs {
-            switch run {
-            case .text(let value):
-                if case .text(let previous) = segments.last {
-                    segments[segments.count - 1] = .text(previous + value)
-                } else if !value.isEmpty {
-                    segments.append(.text(value))
-                }
-            case .token(let identity):
-                guard let index = selectionIndices[identity] else {
-                    continue
-                }
-                segments.append(.selection(index))
-                resolvedToken = true
-            }
-        }
-        return resolvedToken ? segments : []
+private func browserDesignModePromptSegments(
+    runs: [BrowserDesignModePromptRun],
+    selections: [BrowserDesignModeSelection]
+) -> [BrowserDesignModePromptPayloadSegment] {
+    var selectionIndices: [String: Int] = [:]
+    for (index, selection) in selections.enumerated()
+    where selectionIndices[selection.selector] == nil {
+        selectionIndices[selection.selector] = index
     }
+    var segments: [BrowserDesignModePromptPayloadSegment] = []
+    var resolvedToken = false
+    for run in runs {
+        switch run {
+        case .text(let value):
+            if case .text(let previous) = segments.last {
+                segments[segments.count - 1] = .text(previous + value)
+            } else if !value.isEmpty {
+                segments.append(.text(value))
+            }
+        case .token(let identity):
+            guard let index = selectionIndices[identity] else {
+                continue
+            }
+            segments.append(.selection(index))
+            resolvedToken = true
+        }
+    }
+    return resolvedToken ? segments : []
 }

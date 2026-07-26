@@ -61,8 +61,8 @@ public struct BrowserDesignModePromptFormatter: Sendable {
         }
 
         for (index, selection) in selections.enumerated() {
-            let tagName = Self.quotedOneLine(selection.tagName)
-            let selector = Self.quotedOneLine(selection.selector)
+            let tagName = quotedOneLine(selection.tagName)
+            let selector = quotedOneLine(selection.selector)
             lines.append(
                 String(
                     localized: "browser.designMode.handoff.selection",
@@ -78,7 +78,7 @@ public struct BrowserDesignModePromptFormatter: Sendable {
         return lines.joined(separator: "\n")
     }
 
-    private static func quotedOneLine(_ value: String) -> String {
+    private func quotedOneLine(_ value: String) -> String {
         let oneLine = value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard let data = try? JSONEncoder().encode(oneLine),
               let quoted = String(data: data, encoding: .utf8) else {
