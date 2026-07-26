@@ -11,6 +11,11 @@ struct WorkspaceTerminalFontConfigurationSnapshot: Equatable {
 
 @MainActor
 private struct WorkspaceTerminalFontSizePanelDiscovery {
+    private enum Scope {
+        case workspace
+        case windowDock
+    }
+
     enum Origin {
         case workspace
         case workspaceDock
@@ -52,62 +57,221 @@ private struct WorkspaceTerminalFontSizePanelDiscovery {
         case nonTerminal
     }
 
-    /// Discovery snapshots identities only. A dictionary iterator retains its
-    /// backing storage and every panel value, which would keep closed browser
-    /// and terminal panels alive while a failed native mutation is parked.
-    private let visits: [Visit]
-    private var nextVisitIndex = 0
+    private enum EntryKey: Hashable {
+        case workspace(UUID)
+        case workspaceDock(UUID)
+        case remoteMirror(UUID)
+        case remotePane(
+            mirrorId: UUID,
+            paneId: Int,
+            panelId: UUID
+        )
+        case windowDock(UUID)
+    }
 
-    init(workspace: Workspace) {
-        var collectedVisits: [Visit] = workspace.panels.keys.map {
-            .candidate(
-                Candidate(panelId: $0, origin: .workspace)
-            )
+    @MainActor
+    private struct IteratorState {
+        private enum Phase {
+            case workspace
+            case workspaceDock
+            case remoteMirrors
+            case windowDock
+            case finished
         }
-        if let workspaceDock = workspace._dockSplit {
-            collectedVisits.append(
-                contentsOf: workspaceDock.panels.keys.map {
-                    .candidate(
-                        Candidate(
-                            panelId: $0,
-                            origin: .workspaceDock
-                        )
-                    )
-                }
-            )
+
+        private var phase: Phase
+        private var workspacePanels:
+            Dictionary<UUID, any Panel>.Iterator?
+        private var workspaceDockPanels:
+            Dictionary<UUID, any Panel>.Iterator?
+        private var remoteMirrors:
+            Dictionary<UUID, RemoteTmuxWindowMirror>.Iterator?
+        private var remoteMirrorPanels:
+            Dictionary<Int, TerminalPanel>.Iterator?
+        private var remoteMirrorId: UUID?
+        private var windowDockPanels:
+            Dictionary<UUID, any Panel>.Iterator?
+
+        init(workspace: Workspace) {
+            phase = .workspace
+            workspacePanels = workspace.panels.makeIterator()
+            workspaceDockPanels =
+                workspace._dockSplit?.panels.makeIterator()
+            remoteMirrors =
+                workspace.remoteTmuxWindowMirrors.makeIterator()
+            remoteMirrorPanels = nil
+            remoteMirrorId = nil
+            windowDockPanels = nil
         }
-        for (mirrorId, mirror) in workspace.remoteTmuxWindowMirrors {
-            // Keep the existing bounded visit charged for entering a mirror.
-            collectedVisits.append(.nonTerminal)
-            for (paneId, panel) in mirror.panelsByPaneId {
-                collectedVisits.append(
-                    .candidate(
-                        Candidate(
-                            panelId: panel.id,
-                            origin: .remoteMirror(
-                                mirrorId: mirrorId,
-                                paneId: paneId
+
+        init(windowDock: DockSplitStore?) {
+            phase = .windowDock
+            workspacePanels = nil
+            workspaceDockPanels = nil
+            remoteMirrors = nil
+            remoteMirrorPanels = nil
+            remoteMirrorId = nil
+            windowDockPanels = windowDock?.panels.makeIterator()
+        }
+
+        mutating func nextEntry()
+            -> (key: EntryKey, visit: Visit)? {
+            while true {
+                switch phase {
+                case .workspace:
+                    if let (panelId, panel) =
+                            workspacePanels?.next() {
+                        let visit: Visit
+                        if panel is TerminalPanel {
+                            visit = .candidate(
+                                Candidate(
+                                    panelId: panelId,
+                                    origin: .workspace
+                                )
+                            )
+                        } else {
+                            visit = .nonTerminal
+                        }
+                        return (.workspace(panelId), visit)
+                    }
+                    workspacePanels = nil
+                    phase = .workspaceDock
+
+                case .workspaceDock:
+                    if let (panelId, panel) =
+                            workspaceDockPanels?.next() {
+                        let visit: Visit
+                        if panel is TerminalPanel {
+                            visit = .candidate(
+                                Candidate(
+                                    panelId: panelId,
+                                    origin: .workspaceDock
+                                )
+                            )
+                        } else {
+                            visit = .nonTerminal
+                        }
+                        return (.workspaceDock(panelId), visit)
+                    }
+                    workspaceDockPanels = nil
+                    phase = .remoteMirrors
+
+                case .remoteMirrors:
+                    if let (paneId, panel) =
+                            remoteMirrorPanels?.next(),
+                       let remoteMirrorId {
+                        return (
+                            .remotePane(
+                                mirrorId: remoteMirrorId,
+                                paneId: paneId,
+                                panelId: panel.id
+                            ),
+                            .candidate(
+                                Candidate(
+                                    panelId: panel.id,
+                                    origin: .remoteMirror(
+                                        mirrorId: remoteMirrorId,
+                                        paneId: paneId
+                                    )
+                                )
                             )
                         )
-                    )
+                    }
+                    remoteMirrorPanels = nil
+                    remoteMirrorId = nil
+                    if let (mirrorId, mirror) =
+                            remoteMirrors?.next() {
+                        remoteMirrorId = mirrorId
+                        remoteMirrorPanels =
+                            mirror.panelsByPaneId.makeIterator()
+                        return (
+                            .remoteMirror(mirrorId),
+                            .nonTerminal
+                        )
+                    }
+                    remoteMirrors = nil
+                    phase = .windowDock
+
+                case .windowDock:
+                    if let (panelId, panel) =
+                            windowDockPanels?.next() {
+                        let visit: Visit
+                        if panel is TerminalPanel {
+                            visit = .candidate(
+                                Candidate(
+                                    panelId: panelId,
+                                    origin: .windowDock
+                                )
+                            )
+                        } else {
+                            visit = .nonTerminal
+                        }
+                        return (.windowDock(panelId), visit)
+                    }
+                    windowDockPanels = nil
+                    phase = .finished
+
+                case .finished:
+                    return nil
+                }
+            }
+        }
+    }
+
+    private let scope: Scope
+    private var iteratorState: IteratorState?
+    private var completedEntryKeys: Set<EntryKey> = []
+    private var isFinished = false
+#if DEBUG
+    let debugConstructionVisitCount = 0
+#endif
+
+    init(workspace _: Workspace) {
+        scope = .workspace
+    }
+
+    init(windowDock _: DockSplitStore?) {
+        scope = .windowDock
+    }
+
+    mutating func nextVisit(
+        in workspace: Workspace?,
+        windowDock: DockSplitStore?
+    ) -> Visit? {
+        guard !isFinished else { return nil }
+        if iteratorState == nil {
+            switch scope {
+            case .workspace:
+                guard let workspace else {
+                    isFinished = true
+                    return nil
+                }
+                iteratorState = IteratorState(
+                    workspace: workspace
+                )
+            case .windowDock:
+                iteratorState = IteratorState(
+                    windowDock: windowDock
                 )
             }
         }
-        visits = collectedVisits
+
+        guard let entry = iteratorState?.nextEntry() else {
+            iteratorState = nil
+            isFinished = true
+            return nil
+        }
+        guard completedEntryKeys.insert(entry.key).inserted else {
+            return .nonTerminal
+        }
+        return entry.visit
     }
 
-    init(windowDock: DockSplitStore?) {
-        visits = windowDock?.panels.keys.map {
-            .candidate(
-                Candidate(panelId: $0, origin: .windowDock)
-            )
-        } ?? []
-    }
-
-    mutating func nextVisit() -> Visit? {
-        guard nextVisitIndex < visits.count else { return nil }
-        defer { nextVisitIndex += 1 }
-        return visits[nextVisitIndex]
+    /// Dictionary iterators retain their backing values. Drop that snapshot
+    /// whenever native work parks; identity checkpoints let a later bounded
+    /// drain rebuild without replaying an applied terminal.
+    mutating func discardRetainedPanelStorage() {
+        iteratorState = nil
     }
 }
 
@@ -1175,6 +1339,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
 #if DEBUG
     private(set) var debugLastSynchronousTransferRequestVisitCount = 0
+    private(set) var debugLastPanelDiscoveryConstructionVisitCount = 0
 
     func debugFlushOneDrain() {
         invalidateScheduledDrain()
@@ -1691,12 +1856,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     fallbackLineageAlreadyIncludesChange:
                         fallbackLineage != nil
                 )
+            let discovery =
+                WorkspaceTerminalFontSizePanelDiscovery(
+                    workspace: workspace
+                )
+#if DEBUG
+            debugLastPanelDiscoveryConstructionVisitCount =
+                discovery.debugConstructionVisitCount
+#endif
             activeRequest = ActiveRequest(
                 request: request,
                 inheritanceContext: inheritanceContext,
-                discovery: WorkspaceTerminalFontSizePanelDiscovery(
-                    workspace: workspace
-                ),
+                discovery: discovery,
                 configuredRuntimePoints: configuredRuntimePoints,
                 magnificationPercent: magnificationPercent
             )
@@ -1739,12 +1910,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 )
                 ?? fallbackInheritanceContext
             dockSlot.pendingInheritanceContext = inheritanceContext
+            let discovery =
+                WorkspaceTerminalFontSizePanelDiscovery(
+                    windowDock: requestWindowDock
+                )
+#if DEBUG
+            debugLastPanelDiscoveryConstructionVisitCount =
+                discovery.debugConstructionVisitCount
+#endif
             activeRequest = ActiveRequest(
                 request: request,
                 inheritanceContext: inheritanceContext,
-                discovery: WorkspaceTerminalFontSizePanelDiscovery(
-                    windowDock: requestWindowDock
-                ),
+                discovery: discovery,
                 configuredRuntimePoints: configuredRuntimePoints,
                 magnificationPercent: magnificationPercent
             )
@@ -2104,7 +2281,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 requestRecord.magnificationPercent
         )
         guard outcome.didSucceed else {
-            guard recordMutationFailure() else { return false }
+            guard recordMutationFailure() else {
+                discardActiveRequestPanelStorage()
+                return false
+            }
             Self.logger.error(
                 "Skipping transferred terminal after repeated native font-size failure"
             )
@@ -2403,6 +2583,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         )
         guard outcome.didSucceed else {
             guard recordMutationFailure() else {
+                activeRequest.discovery
+                    .discardRetainedPanelStorage()
                 return .retry
             }
             Self.logger.error(
@@ -2544,6 +2726,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func resetMutationRetryState() {
         mutationRetryDisposition = .ready
         automaticMutationRetryAvailable = true
+    }
+
+    private func discardActiveRequestPanelStorage() {
+        guard var activeRequest else { return }
+        activeRequest.discovery.discardRetainedPanelStorage()
+        self.activeRequest = activeRequest
     }
 
     private func settleForFontSizeWorkIdleBarrier() {
@@ -2761,7 +2949,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 activeRequest = current
                 break drainLoop
             }
-            guard let visit = current.discovery.nextVisit() else {
+            guard let visit = current.discovery.nextVisit(
+                in: workspace,
+                windowDock: requestWindowDock
+            ) else {
                 activeRequest = nil
                 finish(current)
                 activeRequestHasBudgetReservation = false

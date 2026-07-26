@@ -407,7 +407,11 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey, globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
+        scrollbackReplayEnvironmentKey:
+            SessionScrollbackReplayStore.environmentKey,
+        globalFontMagnificationPercent: {
+            GhosttyApp.shared.appliedGlobalFontMagnificationPercent
+        }
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"

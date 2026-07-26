@@ -679,6 +679,22 @@ extension TerminalSurface {
             fitState.rebase(to: runtimePoints)
             mobileViewportFontFitState = fitState
         }
+        if isExplicitOverride,
+           let lastKnownFontSizeLineage,
+           lastKnownFontSizeLineage.isExplicitOverride {
+            let projectedRuntimePoints =
+                TerminalFontSizePolicy().clampedRuntimePoints(
+                    CmuxSurfaceConfigTemplate.runtimeFontSize(
+                        fromBasePoints:
+                            lastKnownFontSizeLineage.basePoints,
+                        percent: globalFontMagnificationPercent
+                    )
+                )
+            if abs(runtimePoints - projectedRuntimePoints) <= 0.000_1 {
+                followsConfiguredFontSize = false
+                return lastKnownFontSizeLineage
+            }
+        }
         followsConfiguredFontSize = !isExplicitOverride
 
         let lineage = TerminalFontSizeLineage(

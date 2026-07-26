@@ -571,6 +571,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Window coordinators receive it explicitly instead of using global state.
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeCoordinator.Arbiter()
+#if DEBUG
+    var debugWorkspaceTerminalFontSizeEnqueueResultOverride: Bool?
+#endif
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -13947,12 +13950,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
             let routedManager = routedContext?.tabManager ?? tabManager
             if let selectedWorkspace = routedManager?.selectedWorkspace {
-                return enqueueWorkspaceTerminalFontSizeChange(
-                    workspaceTerminalFontSizeAction,
-                    workspace: selectedWorkspace,
-                    tabManager: routedManager,
-                    deferFlush: event.isARepeat
-                )
+                let accepted =
+                    enqueueWorkspaceTerminalFontSizeChange(
+                        workspaceTerminalFontSizeAction,
+                        workspace: selectedWorkspace,
+                        tabManager: routedManager,
+                        deferFlush: event.isARepeat
+                    )
+                if !accepted {
+                    NSSound.beep()
+                }
             }
             return true
         }
@@ -14271,6 +14278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let context = mainWindowContext(for: tabManager) else {
             return true
         }
+#if DEBUG
+        if let debugWorkspaceTerminalFontSizeEnqueueResultOverride {
+            return debugWorkspaceTerminalFontSizeEnqueueResultOverride
+        }
+#endif
         return context.workspaceTerminalFontSizeCoordinator.enqueue(
             change,
             workspaceId: workspace.id,
