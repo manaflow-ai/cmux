@@ -12156,6 +12156,23 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_alt_character_without_text_does_not_match_modeless_bindings() {
+        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: None,
+            text: String::new(),
+        });
+        let (key, fallback) = input.shortcut_keys();
+
+        assert!(input.suppresses_alt_shortcut());
+        assert_eq!(
+            super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
+            None
+        );
+    }
+
+    #[test]
     fn alt_binding_with_matching_associated_text_remains_active() {
         let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
@@ -13492,6 +13509,49 @@ mod tests {
             assert!(!viewport.contains("history-"));
             assert!(compact.contains("prompt>visible-content"));
         });
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn failed_command_k_preserves_viewport_and_selection() {
+        let (mux, surface) = test_mux("command-k-failure-view-test", None);
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
+        });
+        surface.scroll_delta(-5).unwrap();
+        let offset_before = surface.with_terminal(|term| term.scrollbar().unwrap().offset).unwrap();
+        assert!(offset_before > 0);
+        let selection = Selection { surface: surface.id, anchor: (1, 1), head: (2, 2) };
+
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.selection = Some(selection);
+
+        assert_eq!(
+            app.run_clear_history_shortcut(
+                KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER).into()
+            ),
+            RenderAction::None
+        );
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        app.apply_pty_failures();
+
+        assert_eq!(
+            surface.with_terminal(|term| term.scrollbar().unwrap().offset).unwrap(),
+            offset_before
+        );
+        assert!(app.selection.is_some_and(|current| {
+            current.surface == selection.surface
+                && current.anchor == selection.anchor
+                && current.head == selection.head
+        }));
+        assert!(app.status_message.as_deref().is_some_and(|message| {
+            message.starts_with(localization::catalog().terminal.clear_history_failed)
+        }));
         mux.close_surface(surface.id).unwrap();
     }
 

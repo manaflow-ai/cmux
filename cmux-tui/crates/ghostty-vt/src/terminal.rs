@@ -2904,6 +2904,24 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_without_prompt_metadata_rejects_hard_newline_input_in_history() {
+        let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"active-one\r\nactive-two\r\nactive-three\r\nactive-four");
+        let history_before = terminal.history_rows();
+        let contents_before = terminal.plain_text().unwrap();
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Unchanged);
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), history_before);
+        assert_eq!(terminal.plain_text().unwrap(), contents_before);
+    }
+
+    #[test]
     fn clear_history_fails_closed_at_every_partial_vt_boundary() {
         let sequences: &[(&str, &[u8])] = &[
             ("escape-intermediate", b"\x1b(B"),
