@@ -115,6 +115,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     request,
                     sessionTotal: scan?.sessionTotal,
                     sessionID: scan?.sessionID,
+                    scanSucceeded: scan != nil,
                     currentSurfaceGeneration: surfaceView.visibleArtifactCountGeneration,
                     freshestLocalCount: self.freshestLocalArtifactCount
                 )

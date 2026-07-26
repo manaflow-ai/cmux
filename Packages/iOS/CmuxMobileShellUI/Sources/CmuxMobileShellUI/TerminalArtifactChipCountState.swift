@@ -114,6 +114,7 @@ struct TerminalArtifactChipCountState: Sendable {
         _ request: Request,
         sessionTotal: Int?,
         sessionID: String? = nil,
+        scanSucceeded: Bool = true,
         currentSurfaceGeneration: UInt64,
         freshestLocalCount: Int
     ) -> Completion {
@@ -130,6 +131,12 @@ struct TerminalArtifactChipCountState: Sendable {
             // themselves are cached only from accepted responses below.
             lastSessionTotal = nil
             lastSessionTotalSessionID = sessionID
+        } else if scanSucceeded, sessionID == nil, lastSessionTotalSessionID != nil {
+            // A SUCCESSFUL response with no session means the binding is gone
+            // (e.g. the session moved to another surface) — unlike a transport
+            // failure, which proves nothing and holds. Clear the stale total.
+            lastSessionTotal = nil
+            lastSessionTotalSessionID = nil
         }
 
         let outcome: CompletionOutcome
