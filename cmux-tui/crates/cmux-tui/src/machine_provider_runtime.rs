@@ -3802,7 +3802,7 @@ mod tests {
             local,
             active_local: None,
             pending_active_local: None,
-            pending_provider_switch: false,
+            pending_provider_switch: true,
         };
 
         let result = controller.perform_request(MachineRequest::Switch(local_key)).unwrap();
@@ -3812,8 +3812,16 @@ mod tests {
         assert_eq!(result.ui.snapshot.active, Some(local_key));
         assert!(result.ui.session_available);
         assert_eq!(controller.active_local, None, "candidate is not active before commit");
+        assert!(
+            controller.pending_provider_switch,
+            "an uncommitted local candidate cannot cancel the pairing handoff"
+        );
         controller.commit_replacement().unwrap();
         assert_eq!(controller.active_local, Some(local_key));
+        assert!(
+            !controller.pending_provider_switch,
+            "the committed local selection supersedes the automatic pairing handoff"
+        );
         let failed = controller.perform_request(MachineRequest::Switch(offline_key));
         assert!(failed.is_err());
         assert_eq!(
