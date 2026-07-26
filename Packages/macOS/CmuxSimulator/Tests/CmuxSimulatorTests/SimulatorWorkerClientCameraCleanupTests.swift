@@ -148,6 +148,87 @@ extension SimulatorWorkerClientTests {
         #expect(await retry.value == .completed)
     }
 
+    @Test("Later camera claims can repeatedly retry retained failed cleanup")
+    func laterCameraClaimRetriesRetainedFailedCleanup() async throws {
+        let coordinator = SimulatorCameraCleanupCoordinator()
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let failure = SimulatorFailure(
+            code: "fixture_cleanup_failed",
+            message: "The fixture cleanup failed.",
+            isRecoverable: true
+        )
+        let results = CameraCleanupResultSequence([
+            .failed(failure),
+            .failed(failure),
+            .completed,
+        ])
+        _ = try await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let failedCleanup = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
+            await results.next()
+        }
+        #expect(await failedCleanup.value == .failed(failure))
+
+        await #expect(throws: SimulatorFailure.self) {
+            _ = try await coordinator.claim(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+        }
+        let replacementOwner = try await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+
+        #expect(await results.attemptCount == 3)
+        #expect(await coordinator.isCurrent(
+            replacementOwner,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ))
+    }
+
+    @Test("Application cleanup drain reports failure and retries on the next quit")
+    func applicationCleanupDrainRetriesRetainedFailure() async throws {
+        let scope = SimulatorCameraCleanupOwnershipScope()
+        let coordinator = scope.coordinator
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let failure = SimulatorFailure(
+            code: "fixture_cleanup_failed",
+            message: "The fixture cleanup failed.",
+            isRecoverable: true
+        )
+        let results = CameraCleanupResultSequence([
+            .failed(failure),
+            .failed(failure),
+            .completed,
+        ])
+        _ = try await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let failedCleanup = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
+            await results.next()
+        }
+        #expect(await failedCleanup.value == .failed(failure))
+
+        #expect(!(await scope.waitForPendingCleanup()))
+        #expect(await results.attemptCount == 2)
+        #expect(await scope.waitForPendingCleanup())
+        #expect(await results.attemptCount == 3)
+        #expect(await coordinator.trackedTargetCount == 0)
+    }
+
     @Test("A superseded cleanup preserves ownership until the latest cleanup succeeds")
     func supersededCameraCleanupPreservesOwnership() async throws {
         let coordinator = SimulatorCameraCleanupCoordinator()
