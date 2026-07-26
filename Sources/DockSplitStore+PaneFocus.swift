@@ -50,6 +50,10 @@ extension DockSplitStore {
         panels[panelId]?.triggerFlash(reason: .navigation)
     }
 
+    func triggerUserInitiatedFocusFlash(panelId: UUID) {
+        panels[panelId]?.triggerFlash(reason: .userInitiated)
+    }
+
     func focusFirstControl() -> Bool {
         guard let paneId = bonsplitController.allPaneIds.first else { return false }
         bonsplitController.focusPane(paneId)
