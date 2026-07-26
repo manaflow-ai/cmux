@@ -2117,6 +2117,39 @@ mod tests {
     }
 
     #[test]
+    fn older_remote_server_reports_unencodable_command_shortcut() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let session = test_session(Box::new(RecordingAcknowledgingWriter {
+            session: session_slot.clone(),
+            requests: requests.clone(),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session.surfaces.lock().unwrap().insert(
+            7,
+            Arc::new(RemoteSurface {
+                id: 7,
+                kind: SurfaceKind::Pty,
+                term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
+                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+                dirty: AtomicBool::new(false),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            }),
+        );
+        let fallback = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_K,
+            mods: Mods::SUPER,
+            unshifted_codepoint: 'k' as u32,
+            action: Some(KeyAction::Press),
+            ..Default::default()
+        };
+
+        assert!(session.clear_history_or_send_key(7, &fallback).is_err());
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn intermediate_remote_server_keeps_plain_clear_but_forwards_shortcut_key() {
         let session_slot = Arc::new(Mutex::new(None));
         let requests = Arc::new(Mutex::new(Vec::new()));

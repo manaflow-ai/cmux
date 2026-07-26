@@ -949,10 +949,43 @@ fn adopted_legacy_host_forwards_clear_history_fallback_as_input() {
     );
     assert!(wait_for_screen(&harness.socket, adopted_surface, "readyz").contains("readyz"));
 
-    request(
+    let unsupported = request_response(
         &harness.socket,
         serde_json::json!({
             "id": 4,
+            "cmd": "clear-history",
+            "surface": adopted_surface,
+            "fallback_key": {
+                "key": "k",
+                "mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": true,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "consumed_mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": false,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "utf8": "",
+                "unshifted_codepoint": "k",
+                "action": "press",
+                "macos_option_as_alt": true,
+            },
+        }),
+    );
+    assert_eq!(unsupported["ok"], false, "unencodable fallback was silently accepted");
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
             "cmd": "close-terminal",
             "terminal_id": terminal_id,
             "terminal_incarnation": incarnation,

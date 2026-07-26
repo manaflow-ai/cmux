@@ -3394,6 +3394,26 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_reports_unencodable_alternate_screen_fallback() {
+        let mux = Mux::new_for_test("clear-history-unencodable-key", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        replace_local_writer(&surface, Box::new(writer.clone()));
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h"));
+        let input = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_K,
+            mods: ghostty_vt::Mods::SUPER,
+            unshifted_codepoint: 'k' as u32,
+            action: Some(ghostty_vt::KeyAction::Press),
+            ..Default::default()
+        };
+
+        assert!(surface.clear_history_or_encode_key(Some(&input)).is_err());
+        assert!(writer.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn clear_history_enter_fallback_does_not_relock_the_terminal() {
         let mux = Mux::new_for_test("clear-history-enter-lock", SurfaceOptions::default());
         let surface =
