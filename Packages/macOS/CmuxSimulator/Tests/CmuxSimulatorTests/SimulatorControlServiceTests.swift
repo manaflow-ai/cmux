@@ -219,6 +219,73 @@ struct SimulatorControlServiceTests {
         ) == .granted)
     }
 
+    @Test("The default camera journal survives temporary-directory cleanup")
+    func defaultCameraJournalUsesApplicationSupport() throws {
+        let fileManager = FileManager.default
+        let applicationSupportDirectory = try #require(
+            fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        )
+        let expectedDirectory = applicationSupportDirectory
+            .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
+            .appendingPathComponent("camera-authorizations", isDirectory: true)
+        let deviceIdentifier = "DURABLE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let store = SimulatorCameraAuthorizationStore()
+        try store.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        defer {
+            try? store.remove(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+        }
+
+        let records = (try? fileManager.contentsOfDirectory(
+            at: expectedDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        #expect(records.contains { url in
+            guard let data = try? Data(contentsOf: url),
+                  let record = try? JSONDecoder().decode(
+                      SimulatorCameraAuthorizationRecord.self,
+                      from: data
+                  ) else { return false }
+            return record.deviceIdentifier == deviceIdentifier
+                && record.bundleIdentifier == bundleIdentifier
+        })
+    }
+
+    @Test("Camera launch recovery fails closed on a corrupt journal")
+    func cameraLaunchRecoveryFailsClosedOnCorruptJournal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "camera-corrupt-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let corruptJournal = directory.appendingPathComponent("corrupt.json")
+        try Data(#"{"deviceIdentifier":"DEVICE""#.utf8).write(to: corruptJournal)
+        let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
+        let commands = RecordingCommandRunner()
+        let service = SimulatorControlService(
+            commands: commands,
+            cameraAuthorizationStore: authorizationStore
+        )
+
+        #expect(!(await service.recoverOrphanedCameraAuthorizations()))
+        #expect(await commands.recordedInvocations().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: corruptJournal.path))
+        #expect(throws: (any Error).self) {
+            try authorizationStore.records()
+        }
+    }
+
     @Test("Device type identifies family when runtimes omit family metadata")
     func handlesDuplicateRuntimeIdentifiers() async throws {
         let commands = RecordingCommandRunner(results: [

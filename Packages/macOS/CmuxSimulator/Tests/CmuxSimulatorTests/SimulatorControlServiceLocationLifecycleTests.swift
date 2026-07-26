@@ -76,6 +76,34 @@ struct SimulatorControlServiceLocationLifecycleTests {
         #expect(await service.locationRouteInitialCoordinates["DEVICE"] == nil)
     }
 
+    @Test("A replacement service restores a route from its persisted rollback journal")
+    func replacementServiceRestoresPersistedRoute() async throws {
+        let deviceID = UUID().uuidString
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-route-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let route = Self.route()
+        let firstService = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: SimulatorLocationOwnershipScope(directory: directory)
+        )
+        try await firstService.startLocationRoute(deviceID: deviceID, route: route)
+
+        let replacementCommands = LocationLifecycleCommandRunner()
+        let replacementService = SimulatorControlService(
+            commands: replacementCommands,
+            locationOwnershipScope: SimulatorLocationOwnershipScope(directory: directory)
+        )
+        try await replacementService.stopLocationRoute(deviceID: deviceID)
+
+        #expect(await replacementCommands.arguments() == [
+            ["simctl", "location", deviceID, "clear"],
+            ["simctl", "location", deviceID, "set", "37.7,-122.4"],
+        ])
+    }
+
     @Test(
         "Failed pause and stop commands preserve their running route lifecycle",
         arguments: [1, 2]
