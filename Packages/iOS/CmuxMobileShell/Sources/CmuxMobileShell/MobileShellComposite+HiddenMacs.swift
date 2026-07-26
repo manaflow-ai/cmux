@@ -203,7 +203,12 @@ extension MobileShellComposite {
     ) async -> Bool {
         if let pairedMacStore {
             do {
-                try await pairedMacStore.remove(
+                // Use the EXACT captured scope, not `remove` (which re-resolves a
+                // nil/team-less `teamID` to the currently-selected team). The scope
+                // was snapshotted before the async revoke; if the user switched
+                // teams meanwhile, a plain `remove` would delete the wrong team's
+                // row and leave the captured team-less pairing behind.
+                try await pairedMacStore.removeExactScope(
                     macDeviceID: macDeviceID,
                     instanceTag: instanceTag,
                     stackUserID: scope.userID,
@@ -224,6 +229,9 @@ extension MobileShellComposite {
         guard await isScopeCurrent(scope) else { return true }
         await loadPairedMacs()
         await loadRegistryDevices()
+        // Mirror the hide path: once the last stored Mac is gone, drop the saved
+        // reconnect hint so the app does not keep trying to redial a forgotten Mac.
+        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
         return true
     }
 

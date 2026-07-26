@@ -389,8 +389,54 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let team = await resolvedTeam(teamID)
+        try await removeMirroring(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            team: await resolvedTeam(teamID),
+            exactScope: false
+        )
+    }
+
+    /// Remove one exact tagged pairing in the EXACT captured team scope and
+    /// mirror the delete.
+    ///
+    /// Identical to ``remove(macDeviceID:instanceTag:stackUserID:teamID:)``
+    /// except a nil (team-less) `teamID` is NOT resolved to the currently-
+    /// selected team. The forget-hidden-computer path captures its scope before
+    /// an async revoke; if the user switches teams during that await, resolving
+    /// nil to the live team here would tombstone the delete under, and remove
+    /// the local row of, the newly-selected team instead of the team-less
+    /// pairing this call targets. Delegates to `inner.removeExactScope` so the
+    /// team-scoping decorator below also honors the captured scope.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await removeMirroring(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            team: teamID,
+            exactScope: true
+        )
+    }
+
+    /// Shared local-delete + backup-mirror body for both `remove` and
+    /// `removeExactScope`. `team` is already resolved by the caller (the live
+    /// selected team for `remove`, the captured scope verbatim for
+    /// `removeExactScope`). `exactScope` selects the matching inner delete so a
+    /// team-less captured scope is preserved all the way down.
+    private func removeMirroring(
+        macDeviceID rawMacDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        team: String?,
+        exactScope: Bool
+    ) async throws {
+        let macDeviceID = cmxCanonicalDeviceID(rawMacDeviceID)
         let account: String?
         if let stackUserID {
             account = stackUserID
@@ -422,12 +468,21 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let draining = cancelInFlightRestoresReturningTasks()
         for task in draining { _ = await task.value }
         do {
-            try await inner.remove(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: account,
-                teamID: team
-            )
+            if exactScope {
+                try await inner.removeExactScope(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    stackUserID: account,
+                    teamID: team
+                )
+            } else {
+                try await inner.remove(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    stackUserID: account,
+                    teamID: team
+                )
+            }
             if let scope, let backupAccount {
                 await flushPendingDeletes(scope: scope, account: backupAccount, teamID: team)
             }

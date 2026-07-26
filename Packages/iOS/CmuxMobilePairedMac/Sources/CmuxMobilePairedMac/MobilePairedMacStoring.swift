@@ -147,6 +147,23 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
+    /// Remove one exact tagged Mac app instance in the EXACT owner scope the
+    /// caller captured, without re-resolving a nil `teamID` to the currently
+    /// selected team.
+    ///
+    /// The forget path captures its scope before an async network revoke, then
+    /// deletes the stored row. If the user switches teams during that await, a
+    /// nil (team-less) captured `teamID` must still delete the team-less row it
+    /// was captured against, not the freshly selected team's rows. Decorators
+    /// that substitute a nil `teamID` with the live team selection override this
+    /// to bypass that substitution and honor the captured scope verbatim.
+    func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
     /// Remove all paired Macs.
     func removeAll() async throws
 }
@@ -197,6 +214,25 @@ extension MobilePairedMacStoring {
     ) async throws {
         try await remove(
             macDeviceID: macDeviceID,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    /// Default: stores that never re-resolve a nil `teamID` (the base store and
+    /// the build-scope decorator, which scope the given `teamID` verbatim)
+    /// already honor the captured scope, so the exact-scope removal is the
+    /// tagged remove unchanged. Team-substituting decorators
+    /// (``TeamScopedPairedMacStore``, ``BackingUpPairedMacStore``) override this.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await remove(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )

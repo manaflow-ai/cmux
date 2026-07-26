@@ -263,6 +263,36 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Remove one exact tagged app instance in the EXACT captured team scope.
+    ///
+    /// Identical to ``remove(macDeviceID:instanceTag:stackUserID:teamID:)``
+    /// except it does NOT substitute a nil `teamID` with the currently-selected
+    /// team (``resolvedTeam``). The forget-hidden-computer path captures its
+    /// scope before an async revoke; if the user switches teams during that
+    /// await, resolving a nil (team-less) captured scope to the live team would
+    /// delete the newly-selected team's row instead of the team-less one this
+    /// call was issued against. Forwarding to ``inner`` via `removeExactScope`
+    /// keeps the exact scope through the layers below.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+        try await inner.removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID
+        )
+    }
+
     /// Remove all paired Macs.
     public func removeAll() async throws {
         try await inner.removeAll()
