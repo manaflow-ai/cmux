@@ -30160,7 +30160,14 @@ export default CMUXSessionRestore;
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
-        let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+        let hookEnvironmentPID = agentPIDFromHookEnvironment(agentName: def.name, env: env)
+        let inferredPID = hookEnvironmentPID ?? inferredAgentPID()
+        func resolvedAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
+            // The wrapper exports the current agent process generation. It
+            // must supersede the durable record, whose PID belongs to the
+            // process that ran before a session resume.
+            hookEnvironmentPID ?? mapped?.pid ?? inferredPID
+        }
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -30263,7 +30270,10 @@ export default CMUXSessionRestore;
         func performAgentSessionTeardown() {
             guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
             sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: resolvedAgentPID(mapped: mapped),
+                env: env
+            )
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
@@ -30653,7 +30663,7 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = mapped?.pid ?? inferredPID
+            let pid = resolvedAgentPID(mapped: mapped)
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
@@ -30995,7 +31005,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = resolvedAgentPID(mapped: mapped)
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
@@ -31335,7 +31345,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = resolvedAgentPID(mapped: mapped)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -31532,7 +31542,7 @@ export default CMUXSessionRestore;
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let pid = resolvedAgentPID(mapped: mapped)
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
@@ -31710,7 +31720,7 @@ export default CMUXSessionRestore;
                         surfaceId: mapped.surfaceId,
                         cwd: hookCwd ?? mapped.cwd,
                         transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
-                        pid: mapped.pid,
+                        pid: resolvedAgentPID(mapped: mapped),
                         launchCommand: mapped.launchCommand,
                         lastSubtitle: nil,
                         lastBody: nil,
