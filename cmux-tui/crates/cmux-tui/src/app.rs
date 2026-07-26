@@ -20193,6 +20193,22 @@ mod tests {
                 "unlocalized clear-history failure: {error}"
             );
         }
+
+        app.apply_pty_operation_failure(PtyOperationFailure {
+            surface_id: Some(1),
+            kind: None,
+            reservation_id: None,
+            label: "clear terminal history",
+            error: "remote session did not respond".into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::Ambiguous,
+        });
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "ターミナル履歴の消去結果を確認できません。再試行する前にセッションを再接続してください。"
+            )
+        );
     }
 
     #[test]

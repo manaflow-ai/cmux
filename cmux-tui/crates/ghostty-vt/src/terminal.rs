@@ -2954,6 +2954,7 @@ mod tests {
             ("csi", b"\x1b[31m"),
             ("osc-bel", b"\x1b]2;title\x07"),
             ("osc-st", b"\x1b]2;title\x1b\\"),
+            ("osc-utf8-st-byte", "\x1b]2;Ütitle\x07".as_bytes()),
             ("c1-osc", b"\x9d2;title\x9c"),
             ("dcs", b"\x1bP1;2qpayload\x1b\\"),
             ("apc", b"\x1b_payload\x1b\\"),
