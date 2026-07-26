@@ -1809,11 +1809,11 @@ impl Terminal {
     /// without writing bytes to the child process.
     ///
     /// OSC 133 identifies the full prompt when available. Without shell
-    /// metadata, the current soft-wrapped logical line is preserved. Cursor
-    /// movement is skipped when pending-wrap or origin-mode state cannot be
-    /// restored exactly. If the active prompt or logical line begins in
-    /// scrollback, no mutation is applied because clearing it would truncate
-    /// active input.
+    /// metadata, only scrollback is cleared because visible rows may contain
+    /// hard-newline input whose boundary cannot be inferred. Cursor movement
+    /// is skipped when pending-wrap or origin-mode state cannot be restored
+    /// exactly. If preserved content begins in scrollback, no mutation is
+    /// applied because clearing it would truncate active input.
     pub fn clear_history_preserving_prompt(&mut self) -> ClearHistoryOutcome {
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
 
@@ -1825,11 +1825,14 @@ impl Terminal {
         let Some((cursor_x, cursor_y)) = self.cursor_position() else {
             return ClearHistoryOutcome::Unchanged;
         };
+        let prompt_semantic = self.prompt_semantic.semantic(Screen::Primary);
         let cursor_is_at_prompt = self.cursor_is_at_prompt();
         let prompt_start_y =
             cursor_is_at_prompt.then(|| self.active_prompt_start_row(cursor_y)).flatten();
         let preserve_from_y = if cursor_is_at_prompt {
             prompt_start_y.or_else(|| self.active_logical_line_start_row(cursor_y))
+        } else if prompt_semantic == PromptSemantic::Unknown {
+            Some(0)
         } else {
             self.active_logical_line_start_row(cursor_y)
         };

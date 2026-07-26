@@ -648,8 +648,8 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&output);
     let cleared_screen = String::from_utf8(output.stdout).unwrap();
     assert!(
-        !cleared_screen.contains(&marker),
-        "clear-history retained completed visible output without prompt metadata: {cleared_screen:?}"
+        cleared_screen.contains(&marker),
+        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
     );
     assert!(
         cleared_screen.contains(&pending),

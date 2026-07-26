@@ -3312,6 +3312,7 @@ mod tests {
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         surface.with_terminal(|term| {
+            term.vt_write(b"\x1b]133;C\x07");
             for line in 0..40 {
                 term.vt_write(format!("history-{line}\r\n").as_bytes());
             }
@@ -3545,13 +3546,14 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_preserves_the_current_non_prompt_row_without_child_input() {
+    fn clear_history_with_output_metadata_preserves_current_row_without_child_input() {
         let mux = Mux::new_for_test("clear-non-prompt-history", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let writer = CapturingWriter::default();
         replace_local_writer(&surface, Box::new(writer.clone()));
         surface.with_terminal(|term| {
+            term.vt_write(b"\x1b]133;C\x07");
             for line in 0..40 {
                 term.vt_write(format!("history-{line}\r\n").as_bytes());
             }
@@ -3581,13 +3583,16 @@ mod tests {
         .unwrap();
         let writer = CapturingWriter::default();
         replace_local_writer(&surface, Box::new(writer.clone()));
-        surface.with_terminal(|term| {
-            for line in 0..12 {
-                term.vt_write(format!("history-{line}\r\n").as_bytes());
-            }
-            term.vt_write(b"wrapped-edit-buffer");
-            assert!(term.history_rows() > 0);
-        });
+        let viewport_before = surface
+            .with_terminal(|term| {
+                for line in 0..12 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"wrapped-edit-buffer");
+                assert!(term.history_rows() > 0);
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
 
         surface.clear_history().unwrap();
 
@@ -3597,7 +3602,7 @@ mod tests {
             let compact =
                 viewport.chars().filter(|character| !character.is_whitespace()).collect::<String>();
             assert!(compact.contains("wrapped-edit-buffer"));
-            assert!(!viewport.contains("history-"));
+            assert_eq!(viewport, viewport_before);
         });
         assert!(writer.0.lock().unwrap().is_empty());
     }
