@@ -133,7 +133,11 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                         ProviderScopeKind::Personal => messages.personal_scope,
                         ProviderScopeKind::Team => messages.team_scope,
                     };
-                    format!("{kind} · {} ▾", scope.name)
+                    if scope.name.trim().eq_ignore_ascii_case(kind) {
+                        format!("{} ▾", scope.name)
+                    } else {
+                        format!("{kind} · {} ▾", scope.name)
+                    }
                 })
                 .unwrap_or_else(|| format!("{} ▾", messages.scope));
             rail::button(

@@ -12,6 +12,61 @@ import CmuxSettings
 @Suite(.serialized)
 struct TabManagerTitleUpdateTests {
     @Test
+    func focusedPanelCustomTitleRefreshesWorkspaceTitleObservers() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let fallbackTitle = try #require(workspace.panelTitle(panelId: focusedPanelId))
+        #expect(workspace.customTitle == nil)
+
+        var notifiedWorkspaceIds: [UUID] = []
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            if let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID {
+                notifiedWorkspaceIds.append(workspaceId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(workspace.setPanelCustomTitle(panelId: focusedPanelId, title: "Friendly session"))
+        #expect(workspace.title == "Friendly session")
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: workspace) == "Friendly session")
+        #expect(notifiedWorkspaceIds == [workspace.id])
+
+        #expect(workspace.setPanelCustomTitle(panelId: focusedPanelId, title: nil))
+        #expect(workspace.title == fallbackTitle)
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: workspace) == fallbackTitle)
+        #expect(notifiedWorkspaceIds == [workspace.id, workspace.id])
+    }
+
+    @Test
+    func focusedPanelCustomTitleDoesNotNotifyWhenWorkspaceCustomTitleWins() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "Pinned workspace"))
+
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(workspace.setPanelCustomTitle(panelId: focusedPanelId, title: "Friendly session"))
+        #expect(workspace.processTitle == "Friendly session")
+        #expect(workspace.title == "Pinned workspace")
+        #expect(manager.resolvedWorkspaceDisplayTitle(for: workspace) == "Pinned workspace")
+        #expect(notificationCount == 0)
+    }
+
+    @Test
     func coalescerReschedulesWhenDelayChangesMidBurst() async {
         let scheduler = ManualCoalescerScheduler()
         let coalescer = NotificationBurstCoalescer(

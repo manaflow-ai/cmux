@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
@@ -7,6 +8,7 @@ import SwiftUI
 /// on compact and regular-width layouts.
 struct TaskComposerPrimaryAction: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(MobileDisplaySettings.self) private var displaySettings
 
     let isSubmitting: Bool
     let isEnabled: Bool
@@ -14,6 +16,7 @@ struct TaskComposerPrimaryAction: View {
     let actionTitle: String
     let progressTitle: String
     let caption: String
+    let failureTitle: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     let action: () -> Void
@@ -23,18 +26,7 @@ struct TaskComposerPrimaryAction: View {
     var body: some View {
         VStack(spacing: 10) {
             if let failureText {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .accessibilityHidden(true)
-                    Text(failureText)
-                        .font(.footnote.weight(.medium))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityIdentifier("MobileTaskComposerFailure")
+                TaskComposerFailureBanner(title: failureTitle, message: failureText)
             }
             if let completedOperationRecovery {
                 HStack(spacing: 10) {
@@ -82,6 +74,8 @@ struct TaskComposerPrimaryAction: View {
                     HStack(spacing: 10) {
                         if isSubmitting {
                             ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 28, height: 28)
                         } else if let templateIcon {
                             TaskTemplateIcon(value: templateIcon, size: 18)
                                 .frame(width: 28, height: 28)
@@ -91,11 +85,6 @@ struct TaskComposerPrimaryAction: View {
                             .fontWeight(.semibold)
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
-                        if !isSubmitting {
-                            Image(systemName: "paperplane.fill")
-                                .font(.subheadline.weight(.bold))
-                                .accessibilityHidden(true)
-                        }
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(.capsule)
@@ -141,7 +130,7 @@ struct TaskComposerPrimaryAction: View {
             value: isEnabled
         )
         .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
-            !oldValue && newValue
+            displaySettings.hapticFeedbackEnabled && !oldValue && newValue
         }
     }
 }

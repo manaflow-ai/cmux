@@ -40,6 +40,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     /// For terminal surfaces, the resume binding, else `nil`. Emitted as the
     /// `resume_binding` value (a `null` binding still emits the key).
     public let resumeBinding: ControlSurfaceResumeBinding?
+    /// The Dock container scope for Dock-hosted surfaces, else `nil`.
+    public let dockScopeRawValue: String?
 
     /// Creates a surface summary.
     ///
@@ -57,6 +59,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - tmuxStartCommand: For terminals, the tmux start command.
     ///   - isTerminal: Whether this is a terminal surface.
     ///   - resumeBinding: For terminals, the resume binding.
+    ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
     public init(
         surfaceID: UUID,
         typeRawValue: String,
@@ -70,7 +73,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         initialCommand: String?,
         tmuxStartCommand: String?,
         isTerminal: Bool,
-        resumeBinding: ControlSurfaceResumeBinding?
+        resumeBinding: ControlSurfaceResumeBinding?,
+        dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
@@ -85,5 +89,6 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.tmuxStartCommand = tmuxStartCommand
         self.isTerminal = isTerminal
         self.resumeBinding = resumeBinding
+        self.dockScopeRawValue = dockScopeRawValue
     }
 }

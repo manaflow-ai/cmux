@@ -293,9 +293,11 @@ struct TaskComposerDirectoryPickerView: View {
                     )
                 }
             }
-            .padding(.vertical, 2)
         }
-        .contentMargins(.horizontal, 1, for: .scrollContent)
+        .contentMargins(.horizontal, 16, for: .scrollContent)
+        .contentMargins(.vertical, 8, for: .scrollContent)
+        .padding(.horizontal, -16)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private var currentLocationCard: some View {
@@ -468,7 +470,7 @@ struct TaskComposerDirectoryPickerView: View {
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 12)
                 .frame(minHeight: 38)
-                .background(Color.primary.opacity(0.055), in: Capsule())
+                .mobileGlassPill()
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
@@ -802,7 +804,7 @@ struct TaskComposerDirectoryPickerView: View {
         case .rejected, .cancelled:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.failure.generic",
-                defaultValue: "The Mac could not list this folder. Try again."
+                defaultValue: "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
             )
         }
     }

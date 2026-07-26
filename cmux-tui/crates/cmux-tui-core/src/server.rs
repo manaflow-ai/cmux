@@ -20,6 +20,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -49,7 +51,7 @@ use crate::{
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
     Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind,
     SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId,
-    ZoomMode, assign_short_ids,
+    WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -63,7 +65,28 @@ pub const PROTOCOL_VERSION: u32 = STACK_LAYOUT_PROTOCOL_VERSION;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
-    platform::runtime_dir().join(format!("{session}.sock"))
+    default_socket_path_in_runtime_dir(session, platform::runtime_dir())
+}
+
+fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+    let file_name = format!("{session}.sock");
+    let preferred = runtime_dir.join(&file_name);
+    #[cfg(unix)]
+    if !unix_socket_path_fits(&preferred) {
+        return platform::fallback_runtime_dir().join(file_name);
+    }
+    preferred
+}
+
+#[cfg(unix)]
+fn unix_socket_path_fits(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    // Filesystem Unix sockets require a trailing NUL in sun_path, so the
+    // encoded pathname itself must be strictly shorter than the field.
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 #[derive(Deserialize)]
@@ -77,6 +100,13 @@ struct Request {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Gracefully hand this daemon's durable session to a replacement.
+    /// The caller must fence the request with values from this daemon's
+    /// `identify` response.
+    ShutdownDaemon {
+        pid: u32,
+        generation: String,
+    },
     Ping,
     SetClientInfo {
         #[serde(default)]
@@ -85,6 +115,13 @@ enum Command {
         kind: Option<String>,
     },
     ListClients,
+    /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
+    ListTerminals,
+    /// Durable ordered terminal mutations after `terminal_revision`.
+    TerminalEvents {
+        #[serde(default)]
+        after_revision: u64,
+    },
     SetClientSizing {
         #[serde(default)]
         client: Option<u64>,
@@ -105,6 +142,22 @@ enum Command {
     },
     ClearWindowTitle,
     ListWorkspaces,
+    GetFrontendProjection {
+        frontend: String,
+        scope: String,
+        subject_key: String,
+    },
+    PutFrontendProjection {
+        frontend: String,
+        scope: String,
+        subject_key: String,
+        schema_version: u32,
+        #[serde(default)]
+        expected_projection_revision: Option<u64>,
+        projection: Value,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
     ExportLayout {
         #[serde(default)]
         screen: Option<ScreenId>,
@@ -212,6 +265,27 @@ enum Command {
     VtState {
         surface: SurfaceId,
     },
+    /// Mint a one-use direct renderer credential without exposing the
+    /// daemon's durable owner capability.
+    MintTerminalRenderer {
+        surface: SurfaceId,
+        #[serde(default = "default_renderer_capability_ttl_ms")]
+        ttl_ms: u64,
+    },
+    /// Resolve a process-stable hosted terminal UUID to this daemon
+    /// generation's local surface handle without creating anything.
+    ResolveTerminal {
+        terminal_id: String,
+    },
+    /// Close a hosted terminal by stable identity. This is safe across daemon
+    /// generations; the incarnation guard prevents a stale close request.
+    CloseTerminal {
+        terminal_id: String,
+        #[serde(default)]
+        terminal_incarnation: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
     /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
@@ -308,9 +382,8 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
-        /// Compare-and-swap guard for the ordered registry.
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     /// Create a terminal inside an existing workspace selected by stable key
     /// or legacy numeric id.
@@ -331,6 +404,12 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        /// Optional frontend-reserved canonical UUID. Supplying it with a
+        /// mutation id makes a lost-response retry exactly once.
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     /// New screen in a workspace (default: the active one).
     NewScreen {
@@ -392,6 +471,14 @@ enum Command {
     ProcessInfo {
         surface: SurfaceId,
     },
+    MoveTerminal {
+        terminal_id: String,
+        workspace_key: String,
+        #[serde(default)]
+        terminal_incarnation: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
     MoveTab {
         surface: SurfaceId,
         pane: PaneId,
@@ -403,14 +490,30 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         index: usize,
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     SetDefaultColors {
         #[serde(default)]
         fg: Option<String>,
         #[serde(default)]
         bg: Option<String>,
+        #[serde(default)]
+        cursor: Option<String>,
+        #[serde(default)]
+        selection_bg: Option<String>,
+        #[serde(default)]
+        selection_fg: Option<String>,
+        #[serde(default)]
+        cursor_style: Option<String>,
+        #[serde(default)]
+        cursor_blink: Option<bool>,
+        #[serde(default)]
+        palette: Option<BTreeMap<String, String>>,
+        /// Complete frontend configuration replaces absent optional values;
+        /// legacy CLI calls retain their historical sparse-overlay behavior.
+        #[serde(default)]
+        complete: bool,
     },
     /// Close one tab.
     CloseSurface {
@@ -428,8 +531,8 @@ enum Command {
         workspace: Option<WorkspaceId>,
         #[serde(default)]
         key: Option<String>,
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     /// Verifies that this provider frontend holds the authority provisioned
     /// before the mux accepted control clients.
@@ -462,8 +565,8 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         name: String,
-        #[serde(default)]
-        expected_revision: Option<u64>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
     },
     RenameProviderManagedWorkspace {
         workspace: WorkspaceId,
@@ -529,6 +632,18 @@ enum Command {
         surface: SurfaceId,
         delta: isize,
     },
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct MutationRequest {
+    #[serde(default)]
+    origin: Option<String>,
+    #[serde(default)]
+    mutation_id: Option<String>,
+    #[serde(default)]
+    expected_generation: Option<String>,
+    #[serde(default, alias = "expected_terminal_revision")]
+    expected_revision: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -1125,8 +1240,14 @@ impl ClientRegistry {
         client: u64,
         name: Option<String>,
         kind: Option<String>,
+        daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut clients = self.clients.lock().unwrap();
+        if kind.as_deref() == Some("native-browser")
+            && daemon_handoff_pending.load(Ordering::Acquire)
+        {
+            anyhow::bail!("daemon handoff is already in progress");
+        }
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         if let Some(name) = name {
@@ -1136,6 +1257,29 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    pub(crate) fn begin_daemon_handoff(
+        &self,
+        requesting_client: u64,
+        daemon_handoff_pending: &AtomicBool,
+    ) -> anyhow::Result<()> {
+        let clients = self.clients.lock().unwrap();
+        let requester = clients
+            .get(&requesting_client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {requesting_client}"))?;
+        if !matches!(requester.transport, ClientTransport::Unix) {
+            anyhow::bail!("daemon shutdown requires a trusted local connection");
+        }
+        if clients.iter().any(|(client, record)| {
+            *client != requesting_client && record.kind.as_deref() == Some("native-browser")
+        }) {
+            anyhow::bail!("another native-browser frontend still owns this daemon");
+        }
+        daemon_handoff_pending
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| anyhow::anyhow!("daemon handoff is already in progress"))?;
+        Ok(())
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -1753,11 +1897,13 @@ pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
 
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
     let mut detach_self = false;
+    let mut shutdown_daemon = false;
     let response = match serde_json::from_str::<Request>(message) {
         Ok(req) => {
             let id = req.id.clone();
             detach_self =
                 matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
+            shutdown_daemon = matches!(&req.cmd, Command::ShutdownDaemon { .. });
             match handle_command(mux, client, req.cmd, writer) {
                 Ok(data) => Response { id, ok: true, data: Some(data), error: None },
                 Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
@@ -1770,6 +1916,16 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
     let response_ok = response.ok;
     let sent =
         serde_json::to_value(&response).is_ok_and(|value| writer.send_control(&value).is_ok());
+    // Queue the successful acknowledgement before making the owning loop
+    // leave. The headless loop polls at a bounded interval, giving the writer
+    // thread time to flush the response before normal process teardown.
+    if shutdown_daemon && response_ok {
+        if sent {
+            mux.request_daemon_shutdown();
+        } else {
+            mux.cancel_daemon_handoff();
+        }
+    }
     if detach_self && response_ok && sent {
         disconnect_client(mux, client, true);
         return false;
@@ -1901,6 +2057,18 @@ fn paired_surface_size(
     }
 }
 
+fn default_renderer_capability_ttl_ms() -> u64 {
+    30_000
+}
+
+fn workspace_mutation(request: &MutationRequest) -> anyhow::Result<WorkspaceMutation> {
+    match (&request.mutation_id, &request.origin) {
+        (Some(id), Some(origin)) => WorkspaceMutation::new(id.clone(), origin.clone()),
+        (None, None) => Ok(WorkspaceMutation::local("legacy-control")),
+        _ => anyhow::bail!("origin and mutation_id must be provided together"),
+    }
+}
+
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
     match dir {
         "left" => Ok(Direction::Left),
@@ -1966,8 +2134,13 @@ fn pane_json(
         "focused_at": pane.focused_at,
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
+            let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
             json!({
                 "surface": sid,
+                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_incarnation": terminal_identity
+                    .as_ref()
+                    .map(|identity| &identity.incarnation),
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
@@ -2127,7 +2300,7 @@ pub(crate) fn tree_entity_json(
     }
 }
 
-fn tree_delta_json(delta: &TreeDelta) -> Value {
+fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     let mut value = json!({
         "event": delta.kind.as_str(),
         "workspace": delta.workspace,
@@ -2147,6 +2320,13 @@ fn tree_delta_json(delta: &TreeDelta) -> Value {
     }
     if let Some(revision) = delta.workspace_revision {
         value["workspace_revision"] = json!(revision);
+        if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
+            value["origin"] = json!(event.origin);
+            value["mutation_id"] = json!(event.mutation_id);
+        }
+        let (registry_id, generation) = mux.registry_identity();
+        value["registry_id"] = json!(registry_id);
+        value["generation"] = json!(generation);
     }
     value
 }
@@ -2744,20 +2924,44 @@ fn handle_command(
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
     match cmd {
-        Command::Identify => Ok(json!({
-            "app": "cmux-tui",
-            "version": env!("CARGO_PKG_VERSION"),
-            "build_commit": stamped_build_commit(),
-            "ghostty_commit": stamped_ghostty_commit(),
-            "protocol": PROTOCOL_VERSION,
-            "capabilities": [
-                ATTACH_INITIAL_SIZE_CAPABILITY,
-                WORKSPACE_REGISTRY_CAPABILITY,
-                PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
-            ],
-            "session": mux.session,
-            "pid": std::process::id(),
-        })),
+        Command::Identify => {
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "app": "cmux-tui",
+                "version": env!("CARGO_PKG_VERSION"),
+                "build_commit": stamped_build_commit(),
+                "ghostty_commit": stamped_ghostty_commit(),
+                "protocol": PROTOCOL_VERSION,
+                "capabilities": [
+                    ATTACH_INITIAL_SIZE_CAPABILITY,
+                    WORKSPACE_REGISTRY_CAPABILITY,
+                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
+                ],
+                "session": mux.session,
+                "pid": std::process::id(),
+                "registry_id": registry_id,
+                "generation": generation,
+                "workspace_revision": mux.with_state(|state| state.workspace_revision),
+                "terminal_revision": mux.terminal_registry_snapshot()?.revision,
+                "daemon_handoff": 1,
+            }))
+        }
+        Command::ShutdownDaemon { pid, generation } => {
+            let actual_pid = std::process::id();
+            if pid != actual_pid {
+                anyhow::bail!("daemon pid changed; identify again");
+            }
+            let (_, actual_generation) = mux.registry_identity();
+            if generation != actual_generation {
+                anyhow::bail!("daemon generation changed; identify again");
+            }
+            mux.begin_daemon_handoff(client)?;
+            Ok(json!({
+                "accepted": true,
+                "pid": actual_pid,
+                "generation": actual_generation,
+            }))
+        }
         Command::Ping => Ok(json!({
             "ok": true,
             "version": env!("CARGO_PKG_VERSION"),
@@ -2766,11 +2970,58 @@ fn handle_command(
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind } => {
-            let (name, kind) = mux.control_clients.set_info(client, name, kind)?;
+            let (name, kind) =
+                mux.control_clients.set_info(client, name, kind, &mux.daemon_handoff_pending)?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::ListTerminals => {
+            let snapshot = mux.terminal_registry_snapshot()?;
+            let terminals = snapshot
+                .terminals
+                .into_iter()
+                .map(|terminal| {
+                    json!({
+                        "terminal_id":terminal.terminal_id,
+                        "workspace_key":terminal.workspace_key,
+                        "terminal_incarnation":terminal.incarnation,
+                        "lifecycle":terminal.lifecycle,
+                        "launch_spec":terminal.launch_spec,
+                        "exit":terminal.exit,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "registry_id":snapshot.registry_id,
+                "generation":snapshot.generation,
+                "terminal_revision":snapshot.revision,
+                "terminals":terminals,
+            }))
+        }
+        Command::TerminalEvents { after_revision } => {
+            let (snapshot, events) = mux.terminal_registry_events_page(after_revision)?;
+            let events = events
+                .into_iter()
+                .map(|event| {
+                    json!({
+                        "terminal_revision":event.revision,
+                        "kind":event.kind,
+                        "terminal_id":event.terminal_id,
+                        "workspace_key":event.workspace_key,
+                        "origin":event.origin,
+                        "mutation_id":event.mutation_id,
+                        "result":event.result,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "registry_id":snapshot.registry_id,
+                "generation":snapshot.generation,
+                "terminal_revision":snapshot.revision,
+                "events":events,
+            }))
+        }
         Command::SetClientSizing { client: target, enabled, exclusive } => {
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
@@ -2826,7 +3077,49 @@ fn handle_command(
         }
         Command::ListWorkspaces => {
             let notifications = mux.surface_notifications();
-            Ok(mux.with_state(|state| workspaces_json(state, &notifications)))
+            let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+            let (registry_id, generation) = mux.registry_identity();
+            workspaces["registry_id"] = json!(registry_id);
+            workspaces["generation"] = json!(generation);
+            workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+            Ok(workspaces)
+        }
+        Command::GetFrontendProjection { frontend, scope, subject_key } => {
+            let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
+            Ok(match projection {
+                Some(projection) => serde_json::to_value(projection)?,
+                None => json!({
+                    "frontend": frontend,
+                    "scope": scope,
+                    "subject_key": subject_key,
+                    "schema_version": 0,
+                    "projection_revision": 0,
+                    "projection": null,
+                }),
+            })
+        }
+        Command::PutFrontendProjection {
+            frontend,
+            scope,
+            subject_key,
+            schema_version,
+            expected_projection_revision,
+            projection,
+            mutation,
+        } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let commit = mux.put_frontend_projection(
+                &workspace_mutation,
+                &frontend,
+                &scope,
+                &subject_key,
+                schema_version,
+                expected_projection_revision,
+                &projection,
+            )?;
+            let mut value = serde_json::to_value(commit.projection)?;
+            value["replayed"] = json!(commit.replayed);
+            Ok(value)
         }
         Command::ExportLayout { screen } => {
             mux.with_state(|state| export_layout_json(state, screen))
@@ -2974,8 +3267,14 @@ fn handle_command(
                     size: optional_surface_size(cols, rows),
                 },
             )?;
+            let terminal_identity =
+                mux.surface(placement.surface).and_then(|surface| surface.terminal_host_identity());
             Ok(json!({
                 "surface": placement.surface,
+                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_incarnation": terminal_identity
+                    .as_ref()
+                    .map(|identity| &identity.incarnation),
                 "pane": placement.pane,
                 "screen": placement.screen,
                 "workspace": placement.workspace,
@@ -3065,9 +3364,68 @@ fn handle_command(
                 "data": base64::engine::general_purpose::STANDARD.encode(replay),
             }))
         }
+        Command::MintTerminalRenderer { surface, ttl_ms } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
+            Ok(json!({
+                "endpoint": grant.endpoint,
+                "terminal_id": grant.terminal_id,
+                "incarnation": grant.incarnation,
+                "token": grant.token,
+                "rights": grant.rights.bits(),
+                "ttl_ms": ttl_ms,
+            }))
+        }
+        Command::ResolveTerminal { terminal_id } => {
+            let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {
+                anyhow::bail!("terminal_not_found");
+            };
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "surface": resolution.surface,
+                "terminal_id": resolution.terminal.terminal_id,
+                "terminal_incarnation": resolution.terminal.incarnation,
+                "workspace_key": resolution.terminal.workspace_key,
+                "lifecycle": resolution.terminal.lifecycle,
+                "launch_spec": resolution.terminal.launch_spec,
+                "exit": resolution.terminal.exit,
+                "terminal_revision": resolution.terminal_revision,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
+        Command::CloseTerminal { terminal_id, terminal_incarnation, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.close_terminal_with_mutation(
+                &terminal_id,
+                terminal_incarnation.as_deref(),
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "surface": result.surface,
+                "terminal_id": result.terminal_id,
+                "terminal_incarnation": result.terminal_incarnation,
+                "already_closed": result.already_closed,
+                "closed": true,
+                "terminal_revision": result.terminal_revision,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
         Command::NewTab { pane, cwd, cols, rows } => {
             let surface = mux.new_tab(pane, cwd, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+            let terminal_identity = surface.terminal_host_identity();
+            Ok(json!({
+                "surface": surface.id,
+                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
+                "terminal_incarnation": terminal_identity
+                    .as_ref()
+                    .map(|identity| &identity.incarnation),
+            }))
         }
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
@@ -3183,16 +3541,43 @@ fn handle_command(
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::CreateWorkspace { name, key, expected_revision } => {
-            let placement = mux.create_empty_workspace(name, key, expected_revision)?;
+        Command::CreateWorkspace { name, key, mutation } => {
+            if let Some(key) = key.as_deref()
+                && !crate::workspace_registry::is_canonical_workspace_key(key)
+            {
+                anyhow::bail!("workspace key must be a lowercase UUID");
+            }
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let placement = mux.create_empty_workspace_with_mutation(
+                name,
+                key,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "workspace": placement.workspace,
                 "key": placement.key,
                 "index": placement.index,
                 "workspace_revision": placement.revision,
+                "replayed": placement.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
             }))
         }
-        Command::CreateTerminal { workspace, key, argv, command, cwd, name, cols, rows } => {
+        Command::CreateTerminal {
+            workspace,
+            key,
+            argv,
+            command,
+            cwd,
+            name,
+            cols,
+            rows,
+            terminal_id,
+            mutation,
+        } => {
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -3204,16 +3589,59 @@ fn handle_command(
                 (None, None) => None,
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let size = paired_surface_size("create-terminal", cols, rows)?;
-            let placement = mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
-            Ok(json!({
-                "surface": placement.surface,
-                "pane": placement.pane,
-                "screen": placement.screen,
-                "workspace": placement.workspace,
-                "key": key,
-            }))
+            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
+            let (registry_id, generation) = mux.registry_identity();
+            if terminal_id.is_some() || mutation.mutation_id.is_some() {
+                let workspace_mutation = workspace_mutation(&mutation)?;
+                let result = mux.create_terminal_in_workspace_with_mutation(
+                    workspace,
+                    argv,
+                    cwd,
+                    name,
+                    size,
+                    terminal_id.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?;
+                let placement = result.placement;
+                Ok(json!({
+                    "surface": placement.surface,
+                    "terminal_id": result.terminal_id,
+                    "terminal_incarnation": result.terminal_incarnation,
+                    "pane": placement.pane,
+                    "screen": placement.screen,
+                    "workspace": placement.workspace,
+                    "key": key,
+                    "lifecycle": "running",
+                    "terminal_revision": result.terminal_revision,
+                    "replayed": result.replayed,
+                    "registry_id": registry_id,
+                    "generation": generation,
+                }))
+            } else {
+                let placement =
+                    mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
+                let identity = mux
+                    .surface(placement.surface)
+                    .and_then(|surface| surface.terminal_host_identity());
+                let terminal_revision = mux.terminal_registry_snapshot()?.revision;
+                Ok(json!({
+                    "surface": placement.surface,
+                    "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
+                    "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+                    "pane": placement.pane,
+                    "screen": placement.screen,
+                    "workspace": placement.workspace,
+                    "key": key,
+                    "lifecycle": identity.as_ref().map(|_| "running"),
+                    "terminal_revision": terminal_revision,
+                    "replayed": false,
+                    "registry_id": registry_id,
+                    "generation": generation,
+                }))
+            }
         }
         Command::NewScreen { workspace, cols, rows } => {
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
@@ -3284,6 +3712,33 @@ fn handle_command(
                 "cwd": surface.pwd().or_else(|| surface.spawn_cwd()),
             }))
         }
+        Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.move_terminal_with_mutation(
+                &terminal_id,
+                &workspace_key,
+                terminal_incarnation.as_deref(),
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "surface":result.placement.as_ref().map(|placement| placement.surface),
+                "pane":result.placement.as_ref().map(|placement| placement.pane),
+                "screen":result.placement.as_ref().map(|placement| placement.screen),
+                "workspace":result.placement.as_ref().map(|placement| placement.workspace),
+                "terminal_id":result.terminal.terminal_id,
+                "terminal_incarnation":result.terminal.incarnation,
+                "workspace_key":result.terminal.workspace_key,
+                "lifecycle":result.terminal.lifecycle,
+                "changed":result.changed,
+                "replayed":result.replayed,
+                "terminal_revision":result.terminal_revision,
+                "registry_id":registry_id,
+                "generation":generation,
+            }))
+        }
         Command::MoveTab { surface, pane, index } => {
             let valid = mux.with_state(|state| {
                 state.surfaces.contains_key(&surface)
@@ -3296,62 +3751,127 @@ fn handle_command(
             mux.move_tab(surface, pane, index);
             Ok(json!({}))
         }
-        Command::MoveWorkspace { workspace, key, index, expected_revision } => {
-            let Some((workspace, key, revision, _)) = mux.move_workspace_selector_at_revision(
+        Command::MoveWorkspace { workspace, key, index, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.move_workspace_with_mutation(
                 workspace,
                 key.as_deref(),
                 index,
-                expected_revision,
-            )?
-            else {
-                anyhow::bail!("unknown workspace selector");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
         }
-        Command::SetDefaultColors { fg, bg } => {
+        Command::SetDefaultColors {
+            fg,
+            bg,
+            cursor,
+            selection_bg,
+            selection_fg,
+            cursor_style,
+            cursor_blink,
+            palette,
+            complete,
+        } => {
             let current = mux.default_colors();
+            let base = if complete { DefaultColors::default() } else { current };
+            let palette = match palette {
+                Some(entries) => {
+                    let mut palette = [None; 256];
+                    for (index, value) in entries {
+                        let index = index
+                            .parse::<u8>()
+                            .map_err(|_| anyhow::anyhow!("invalid palette index {index}"))?;
+                        palette[index as usize] = Some(parse_hex_color(&value)?);
+                    }
+                    palette
+                }
+                None => base.palette,
+            };
             let colors = DefaultColors {
                 fg: match fg {
                     Some(value) => Some(parse_hex_color(&value)?),
-                    None => current.fg,
+                    None => base.fg,
                 },
                 bg: match bg {
                     Some(value) => Some(parse_hex_color(&value)?),
-                    None => current.bg,
+                    None => base.bg,
                 },
-                ..current
+                cursor: match cursor {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => base.cursor,
+                },
+                selection_bg: match selection_bg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => base.selection_bg,
+                },
+                selection_fg: match selection_fg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => base.selection_fg,
+                },
+                cursor_style: match cursor_style.as_deref() {
+                    Some("block") => Some(ghostty_vt::CursorShape::Block),
+                    Some("underline") => Some(ghostty_vt::CursorShape::Underline),
+                    Some("bar") => Some(ghostty_vt::CursorShape::Bar),
+                    Some(value) => anyhow::bail!("invalid cursor style {value}"),
+                    None => base.cursor_style,
+                },
+                cursor_blink: cursor_blink.or(base.cursor_blink),
+                palette,
             };
             mux.set_default_colors(colors);
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
             get_surface(mux, surface)?;
-            mux.close_surface(surface);
+            if !mux.close_surface(surface)? {
+                anyhow::bail!("unknown surface {surface}");
+            }
             Ok(json!({}))
         }
         Command::ClosePane { pane } => {
-            if !mux.with_state(|s| s.panes.contains_key(&pane)) {
+            if !mux.close_pane(pane)? {
                 anyhow::bail!("unknown pane {pane}");
             }
-            mux.close_pane(pane);
             Ok(json!({}))
         }
         Command::CloseScreen { screen } => {
-            if !mux.close_screen(screen) {
+            if !mux.close_screen(screen)? {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
-        Command::CloseWorkspace { workspace, key, expected_revision } => {
-            let Some((workspace, key, revision)) = mux.close_workspace_selector_at_revision(
+        Command::CloseWorkspace { workspace, key, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.close_workspace_with_mutation(
                 workspace,
                 key.as_deref(),
-                expected_revision,
-            )?
-            else {
-                anyhow::bail!("unknown workspace selector");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
         }
         Command::MarkWorkspacesProviderManaged { authority } => {
             authorize_provider_workspace_command(mux, authority)?;
@@ -3384,17 +3904,27 @@ fn handle_command(
             }
             Ok(json!({}))
         }
-        Command::RenameWorkspace { workspace, key, name, expected_revision } => {
-            let Some((workspace, key, revision)) = mux.rename_workspace_selector_at_revision(
+        Command::RenameWorkspace { workspace, key, name, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.rename_workspace_with_mutation(
                 workspace,
                 key.as_deref(),
                 name,
-                expected_revision,
-            )?
-            else {
-                anyhow::bail!("unknown workspace selector");
-            };
-            Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             let Some(revision) = with_provider_workspace_authority(authority, |authority| {
@@ -3469,6 +3999,7 @@ fn handle_command(
                 other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
             };
             let events = mux.subscribe();
+            let event_mux = mux.clone();
             let trusted_pairing_client = mux.control_clients.is_unix(client);
             let pending_pairings =
                 if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
@@ -3512,7 +4043,9 @@ fn handle_command(
                             "event": "pairing-resolved",
                             "request": request,
                         }),
-                        MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta),
+                        MuxEvent::TreeDelta(delta) if tree_deltas => {
+                            tree_delta_json(delta, &event_mux)
+                        }
                         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
                         MuxEvent::TreeSelectionChanged if tree_deltas => {
                             json!({"event": "tree-changed"})
@@ -3897,16 +4430,27 @@ fn handle_command(
                                 "surface": surface_id,
                                 "data": base64::engine::general_purpose::STANDARD.encode(chunk),
                             }),
-                            AttachFrame::Resized { cols, rows, replay, colors } => {
-                                json!({
-                                    "event": "resized",
-                                    "surface": surface_id,
-                                    "cols": cols,
-                                    "rows": rows,
-                                    "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                                    "colors": terminal_colors_json(*colors),
-                                })
-                            }
+                            AttachFrame::OutputWithColors { output, colors } => json!({
+                                "event": "output",
+                                "surface": surface_id,
+                                "data": base64::engine::general_purpose::STANDARD.encode(output),
+                                "colors": terminal_colors_json(*colors),
+                            }),
+                            AttachFrame::Resized { cols, rows, replay } => json!({
+                                "event": "resized",
+                                "surface": surface_id,
+                                "cols": cols,
+                                "rows": rows,
+                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                            }),
+                            AttachFrame::ResizedWithColors { cols, rows, replay, colors } => json!({
+                                "event": "resized",
+                                "surface": surface_id,
+                                "cols": cols,
+                                "rows": rows,
+                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                                "colors": terminal_colors_json(*colors),
+                            }),
                             AttachFrame::ColorsChanged(colors) => {
                                 let mut value = terminal_colors_json(*colors);
                                 value["event"] = json!("colors-changed");
@@ -4012,6 +4556,29 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeSelectionChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+        MuxEvent::FrontendProjectionChanged {
+            frontend,
+            scope,
+            subject_key,
+            projection_revision,
+            origin,
+            mutation_id,
+        } => json!({
+            "event": "frontend-projection-changed",
+            "frontend": frontend,
+            "scope": scope,
+            "subject_key": subject_key,
+            "projection_revision": projection_revision,
+            "origin": origin,
+            "mutation_id": mutation_id,
+        }),
+        MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
+            "event":"terminal-registry-changed",
+            "registry_id":registry_id,
+            "generation":generation,
+            "terminal_revision":terminal_revision,
+            "refetch":"terminal-events-or-list-terminals",
+        }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
             "event": "client-attached",
@@ -4071,6 +4638,42 @@ mod tests {
     use crate::{ProviderWorkspaceAuthority, SurfaceOptions};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
+
+    #[test]
+    fn default_socket_path_preserves_compatible_runtime_dir() {
+        let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
+        assert_eq!(
+            default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
+            runtime_dir.join("main.sock")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_socket_path_falls_back_for_long_tmpdir() {
+        let long_tmpdir = PathBuf::from("/tmp").join("x".repeat(200));
+        let preferred_runtime_dir = long_tmpdir.join("cmux-tui-test-user");
+        let path = default_socket_path_in_runtime_dir(
+            "cmux-browser-0123456789abcdef",
+            preferred_runtime_dir,
+        );
+
+        assert_eq!(
+            path,
+            platform::fallback_runtime_dir().join("cmux-browser-0123456789abcdef.sock")
+        );
+        assert!(unix_socket_path_fits(&path));
+        assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_socket_path_reserves_trailing_nul() {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        assert!(unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY - 1))));
+        assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
+    }
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
@@ -4462,6 +5065,7 @@ mod tests {
         assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
         assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(identity["daemon_handoff"].as_u64(), Some(1));
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PROTOCOL_VERSION, 9);
@@ -4542,6 +5146,8 @@ mod tests {
                     name: None,
                     cols,
                     rows,
+                    terminal_id: None,
+                    mutation: MutationRequest::default(),
                 },
                 &test_writer(),
             )
@@ -4601,6 +5207,187 @@ mod tests {
         };
         assert_eq!(recorded_size(first), (100, 30));
         assert_eq!(recorded_size(second), (132, 44));
+    }
+
+    #[test]
+    fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
+        let rejected = test_mux();
+        let rejected_outbound = Arc::new(BoundedOutbound::default());
+        let rejected_writer =
+            MessageWriter::new(QueuedSink { outbound: rejected_outbound.clone(), control: None });
+        let websocket =
+            rejected.control_clients.register(ClientTransport::WebSocket, rejected_writer.clone());
+        let (_, generation) = rejected.registry_identity();
+        assert!(handle_message(
+            &rejected,
+            websocket,
+            &json!({
+                "id": 91,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+            })
+            .to_string(),
+            &rejected_writer,
+        ));
+        let response: Value = serde_json::from_str(&rejected_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("trusted local"));
+        assert!(!rejected.daemon_shutdown_requested());
+
+        let local =
+            rejected.control_clients.register(ClientTransport::Unix, rejected_writer.clone());
+        assert!(handle_message(
+            &rejected,
+            local,
+            &json!({
+                "id": 92,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id().wrapping_add(1),
+                "generation": generation,
+            })
+            .to_string(),
+            &rejected_writer,
+        ));
+        let response: Value = serde_json::from_str(&rejected_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("pid changed"));
+        assert!(!rejected.daemon_shutdown_requested());
+
+        assert!(handle_message(
+            &rejected,
+            local,
+            &json!({
+                "id": 93,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": "stale-generation",
+            })
+            .to_string(),
+            &rejected_writer,
+        ));
+        let response: Value = serde_json::from_str(&rejected_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("generation changed"));
+        assert!(!rejected.daemon_shutdown_requested());
+
+        let accepted = test_mux();
+        let accepted_outbound = Arc::new(BoundedOutbound::default());
+        let accepted_writer =
+            MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
+        let local =
+            accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
+        let (_, generation) = accepted.registry_identity();
+        assert!(handle_message(
+            &accepted,
+            local,
+            &json!({
+                "id": 94,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+            })
+            .to_string(),
+            &accepted_writer,
+        ));
+
+        // `handle_message` queues this response before it flips the shutdown
+        // flag, so observing the requested state implies the ACK is already
+        // available to the connection's writer thread.
+        assert!(accepted.daemon_shutdown_requested());
+        let response: Value = serde_json::from_str(&accepted_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["accepted"], true);
+        assert_eq!(response["data"]["pid"], std::process::id());
+        assert_eq!(response["data"]["generation"], generation);
+    }
+
+    #[test]
+    fn daemon_shutdown_atomically_fences_native_browser_ownership() {
+        let owned = test_mux();
+        let requester_writer = test_writer();
+        let owner_writer = test_writer();
+        let requester =
+            owned.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let owner = owned.control_clients.register(ClientTransport::Unix, owner_writer.clone());
+        handle_command(
+            &owned,
+            owner,
+            Command::SetClientInfo {
+                name: Some("existing browser".to_string()),
+                kind: Some("native-browser".to_string()),
+            },
+            &owner_writer,
+        )
+        .unwrap();
+        let (_, generation) = owned.registry_identity();
+        let error = handle_command(
+            &owned,
+            requester,
+            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            &requester_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("still owns"));
+        assert!(!owned.daemon_shutdown_requested());
+
+        let fenced = test_mux();
+        let requester_writer = test_writer();
+        let late_writer = test_writer();
+        let requester =
+            fenced.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let late = fenced.control_clients.register(ClientTransport::Unix, late_writer.clone());
+        let (_, generation) = fenced.registry_identity();
+        handle_command(
+            &fenced,
+            requester,
+            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            &requester_writer,
+        )
+        .unwrap();
+        let error = handle_command(
+            &fenced,
+            late,
+            Command::SetClientInfo {
+                name: Some("late browser".to_string()),
+                kind: Some("native-browser".to_string()),
+            },
+            &late_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("handoff is already in progress"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pane_and_screen_close_publish_errors_until_registry_commit_succeeds() {
+        const TERMINAL: &str = "00000000000040008000000000000012";
+        const INCARNATION: &str = "10000000000040008000000000000012";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001001".into()), None)
+            .unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let (pane, screen) = mux.with_state(|state| {
+            let pane = state.pane_of(surface).unwrap();
+            let (workspace, screen) = state.screen_of(pane).unwrap();
+            (pane, state.workspaces[workspace].screens[screen].id)
+        });
+        mux.set_terminal_close_failure_for_test(true).unwrap();
+
+        let pane_error =
+            handle_command(&mux, 0, Command::ClosePane { pane }, &test_writer()).unwrap_err();
+        assert!(format!("{pane_error:#}").contains("forced terminal close failure"));
+        let screen_error =
+            handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap_err();
+        assert!(format!("{screen_error:#}").contains("forced terminal close failure"));
+        assert!(mux.surface(surface).is_some());
+        assert_eq!(mux.with_state(|state| state.pane_of(surface)), Some(pane));
+
+        mux.set_terminal_close_failure_for_test(false).unwrap();
+        handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap();
+        assert!(mux.surface(surface).is_none());
     }
 
     #[test]
@@ -5431,9 +6218,9 @@ mod tests {
     #[test]
     fn stale_workspace_selectors_report_revision_conflicts_before_lookup() {
         let mux = test_mux();
-        let workspace = mux
-            .create_empty_workspace(Some("stale".into()), Some("stable-key".into()), None)
-            .unwrap();
+        let key = "018f6e21-7b70-7e70-8000-000000001022";
+        let workspace =
+            mux.create_empty_workspace(Some("stale".into()), Some(key.into()), None).unwrap();
         mux.close_workspace_at_revision(workspace.workspace, Some(1)).unwrap();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -5441,20 +6228,20 @@ mod tests {
         for command in [
             Command::CloseWorkspace {
                 workspace: None,
-                key: Some("stable-key".into()),
-                expected_revision: Some(1),
+                key: Some(key.into()),
+                mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::RenameWorkspace {
                 workspace: None,
-                key: Some("stable-key".into()),
+                key: Some(key.into()),
                 name: "renamed".into(),
-                expected_revision: Some(1),
+                mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::MoveWorkspace {
                 workspace: None,
-                key: Some("stable-key".into()),
+                key: Some(key.into()),
                 index: 0,
-                expected_revision: Some(1),
+                mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
         ] {
             let error = handle_command(&mux, client, command, &writer).unwrap_err();
@@ -5466,7 +6253,11 @@ mod tests {
     fn provider_managed_mux_is_locked_before_authority_handshake() {
         let mux = provider_test_mux();
         let workspace = mux
-            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .create_empty_workspace(
+                Some("managed".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000aa03".into()),
+                None,
+            )
             .unwrap();
         let writer = test_writer();
         let ordinary = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -5478,7 +6269,7 @@ mod tests {
                 workspace: Some(workspace.workspace),
                 key: Some(workspace.key),
                 name: "won the race".into(),
-                expected_revision: None,
+                mutation: MutationRequest::default(),
             },
             &writer,
         )
@@ -5500,7 +6291,11 @@ mod tests {
     fn provider_managed_workspaces_reject_ordinary_server_mutations() {
         let mux = provider_test_mux();
         let workspace = mux
-            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .create_empty_workspace(
+                Some("managed".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000aa04".into()),
+                None,
+            )
             .unwrap();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -5518,7 +6313,7 @@ mod tests {
                     workspace: Some(workspace.workspace),
                     key: Some(workspace.key.clone()),
                     name: "raw rename".into(),
-                    expected_revision: None,
+                    mutation: MutationRequest::default(),
                 },
                 "cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls",
             ),
@@ -5526,7 +6321,7 @@ mod tests {
                 Command::CloseWorkspace {
                     workspace: Some(workspace.workspace),
                     key: Some(workspace.key.clone()),
-                    expected_revision: None,
+                    mutation: MutationRequest::default(),
                 },
                 "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",
             ),
@@ -5585,7 +6380,11 @@ mod tests {
     fn ordinary_control_client_cannot_forge_provider_workspace_commits() {
         let mux = provider_test_mux();
         let workspace = mux
-            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .create_empty_workspace(
+                Some("managed".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000aa05".into()),
+                None,
+            )
             .unwrap();
         let writer = test_writer();
         let provider = mux.control_clients.register(ClientTransport::Unix, writer.clone());

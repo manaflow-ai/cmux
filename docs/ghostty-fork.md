@@ -12,13 +12,325 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `b211341be`. It combines indented
-hard-newline link continuations with the presentation-token runtime from
-`24284c3ba` and is published through
-https://github.com/manaflow-ai/ghostty/pull/124.
-The corresponding universal ReleaseFast GhosttyKit archive is published at
+The submodule pinned by this branch is `f11159ff4`, the merge (landing
+through https://github.com/manaflow-ai/ghostty/pull/147) of the
+screen-anchored render-grid export line with the then-current
+`manaflow-ai/ghostty` `main` (`50ad1963d`).
+
+`4cc0933cf` adds the screen-anchored render-grid export for the iOS
+local-scrollback scroll work: `buildRenderGridJson` gains an active-area
+anchor mode, every export carries `history_rows` + `row_space_revision`
+(scrollbar semantics; revision bumps on trim/eviction/reflow/erase), and the
+new C export `ghostty_surface_render_grid_json_v2` takes the anchor flag.
+Existing exports keep viewport anchoring byte-for-byte unchanged. Files:
+`src/apprt/embedded.zig`, `include/ghostty.h`. The line's earlier swap-chain
+rotation commit (`d2fc392de`, the iOS frozen-presents root-cause fix) was
+independently landed on `main` as the byte-identical serial frame-lease
+rotation (https://github.com/manaflow-ai/ghostty/pull/145); the merge keeps
+`main`'s version.
+
+On the `main` side: the complete renderer scheduling hardening landed
+through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
+bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
+external redraw delivery and surface lifetime retention landed through
+https://github.com/manaflow-ai/ghostty/pull/139. Embedder userdata ownership
+and callback lifetime hardening landed through
+https://github.com/manaflow-ai/ghostty/pull/140. Serial frame-lease rotation
+landed through https://github.com/manaflow-ai/ghostty/pull/145. Dead PTY reader
+and child cleanup landed through
+https://github.com/manaflow-ai/ghostty/pull/143. The cumulative external
+frontend integration landed through
+https://github.com/manaflow-ai/ghostty/pull/128, and the earlier stacked PRs
+https://github.com/manaflow-ai/ghostty/pull/127,
+https://github.com/manaflow-ai/ghostty/pull/123, and
+https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
+The nonblocking renderer lifecycle fix landed through
+https://github.com/manaflow-ai/ghostty/pull/132 before that cumulative merge.
+The resulting main line supplies the external-frontend renderer contract used
+by cmux Browser, exact cursor state for process-separated terminal mirrors,
+mutable-default color reset semantics, nonblocking embedded lifecycle updates,
+and the product-main renderer/link fixes described below. It also bounds each
+renderer mailbox drain turn so continuous producers cannot starve lifecycle
+processing or rendering.
+
+Fork `main`'s (`50ad1963d`) universal ReleaseFast GhosttyKit archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-50ad1963d9c73ee957932ccb4d26bf6d15575ee7-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The merged
+pin `f11159ff4`'s archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f11159ff48e6e47bd1879655fef8b7157a963855-crashsubdir-cmux-crash-v1
+and pinned in the same checksums file.
+
+### Bounded renderer mailbox turns and continuation recovery
+
+- Commits:
+  - `188d31a97` (fix: bound renderer mailbox drain turns)
+  - `18c3fd311` (renderer: preserve progress across wake errors)
+  - `727a7dc02` (fix: drain external renderer continuations)
+  - `994fee1b0` (merge the complete bounded-drain follow-up)
+- Files:
+  - `src/datastruct/blocking_queue.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Limits one renderer turn to the mailbox depth observed when the turn
+    begins. Messages added by concurrent producers remain FIFO-ordered for the
+    next turn.
+  - Applies latest-value lifecycle state and performs the pending render after
+    every bounded batch, even when terminal output keeps refilling the mailbox.
+  - Rechecks after rendering and explicitly re-wakes the normal renderer when
+    work arrived during either the drain or render, because producer
+    notifications may have coalesced with the wake being handled.
+  - External iOS rendering, which permanently disables the xev callback, drains
+    each finite continuation batch until quiescent on its serial render queue.
+  - Restores failed focus/display lifecycle requests only when their atomic
+    slots are still empty, preserving newer concurrent publications and making
+    focus application transactional for a later retry.
+  - Conflict note: future renderer-loop changes must preserve bounded progress
+    for lifecycle state and rendering, normal-path post-render re-wakes, and
+    external-path continuation consumption. Do not replace the snapshot drain
+    with an unbounded producer-refillable drain-until-empty loop.
+
+### External redraw delivery and surface lifetime
+
+- Commits:
+  - `d1efafd78` (fix: retain rejected external redraw requests)
+  - `62e1de720` (fix: ticket external redraw deliveries)
+  - `741b11662` (fix: bind redraw tickets to surface lifetimes)
+  - `cf1dee45d` (fix: retain surfaces through app action dispatch)
+  - `d3265f4c5` (merge the reviewed redraw-delivery follow-up)
+- Files:
+  - `src/App.zig`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/apprt/gtk/Surface.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Assigns one generation-scoped redraw ticket to each external surface so a
+    rejected app-mailbox enqueue has one retained retry owner.
+  - Distinguishes queued work from enqueue failure, retries only after mailbox
+    capacity returns, and rejects stale acknowledgments or allocator-address
+    reuse from an older surface lifetime.
+  - Retains the surface allocation while the host render action is dispatched,
+    allowing reentrant teardown to unregister immediately while deferring final
+    destruction until the callback returns.
+  - Conflict note: external redraw changes must preserve per-surface ticket
+    ownership, generation checks, enqueue-failure retry ownership, and the app
+    action lifetime lease. A raw surface pointer is not a sufficient delivery
+    identity across asynchronous dispatch.
+
+### Embedder userdata ownership and callback lifetime
+
+- Commits:
+  - `289097387` (fix: bind embedder userdata to surface lifetime)
+  - `76c8b03d8` (fix: retain userdata across every host callback)
+  - `365fe1d2c` (fix: lease setter-installed PTY tee callbacks)
+  - `98288feb2` (merge the owned-userdata lifetime fix)
+- Files:
+  - `include/ghostty.h`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_surface_new_with_owned_userdata` without changing
+    `ghostty_surface_config_s`, preserving the existing C ABI for borrowed
+    callers.
+  - Tracks embedder userdata through explicit borrowed, owned, and released
+    states. A successful owned construction transfers the host reference to
+    Ghostty; failed construction leaves ownership with the caller.
+  - Leases owned userdata across surface-targeted app actions and every host
+    callback, including PTY tee callbacks installed both during and after
+    construction.
+  - Defers the exactly-once final release until surface teardown and all
+    in-flight callbacks have quiesced, preventing host bridge destruction while
+    Ghostty can still call through its userdata.
+  - Conflict note: future embedder callback or teardown changes must acquire a
+    userdata lease before leaving Ghostty-owned synchronization, and must retain
+    the failed-creation ownership contract. Do not restore split host/Ghostty
+    release ownership or release the owned userdata directly from surface-free
+    call sites.
+
+### Nonblocking renderer lifecycle state
+
+- Commits:
+  - `2d99010ff` (test: cover nonblocking renderer lifecycle state)
+  - `ca21db1bb` (fix: publish renderer lifecycle state without blocking)
+  - `ade1de1f4` (merge the then-current fork `main`)
+  - `98c95ac88` (merge the lifecycle fix through fork PR #132)
+- Files:
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Publishes surface visibility, focus, and macOS display ID into independent
+    atomic latest-value slots instead of waiting for capacity in the bounded
+    renderer mailbox.
+  - Applies those coalesced values on the renderer thread after ordered mailbox
+    work, so an older compatibility message cannot overwrite a newer lifecycle
+    request.
+  - Keeps embedder UI executors nonblocking even when the renderer thread is
+    wedged or its mailbox is full. The renderer wakeup remains the signal that
+    drives the next drain.
+  - Conflict note: future surface lifecycle or renderer-mailbox changes must
+    preserve the invariant that UI-thread visibility, focus, and display-ID
+    calls never wait for renderer progress. New idempotent lifecycle fields
+    should use the same latest-value publication path rather than a `.forever`
+    mailbox push.
+
+### External frontend rendering and recovery
+
+- Commits:
+  - `581dbf264` (embedded: add manual mirror IO mode)
+  - `9a391205c` (feat: add external Metal presenter ABI)
+  - `0f400d0f5` (feat: serialize worker recovery state)
+  - `ad5d0124c` (merge the external presenter and manual-renderer lines)
+  - `d0dc34b2a` (embedded: pin combined cmux surface ABI)
+  - `8c645641a` (embedded: add leased external Metal frames)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/external_frame.zig`
+  - `src/renderer/frame_lease.zig`
+  - `src/renderer/Metal.zig`
+  - `src/renderer/OpenGL.zig`
+  - `src/termio/Manual.zig`
+- Summary:
+  - Adds windowless Metal presentation for an external frontend. Completed
+    IOSurface frames carry explicit frame and host-context tokens; the host
+    either drops the frame or acquires a lease and releases that exact lease
+    when it is finished presenting.
+  - Keeps manual-mirror terminal I/O under the embedder's authority, including
+    startup PTY teeing, parser-response suppression, serialized configuration,
+    and an atomic VT-tail/output-sequence snapshot for worker recovery.
+  - Retains the embedder-owned OpenGL path while assigning stable, distinct
+    platform ABI values to OpenGL, ordinary external Metal, and leased external
+    Metal surfaces.
+  - Conflict note: renderer refactors must preserve exact frame ownership,
+    one-release-per-acquired-lease semantics, and the atomic recovery snapshot.
+    Platform enum values and the combined surface ABI are externally consumed
+    and must not be renumbered implicitly.
+
+### Serial frame-lease rotation
+
+- Commits:
+  - `3a43d5edc` (test: require serial frame slot rotation)
+  - `fcafac572` (fix: rotate serial frame leases)
+  - `50ad1963d` (merge the frame-lease rotation fix)
+- File:
+  - `src/renderer/frame_lease.zig`
+- Summary:
+  - Rotates the free-slot search after every successful acquisition. A serial
+    producer therefore presents distinct IOSurface objects even when each Metal
+    frame completes before the next input event.
+  - Preserves exact-slot ownership, generation tokens, out-of-order release
+    safety, and semaphore backpressure; only the choice among currently free
+    slots changes.
+  - Prevents Core Animation from deduplicating repeated assignments of one
+    IOSurface while its pixels change underneath it, which otherwise batches
+    low-rate terminal echo until unrelated layer activity triggers recomposition.
+  - Conflict note: future lease-pool refactors must retain round-robin selection
+    among free slots. A fixed first-free scan reintroduces serial-render stalls
+    even when every GPU completion and renderer wake is timely.
+
+### Cursor visual and replay continuity state
+
+- Commits:
+  - `9a614e570` (terminal: expose effective cursor visual state)
+  - `fa8e3b18b` (terminal: expose screen activity token)
+  - `71ed4f8f6` (terminal: expose cursor semantic activity)
+- Files:
+  - `include/ghostty/vt/terminal.h`
+  - `src/terminal/c/terminal.zig`
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Exposes the active screen's resolved cursor shape and terminal-wide DEC
+    mode 12 blink state separately from the SGR cell cursor-style getter.
+  - Exposes opaque wrapping screen-activity and cursor-activity tokens. A
+    process-separated frontend compares them only for inequality so it can
+    replay resets, alternate-screen round trips, and same-value semantic
+    changes that the final visible shape/blink pair alone cannot reveal.
+  - Conflict note: DECSCUSR, DEC mode 12, alternate-screen transitions, full
+    reset, and embedder-default changes must continue advancing the appropriate
+    activity token even when the resolved visual pair is unchanged.
+
+### Dynamic colors follow mutable defaults
+
+- Commit: `d6f611a30` (terminal: let color resets follow mutable defaults)
+- Files:
+  - `src/terminal/color.zig`
+  - `src/terminal/c/render.zig`
+- Summary:
+  - OSC 110, 111, and 112 clear their foreground, background, and cursor
+    overrides instead of copying the current default into the override slot.
+    A later C API default-color update therefore becomes visible in an already
+    attached render state.
+  - Covers override, reset, and subsequent mutable-default updates while
+    reusing one C render state, matching long-lived external frontends.
+  - Conflict note: reset must continue to mean "no override"; snapshotting the
+    current default recreates stale colors after a later frontend theme update.
+
+### Unindented hard-newline link continuations
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/134
+- Commits:
+  - `823641e234c3c6bf4bc5badb72261d8a6fc37232` (fix: join unindented wrapped links)
+  - `f6b47c8371991a4555f907737e808f161c368661` (merge the link continuation fix)
+- Files:
+  - `src/Surface.zig`
+  - `src/link.zig`
+  - `src/link_wrap.zig`
+- Summary:
+  - Uses one shared continuation classifier for terminal-grid candidate
+    expansion and newline normalization, so hover, copy, preview, and open all
+    resolve the same complete link.
+  - Recognizes unindented hard-newline continuations after link punctuation
+    while preserving the existing indented continuation behavior.
+  - Keeps conservative boundaries for explicit schemes and roots, semantic
+    prompt transitions, unrelated indentation, and trailing sentence
+    punctuation.
+  - Conflict note: link-grid expansion and newline normalization must continue
+    to share the classifier; duplicating the continuation decision can make
+    hover and activation disagree.
+
+### Bounded Kitty graphics state
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/137
+- Commit:
+  - `b7feeea5c0ee041f8cb79aace2129efad31df19d` (merge bounded Kitty graphics state)
+- Files:
+  - `include/ghostty/vt/{kitty_graphics.h,terminal.h,types.h}`
+  - `src/lib_vt.zig`
+  - `src/terminal/{Screen.zig,Terminal.zig}`
+  - `src/terminal/c/{kitty_graphics.zig,main.zig,terminal.zig}`
+  - `src/terminal/kitty/{graphics.zig,graphics_exec.zig,graphics_image.zig,graphics_storage.zig,graphics_unicode.zig}`
+- Summary:
+  - Bounds per-screen Kitty image and placement storage, in-progress image
+    loads, allocation sizes, and eviction scans.
+  - Exposes the lib-vt C ABI for image and placement enumeration, restores
+    image-number aliases, and reports anonymous placement identity.
+  - Adds renderer-owned graphics dirty/damage state for incremental external
+    snapshots.
+  - Applies limit changes atomically and preserves replacements while cleaning
+    placement pins during replacement and eviction.
+  - Conflict note: future Kitty storage changes must preserve bounded resource
+    use, atomic limit updates, alias/enumeration ABI behavior, and placement-pin
+    cleanup.
+
+## Reconciled product-main line
+
+The product-main line had advanced independently to `b211341be` while the
+external-frontend line advanced to `d6f611a30`. Integration commit
+`7c3ddd6f3cd4935f1b6bd10530b1e8e8ec4c9ef9` reconciled both histories, and
+merge commit `c55514dd52d806e9aa661ee20381aa19c91c1c09` landed that cumulative
+result on `manaflow-ai/ghostty` `main` through
+https://github.com/manaflow-ai/ghostty/pull/128. The current submodule pin
+therefore includes the indented hard-newline link continuations, tokened
+presentation lifetime fixes, leased external frames, recovery snapshots,
+cursor continuity state, mutable-default color resets, and nonblocking embedded
+lifecycle publication together.
+
+The older `b211341be` universal ReleaseFast archive remains published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
-and pinned in `scripts/ghosttykit-checksums.txt`.
+and pinned in `scripts/ghosttykit-checksums.txt` for reproducibility of older
+cmux revisions.
 
 ### Indented hard-newline link continuations
 
