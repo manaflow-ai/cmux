@@ -662,17 +662,55 @@ def _swift_type_member_bindings(
 
 
 def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
-    """Return simple closure parameters introduced immediately after a brace."""
+    """Return closure-local bindings introduced immediately after a brace."""
+    snippet = text[opening + 1 : opening + 513]
     candidate = re.match(
-        rf"\s*(?P<parameters>{_SWIFT_IDENTIFIER_PATTERN}"
-        rf"(?:\s*,\s*{_SWIFT_IDENTIFIER_PATTERN})*)\s+in\b",
-        text[opening + 1 : opening + 513],
+        rf"\s*(?:@\w+(?:\([^{{}}]*\))?\s+)*"
+        rf"(?:\[(?P<captures>[^\[\]{{}}]*)\]\s*)?"
+        rf"(?:"
+        rf"\((?P<typed_parameters>[^{{}}]*)\)"
+        rf"|(?P<simple_parameters>{_SWIFT_IDENTIFIER_PATTERN}"
+        rf"(?:\s*,\s*{_SWIFT_IDENTIFIER_PATTERN})*)"
+        rf")?"
+        rf"(?:\s+(?:async|throws|rethrows))*"
+        rf"(?:\s*->\s*[^{{}}]+?)?"
+        rf"\s+in\b",
+        snippet,
     )
     if candidate is None:
+        prefix = snippet.lstrip()
+        if (
+            prefix.startswith(("[", "(", "@"))
+            and re.search(r"\bin\b", prefix)
+        ):
+            return {"*"}
         return set()
-    return set(
-        re.findall(_SWIFT_IDENTIFIER_PATTERN, candidate.group("parameters"))
-    )
+
+    result: set[str] = set()
+    captures = candidate.group("captures")
+    if captures is not None:
+        for capture in captures.split(","):
+            names = re.findall(_SWIFT_IDENTIFIER_PATTERN, capture)
+            local_name = next(
+                (
+                    name
+                    for name in names
+                    if name not in ("weak", "unowned", "safe", "unsafe")
+                ),
+                None,
+            )
+            if local_name is not None:
+                result.add(local_name)
+
+    typed_parameters = candidate.group("typed_parameters")
+    if typed_parameters is not None:
+        result.update(_swift_parameter_names(typed_parameters))
+    simple_parameters = candidate.group("simple_parameters")
+    if simple_parameters is not None:
+        result.update(
+            re.findall(_SWIFT_IDENTIFIER_PATTERN, simple_parameters)
+        )
+    return result
 
 
 def _swift_named_clock_sleep_positions(text: str) -> set[int]:
@@ -728,7 +766,10 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
             )
         for _, scope in candidate_scopes:
             if receiver not in scope:
-                if event.group("qualification") is not None:
+                if (
+                    event.group("qualification") is not None
+                    or "*" in scope
+                ):
                     break
                 continue
             if scope[receiver]:
@@ -753,8 +794,9 @@ def _swift_real_sleep_positions(
         sleep_offset = match.start() + match.group().rfind("sleep")
         record(sleep_offset)
 
-    for sleep_offset in _swift_named_clock_sleep_positions(text):
-        record(sleep_offset)
+    if "ContinuousClock" in text or "SuspendingClock" in text:
+        for sleep_offset in _swift_named_clock_sleep_positions(text):
+            record(sleep_offset)
 
     for task in re.finditer(r"(?<![.$\w])Task\b", text):
         cursor = task.end()
@@ -1156,6 +1198,33 @@ def _python_direct_calls_in_block(
     return result
 
 
+def _python_bindings_after_block(
+    body: list[ast.stmt],
+    bindings: dict[str, str],
+) -> dict[str, str]:
+    """Return conservative bindings after a block executes in source order."""
+    result = bindings.copy()
+    for statement in body:
+        result.update(_python_binding_updates(statement))
+    return result
+
+
+def _python_merge_binding_variants(
+    variants: list[dict[str, str]],
+) -> dict[str, str]:
+    """Merge control-flow binding variants without trusting disagreement."""
+    result: dict[str, str] = {}
+    keys = set().union(*(variant.keys() for variant in variants))
+    for key in keys:
+        values = {variant.get(key) for variant in variants}
+        result[key] = (
+            values.pop()
+            if len(values) == 1 and None not in values
+            else _PYTHON_SHADOWED_BINDING
+        )
+    return result
+
+
 def _python_direct_calls_in_statement(
     statement: ast.stmt,
     bindings: dict[str, str],
@@ -1165,9 +1234,24 @@ def _python_direct_calls_in_statement(
         return []
 
     if isinstance(statement, ast.If):
-        result = _python_direct_calls_in_node(statement.test, bindings)
-        result.extend(_python_direct_calls_in_block(statement.body, bindings))
-        result.extend(_python_direct_calls_in_block(statement.orelse, bindings))
+        condition_bindings = bindings.copy()
+        condition_bindings.update(_python_binding_updates(statement.test))
+        test_bindings = _python_merge_binding_variants(
+            [bindings, condition_bindings]
+        )
+        result = _python_direct_calls_in_node(statement.test, test_bindings)
+        result.extend(
+            _python_direct_calls_in_block(
+                statement.body,
+                condition_bindings,
+            )
+        )
+        result.extend(
+            _python_direct_calls_in_block(
+                statement.orelse,
+                condition_bindings,
+            )
+        )
         return result
 
     if isinstance(statement, (ast.For, ast.AsyncFor)):
@@ -1181,9 +1265,24 @@ def _python_direct_calls_in_statement(
         return result
 
     if isinstance(statement, ast.While):
-        result = _python_direct_calls_in_node(statement.test, bindings)
-        result.extend(_python_direct_calls_in_block(statement.body, bindings))
-        result.extend(_python_direct_calls_in_block(statement.orelse, bindings))
+        condition_bindings = bindings.copy()
+        condition_bindings.update(_python_binding_updates(statement.test))
+        test_bindings = _python_merge_binding_variants(
+            [bindings, condition_bindings]
+        )
+        result = _python_direct_calls_in_node(statement.test, test_bindings)
+        result.extend(
+            _python_direct_calls_in_block(
+                statement.body,
+                condition_bindings,
+            )
+        )
+        result.extend(
+            _python_direct_calls_in_block(
+                statement.orelse,
+                condition_bindings,
+            )
+        )
         return result
 
     if isinstance(statement, (ast.With, ast.AsyncWith)):
@@ -1206,9 +1305,22 @@ def _python_direct_calls_in_statement(
         return result
 
     if isinstance(statement, (ast.Try, getattr(ast, "TryStar", ast.Try))):
-        result = _python_direct_calls_in_block(statement.body, bindings)
+        result: list[tuple[str, dict[str, str]]] = []
+        body_states = [bindings.copy()]
+        body_bindings = bindings.copy()
+        for body_statement in statement.body:
+            result.extend(
+                _python_direct_calls_in_statement(
+                    body_statement,
+                    body_bindings,
+                )
+            )
+            body_bindings.update(_python_binding_updates(body_statement))
+            body_states.append(body_bindings.copy())
+        handler_entry = _python_merge_binding_variants(body_states)
+        completion_states: list[dict[str, str]] = []
         for handler in statement.handlers:
-            handler_bindings = bindings.copy()
+            handler_bindings = handler_entry.copy()
             if handler.type is not None:
                 result.extend(
                     _python_direct_calls_in_node(
@@ -1224,14 +1336,28 @@ def _python_direct_calls_in_statement(
                     handler_bindings,
                 )
             )
-        body_bindings = bindings.copy()
-        for body_statement in statement.body:
-            body_bindings.update(_python_binding_updates(body_statement))
+            completion_states.append(
+                _python_bindings_after_block(
+                    handler.body,
+                    handler_bindings,
+                )
+            )
         result.extend(
             _python_direct_calls_in_block(statement.orelse, body_bindings)
         )
+        completion_states.append(
+            _python_bindings_after_block(
+                statement.orelse,
+                body_bindings,
+            )
+        )
+        completion_states.append(handler_entry)
+        final_bindings = _python_merge_binding_variants(completion_states)
         result.extend(
-            _python_direct_calls_in_block(statement.finalbody, bindings)
+            _python_direct_calls_in_block(
+                statement.finalbody,
+                final_bindings,
+            )
         )
         return result
 
