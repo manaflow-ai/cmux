@@ -1641,6 +1641,7 @@
               "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
+              "reopenClosedWorkspace",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
