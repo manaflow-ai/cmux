@@ -5572,6 +5572,26 @@ mod tests {
     }
 
     #[test]
+    fn negotiated_pointer_capture_has_a_bounded_worker_lease() {
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert(
+            "left".to_string(),
+            super::ActivePointerPress::new(
+                super::BrowserPointerOwner::Client(41),
+                1,
+                1.0,
+                1.0,
+                Some(1),
+            ),
+        );
+
+        assert!(
+            super::next_pointer_lifecycle_deadline(&failures).is_some(),
+            "a half-open negotiated client must not retain browser capture indefinitely"
+        );
+    }
+
+    #[test]
     fn idle_browser_worker_has_no_fixed_pointer_cleanup_poll() {
         let source = include_str!("browser.rs");
         let production =
@@ -6160,6 +6180,31 @@ mod tests {
         assert_eq!(state.accepted_frame_epoch, browser.frame_epoch.current());
         drop(state);
         assert_eq!(browser.url(), "https://next.test");
+    }
+
+    #[test]
+    fn superseded_uncommitted_navigation_rollback_restores_original_authority() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_, capture_generation) =
+            browser.capture_guarded_input_point(1, 1.0, 1.0).expect("initial pointer authority");
+        let first = browser.begin_navigation_frame_transition().unwrap();
+        browser.finish_navigation_command(first, Ok(())).unwrap();
+        assert_eq!(browser.latest_frame_seq(), None);
+
+        let replacement = browser.begin_superseding_targeted_navigation_frame_transition().unwrap();
+        browser.restore_pointer_frame_after_failed_command(replacement);
+
+        assert_eq!(
+            browser.latest_frame_seq(),
+            Some(1),
+            "a stopped uncommitted navigation must retain the original rollback authority"
+        );
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "rollback must restore the capture generation that owned the displayed document"
+        );
     }
 
     #[test]
