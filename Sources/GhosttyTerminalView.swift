@@ -4596,7 +4596,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         guard let surface else { return true }
-        return !hasCopyableTerminalSelection(surface: surface)
+        let hasCopyableSelection = hasCopyableTerminalSelection(surface: surface)
+        guard !hasCopyableSelection else { return false }
+
+        return Self.shouldConsumeUnavailableCopy(
+            hasCopyableSelection: hasCopyableSelection,
+            bindingFlagsRawValue: ghosttyBindingFlags(for: event, surface: surface)?.rawValue
+        )
+    }
+
+    /// The default Cmd+C binding is consumed and performable, so Ghostty treats
+    /// it as unbound when there is no selection. A configured non-performable
+    /// binding must still reach Ghostty's binding path.
+    static func shouldConsumeUnavailableCopy(
+        hasCopyableSelection: Bool,
+        bindingFlagsRawValue: UInt32?
+    ) -> Bool {
+        guard !hasCopyableSelection else { return false }
+        guard let bindingFlagsRawValue else { return true }
+        let defaultCopyFlags =
+            GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue |
+            GHOSTTY_BINDING_FLAGS_PERFORMABLE.rawValue
+        return bindingFlagsRawValue == defaultCopyFlags
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -5309,16 +5330,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         // Check if this event matches a Ghostty keybinding.
-        let bindingFlags: ghostty_binding_flags_e? = {
-            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
-            var flags = ghostty_binding_flags_e(0)
-            let isBinding = text.withCString { ptr in
-                keyEvent.text = ptr
-                return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-            }
-            return isBinding ? flags : nil
-        }()
+        let bindingFlags = ghosttyBindingFlags(for: event, surface: surface)
 
         if let bindingFlags {
             let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
@@ -5402,6 +5414,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    private func ghosttyBindingFlags(
+        for event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> ghostty_binding_flags_e? {
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
+        var flags = ghostty_binding_flags_e(0)
+        let isBinding = text.withCString { ptr in
+            keyEvent.text = ptr
+            return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+        }
+        return isBinding ? flags : nil
     }
 
     override func keyDown(with event: NSEvent) {
