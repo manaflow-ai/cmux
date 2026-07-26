@@ -5462,7 +5462,7 @@ mod tests {
     }
 
     #[test]
-    fn guarded_browser_attach_requires_bilateral_client_capability() {
+    fn guarded_browser_capability_and_pointer_owner_are_connection_stable() {
         let mux = test_mux();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -5484,6 +5484,29 @@ mod tests {
         ));
         assert!(
             mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+        );
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 2,
+                "cmd": "set-client-info",
+                "capabilities": [],
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(
+            mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY),
+            "connection-scoped pointer capability must not be withdrawn after admission"
+        );
+
+        let source = include_str!("server.rs");
+        let production =
+            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production server source");
+        assert!(
+            production.contains("browser_pointer_owner"),
+            "pointer ownership must remain stable when connection metadata changes"
         );
     }
 

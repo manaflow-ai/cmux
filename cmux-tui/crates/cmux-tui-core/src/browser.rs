@@ -3733,6 +3733,55 @@ mod tests {
         (runtime, server)
     }
 
+    fn runtime_rejecting_then_observing_mouse_retry()
+    -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>, mpsc::Receiver<bool>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (observed_tx, observed_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let mouse = read_ws_json(&mut ws);
+            assert_eq!(mouse["method"], "Input.dispatchMouseEvent");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": mouse["id"],
+                    "error": {"message": "CDP call Input.dispatchMouseEvent timed out"}
+                }),
+            );
+
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let retry = loop {
+                match ws.read() {
+                    Ok(Message::Text(text)) => break serde_json::from_str::<Value>(&text).ok(),
+                    Ok(Message::Binary(bytes)) => {
+                        break serde_json::from_slice::<Value>(&bytes).ok();
+                    }
+                    Ok(_) => {}
+                    Err(_) => break None,
+                }
+            };
+            let observed =
+                retry.as_ref().is_some_and(|retry| retry["method"] == "Input.dispatchMouseEvent");
+            if let Some(retry) = retry {
+                write_ws_json(&mut ws, json!({"id": retry["id"], "result": {}}));
+            }
+            observed_tx.send(observed).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        (runtime, server, observed_rx)
+    }
+
     fn runtime_accepting_mouse_dispatches(
         expected_types: Vec<&'static str>,
     ) -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>) {
@@ -6188,7 +6237,7 @@ mod tests {
 
     #[test]
     fn ambiguous_guarded_release_failure_gets_one_bounded_retry() {
-        let (runtime, server) = runtime_rejecting_one_mouse_dispatch();
+        let (runtime, server, retry_rx) = runtime_rejecting_then_observing_mouse_retry();
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         *browser.session.lock().unwrap() = Some(BrowserSession {
@@ -6227,7 +6276,11 @@ mod tests {
             active_pointer_presses.contains_key("left"),
             "a timed-out release must remain retryable"
         );
-        server.join().unwrap();
+        browser.mark_failed("browser is not responding".to_string());
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_none(),
+            "the not-responding transition must revoke ordinary pointer coordinates"
+        );
 
         let mut failures =
             super::BrowserWorkerErrorState { active_pointer_presses, ..Default::default() };
@@ -6242,8 +6295,13 @@ mod tests {
             failures.active_pointer_presses.is_empty(),
             "the worker must consume an ambiguous release through one scheduled retry"
         );
+        assert!(
+            retry_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            "the balancing release must retain its dispatched coordinates across invalidation"
+        );
 
         runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]
