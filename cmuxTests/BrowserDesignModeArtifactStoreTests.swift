@@ -322,6 +322,38 @@ struct BrowserDesignModeArtifactStoreTests {
         }
     }
 
+    @Test func removingArtifactsCannotDeleteUnownedFiles() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-remove-scope-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDesignModeArtifactStore(directory: directory)
+        let artifact = try await store.saveContextJSON(
+            Data("owned".utf8),
+            surfaceID: UUID()
+        )
+        let processDirectory = artifact.deletingLastPathComponent()
+        let unrelatedSibling = processDirectory.appendingPathComponent(
+            "unrelated.txt",
+            isDirectory: false
+        )
+        let outsideProcessDirectory = directory.appendingPathComponent(
+            "outside.txt",
+            isDirectory: false
+        )
+        try Data("sibling".utf8).write(to: unrelatedSibling)
+        try Data("outside".utf8).write(to: outsideProcessDirectory)
+
+        await store.remove([
+            artifact,
+            unrelatedSibling,
+            outsideProcessDirectory,
+        ])
+
+        #expect(!FileManager.default.fileExists(atPath: artifact.path))
+        #expect(FileManager.default.fileExists(atPath: unrelatedSibling.path))
+        #expect(FileManager.default.fileExists(atPath: outsideProcessDirectory.path))
+    }
+
     @Test func releaseKeepsExistingHandoffPathReadable() async throws {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-release-path-test-\(UUID().uuidString)", isDirectory: true)
