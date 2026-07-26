@@ -620,6 +620,36 @@ pub const CLEAR_HISTORY_STREAM_TIMEOUT_ERROR: &str =
     "terminal output did not reach a safe clear-history boundary";
 pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClearHistoryDelivery {
+    KnownNotDelivered,
+    Ambiguous,
+}
+
+#[derive(Debug)]
+pub struct ClearHistoryFailure {
+    error: anyhow::Error,
+    delivery: ClearHistoryDelivery,
+}
+
+impl ClearHistoryFailure {
+    pub fn known_not_delivered(error: anyhow::Error) -> Self {
+        Self { error, delivery: ClearHistoryDelivery::KnownNotDelivered }
+    }
+
+    pub fn ambiguous(error: anyhow::Error) -> Self {
+        Self { error, delivery: ClearHistoryDelivery::Ambiguous }
+    }
+
+    pub fn delivery(&self) -> ClearHistoryDelivery {
+        self.delivery
+    }
+
+    pub fn into_error(self) -> anyhow::Error {
+        self.error
+    }
+}
+
 pub(crate) enum ClearHistoryTransition {
     Cleared(Vec<u8>),
     Blocked,
@@ -1863,8 +1893,18 @@ impl Surface {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> anyhow::Result<()> {
+        self.clear_history_or_encode_key_classified(fallback_key)
+            .map_err(ClearHistoryFailure::into_error)
+    }
+
+    pub fn clear_history_or_encode_key_classified(
+        &self,
+        fallback_key: Option<&KeyInput>,
+    ) -> Result<(), ClearHistoryFailure> {
         let Some(pty) = self.as_pty() else {
-            anyhow::bail!("browser surface does not have a VT terminal");
+            return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                "browser surface does not have a VT terminal"
+            )));
         };
         #[cfg(unix)]
         {
@@ -1875,10 +1915,14 @@ impl Surface {
                         if host.send_clear_history(fallback_key)? {
                             return Ok(());
                         }
-                        anyhow::bail!("terminal host does not support clear-history");
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            "terminal host does not support clear-history"
+                        )));
                     }
                     PtyRuntime::ExitedHosted => {
-                        anyhow::bail!("terminal host has exited");
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            "terminal host has exited"
+                        )));
                     }
                     PtyRuntime::Local { .. } => {}
                 }
@@ -1892,13 +1936,17 @@ impl Surface {
         loop {
             let mut term = pty.term.lock().unwrap();
             let before = terminal_scroll_position(&term);
-            let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)? {
+            let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)
+                .map_err(ClearHistoryFailure::known_not_delivered)?
+            {
                 ClearHistoryTransition::Blocked => {
                     drop(term);
                     let Some(progress) =
                         pty.stream_progress.wait_for_change(observed_progress, deadline)
                     else {
-                        anyhow::bail!(CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            CLEAR_HISTORY_STREAM_TIMEOUT_ERROR
+                        )));
                     };
                     observed_progress = progress;
                     continue;
@@ -1912,7 +1960,8 @@ impl Surface {
                     return writer
                         .write_all(&encoded)
                         .and_then(|()| writer.flush())
-                        .map_err(Into::into);
+                        .map_err(anyhow::Error::from)
+                        .map_err(ClearHistoryFailure::ambiguous);
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {

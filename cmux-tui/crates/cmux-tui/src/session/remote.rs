@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind,
+    BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryFailure, DefaultColors, MuxEvent,
+    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
+    Rgb, SurfaceId, SurfaceKind,
     platform::transport,
     server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
 };
@@ -1247,48 +1247,62 @@ impl RemoteSession {
         self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
     }
 
-    pub fn clear_history(&self, surface: SurfaceId) -> anyhow::Result<()> {
-        self.clear_history_request(surface, None)
+    pub fn clear_history_classified(&self, surface: SurfaceId) -> Result<(), ClearHistoryFailure> {
+        self.clear_history_request_classified(surface, None)
     }
 
-    pub fn clear_history_or_send_key(
+    pub fn clear_history_or_send_key_classified(
         &self,
         surface: SurfaceId,
         fallback_key: &KeyInput,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ClearHistoryFailure> {
         let supports_atomic_clear = {
             let capabilities = self.capabilities.lock().unwrap();
             capabilities.contains(CLEAR_HISTORY_CAPABILITY)
                 && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
         };
         if supports_atomic_clear {
-            return self
-                .clear_history_request(surface, Some(ProtocolKeyInput::try_from(fallback_key)?));
+            let fallback_key = ProtocolKeyInput::try_from(fallback_key)
+                .map_err(ClearHistoryFailure::known_not_delivered)?;
+            return self.clear_history_request_classified(surface, Some(fallback_key));
         }
 
-        // Plain clear-history remains available through clear_history(), but
+        // Plain clear-history remains available as a dedicated request, but
         // only an atomic-capability server can choose the active screen and
         // encode the fallback from authoritative keyboard modes. A mirrored
         // terminal is never safe for correctness-critical input routing.
-        anyhow::bail!(CLEAR_HISTORY_UNSUPPORTED_ERROR)
+        Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+            CLEAR_HISTORY_UNSUPPORTED_ERROR
+        )))
     }
 
-    fn clear_history_request(
+    fn clear_history_request_classified(
         &self,
         surface: SurfaceId,
         fallback_key: Option<ProtocolKeyInput>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ClearHistoryFailure> {
         require_capability(
             &self.capabilities.lock().unwrap(),
             CLEAR_HISTORY_CAPABILITY,
             "clear-history",
-        )?;
+        )
+        .map_err(ClearHistoryFailure::known_not_delivered)?;
         self.request(json!({
             "cmd": "clear-history",
             "surface": surface,
             "fallback_key": fallback_key,
         }))
         .map(|_| ())
+        .map_err(|error| {
+            if matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Encode(_) | RemoteRequestError::Transport(_))
+            ) {
+                ClearHistoryFailure::known_not_delivered(error)
+            } else {
+                ClearHistoryFailure::ambiguous(error)
+            }
+        })
     }
 
     pub fn begin_shutdown(&self) {
@@ -2272,7 +2286,8 @@ mod tests {
             ..Default::default()
         };
 
-        let error = session.clear_history_or_send_key(7, &fallback).unwrap_err();
+        let error =
+            session.clear_history_or_send_key_classified(7, &fallback).unwrap_err().into_error();
 
         assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
         assert!(requests.lock().unwrap().is_empty());
@@ -2307,7 +2322,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(session.clear_history_or_send_key(7, &fallback).is_err());
+        assert!(session.clear_history_or_send_key_classified(7, &fallback).is_err());
         assert!(requests.lock().unwrap().is_empty());
     }
 
@@ -2344,11 +2359,12 @@ mod tests {
             ..Default::default()
         };
 
-        let error = session.clear_history_or_send_key(7, &fallback).unwrap_err();
+        let error =
+            session.clear_history_or_send_key_classified(7, &fallback).unwrap_err().into_error();
 
         assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
         assert!(requests.lock().unwrap().is_empty());
-        session.clear_history(7).unwrap();
+        session.clear_history_classified(7).unwrap();
 
         let recorded = requests.lock().unwrap();
         assert_eq!(recorded.len(), 1);

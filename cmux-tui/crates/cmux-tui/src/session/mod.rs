@@ -15,9 +15,9 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    SurfaceResizeReporter, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserStatus, ClearHistoryFailure, DefaultColors, Mux, MuxEventReceiver, PaneId,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind,
+    SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{KeyInput, MouseInput, RenderState, Terminal};
 use serde::Deserialize;
@@ -789,27 +789,37 @@ impl Session {
         }
     }
 
-    pub fn clear_history(&self, surface: SurfaceId) -> anyhow::Result<()> {
+    pub fn clear_history_classified(&self, surface: SurfaceId) -> Result<(), ClearHistoryFailure> {
         match self {
             Session::Local(mux) => mux
                 .surface(surface)
-                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
-                .clear_history(),
-            Session::Remote(remote) => remote.clear_history(surface),
+                .ok_or_else(|| {
+                    ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "unknown surface {surface}"
+                    ))
+                })?
+                .clear_history_or_encode_key_classified(None),
+            Session::Remote(remote) => remote.clear_history_classified(surface),
         }
     }
 
-    pub fn clear_history_or_send_key(
+    pub fn clear_history_or_send_key_classified(
         &self,
         surface: SurfaceId,
         fallback_key: &KeyInput,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ClearHistoryFailure> {
         match self {
             Session::Local(mux) => mux
                 .surface(surface)
-                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
-                .clear_history_or_encode_key(Some(fallback_key)),
-            Session::Remote(remote) => remote.clear_history_or_send_key(surface, fallback_key),
+                .ok_or_else(|| {
+                    ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "unknown surface {surface}"
+                    ))
+                })?
+                .clear_history_or_encode_key_classified(Some(fallback_key)),
+            Session::Remote(remote) => {
+                remote.clear_history_or_send_key_classified(surface, fallback_key)
+            }
         }
     }
 

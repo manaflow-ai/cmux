@@ -11,9 +11,9 @@ use ghostty_vt::{KeyInput, Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::{
-    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryTransition,
-    DefaultColors, SurfaceOptions, TerminalStreamProgress, apply_clear_history_transition,
-    replace_ghostty_cursor_defaults,
+    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryFailure,
+    ClearHistoryTransition, DefaultColors, SurfaceOptions, TerminalStreamProgress,
+    apply_clear_history_transition, replace_ghostty_cursor_defaults,
 };
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
@@ -620,11 +620,15 @@ mod unix {
             Ok(true)
         }
 
-        pub fn send_clear_history(&self, fallback_key: Option<&KeyInput>) -> anyhow::Result<bool> {
+        pub fn send_clear_history(
+            &self,
+            fallback_key: Option<&KeyInput>,
+        ) -> Result<bool, ClearHistoryFailure> {
             if !self.record.supports_clear_history {
                 return Ok(false);
             }
-            let payload = crate::server::encode_terminal_host_clear_history(fallback_key)?;
+            let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
+                .map_err(ClearHistoryFailure::known_not_delivered)?;
             let response = self.send_control_request(
                 MessageKind::ClearHistory,
                 MessageKind::ClearHistoryAck,
@@ -633,11 +637,15 @@ mod unix {
             match response.as_slice() {
                 [CLEAR_HISTORY_ACK_OK] => {}
                 [CLEAR_HISTORY_ACK_FAILED] => {
-                    anyhow::bail!("terminal host failed to apply clear-history")
+                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                        "terminal host failed to apply clear-history"
+                    )));
                 }
                 _ => {
                     self.disconnect();
-                    anyhow::bail!("terminal host returned a malformed clear-history response")
+                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                        "terminal host returned a malformed clear-history response"
+                    )));
                 }
             }
             Ok(true)
@@ -726,16 +734,20 @@ mod unix {
             request_kind: MessageKind,
             response_kind: MessageKind,
             payload: Vec<u8>,
-        ) -> anyhow::Result<Vec<u8>> {
+        ) -> Result<Vec<u8>, ClearHistoryFailure> {
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             if request_id == 0 {
-                anyhow::bail!("terminal host control request id exhausted");
+                return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                    "terminal host control request id exhausted"
+                )));
             }
             let (sender, receiver) = sync_channel(1);
             {
                 let mut waiters = self.control_responses.waiters.lock().unwrap();
                 if waiters.contains_key(&request_id) {
-                    anyhow::bail!("terminal host control request id collision");
+                    return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                        "terminal host control request id collision"
+                    )));
                 }
                 waiters.insert(request_id, ControlResponseWaiter { kind: response_kind, sender });
             }
@@ -751,16 +763,16 @@ mod unix {
             };
             if let Err(error) = write_result {
                 self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                return Err(error.into());
+                return Err(ClearHistoryFailure::known_not_delivered(error.into()));
             }
             match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
                 Ok(payload) => Ok(payload),
                 Err(error) => {
                     self.control_responses.waiters.lock().unwrap().remove(&request_id);
                     self.disconnect();
-                    Err(anyhow::anyhow!(
+                    Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
                         "terminal host did not acknowledge {request_kind:?}: {error}"
-                    ))
+                    )))
                 }
             }
         }
@@ -776,6 +788,7 @@ mod unix {
             payload.extend_from_slice(&ttl_ms.to_le_bytes());
             let payload = self
                 .send_control_request(MessageKind::MintCapability, MessageKind::Capability, payload)
+                .map_err(ClearHistoryFailure::into_error)
                 .context("terminal host did not mint renderer grant")?;
             if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
                 self.disconnect();

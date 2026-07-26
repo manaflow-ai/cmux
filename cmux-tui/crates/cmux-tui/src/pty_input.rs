@@ -46,6 +46,34 @@ pub enum PtyOperationDelivery {
     Ambiguous,
 }
 
+#[derive(Debug)]
+struct KnownNotDeliveredOperationError {
+    error: anyhow::Error,
+}
+
+impl std::fmt::Display for KnownNotDeliveredOperationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl std::error::Error for KnownNotDeliveredOperationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}
+
+pub(crate) fn mark_operation_known_not_delivered(error: anyhow::Error) -> anyhow::Error {
+    anyhow::Error::new(KnownNotDeliveredOperationError { error })
+}
+
+fn underlying_operation_error(error: &anyhow::Error) -> &anyhow::Error {
+    error
+        .downcast_ref::<KnownNotDeliveredOperationError>()
+        .map(|marked| &marked.error)
+        .unwrap_or(error)
+}
+
 pub struct PtyInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
@@ -717,14 +745,20 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         if let Some(before_cleanup) = before_cleanup {
             before_cleanup();
         }
+        let marked_known_not_delivered = result
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.downcast_ref::<KnownNotDeliveredOperationError>().is_some());
+        let operation_error = result.as_ref().err().map(underlying_operation_error);
         let remote_transport_failed =
-            remote && result.as_ref().err().is_some_and(is_remote_transport_failure);
-        let remote_timed_out = remote && result.as_ref().err().is_some_and(is_remote_timeout);
+            remote && operation_error.is_some_and(is_remote_transport_failure);
+        let remote_timed_out = remote && operation_error.is_some_and(is_remote_timeout);
         // Remote writes are newline framed, so a transport write error cannot
         // have delivered a complete command. A response timeout or rejection
         // can follow a PTY write that already executed. Local PTY errors can
         // likewise occur while flushing after bytes were written.
-        let known_not_delivered = remote_transport_failed
+        let known_not_delivered = marked_known_not_delivered
+            || remote_transport_failed
             || (event.kind != PtyInputKind::Mutation
                 && !remote
                 && event.surface.kind() == SurfaceKind::Browser);

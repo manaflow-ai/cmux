@@ -17,9 +17,10 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, Direction, MuxEvent, Node, PairingChallenge, PaneId, Rect,
-    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
-    exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
+    BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure, Direction, MuxEvent,
+    Node, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
+    WorkspaceId, ZoomMode, exact_split_for_pane_edge, layout_screen, split_sides,
+    zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -55,7 +56,7 @@ use crate::machine::{
 };
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
-    PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
+    PtyInputSender, PtyOperationDelivery, PtyOperationFailure, mark_operation_known_not_delivered,
 };
 use crate::session::{
     CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
@@ -2058,7 +2059,9 @@ impl OrderedSession {
             "clear terminal history",
             surface,
             move |session| {
-                session.clear_history(surface)?;
+                session
+                    .clear_history_classified(surface)
+                    .map_err(classify_clear_history_failure)?;
                 let _ = events.send(AppEvent::ClearHistorySucceeded { surface });
                 Ok(())
             },
@@ -2075,7 +2078,9 @@ impl OrderedSession {
             self.remote,
             retained_bytes,
             move || {
-                session.clear_history_or_send_key(surface, &fallback_key)?;
+                session
+                    .clear_history_or_send_key_classified(surface, &fallback_key)
+                    .map_err(classify_clear_history_failure)?;
                 let _ = events.send(AppEvent::ClearHistorySucceeded { surface });
                 Ok(())
             },
@@ -4631,6 +4636,16 @@ fn localized_clear_history_failure(error: &str) -> &'static str {
             messages.clear_history_remote_rejected
         }
         _ => messages.clear_history_unexpected,
+    }
+}
+
+fn classify_clear_history_failure(failure: ClearHistoryFailure) -> anyhow::Error {
+    let delivery = failure.delivery();
+    let error = failure.into_error();
+    if delivery == ClearHistoryDelivery::KnownNotDelivered {
+        mark_operation_known_not_delivered(error)
+    } else {
+        error
     }
 }
 
