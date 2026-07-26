@@ -247,7 +247,7 @@ USAGE:
   cmux-tui [OPTIONS]           Start a session (TUI + control socket)
   cmux-tui attach [OPTIONS]    Attach to an existing session's socket
   cmux-tui relay [OPTIONS]     Relay stdio to a session's socket
-  cmux-tui machine-agent       Share one local session through cmux.cloud
+  {machine_agent_usage}
   cmux-tui <verb> [OPTIONS]    Run one control-socket command
   cmux-tui plugin <subcommand> Manage sidebar plugins locally
 
@@ -315,6 +315,14 @@ PLUGIN VERBS (local; no socket protocol command)
   plugin update <name>
   plugin remove <name>
 ";
+
+fn usage_for(messages: &localization::MachineAgentMessages) -> String {
+    USAGE.replace("{machine_agent_usage}", messages.usage)
+}
+
+fn usage() -> String {
+    usage_for(&localization::catalog().machine_agent)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
@@ -448,7 +456,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
             "-h" | "--help" => {
-                print!("{USAGE}");
+                print!("{}", usage());
                 std::process::exit(0);
             }
             "-V" | "--version" => {
@@ -630,7 +638,7 @@ fn main() {
         std::process::exit(exit_code);
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
-        cli::print_help(USAGE);
+        cli::print_help(&usage());
         std::process::exit(0);
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
@@ -654,7 +662,7 @@ fn main() {
     }
     if cli::is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(cli::run(&raw_args, USAGE));
+        std::process::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
     #[cfg(unix)]
@@ -1130,7 +1138,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux-tui: {msg}\n\n{USAGE}");
+    eprintln!("cmux-tui: {msg}\n\n{}", usage());
     std::process::exit(2);
 }
 
@@ -1463,19 +1471,18 @@ mod tests {
 
     #[test]
     fn startup_help_lists_all_provider_entrypoints() {
-        assert!(USAGE.contains("--machine-provider <path>"));
-        assert!(USAGE.contains("--machine-provider-command <program> [arg ...] --"));
-        assert!(USAGE.contains("--cloud"));
-        assert!(USAGE.contains("--cloud-identity"));
+        let usage = usage();
+        assert!(usage.contains("--machine-provider <path>"));
+        assert!(usage.contains("--machine-provider-command <program> [arg ...] --"));
+        assert!(usage.contains("--cloud"));
+        assert!(usage.contains("--cloud-identity"));
     }
 
     #[test]
     fn startup_help_localizes_the_machine_agent_entrypoint() {
-        let english =
-            usage_for(&localization::catalog_for_locale("en_US.UTF-8").machine_agent);
+        let english = usage_for(&localization::catalog_for_locale("en_US.UTF-8").machine_agent);
         assert!(english.contains("Share one local session through the configured host"));
-        let japanese =
-            usage_for(&localization::catalog_for_locale("ja_JP.UTF-8").machine_agent);
+        let japanese = usage_for(&localization::catalog_for_locale("ja_JP.UTF-8").machine_agent);
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
         assert!(!japanese.contains("Share one local session"));
     }

@@ -22,6 +22,7 @@ pub(crate) struct ForeignViewportMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MachineAgentMessages {
     pub help: &'static str,
+    pub usage: &'static str,
     pub pairing_code: &'static str,
     pub registered: &'static str,
     pub retrying: &'static str,
@@ -199,6 +200,7 @@ OPTIONS:
 The agent opens one outbound connection. It never opens a public listener or
 edits shell files. Authenticate with the configured host before retrying.
 ",
+        usage: "cmux-tui machine-agent       Share one local session through the configured host",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
@@ -311,6 +313,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
 を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
+        usage: "cmux-tui machine-agent       設定したホスト経由でローカルセッションを共有",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
