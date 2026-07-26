@@ -886,14 +886,29 @@ EOF
   if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
     CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
     /bin/bash "$fixture_runner" \
-    --coverage -t "fixture runs" --bail=2 --changed=main --parallel=2; then
+    --coverage -t "fixture runs" --bail=2 --parallel=2; then
     rm -rf "$fixture_dir"
     echo "FAIL: shared web test runner option-only discovery should execute"
     exit 1
   fi
-  expected_args+=$'\n--coverage\n-t\nfixture runs\n--bail=2\n--changed=main\n--parallel=2'
+  expected_args+=$'\n--coverage\n-t\nfixture runs\n--bail=2\n--parallel=2'
   if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
     echo "FAIL: option-only runs must retain sorted discovery before forwarding options"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --changed=main; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner changed-file discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--changed=main'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: changed-file selection must retain Bun-owned discovery"
     cat "$args_log"
     rm -rf "$fixture_dir"
     exit 1
@@ -945,6 +960,41 @@ EOF
       exit 1
     fi
   done
+
+  cat > "$fixture_dir/web/bunfig.toml" <<'EOF'
+[test]
+root = "tests"
+EOF
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner configured-root discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: default root-bearing Bun config must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  rm -f "$fixture_dir/web/bunfig.toml"
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --config=ci.bunfig.toml; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner alternate-config discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--config=ci.bunfig.toml'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: alternate Bun configs must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
 
   cat > "$fixture_dir/bin/find" <<'EOF'
 #!/usr/bin/env bash

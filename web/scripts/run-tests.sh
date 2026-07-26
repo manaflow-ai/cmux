@@ -18,14 +18,14 @@ arguments_require_bun_discovery() {
       continue
     fi
 
-    # Optional-valued and unknown flags consume a value only in --flag=value
-    # form. A following token is treated as a filter and delegated to Bun,
-    # which avoids accidentally widening a scoped run.
+    # Optional-valued flags consume a value only in --flag=value form. A
+    # following token is treated as a filter, and unknown flags delegate to
+    # Bun, which avoids accidentally widening a scoped or future invocation.
     case "$argument" in
       --)
         positional_only=1
         ;;
-      --watch|--hot)
+      --watch|--hot|--config|--config=*|-c|-c=*|--path-ignore-patterns|--path-ignore-patterns=*|--changed|--changed=*)
         return 0
         ;;
       -t|--test-name-pattern|--timeout|--rerun-each|--retry|--seed)
@@ -34,10 +34,23 @@ arguments_require_bun_discovery() {
       --coverage-reporter|--coverage-dir|--reporter|--reporter-outfile)
         expects_value=1
         ;;
-      --max-concurrency|--path-ignore-patterns|--parallel-delay|--shard)
+      --max-concurrency|--parallel-delay|--shard)
         expects_value=1
         ;;
+      -t=*|--test-name-pattern=*|--timeout=*|--rerun-each=*|--retry=*|--seed=*)
+        ;;
+      --coverage-reporter=*|--coverage-dir=*|--reporter=*|--reporter-outfile=*)
+        ;;
+      --max-concurrency=*|--parallel-delay=*|--shard=*)
+        ;;
+      -u|--update-snapshots|--todo|--only|--pass-with-no-tests|--concurrent)
+        ;;
+      --randomize|--coverage|--dots|--only-failures|--no-orphans|--isolate)
+        ;;
+      --bail|--bail=*|--parallel|--parallel=*)
+        ;;
       -*)
+        return 0
         ;;
       *)
         return 0
@@ -48,7 +61,30 @@ arguments_require_bun_discovery() {
   return 1
 }
 
-if arguments_require_bun_discovery "$@"; then
+default_config_controls_discovery() {
+  local config_file="$WEB_ROOT/bunfig.toml"
+  [[ -f "$config_file" ]] || return 1
+
+  awk '
+    /^[[:space:]]*\[/ {
+      in_test = ($0 ~ /^[[:space:]]*\[[[:space:]]*"?test"?[[:space:]]*\]/)
+      next
+    }
+    in_test && /^[[:space:]]*"?(root|pathIgnorePatterns)"?[[:space:]]*=/ {
+      found = 1
+    }
+    /^[[:space:]]*"?test"?[.]"?(root|pathIgnorePatterns)"?[[:space:]]*=/ {
+      found = 1
+    }
+    /^[[:space:]]*"?test"?[[:space:]]*=/ &&
+      /(root|pathIgnorePatterns)[[:space:]]*=/ {
+      found = 1
+    }
+    END { exit !found }
+  ' "$config_file"
+}
+
+if arguments_require_bun_discovery "$@" || default_config_controls_discovery; then
   exec bun test --isolate "$@"
 fi
 

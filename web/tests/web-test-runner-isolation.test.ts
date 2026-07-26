@@ -127,6 +127,49 @@ test("shared web test runner preserves sorted recursive discovery", () => {
     expect(scopedResult.output).toContain("tests/beta.test.ts:");
     expect(scopedResult.output).not.toContain("scripts/alpha_spec.mts:");
     expect(scopedResult.output).not.toContain("tests/nested/");
+
+    writeFileSync(
+      join(fixtureRoot, "bunfig.toml"),
+      '[test]\nroot = "tests"\n',
+    );
+    const rootedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh"],
+      fixtureRoot,
+    );
+    if (rootedResult.status !== 0) {
+      throw new Error(
+        `default Bun test root was not preserved:\n${rootedResult.output}`,
+      );
+    }
+    expectHeadingsInOrder(rootedResult.output, [
+      "tests/beta.test.ts:",
+      "tests/nested/gamma_test.tsx:",
+      "tests/nested/omega.spec.mjs:",
+    ]);
+    expect(rootedResult.output).not.toContain("scripts/alpha_spec.mts:");
+    rmSync(join(fixtureRoot, "bunfig.toml"));
+
+    writeFileSync(
+      join(fixtureRoot, "tests-only.bunfig.toml"),
+      '[test]\nroot = "tests"\n',
+    );
+    const configuredResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "--config=tests-only.bunfig.toml"],
+      fixtureRoot,
+    );
+    if (configuredResult.status !== 0) {
+      throw new Error(
+        `alternate Bun test root was not preserved:\n${configuredResult.output}`,
+      );
+    }
+    expectHeadingsInOrder(configuredResult.output, [
+      "tests/beta.test.ts:",
+      "tests/nested/gamma_test.tsx:",
+      "tests/nested/omega.spec.mjs:",
+    ]);
+    expect(configuredResult.output).not.toContain("scripts/alpha_spec.mts:");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
