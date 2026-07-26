@@ -3075,6 +3075,18 @@ mod tests {
     }
 
     #[test]
+    fn kitty_inflight_tracking_uses_the_normalized_c1_stream() {
+        let mut terminal = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&[0xe0]);
+        terminal.vt_write(b"\x9fGa=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x9c");
+
+        assert!(
+            terminal.kitty_inflight.replay_prefix(usize::MAX).is_empty(),
+            "a UTF-8 continuation byte that Ghostty parsed as text became a replayable Kitty APC"
+        );
+    }
+
+    #[test]
     fn replay_native_left_clip_preserves_native_pixel_size() {
         let command = replay_placement_command(&replay_placement_fixture(
             (15, 10),

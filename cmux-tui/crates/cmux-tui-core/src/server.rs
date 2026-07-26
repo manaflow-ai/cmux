@@ -6084,6 +6084,29 @@ mod tests {
     }
 
     #[test]
+    fn resize_stream_serialization_reserves_budget_before_queueing() {
+        let service = Arc::new(RenderService::new_with_outbound_budget(64));
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: outbound.clone(), control: None },
+            service.clone(),
+        );
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        let frame = AttachFrame::Resized {
+            cols: 80,
+            rows: 24,
+            replay: Arc::from(vec![b'x'; 1024]),
+            kitty_image_aliases: Vec::new(),
+        };
+
+        let error = writer.send_attach_frame(7, &frame, &stream).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        assert!(outbound.try_pop().is_none());
+        assert_eq!(service.outbound_budget.retained_bytes.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
     fn server_connection_permits_enforce_and_release_the_cap() {
         let active = Arc::new(AtomicU64::new(MAX_SERVER_CONNECTIONS as u64));
         assert!(claim_connection(&active).is_none());

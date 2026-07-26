@@ -80,6 +80,27 @@ fn chunked_rgb_transmission_is_snapshotted_as_owned_pixels() {
 }
 
 #[test]
+fn failed_alias_restore_does_not_partially_reassign_images() {
+    let mut terminal = terminal();
+    terminal.vt_write(&kitty("a=t,t=d,f=24,i=7,s=1,v=1,q=2", "/wAA"));
+
+    assert!(
+        terminal
+            .restore_kitty_image_aliases(&[
+                ghostty_vt::KittyImageAlias { image_id: 7, image_number: 77 },
+                ghostty_vt::KittyImageAlias { image_id: 999, image_number: 88 },
+            ])
+            .is_err()
+    );
+
+    assert_eq!(
+        terminal.kitty_graphics_snapshot().unwrap().image(7).unwrap().number,
+        0,
+        "an alias before the invalid entry was committed"
+    );
+}
+
+#[test]
 fn rgba_snapshot_preserves_alpha_crop_offsets_z_and_real_cell_geometry() {
     let mut terminal = terminal();
     let pixels = [255, 0, 0, 0, 0, 255, 0, 64, 0, 0, 255, 128, 255, 255, 255, 255];

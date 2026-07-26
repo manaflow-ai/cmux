@@ -3839,6 +3839,52 @@ mod tests {
         assert_eq!(mirror.scrollback_rows(), scrollback_rows);
     }
 
+    #[test]
+    fn failed_resize_alias_restore_keeps_the_previous_mirror() {
+        let surface = test_remote_pty_surface(7, 12, 4, (8, 16));
+        surface.term.lock().unwrap().vt_write(b"previous");
+        let previous = surface.term.lock().unwrap().plain_text().unwrap();
+        let mut authoritative = Terminal::new(8, 4, 100, Callbacks::default()).unwrap();
+        authoritative.vt_write(b"replacement");
+        let replay = authoritative.vt_replay_bytes().unwrap();
+
+        surface.apply_stream_resize(
+            8,
+            4,
+            Some(&replay),
+            &[ghostty_vt::KittyImageAlias { image_id: 999, image_number: 77 }],
+        );
+
+        let mut mirror = surface.term.lock().unwrap();
+        assert_eq!(mirror.cols(), 12);
+        assert_eq!(mirror.plain_text().unwrap(), previous);
+    }
+
+    #[test]
+    fn malformed_resize_alias_sidecar_keeps_the_previous_mirror() {
+        let session = test_session(Box::new(SilentWriter));
+        let surface = test_remote_pty_surface(7, 12, 4, (8, 16));
+        surface.term.lock().unwrap().vt_write(b"previous");
+        let previous = surface.term.lock().unwrap().plain_text().unwrap();
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        let mut authoritative = Terminal::new(8, 4, 100, Callbacks::default()).unwrap();
+        authoritative.vt_write(b"replacement");
+        let replay = authoritative.vt_replay_bytes().unwrap();
+
+        session.handle_line(json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 8,
+            "rows": 4,
+            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+            "kitty_image_aliases": [{"image_id": 7}],
+        }));
+
+        let mut mirror = surface.term.lock().unwrap();
+        assert_eq!(mirror.cols(), 12);
+        assert_eq!(mirror.plain_text().unwrap(), previous);
+    }
+
     #[cfg(unix)]
     #[test]
     fn resized_event_decodes_protocol_replay_field() {
