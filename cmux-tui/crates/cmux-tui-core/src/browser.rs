@@ -145,6 +145,10 @@ struct BrowserState {
     /// A targeted navigation may settle through a same-document event from
     /// the current main frame and loader.
     pending_same_document_navigation: bool,
+    /// Original rendered authority retained while a navigation remains
+    /// unresolved. A latest-wins replacement may reuse it only when ingress
+    /// proves the stopped navigation never committed.
+    pending_navigation_rollback: Option<PointerFrameInvalidation>,
     /// Frame epoch already backed by a loader-verified screenshot, so a
     /// timestamp-less screencast frame needs no additional recovery capture.
     verified_screencast_capture_epoch: Option<u64>,
@@ -372,7 +376,7 @@ struct ActivePointerPress {
     last_target_x: f64,
     last_target_y: f64,
     click_count: Option<u32>,
-    legacy_expires_at: Option<Instant>,
+    remote_expires_at: Option<Instant>,
     release_retry_at: Option<Instant>,
 }
 
@@ -390,18 +394,25 @@ impl ActivePointerPress {
             last_target_x: x,
             last_target_y: y,
             click_count,
-            legacy_expires_at: (input_owner == BrowserPointerOwner::Legacy)
-                .then(|| Instant::now() + LEGACY_POINTER_PRESS_LEASE),
+            remote_expires_at: match input_owner {
+                BrowserPointerOwner::Local => None,
+                BrowserPointerOwner::Legacy => Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE),
+                BrowserPointerOwner::Client(_) => {
+                    Some(Instant::now() + NEGOTIATED_POINTER_PRESS_LEASE)
+                }
+            },
             release_retry_at: None,
         }
     }
 
-    fn refresh_legacy_lease(&mut self, target_x: f64, target_y: f64) {
+    fn refresh_remote_lease(&mut self, target_x: f64, target_y: f64) {
         self.last_target_x = target_x;
         self.last_target_y = target_y;
-        if self.input_owner == BrowserPointerOwner::Legacy {
-            self.legacy_expires_at = Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE);
-        }
+        self.remote_expires_at = match self.input_owner {
+            BrowserPointerOwner::Local => None,
+            BrowserPointerOwner::Legacy => Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE),
+            BrowserPointerOwner::Client(_) => Some(Instant::now() + NEGOTIATED_POINTER_PRESS_LEASE),
+        };
     }
 }
 
@@ -563,6 +574,7 @@ const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(5);
+const NEGOTIATED_POINTER_PRESS_LEASE: Duration = Duration::from_secs(15);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
@@ -774,6 +786,7 @@ pub(crate) fn new_surface(
             pending_navigation_epoch: None,
             pending_document_epoch: None,
             pending_same_document_navigation: false,
+            pending_navigation_rollback: None,
             verified_screencast_capture_epoch: None,
             failed_screencast_capture_epoch: None,
             pending_frame: None,
@@ -1288,7 +1301,7 @@ fn next_pointer_lifecycle_deadline(failures: &BrowserWorkerErrorState) -> Option
     failures
         .active_pointer_presses
         .values()
-        .filter_map(|press| match (press.legacy_expires_at, press.release_retry_at) {
+        .filter_map(|press| match (press.remote_expires_at, press.release_retry_at) {
             (Some(lease), Some(retry)) => Some(lease.min(retry)),
             (Some(lease), None) => Some(lease),
             (None, Some(retry)) => Some(retry),
@@ -1325,13 +1338,14 @@ fn release_abandoned_pointer_presses(
         .iter()
         .filter(|(_, press)| {
             let retry_due = press.release_retry_at.is_some_and(|deadline| deadline <= now);
+            let remote_lease_expired =
+                press.remote_expires_at.is_some_and(|deadline| deadline <= now);
             match press.input_owner {
                 BrowserPointerOwner::Local => retry_due,
-                BrowserPointerOwner::Legacy => {
-                    retry_due || press.legacy_expires_at.is_some_and(|deadline| deadline <= now)
-                }
+                BrowserPointerOwner::Legacy => retry_due || remote_lease_expired,
                 BrowserPointerOwner::Client(client) => {
                     retry_due
+                        || remote_lease_expired
                         || active_clients
                             .as_ref()
                             .is_none_or(|mux| !mux.control_clients.contains(client))
@@ -2139,6 +2153,7 @@ impl BrowserSurface {
         // prove that the document or its coordinate mapping changed. Preserve
         // an accepted press long enough to deliver its balancing release.
         Self::invalidate_pointer_frame_locked(&mut state, false);
+        state.pending_navigation_rollback = None;
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
         Self::mark_state_dirty_locked(&mut state);
@@ -2370,15 +2385,25 @@ impl BrowserSurface {
         state: &mut BrowserState,
         may_be_same_document: bool,
     ) -> PointerFrameInvalidation {
-        let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
         // A targeted navigation can resolve within the current document. Keep
         // an accepted press alive until ingress proves a document replacement.
-        let mut invalidation = Self::invalidate_pointer_frame_locked(state, !may_be_same_document);
+        let invalidation = Self::invalidate_pointer_frame_locked(state, !may_be_same_document);
+        self.install_navigation_frame_transition_locked(state, may_be_same_document, invalidation)
+    }
+
+    fn install_navigation_frame_transition_locked(
+        &self,
+        state: &mut BrowserState,
+        may_be_same_document: bool,
+        mut invalidation: PointerFrameInvalidation,
+    ) -> PointerFrameInvalidation {
+        let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_epoch = Some(pending_frame_epoch);
         state.pending_same_document_navigation = may_be_same_document;
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
+        state.pending_navigation_rollback = Some(invalidation.clone());
         Self::mark_state_dirty_locked(state);
         invalidation
     }
@@ -2400,12 +2425,33 @@ impl BrowserSurface {
         if !navigation_pending && state.pending_frame_epoch.is_some() {
             anyhow::bail!("browser frame reconfiguration is still committing");
         }
+        let current_frame_epoch = self.frame_epoch.current();
+        let preserved_rollback = state.pending_navigation_rollback.as_ref().filter(|rollback| {
+            state.pending_document_epoch.is_none()
+                && rollback.revision == state.pointer_frame_revision
+                && rollback
+                    .expected_frame_epoch
+                    .is_some_and(|expected_epoch| current_frame_epoch < expected_epoch)
+                && state.latest_frame.as_ref().map(|frame| frame.seq)
+                    == rollback.previous_latest_frame_seq
+        });
+        let preserved_rollback = preserved_rollback.cloned();
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
-        Ok(self.reserve_navigation_frame_transition_locked(&mut state, true))
+        state.pending_navigation_rollback = None;
+        Ok(match preserved_rollback {
+            Some(rollback) => {
+                // Page.stopLoading is ordered after old lifecycle events on
+                // this CDP session. An ingress epoch still below the old
+                // reservation proves that navigation never committed, so the
+                // replacement may retain the original rollback authority.
+                self.install_navigation_frame_transition_locked(&mut state, true, rollback)
+            }
+            None => self.reserve_navigation_frame_transition_locked(&mut state, true),
+        })
     }
 
     #[cfg(test)]
@@ -2442,6 +2488,7 @@ impl BrowserSurface {
         state.pending_document_epoch = None;
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
+        state.pending_navigation_rollback = None;
     }
 
     fn observe_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
@@ -2461,6 +2508,7 @@ impl BrowserSurface {
             state.pending_navigation_epoch = None;
         }
         state.pending_same_document_navigation = false;
+        state.pending_navigation_rollback = None;
         Self::invalidate_pointer_frame_locked(&mut state, !capture_revoked_at_command);
         state.pending_document_epoch = Some(frame_epoch);
         let pending_frame_epoch = state
@@ -2516,6 +2564,7 @@ impl BrowserSurface {
         state.pending_same_document_navigation = false;
         state.pending_frame_epoch = None;
         state.pending_frame = None;
+        state.pending_navigation_rollback = None;
         state.accepted_navigation_epoch = navigation_epoch;
         state.accepted_frame_epoch = frame_epoch;
         state.verified_screencast_capture_epoch = Some(frame_epoch);
@@ -2538,6 +2587,7 @@ impl BrowserSurface {
         state.pending_navigation_epoch = None;
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
+        state.pending_navigation_rollback = None;
         state.accepted_frame_epoch = frame_epoch;
         state.verified_screencast_capture_epoch = Some(frame_epoch);
         state.failed_screencast_capture_epoch = None;
@@ -2600,6 +2650,7 @@ impl BrowserSurface {
         state.pending_document_epoch = None;
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
+        state.pending_navigation_rollback = None;
         Self::mark_state_dirty_locked(&mut state);
     }
 
@@ -2612,17 +2663,29 @@ impl BrowserSurface {
         state.pending_navigation_epoch = None;
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
+        state.pending_navigation_rollback = None;
         Self::mark_state_dirty_locked(&mut state);
     }
 
     fn restore_pointer_frame_after_failed_command(&self, invalidation: PointerFrameInvalidation) {
         let mut state = self.state.lock().unwrap();
+        let owns_navigation_rollback =
+            state.pending_navigation_rollback.as_ref().is_some_and(|rollback| {
+                rollback.revision == invalidation.revision
+                    && rollback.expected_frame_epoch == invalidation.expected_frame_epoch
+            });
         if state.pointer_frame_revision != invalidation.revision
             || !matches!(state.status, BrowserStatus::Live)
             || state.latest_frame.as_ref().map(|frame| frame.seq)
                 != invalidation.previous_latest_frame_seq
         {
+            if owns_navigation_rollback {
+                state.pending_navigation_rollback = None;
+            }
             return;
+        }
+        if owns_navigation_rollback {
+            state.pending_navigation_rollback = None;
         }
         state.pointer_capture_generation = invalidation.previous_capture_generation;
         state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
@@ -2954,8 +3017,8 @@ impl BrowserSurface {
     }
 
     /// Queue guarded mouse input under one capture owner. Local in-process
-    /// input has a reserved stable owner, legacy sockets use owner zero with a
-    /// bounded lease, and negotiated sockets use their connection registry id.
+    /// input has a reserved stable owner. Remote sockets use a bounded lease;
+    /// negotiated sockets additionally use their connection registry id.
     pub(crate) fn mouse_event_for_frame_from(
         &self,
         dispatch: BrowserMouseDispatch<'_>,
@@ -3044,7 +3107,7 @@ impl BrowserSurface {
                         && let Some(press) = active_pointer_presses.get_mut(button)
                         && let Some((target_x, target_y)) = point
                     {
-                        press.refresh_legacy_lease(target_x, target_y);
+                        press.refresh_remote_lease(target_x, target_y);
                     }
                     point
                 } else {
@@ -5551,7 +5614,7 @@ mod tests {
             1.0,
             Some(1),
         );
-        press.legacy_expires_at = Some(now);
+        press.remote_expires_at = Some(now);
         let mut failures = super::BrowserWorkerErrorState::default();
         failures.active_pointer_presses.insert("left".to_string(), press);
 
