@@ -372,6 +372,18 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").machine_agent.migration_failed,
             "マシンを再接続できませんでした。もう一度お試しください"
         );
+        assert!(
+            catalog_for_locale("en_US.UTF-8")
+                .machine_agent
+                .help
+                .contains("share one local cmux session through cmux.cloud")
+        );
+        assert!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .machine_agent
+                .help
+                .contains("ローカルの cmux セッションを cmux.cloud 経由で共有")
+        );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,
             "Machine action failed"

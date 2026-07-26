@@ -2941,7 +2941,7 @@ mod tests {
         let mut controller = ProviderMachineController {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
-            active_local: None,
+            active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
             pending_active_local: None,
         };
         let result = controller
