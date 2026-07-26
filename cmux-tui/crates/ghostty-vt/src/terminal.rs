@@ -2719,6 +2719,24 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_without_prompt_metadata_preserves_hard_newline_input() {
+        let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"first-active\r\nsecond-active");
+        assert!(terminal.history_rows() > 0);
+        let viewport_before = terminal.viewport_text().unwrap();
+
+        let ClearHistoryOutcome::Cleared(_) = terminal.clear_history_preserving_prompt() else {
+            panic!("visible rows do not extend into scrollback");
+        };
+
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+    }
+
+    #[test]
     fn prompt_semantic_tracking_ignores_utf8_continuation_bytes_that_resemble_c1() {
         let mut tracker = PromptSemanticTracker::default();
         tracker.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
