@@ -2427,13 +2427,35 @@ mod tests {
 
         assert!(
             session
-                .request_guarded_pointer(json!({"cmd": "browser-mouse-guarded"}))
+                .request_guarded_pointer(json!({
+                    "cmd": "browser-mouse-guarded",
+                    "kind": "down"
+                }))
                 .unwrap_err()
                 .downcast_ref::<RemoteRequestError>()
                 .is_some_and(RemoteRequestError::is_timeout)
         );
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn guarded_pointer_hover_timeout_preserves_the_transport() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+        assert!(
+            session
+                .request_guarded_pointer(json!({
+                    "cmd": "browser-mouse-guarded",
+                    "kind": "move"
+                }))
+                .unwrap_err()
+                .downcast_ref::<RemoteRequestError>()
+                .is_some_and(RemoteRequestError::is_timeout)
+        );
+        assert!(!session.shutdown.load(Ordering::Acquire));
+        assert!(!closed.load(Ordering::Acquire));
     }
 
     #[test]

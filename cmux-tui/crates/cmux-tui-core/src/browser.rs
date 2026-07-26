@@ -7428,6 +7428,48 @@ mod tests {
     }
 
     #[test]
+    fn exhausted_reconfigure_recovery_exposes_a_retryable_terminal_failure() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+
+        for attempt in 1..=3 {
+            let queued =
+                browser.reserve_reconfigure(11, 5).expect("resize must enter pending state");
+            browser.begin_reconfigure_frame_transition();
+            let (_, retry_delay) =
+                browser.fail_reconfigure(queued).expect("resize failure must be recorded");
+            if attempt < 3 {
+                assert!(retry_delay.is_some());
+                browser.state.lock().unwrap().reconfigure_failure.as_mut().unwrap().retry_at =
+                    Some(Instant::now() - Duration::from_millis(1));
+            }
+        }
+
+        assert!(
+            matches!(
+                browser.status(),
+                BrowserStatus::Failed(ref error) if error.contains("reload to retry")
+            ),
+            "exhausted resize recovery must expose a bounded recovery action"
+        );
+        assert_eq!(
+            browser.state.lock().unwrap().pending_frame_epoch,
+            None,
+            "terminal resize failure must settle its frame reservation"
+        );
+        assert!(
+            browser.begin_navigation_frame_transition().is_ok(),
+            "reload must be able to start after terminal resize failure"
+        );
+        browser.clear_error();
+        assert!(
+            browser.resize_needed(11, 5),
+            "successful reload dispatch must rearm the failed geometry"
+        );
+    }
+
+    #[test]
     fn reconfigure_retry_reuses_unsettled_frame_epoch() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
