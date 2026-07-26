@@ -18817,6 +18817,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn durable_notice_ack_waits_for_machine_action_settlement() {
+        let mux = Mux::new("durable-ack-action-order", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (acknowledgements, acknowledged) = std::sync::mpsc::channel();
+        install_machine_controller(
+            &mut app,
+            Box::new(AckMachineController { acknowledgements, fail: false }),
+        );
+        let delivery =
+            DurableNoticeDelivery { notice_id: "usage-during-switch".into(), sequence: 42 };
+        app.queue_durable_notice_ack(delivery.clone());
+        app.machine_action_in_flight = true;
+
+        app.submit_pending_durable_notice_ack();
+
+        assert!(app.durable_notice_ack_in_flight.is_none());
+        assert_eq!(app.pending_durable_notice_acks.front(), Some(&delivery));
+        assert_eq!(
+            acknowledged.recv_timeout(Duration::from_millis(20)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        );
+
+        app.machine_action_in_flight = false;
+        app.submit_pending_durable_notice_ack();
+        assert_eq!(acknowledged.recv_timeout(Duration::from_secs(1)).unwrap(), delivery);
+        app.shutdown_background_workers();
+    }
+
     struct OrderedBlockingMachineController {
         started: std::sync::mpsc::Sender<MachineKey>,
         release: Receiver<()>,
