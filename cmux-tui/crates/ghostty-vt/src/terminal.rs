@@ -2740,6 +2740,50 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_fails_closed_at_every_partial_vt_boundary() {
+        let sequences: &[(&str, &[u8])] = &[
+            ("csi", b"\x1b[31m"),
+            ("osc-bel", b"\x1b]2;title\x07"),
+            ("osc-st", b"\x1b]2;title\x1b\\"),
+            ("dcs", b"\x1bP1;2qpayload\x1b\\"),
+            ("apc", b"\x1b_payload\x1b\\"),
+            ("utf8", "🙂".as_bytes()),
+        ];
+
+        for &(name, sequence) in sequences {
+            for split in 1..sequence.len() {
+                let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
+                for line in 0..10 {
+                    terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                terminal.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+                terminal.vt_write(&sequence[..split]);
+                let history_before = terminal.history_rows();
+                let contents_before = terminal.plain_text().unwrap();
+
+                assert_eq!(
+                    terminal.clear_history_preserving_prompt(),
+                    ClearHistoryOutcome::Unchanged,
+                    "{name} split at byte {split}"
+                );
+                assert_eq!(terminal.history_rows(), history_before, "{name} split at byte {split}");
+                assert_eq!(
+                    terminal.plain_text().unwrap(),
+                    contents_before,
+                    "{name} split at byte {split}"
+                );
+
+                terminal.vt_write(&sequence[split..]);
+                terminal.vt_write(b"Z");
+                assert!(
+                    terminal.viewport_text().unwrap().contains('Z'),
+                    "{name} split at byte {split}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn prompt_semantic_tracking_ignores_utf8_continuation_bytes_that_resemble_c1() {
         let mut tracker = PromptSemanticTracker::default();
         tracker.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
