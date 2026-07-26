@@ -863,6 +863,10 @@ check_web_test_runner_behavior() {
   cat > "$fixture_dir/bin/bun" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf '%s\n' "${CMUX_WEB_TEST_RUNNER_BUN_VERSION:-1.3.14}"
+  exit 0
+fi
 printf '%s\n' "$@" > "$CMUX_WEB_TEST_RUNNER_ARGS_LOG"
 EOF
   chmod +x "$fixture_dir/bin/bun"
@@ -879,6 +883,24 @@ EOF
   if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
     echo "FAIL: shared web test runner must sort recursive Bun test patterns and exclude hidden dependencies"
     cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    CMUX_WEB_TEST_RUNNER_BUN_VERSION="1.2.14" \
+    /bin/bash "$fixture_runner" >/dev/null 2>&1; then
+    echo "FAIL: shared web test runner must reject Bun versions with process-global mock leakage"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    CMUX_WEB_TEST_RUNNER_BUN_VERSION="1.3.13" \
+    /bin/bash "$fixture_runner" >/dev/null 2>&1; then
+    echo "FAIL: shared web test runner must enforce the patch-level Bun isolation boundary"
     rm -rf "$fixture_dir"
     exit 1
   fi
