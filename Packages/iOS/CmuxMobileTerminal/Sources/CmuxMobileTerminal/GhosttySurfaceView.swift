@@ -120,7 +120,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// match. Defaults to visible (a normal shell shows its cursor).
     private var hostCursorVisible: Bool = true
     var needsDraw: Bool = false
-    private(set) var renderWakeupRequestCount: UInt64 = 0
     /// Countdown of extra draw requests after a geometry change, so the
     /// renderer (which presents a frame behind) produces a frame at the final
     /// settled layer size rather than leaving a stale mid-animation surface.
@@ -3717,7 +3716,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func drawForWakeup() {
         guard surface != nil, window != nil, !isDismantled else { return }
-        renderWakeupRequestCount &+= 1
         // Don't call `ghostty_surface_refresh` here: that wakes the renderer
         // thread to present asynchronously (`setSurface` → `dispatch_async` to
         // main → size-guard discard), which both blanks frames and competes

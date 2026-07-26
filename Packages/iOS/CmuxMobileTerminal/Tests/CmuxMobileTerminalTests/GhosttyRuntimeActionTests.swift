@@ -69,7 +69,7 @@ struct GhosttyRuntimeActionTests {
         replacementView.disposeSurface()
         replacementView.surface = sourceSurface
         replacementView.stopDisplayLink()
-        let replacementWakeups = replacementView.renderWakeupRequestCount
+        replacementView.needsDraw = false
 
         #expect(
             GhosttyRuntime.simulateSurfaceActionForTesting(
@@ -83,11 +83,10 @@ struct GhosttyRuntimeActionTests {
         bridge.detach()
         GhosttySurfaceView.register(surface: sourceSurface, for: replacementView)
 
-        for _ in 0..<10
-            where replacementView.renderWakeupRequestCount == replacementWakeups {
+        for _ in 0..<10 where !replacementView.needsDraw {
             await Task.yield()
         }
-        #expect(replacementView.renderWakeupRequestCount == replacementWakeups)
+        #expect(!replacementView.needsDraw)
     }
 
     @MainActor
