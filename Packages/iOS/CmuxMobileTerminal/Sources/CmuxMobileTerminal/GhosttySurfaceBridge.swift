@@ -13,10 +13,10 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     private let lock = NSLock()
     // Deliberately STRONG: libghostty holds the raw view pointer
     // (`ghostty_platform_ios_s.uiview`, passUnretained in `makeSurface`), so
-    // the view must outlive queued surface operations. Surface creation gives
-    // libghostty an owned bridge retain; dismantle detaches this reference to
-    // break the view<->bridge cycle, and final C-surface destruction releases
-    // the bridge only after internal callbacks and app-action leases stop.
+    // the view must outlive queued surface operations. Surface creation stores
+    // a retained bridge pointer; dismantle detaches this reference to break the
+    // view<->bridge cycle, and the host releases the retain only after
+    // synchronous C-surface teardown has stopped every callback.
     private var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {

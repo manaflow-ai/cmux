@@ -242,12 +242,12 @@ final class NotificationFeedHistoryStore {
         guard persistenceTask == nil else { return }
         persistenceTask = Task { [weak self, persistence] in
             while !Task.isCancelled {
-                guard let snapshot = await self?.consumePendingPersistenceSnapshot() else {
+                guard let snapshot = self?.consumePendingPersistenceSnapshot() else {
                     break
                 }
                 await persistence.persist(snapshot)
             }
-            await self?.finishPersistenceTask()
+            self?.finishPersistenceTask()
         }
     }
 

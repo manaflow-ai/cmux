@@ -62,9 +62,13 @@ Human output is stable, greppable, and minimal. It must not include colors, tabl
 
 Future commands may opt into stdin only when their command block says so. By default commands do not read stdin.
 
+### Interactive attach
+
+`cmux-tui attach` opens the full session TUI. `cmux-tui attach --surface <id>` accepts a numeric or short surface id and opens only that PTY terminal, using the full host grid without session chrome. This interactive mode is separate from the JSON-lines `attach-surface` verb.
+
 ### Id Arguments
 
-Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Numeric-looking strings are rejected as ambiguous when short-id mode is active.
+Generated command verbs accept canonical decimal ids. They reject leading-zero values instead of interpreting a copied short id as a different numeric object. Interactive `attach --surface` also accepts exact six-character short ids; digit-only short ids beginning with zero stay in that fixed-width namespace, so their meaning cannot change when live ids change.
 
 ### Selector Arguments
 
@@ -78,6 +82,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `ping` | implemented | none | global flags | one liveness line |
 | `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
 | `list-clients` | implemented | none | global flags | client lines |
+| `set-client-sizing` | implemented protocol 10 | `--surface <id> --enabled <true-or-false>` | `--client <id>`, global flags | none |
 | `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
