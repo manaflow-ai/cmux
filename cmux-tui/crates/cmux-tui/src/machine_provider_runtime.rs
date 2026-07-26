@@ -101,6 +101,7 @@ pub(crate) struct ProviderMachineController {
     local: MachineRuntime,
     active_local: Option<MachineKey>,
     pending_active_local: Option<Option<MachineKey>>,
+    pending_provider_switch: bool,
 }
 
 impl ProviderMachineController {
@@ -114,6 +115,7 @@ impl ProviderMachineController {
             local: MachineRuntime::external(configured, connect_external),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         })
     }
 
@@ -134,6 +136,7 @@ impl ProviderMachineController {
         match request {
             MachineRequest::Connect { target, route: MachineConnectRoute::Provider } => {
                 let result = self.provider.perform_external_connect(target)?;
+                self.pending_provider_switch = true;
                 Ok(self.finish_provider_result(true, result))
             }
             MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
@@ -142,7 +145,7 @@ impl ProviderMachineController {
             }
             MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
             MachineRequest::ReconnectProvider if self.active_local.is_some() => {
-                let switching_provider = self.provider.accepted_selection.is_some();
+                let switching_provider = self.pending_provider_switch;
                 self.provider.reconnect_control()?;
                 let ui = self.provider.ui_state_for_open_connection();
                 let mut result = MachineActionResult::ui(ui);
@@ -171,7 +174,7 @@ impl ProviderMachineController {
             // Update streams capture the connected machine at subscription time.
             result.restart_updates = true;
             result.ui = self.merge_local_ui_for(result.ui, None);
-        } else if switching_provider {
+        } else if switching_provider && explicit_provider_switch.is_some() {
             // An accepted provider enrollment selects its provider-owned
             // machine before the generated Switch request opens it. Preserve
             // that explicit intent instead of reasserting the active local row.
@@ -207,7 +210,12 @@ impl ProviderMachineController {
     }
 
     fn merge_local_ui(&self, ui: MachineUiState) -> MachineUiState {
-        self.merge_local_ui_for(ui, self.active_local)
+        merge_local_machine_ui_for_provider_switch(
+            ui,
+            &self.local.snapshot_with_active(self.active_local),
+            self.active_local,
+            self.pending_provider_switch,
+        )
     }
 
     fn merge_local_ui_for(
@@ -223,6 +231,7 @@ impl ProviderMachineController {
         let (provider_receiver, provider_stop, provider_worker) = provider_updates.into_parts();
         let local_snapshot = self.local.snapshot_with_active(self.active_local);
         let active_local = self.active_local;
+        let pending_provider_switch = self.pending_provider_switch;
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
@@ -232,7 +241,12 @@ impl ProviderMachineController {
                     match provider_receiver.recv_timeout(Duration::from_millis(250)) {
                         Ok(ui) => {
                             if sender
-                                .send(merge_local_machine_ui(ui, &local_snapshot, active_local))
+                                .send(merge_local_machine_ui_for_provider_switch(
+                                    ui,
+                                    &local_snapshot,
+                                    active_local,
+                                    pending_provider_switch,
+                                ))
                                 .is_err()
                             {
                                 break;
@@ -261,6 +275,9 @@ impl ProviderMachineController {
         self.provider.commit_replacement()?;
         self.pending_active_local.take();
         self.active_local = active_local;
+        if self.active_local.is_none() {
+            self.pending_provider_switch = false;
+        }
         Ok(())
     }
 
@@ -1396,6 +1413,21 @@ fn merge_local_machine_ui(
     }
     ui.selection = ui.snapshot.active_index().unwrap_or_default();
     ui
+}
+
+fn merge_local_machine_ui_for_provider_switch(
+    ui: MachineUiState,
+    local: &MachineSnapshot,
+    active_local: Option<MachineKey>,
+    pending_provider_switch: bool,
+) -> MachineUiState {
+    let active_local =
+        if pending_provider_switch && matches!(ui.request, Some(MachineRequest::Switch(_))) {
+            None
+        } else {
+            active_local
+        };
+    merge_local_machine_ui(ui, local, active_local)
 }
 
 fn random_mutation_nonce() -> anyhow::Result<String> {
@@ -2924,7 +2956,7 @@ mod tests {
             display_name: "Paired mini".into(),
             subtitle: "external".into(),
             status: protocol::MachineStatus::Running,
-            connectable: false,
+            connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
@@ -2970,6 +3002,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
             pending_active_local: None,
+            pending_provider_switch: false,
         };
         let result = controller.perform_request(provider_connect("PAIR 4J7K;$(opaque)")).unwrap();
 
@@ -3006,7 +3039,7 @@ mod tests {
             display_name: "Paired mini".into(),
             subtitle: "external".into(),
             status: protocol::MachineStatus::Running,
-            connectable: true,
+            connectable: false,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
@@ -3066,6 +3099,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
             pending_active_local: None,
+            pending_provider_switch: false,
         };
         let accepted = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
         assert_eq!(accepted.ui.request, Some(MachineRequest::ReconnectProvider));
@@ -3197,6 +3231,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         };
         let Err(error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
             panic!("revoked provider unexpectedly handled external connect");
@@ -3268,6 +3303,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         };
         let Err(first_error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
             panic!("invalid provider response unexpectedly completed external connect");
@@ -3345,6 +3381,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         };
         assert!(controller.perform_request(provider_connect("PAIR 4J7K")).is_err());
         controller.provider.reconnect_control().unwrap();
@@ -3390,6 +3427,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         };
         let Err(error) = controller.perform_request(local_connect("PAIR 4J7K")) else {
             panic!("unnegotiated provider unexpectedly handled local connect input");
@@ -3430,6 +3468,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         };
 
         let Err(error) = controller.perform_request(provider_connect("ABCD-EFGH")) else {
@@ -3464,6 +3503,7 @@ mod tests {
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         };
         let Err(error) = controller.perform_request(provider_connect("ABCD-EFGH")) else {
             panic!("refresh-disconnected provider unexpectedly handled external connect");
@@ -3762,6 +3802,7 @@ mod tests {
             local,
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         };
 
         let result = controller.perform_request(MachineRequest::Switch(local_key)).unwrap();
