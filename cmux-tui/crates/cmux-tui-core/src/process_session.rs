@@ -856,6 +856,76 @@ mod tests {
         assert_eq!(stable_signals, 1, "session cleanup did not use the stable process handle");
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pidfd_open_denial_uses_an_exact_proc_handle() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PIDFD_OPEN";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let mut filter = [
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS).unwrap(),
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K).unwrap(),
+                    jt: 0,
+                    jf: 1,
+                    k: u32::try_from(libc::SYS_pidfd_open).unwrap(),
+                },
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
+                    jt: 0,
+                    jf: 0,
+                    k: libc::SECCOMP_RET_ERRNO | u32::try_from(libc::ENOSYS).unwrap(),
+                },
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
+                    jt: 0,
+                    jf: 0,
+                    k: libc::SECCOMP_RET_ALLOW,
+                },
+            ];
+            let program = libc::sock_fprog {
+                len: u16::try_from(filter.len()).unwrap(),
+                filter: filter.as_mut_ptr(),
+            };
+            // SAFETY: this one-test subprocess opts into a filter whose
+            // backing instructions remain live for the prctl call.
+            assert_eq!(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) }, 0);
+            // SAFETY: `program` describes the initialized filter above.
+            let installed = unsafe {
+                libc::prctl(
+                    libc::PR_SET_SECCOMP,
+                    libc::SECCOMP_MODE_FILTER,
+                    std::ptr::from_ref(&program),
+                )
+            };
+            assert_eq!(
+                installed,
+                0,
+                "could not install pidfd test filter: {}",
+                io::Error::last_os_error()
+            );
+
+            let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+            let process = StableProcessHandle::capture(pid).unwrap().unwrap();
+            assert!(process.matches_current().unwrap());
+            return;
+        }
+
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "process_session::tests::pidfd_open_denial_uses_an_exact_proc_handle",
+            ])
+            .env(CHILD_ENV, "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "pidfd compatibility subprocess failed: {status}");
+    }
+
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn shutdown_batch_reuses_one_process_table_snapshot() {
