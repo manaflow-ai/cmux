@@ -306,7 +306,15 @@ struct SimulatorControlServiceTests {
             deviceIdentifier: recoverableDeviceID,
             bundleIdentifier: bundleIdentifier
         ) == nil)
-        #expect(FileManager.default.fileExists(atPath: corruptJournal.path))
+        #expect(!FileManager.default.fileExists(atPath: corruptJournal.path))
+        let quarantinedJournals = try FileManager.default.contentsOfDirectory(
+            at: directory.appendingPathComponent("quarantine", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )
+        #expect(quarantinedJournals.count == 1)
+        #expect(
+            quarantinedJournals[0].lastPathComponent.hasPrefix("corrupt.json.corrupt-")
+        )
     }
 
     @Test("Launch recovery migrates a legacy temporary camera journal")

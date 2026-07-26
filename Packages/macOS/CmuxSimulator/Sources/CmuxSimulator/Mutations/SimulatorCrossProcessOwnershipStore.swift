@@ -13,6 +13,15 @@ struct SimulatorCrossProcessOwnershipStore: Sendable {
 
     func claim(namespace: String, components: [String]) throws -> UUID {
         let token = UUID()
+        try publish(token, namespace: namespace, components: components)
+        return token
+    }
+
+    func publish(
+        _ token: UUID,
+        namespace: String,
+        components: [String]
+    ) throws {
         try FileManager().createDirectory(
             at: directory,
             withIntermediateDirectories: true,
@@ -22,13 +31,17 @@ struct SimulatorCrossProcessOwnershipStore: Sendable {
             to: fileURL(namespace: namespace, components: components),
             options: .atomic
         )
-        return token
     }
 
     func isCurrent(_ token: UUID, namespace: String, components: [String]) -> Bool {
-        guard let data = try? Data(contentsOf: fileURL(namespace: namespace, components: components)),
-              let value = String(data: data, encoding: .utf8) else { return false }
-        return value == token.uuidString
+        currentToken(namespace: namespace, components: components) == token
+    }
+
+    func currentToken(namespace: String, components: [String]) -> UUID? {
+        guard let data = try? Data(
+            contentsOf: fileURL(namespace: namespace, components: components)
+        ), let value = String(data: data, encoding: .utf8) else { return nil }
+        return UUID(uuidString: value)
     }
 
     private func fileURL(namespace: String, components: [String]) -> URL {

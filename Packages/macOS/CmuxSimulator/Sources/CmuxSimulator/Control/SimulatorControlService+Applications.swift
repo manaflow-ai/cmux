@@ -6,14 +6,17 @@ extension SimulatorControlService {
     /// record is re-read under the cross-process TCC/application locks so a
     /// newly active worker can adopt it without being rolled back.
     public func recoverOrphanedCameraAuthorizations() async -> Bool {
-        let records: [SimulatorCameraAuthorizationRecord]
+        let scan: (
+            records: [SimulatorCameraAuthorizationRecord],
+            hadFailures: Bool
+        )
         do {
-            records = try cameraAuthorizationStore.records()
+            scan = try cameraAuthorizationStore.records()
         } catch {
             return false
         }
         var tasks: [Task<SimulatorCameraCleanupResult, Never>] = []
-        for record in records where !record.isOwnedByRunningProcess {
+        for record in scan.records where !record.isOwnedByRunningProcess {
             let task = await cameraCleanupCoordinator.enqueue(
                 deviceIdentifier: record.deviceIdentifier,
                 bundleIdentifiers: [record.bundleIdentifier]
@@ -42,7 +45,7 @@ extension SimulatorControlService {
             }
             tasks.append(task)
         }
-        var succeeded = true
+        var succeeded = !scan.hadFailures
         for task in tasks {
             if case .failed = await task.value {
                 succeeded = false

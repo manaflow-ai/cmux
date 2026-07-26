@@ -35,6 +35,29 @@ struct SimulatorControlServiceLocationLifecycleTests {
         ])
     }
 
+    @Test("Durable recovery preserves the legacy cross-process ownership namespace")
+    func durableRecoveryPreservesLegacyOwnership() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-scope-compatibility-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ownershipDirectory = root.appendingPathComponent("legacy", isDirectory: true)
+        let recoveryDirectory = root.appendingPathComponent("durable", isDirectory: true)
+        let deviceID = UUID().uuidString
+        let legacyScope = SimulatorLocationOwnershipScope(directory: ownershipDirectory)
+        let legacyToken = try await legacyScope.registry.claim(deviceIdentifier: deviceID)
+        let durableScope = SimulatorLocationOwnershipScope(
+            ownershipDirectory: ownershipDirectory,
+            recoveryDirectory: recoveryDirectory
+        )
+
+        #expect(
+            await durableScope.registry.publishedToken(deviceIdentifier: deviceID)
+                == legacyToken
+        )
+    }
+
     @Test("A non-loop route completes, replays, and restores its first waypoint")
     func completionReplayAndRestore() async throws {
         let commands = LocationLifecycleCommandRunner()
@@ -136,6 +159,109 @@ struct SimulatorControlServiceLocationLifecycleTests {
         ])
     }
 
+    @Test("Recovery discards a pending route before ownership publication")
+    func recoveryDiscardsUnpublishedPendingRoute() async throws {
+        let deviceID = UUID().uuidString
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-unpublished-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ownerScope = SimulatorLocationOwnershipScope(directory: directory)
+        let ownerService = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: ownerScope
+        )
+        try await ownerService.startLocationRoute(deviceID: deviceID, route: Self.route())
+        let committedRecord = try #require(
+            try ownerScope.recoveryStore.record(deviceIdentifier: deviceID)
+        )
+        let committedSnapshot = try #require(committedRecord.committed)
+        let pendingToken = UUID()
+        let deadOwner = SimulatorProcessIdentity(
+            pid: Int32.max,
+            startSeconds: 1,
+            startMicroseconds: 1
+        )
+        try ownerScope.recoveryStore.save(committedRecord.preparing(
+            replacement: committedSnapshot.adopting(
+                ownershipToken: pendingToken,
+                ownerProcessIdentity: deadOwner
+            ),
+            ownershipToken: pendingToken,
+            ownerProcessIdentity: deadOwner
+        ))
+        let recoveryCommands = LocationLifecycleCommandRunner()
+        let recoveryService = SimulatorControlService(
+            commands: recoveryCommands,
+            locationOwnershipScope: SimulatorLocationOwnershipScope(directory: directory)
+        )
+
+        #expect(await recoveryService.recoverOrphanedLocationRoutes())
+        #expect(await recoveryCommands.arguments().isEmpty)
+        let recoveredRecord = try #require(
+            try ownerScope.recoveryStore.record(deviceIdentifier: deviceID)
+        )
+        #expect(recoveredRecord.pending == nil)
+        #expect(recoveredRecord.committed == committedSnapshot)
+        try await ownerService.stopLocationRoute(deviceID: deviceID)
+    }
+
+    @Test("Recovery rolls back a published pending route to its live owner")
+    func recoveryRollsBackPublishedPendingRoute() async throws {
+        let deviceID = UUID().uuidString
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-published-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ownerScope = SimulatorLocationOwnershipScope(directory: directory)
+        let ownerService = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: ownerScope
+        )
+        try await ownerService.startLocationRoute(deviceID: deviceID, route: Self.route())
+        let committedRecord = try #require(
+            try ownerScope.recoveryStore.record(deviceIdentifier: deviceID)
+        )
+        let committedSnapshot = try #require(committedRecord.committed)
+        let pendingToken = UUID()
+        let deadOwner = SimulatorProcessIdentity(
+            pid: Int32.max,
+            startSeconds: 1,
+            startMicroseconds: 1
+        )
+        try ownerScope.recoveryStore.save(committedRecord.preparing(
+            replacement: committedSnapshot.adopting(
+                ownershipToken: pendingToken,
+                ownerProcessIdentity: deadOwner
+            ),
+            ownershipToken: pendingToken,
+            ownerProcessIdentity: deadOwner
+        ))
+        let failedReplacementScope = SimulatorLocationOwnershipScope(directory: directory)
+        try await failedReplacementScope.registry.claim(
+            pendingToken,
+            deviceIdentifier: deviceID
+        )
+        let recoveryCommands = LocationLifecycleCommandRunner()
+        let recoveryService = SimulatorControlService(
+            commands: recoveryCommands,
+            locationOwnershipScope: SimulatorLocationOwnershipScope(directory: directory)
+        )
+
+        #expect(await recoveryService.recoverOrphanedLocationRoutes())
+        let arguments = await recoveryCommands.arguments()
+        #expect(arguments.first == ["simctl", "location", deviceID, "clear"])
+        #expect(arguments.last?.prefix(4) == ["simctl", "location", deviceID, "start"])
+        let recoveredRecord = try #require(
+            try ownerScope.recoveryStore.record(deviceIdentifier: deviceID)
+        )
+        #expect(recoveredRecord.pending == nil)
+        #expect(recoveredRecord.committed == committedSnapshot)
+        try await ownerService.stopLocationRoute(deviceID: deviceID)
+    }
+
     @Test("Launch recovery restores dead route owners and preserves live owners")
     func launchRecoveryRestoresOnlyOrphanedRoutes() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -180,7 +306,10 @@ struct SimulatorControlServiceLocationLifecycleTests {
             ["simctl", "location", orphanDeviceID, "set", "37.7,-122.4"],
         ])
         #expect(try scope.recoveryStore.record(deviceIdentifier: orphanDeviceID) == nil)
-        #expect(try scope.recoveryStore.record(deviceIdentifier: liveDeviceID)?.ownershipToken == liveToken)
+        #expect(
+            try scope.recoveryStore.record(deviceIdentifier: liveDeviceID)?
+                .committed?.ownershipToken == liveToken
+        )
     }
 
     @Test("Launch recovery fails closed on a corrupt location journal")
@@ -226,7 +355,15 @@ struct SimulatorControlServiceLocationLifecycleTests {
             ["simctl", "location", recoverableDeviceID, "set", "37.7,-122.4"],
         ])
         #expect(try scope.recoveryStore.record(deviceIdentifier: recoverableDeviceID) == nil)
-        #expect(FileManager.default.fileExists(atPath: corruptJournal.path))
+        #expect(!FileManager.default.fileExists(atPath: corruptJournal.path))
+        let quarantinedJournals = try FileManager.default.contentsOfDirectory(
+            at: journalDirectory.appendingPathComponent("quarantine", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )
+        #expect(quarantinedJournals.count == 1)
+        #expect(
+            quarantinedJournals[0].lastPathComponent.hasPrefix("corrupt.json.corrupt-")
+        )
     }
 
     @Test("A fixed location removes the route recovery journal")
@@ -380,9 +517,11 @@ struct SimulatorControlServiceLocationLifecycleTests {
     private func eventually(
         _ condition: @escaping @Sendable () async -> Bool
     ) async {
-        for _ in 0..<200 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < deadline {
             if await condition() { return }
-            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(1))
         }
         Issue.record("Condition did not become true")
     }

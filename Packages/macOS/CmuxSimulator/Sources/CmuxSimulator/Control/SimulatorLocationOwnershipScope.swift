@@ -22,11 +22,27 @@ public struct SimulatorLocationOwnershipScope: Sendable {
     /// Creates a scope backed by a caller-owned directory. App composition
     /// roots pass one stable directory to every pane and worker service.
     public init(directory: URL) {
+        self.init(
+            ownershipDirectory: directory,
+            recoveryDirectory: directory
+        )
+    }
+
+    /// Creates a scope with independently versioned ownership and recovery
+    /// storage. App composition keeps ownership at its legacy cross-version
+    /// path while placing crash-recovery journals in durable storage.
+    public init(
+        ownershipDirectory: URL,
+        recoveryDirectory: URL
+    ) {
         registry = SimulatorLocationOwnershipRegistry(
-            store: SimulatorCrossProcessOwnershipStore(directory: directory)
+            store: SimulatorCrossProcessOwnershipStore(directory: ownershipDirectory)
         )
         recoveryStore = SimulatorLocationRouteRecoveryStore(
-            directory: directory.appendingPathComponent("location-routes", isDirectory: true)
+            directory: recoveryDirectory.appendingPathComponent(
+                "location-routes",
+                isDirectory: true
+            )
         )
     }
 }

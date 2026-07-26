@@ -5,17 +5,20 @@ extension SimulatorControlService {
     /// Restores location routes whose exact owner process no longer exists.
     ///
     /// Recovery holds the same cross-process device lock as ordinary location
-    /// mutations, re-reads the journal under that lock, and leaves unreadable
-    /// or failed journals in place for a later retry.
+    /// mutations, re-reads the journal under that lock, quarantines unreadable
+    /// entries, and leaves failed recoveries in place for a later retry.
     public func recoverOrphanedLocationRoutes() async -> Bool {
-        let records: [SimulatorLocationRouteRecoveryRecord]
+        let scan: (
+            records: [SimulatorLocationRouteRecoveryRecord],
+            hadFailures: Bool
+        )
         do {
-            records = try locationRouteRecoveryStore.records()
+            scan = try locationRouteRecoveryStore.records()
         } catch {
             return false
         }
-        var succeeded = true
-        for record in records where !record.isOwnedByRunningProcess {
+        var succeeded = !scan.hadFailures
+        for record in scan.records {
             do {
                 try await mutationGate.withLocks([
                     .location(deviceIdentifier: record.deviceIdentifier),
@@ -34,33 +37,136 @@ extension SimulatorControlService {
     ) async throws {
         guard let record = try locationRouteRecoveryStore.record(
             deviceIdentifier: observedRecord.deviceIdentifier
-        ), record.ownershipToken == observedRecord.ownershipToken,
-           !record.isOwnedByRunningProcess else { return }
+        ), record == observedRecord else { return }
         let deviceID = record.deviceIdentifier
-        let token = try await beginLocationOperation(deviceID: deviceID)
+        let publishedToken = await locationOwnershipRegistry.publishedToken(
+            deviceIdentifier: deviceID
+        )
+        if let pending = record.pending {
+            if publishedToken == pending.ownershipToken,
+               pending.isOwnedByRunningProcess {
+                return
+            }
+            if publishedToken != pending.ownershipToken {
+                if let committed = record.committed,
+                   !committed.isOwnedByRunningProcess {
+                    try await cleanUpOrphanedLocationSnapshot(
+                        committed,
+                        deviceID: deviceID,
+                        expectedOwnershipToken: pending.ownershipToken
+                    )
+                } else {
+                    try await restoreCommittedLocationRecord(
+                        record.committed,
+                        deviceID: deviceID,
+                        expectedOwnershipToken: pending.ownershipToken
+                    )
+                }
+                return
+            }
+            try await rollBackPendingLocationRecord(record, deviceID: deviceID)
+            return
+        }
+        guard let committed = record.committed else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        if committed.isOwnedByRunningProcess {
+            if publishedToken != committed.ownershipToken {
+                try await locationOwnershipRegistry.restore(
+                    committed.ownershipToken,
+                    deviceIdentifier: deviceID
+                )
+            }
+            return
+        }
+        try await cleanUpOrphanedLocationSnapshot(
+            committed,
+            deviceID: deviceID,
+            expectedOwnershipToken: committed.ownershipToken
+        )
+    }
+
+    private func rollBackPendingLocationRecord(
+        _ record: SimulatorLocationRouteRecoveryRecord,
+        deviceID: String
+    ) async throws {
+        guard let pending = record.pending else { return }
+        if let committed = record.committed {
+            if committed.isOwnedByRunningProcess {
+                _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+                try await restoreExternalLocationLifecycle(
+                    deviceID: deviceID,
+                    state: committed.state.activeLocationRoute
+                )
+                try await restoreCommittedLocationRecord(
+                    committed,
+                    deviceID: deviceID,
+                    expectedOwnershipToken: pending.ownershipToken
+                )
+            } else {
+                try await cleanUpOrphanedLocationSnapshot(
+                    committed,
+                    deviceID: deviceID,
+                    expectedOwnershipToken: pending.ownershipToken
+                )
+            }
+        } else {
+            _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+            guard try locationRouteRecoveryStore.remove(
+                deviceIdentifier: deviceID,
+                expectedOwnershipToken: pending.ownershipToken
+            ) else { throw CancellationError() }
+        }
+    }
+
+    private func restoreCommittedLocationRecord(
+        _ committed: SimulatorLocationRouteRecoverySnapshot?,
+        deviceID: String,
+        expectedOwnershipToken: UUID
+    ) async throws {
+        if let committed {
+            try locationRouteRecoveryStore.save(SimulatorLocationRouteRecoveryRecord(
+                deviceIdentifier: deviceID,
+                committed: committed,
+                pending: nil
+            ))
+            try await locationOwnershipRegistry.restore(
+                committed.ownershipToken,
+                deviceIdentifier: deviceID
+            )
+        } else {
+            guard try locationRouteRecoveryStore.remove(
+                deviceIdentifier: deviceID,
+                expectedOwnershipToken: expectedOwnershipToken
+            ) else { throw CancellationError() }
+        }
+    }
+
+    private func cleanUpOrphanedLocationSnapshot(
+        _ snapshot: SimulatorLocationRouteRecoverySnapshot,
+        deviceID: String,
+        expectedOwnershipToken: UUID
+    ) async throws {
         var clearCommitted = false
         do {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
             clearCommitted = true
             _ = try await output(arguments: [
                 "simctl", "location", deviceID, "set",
-                coordinateArgument(record.initialCoordinate),
+                coordinateArgument(snapshot.initialCoordinate),
             ])
-            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
             guard try locationRouteRecoveryStore.remove(
                 deviceIdentifier: deviceID,
-                expectedOwnershipToken: record.ownershipToken
+                expectedOwnershipToken: expectedOwnershipToken
             ) else { throw CancellationError() }
-            finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
             let mutationError = error
             if clearCommitted {
                 try await restoreExternalLocationLifecycle(
                     deviceID: deviceID,
-                    state: record.state.activeLocationRoute
+                    state: snapshot.state.activeLocationRoute
                 )
             }
-            finishLocationOperation(deviceID: deviceID, token: token)
             throw mutationError
         }
     }
@@ -79,34 +185,66 @@ extension SimulatorControlService {
     ) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
         let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
-        let token = try await beginLocationOperation(deviceID: deviceID)
+        let transaction: (
+            token: UUID,
+            previous: SimulatorLocationRouteRecoverySnapshot?,
+            replacement: SimulatorLocationRouteRecoverySnapshot?
+        )?
+        let token: UUID
+        if previousRecord != nil {
+            let prepared = try await prepareLocationTransaction(
+                deviceID: deviceID,
+                replacementInitialCoordinate: nil,
+                replacementState: nil,
+                claimNewOwnership: true
+            )
+            transaction = prepared
+            token = prepared.token
+        } else {
+            transaction = nil
+            token = try await beginLocationOperation(deviceID: deviceID)
+        }
         var mutationCommitted = false
         do {
-            try adoptLocationRecoveryRecord(previousRecord, ownershipToken: token)
             _ = try await output(arguments: [
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
             mutationCommitted = true
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
-            if previousRecord != nil {
-                guard try locationRouteRecoveryStore.remove(
-                    deviceIdentifier: deviceID,
-                    expectedOwnershipToken: token
-                ) else { throw CancellationError() }
+            if let transaction {
+                try commitLocationTransaction(
+                    deviceID: deviceID,
+                    token: token,
+                    replacement: transaction.replacement
+                )
             }
             activeLocationRoutes.removeValue(forKey: deviceID)
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
             let mutationError = error
-            if mutationCommitted, let previousRecord {
+            if mutationCommitted, let previous = transaction?.previous {
+                _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
                 try await restoreExternalLocationLifecycle(
                     deviceID: deviceID,
-                    state: previousRecord.state.activeLocationRoute
+                    state: previous.state.activeLocationRoute
+                )
+            }
+            if let transaction {
+                try await abortLocationTransaction(
+                    deviceID: deviceID,
+                    token: token,
+                    previous: transaction.previous
                 )
             }
             finishLocationOperation(deviceID: deviceID, token: token)
-            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
+            if let previousRoute {
+                restoreLocationLifecycle(
+                    deviceID: deviceID,
+                    state: previousRoute,
+                    token: transaction?.previous?.ownershipToken ?? token
+                )
+            }
             throw mutationError
         }
     }
@@ -121,32 +259,63 @@ extension SimulatorControlService {
     private func clearLocationExclusively(deviceID: String) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
         let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
-        let token = try await beginLocationOperation(deviceID: deviceID)
+        let transaction: (
+            token: UUID,
+            previous: SimulatorLocationRouteRecoverySnapshot?,
+            replacement: SimulatorLocationRouteRecoverySnapshot?
+        )?
+        let token: UUID
+        if previousRecord != nil {
+            let prepared = try await prepareLocationTransaction(
+                deviceID: deviceID,
+                replacementInitialCoordinate: nil,
+                replacementState: nil,
+                claimNewOwnership: true
+            )
+            transaction = prepared
+            token = prepared.token
+        } else {
+            transaction = nil
+            token = try await beginLocationOperation(deviceID: deviceID)
+        }
         var mutationCommitted = false
         do {
-            try adoptLocationRecoveryRecord(previousRecord, ownershipToken: token)
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
             mutationCommitted = true
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
-            if previousRecord != nil {
-                guard try locationRouteRecoveryStore.remove(
-                    deviceIdentifier: deviceID,
-                    expectedOwnershipToken: token
-                ) else { throw CancellationError() }
+            if let transaction {
+                try commitLocationTransaction(
+                    deviceID: deviceID,
+                    token: token,
+                    replacement: transaction.replacement
+                )
             }
             activeLocationRoutes.removeValue(forKey: deviceID)
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
             let mutationError = error
-            if mutationCommitted, let previousRecord {
+            if mutationCommitted, let previous = transaction?.previous {
                 try await restoreExternalLocationLifecycle(
                     deviceID: deviceID,
-                    state: previousRecord.state.activeLocationRoute
+                    state: previous.state.activeLocationRoute
+                )
+            }
+            if let transaction {
+                try await abortLocationTransaction(
+                    deviceID: deviceID,
+                    token: token,
+                    previous: transaction.previous
                 )
             }
             finishLocationOperation(deviceID: deviceID, token: token)
-            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
+            if let previousRoute {
+                restoreLocationLifecycle(
+                    deviceID: deviceID,
+                    state: previousRoute,
+                    token: transaction?.previous?.ownershipToken ?? token
+                )
+            }
             throw mutationError
         }
     }
@@ -170,45 +339,59 @@ extension SimulatorControlService {
         initialCoordinate: SimulatorLocationCoordinate
     ) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
-        let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
-        let token = try await beginLocationOperation(deviceID: deviceID)
         let startedAt = now()
+        let transaction = try await prepareLocationTransaction(
+            deviceID: deviceID,
+            replacementInitialCoordinate: initialCoordinate,
+            replacementState: .running(route: route, startedAt: startedAt),
+            claimNewOwnership: true
+        )
         var commandCommitted = false
         do {
-            try locationRouteRecoveryStore.save(SimulatorLocationRouteRecoveryRecord(
-                deviceIdentifier: deviceID,
-                initialCoordinate: initialCoordinate,
-                state: .running(route: route, startedAt: startedAt),
-                ownershipToken: token,
-                ownerProcessIdentity: try currentLocationProcessIdentity()
-            ))
             try await runLocationRouteCommand(deviceID: deviceID, route: route)
             commandCommitted = true
-            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            try await requireCurrentLocationOperation(
+                deviceID: deviceID,
+                token: transaction.token
+            )
+            try commitLocationTransaction(
+                deviceID: deviceID,
+                token: transaction.token,
+                replacement: transaction.replacement
+            )
         } catch {
             let mutationError = error
             if commandCommitted {
-                if let previousRecord {
+                _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+                if let previous = transaction.previous {
                     try await restoreExternalLocationLifecycle(
                         deviceID: deviceID,
-                        state: previousRecord.state.activeLocationRoute
+                        state: previous.state.activeLocationRoute
                     )
-                } else {
-                    _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
                 }
             }
-            try restoreLocationRecoveryRecord(
-                previousRecord,
+            try await abortLocationTransaction(
                 deviceID: deviceID,
-                replacingOwnershipToken: token
+                token: transaction.token,
+                previous: transaction.previous
             )
-            finishLocationOperation(deviceID: deviceID, token: token)
-            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
+            finishLocationOperation(deviceID: deviceID, token: transaction.token)
+            if let previousRoute, let previous = transaction.previous {
+                restoreLocationLifecycle(
+                    deviceID: deviceID,
+                    state: previousRoute,
+                    token: previous.ownershipToken
+                )
+            }
             throw mutationError
         }
         locationRouteInitialCoordinates[deviceID] = initialCoordinate
         activeLocationRoutes[deviceID] = .running(route: route, startedAt: startedAt)
-        scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
+        scheduleLocationLifecycle(
+            deviceID: deviceID,
+            route: route,
+            token: transaction.token
+        )
     }
 
     private func restoreLocationLifecycle(
@@ -294,7 +477,7 @@ extension SimulatorControlService {
             )
         }
         let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
-        let recoveryRecord = try requireLocationRecoveryRecord(
+        let recoverySnapshot = try requireLocationRecoverySnapshot(
             deviceID: deviceID,
             ownershipToken: token
         )
@@ -302,7 +485,22 @@ extension SimulatorControlService {
         let pausedRoute = remainingRoute(route, after: elapsed)
         let coordinate = pausedRoute.waypoints[0]
         let rollbackState = ActiveLocationRoute.running(route: pausedRoute, startedAt: now())
-        cancelLocationLifecycle(deviceID: deviceID)
+        let rollbackSnapshot = recoverySnapshot.adopting(
+            ownershipToken: token,
+            ownerProcessIdentity: try currentLocationProcessIdentity(),
+            state: .running(route: pausedRoute, startedAt: now())
+        )
+        try locationRouteRecoveryStore.save(SimulatorLocationRouteRecoveryRecord(
+            deviceIdentifier: deviceID,
+            committed: rollbackSnapshot,
+            pending: nil
+        ))
+        let transaction = try await prepareLocationTransaction(
+            deviceID: deviceID,
+            replacementInitialCoordinate: rollbackSnapshot.initialCoordinate,
+            replacementState: .paused(route: pausedRoute),
+            claimNewOwnership: false
+        )
         var clearCommitted = false
         do {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
@@ -312,17 +510,22 @@ extension SimulatorControlService {
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
-            try locationRouteRecoveryStore.save(recoveryRecord.adopting(
-                ownershipToken: token,
-                ownerProcessIdentity: try currentLocationProcessIdentity(),
-                state: .paused(route: pausedRoute)
-            ))
+            try commitLocationTransaction(
+                deviceID: deviceID,
+                token: token,
+                replacement: transaction.replacement
+            )
             activeLocationRoutes[deviceID] = .paused(route: pausedRoute)
         } catch {
             let mutationError = error
             if clearCommitted {
                 try await restoreExternalLocationLifecycle(deviceID: deviceID, state: rollbackState)
             }
+            try await abortLocationTransaction(
+                deviceID: deviceID,
+                token: token,
+                previous: transaction.previous
+            )
             restoreLocationLifecycle(deviceID: deviceID, state: rollbackState, token: token)
             throw mutationError
         }
@@ -347,7 +550,7 @@ extension SimulatorControlService {
             )
         }
         let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
-        let recoveryRecord = try requireLocationRecoveryRecord(
+        let recoverySnapshot = try requireLocationRecoverySnapshot(
             deviceID: deviceID,
             ownershipToken: token
         )
@@ -356,25 +559,37 @@ extension SimulatorControlService {
             activeLocationRoutes.removeValue(forKey: deviceID)
             return
         }
-        cancelLocationLifecycle(deviceID: deviceID)
+        let resumedAt = now()
+        let transaction = try await prepareLocationTransaction(
+            deviceID: deviceID,
+            replacementInitialCoordinate: recoverySnapshot.initialCoordinate,
+            replacementState: .running(route: route, startedAt: resumedAt),
+            claimNewOwnership: false
+        )
         var commandCommitted = false
         do {
             try await runLocationRouteCommand(deviceID: deviceID, route: route)
             commandCommitted = true
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
-            try locationRouteRecoveryStore.save(recoveryRecord.adopting(
-                ownershipToken: token,
-                ownerProcessIdentity: try currentLocationProcessIdentity(),
-                state: .running(route: route, startedAt: now())
-            ))
+            try commitLocationTransaction(
+                deviceID: deviceID,
+                token: token,
+                replacement: transaction.replacement
+            )
         } catch {
             let mutationError = error
             if commandCommitted {
+                _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
                 try await restoreExternalLocationLifecycle(
                     deviceID: deviceID,
                     state: .paused(route: route)
                 )
             }
+            try await abortLocationTransaction(
+                deviceID: deviceID,
+                token: token,
+                previous: transaction.previous
+            )
             restoreLocationLifecycle(
                 deviceID: deviceID,
                 state: .paused(route: route),
@@ -383,7 +598,7 @@ extension SimulatorControlService {
             throw mutationError
         }
         locationRouteInitialCoordinates[deviceID] = initialCoordinate
-        activeLocationRoutes[deviceID] = .running(route: route, startedAt: now())
+        activeLocationRoutes[deviceID] = .running(route: route, startedAt: resumedAt)
         scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
     }
 
@@ -396,37 +611,42 @@ extension SimulatorControlService {
 
     private func stopLocationRouteExclusively(deviceID: String) async throws {
         let recoveryRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
-        guard locationRouteInitialCoordinates[deviceID] != nil || recoveryRecord != nil else {
+        guard locationRouteInitialCoordinates[deviceID] != nil
+                || recoveryRecord?.committed != nil else {
             discardLocalLocationRoute(deviceID: deviceID)
             return
         }
-        let token: UUID
-        let initialCoordinate: SimulatorLocationCoordinate
-        let rollbackState: ActiveLocationRoute?
+        let claimNewOwnership: Bool
         if let localInitialCoordinate = locationRouteInitialCoordinates[deviceID] {
-            token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
-            let matchingRecord = try requireLocationRecoveryRecord(
+            let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
+            let matchingSnapshot = try requireLocationRecoverySnapshot(
                 deviceID: deviceID,
                 ownershipToken: token
             )
-            initialCoordinate = localInitialCoordinate
-            rollbackState = locationRollbackState(activeLocationRoutes[deviceID])
-                ?? matchingRecord.state.activeLocationRoute
-        } else if let recoveryRecord {
-            token = try await beginLocationOperation(deviceID: deviceID)
-            let adoptedRecord = recoveryRecord.adopting(
-                ownershipToken: token,
-                ownerProcessIdentity: try currentLocationProcessIdentity()
-            )
-            try locationRouteRecoveryStore.save(adoptedRecord)
-            initialCoordinate = adoptedRecord.initialCoordinate
-            rollbackState = adoptedRecord.state.activeLocationRoute
-            locationRouteInitialCoordinates[deviceID] = initialCoordinate
-            activeLocationRoutes[deviceID] = rollbackState
+            guard matchingSnapshot.initialCoordinate == localInitialCoordinate else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            claimNewOwnership = false
+        } else if recoveryRecord?.committed != nil {
+            claimNewOwnership = true
         } else {
             return
         }
-        cancelLocationLifecycle(deviceID: deviceID)
+        let transaction = try await prepareLocationTransaction(
+            deviceID: deviceID,
+            replacementInitialCoordinate: nil,
+            replacementState: nil,
+            claimNewOwnership: claimNewOwnership
+        )
+        let token = transaction.token
+        guard let previousSnapshot = transaction.previous else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let initialCoordinate = previousSnapshot.initialCoordinate
+        let rollbackState = locationRollbackState(activeLocationRoutes[deviceID])
+            ?? previousSnapshot.state.activeLocationRoute
+        locationRouteInitialCoordinates[deviceID] = initialCoordinate
+        activeLocationRoutes[deviceID] = rollbackState
         activeLocationRoutes.removeValue(forKey: deviceID)
         var clearCommitted = false
         do {
@@ -436,10 +656,11 @@ extension SimulatorControlService {
                 "simctl", "location", deviceID, "set", coordinateArgument(initialCoordinate),
             ])
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
-            guard try locationRouteRecoveryStore.remove(
-                deviceIdentifier: deviceID,
-                expectedOwnershipToken: token
-            ) else { throw CancellationError() }
+            try commitLocationTransaction(
+                deviceID: deviceID,
+                token: token,
+                replacement: transaction.replacement
+            )
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
@@ -447,7 +668,16 @@ extension SimulatorControlService {
             if clearCommitted {
                 try await restoreExternalLocationLifecycle(deviceID: deviceID, state: rollbackState)
             }
-            restoreLocationLifecycle(deviceID: deviceID, state: rollbackState, token: token)
+            try await abortLocationTransaction(
+                deviceID: deviceID,
+                token: token,
+                previous: transaction.previous
+            )
+            restoreLocationLifecycle(
+                deviceID: deviceID,
+                state: rollbackState,
+                token: previousSnapshot.ownershipToken
+            )
             throw mutationError
         }
     }
@@ -714,44 +944,121 @@ extension SimulatorControlService {
         }
     }
 
-    private func adoptLocationRecoveryRecord(
-        _ record: SimulatorLocationRouteRecoveryRecord?,
-        ownershipToken: UUID
-    ) throws {
-        guard let record else { return }
-        try locationRouteRecoveryStore.save(record.adopting(
-            ownershipToken: ownershipToken,
-            ownerProcessIdentity: try currentLocationProcessIdentity()
-        ))
+    private func prepareLocationTransaction(
+        deviceID: String,
+        replacementInitialCoordinate: SimulatorLocationCoordinate?,
+        replacementState: SimulatorLocationRouteRecoveryState?,
+        claimNewOwnership: Bool
+    ) async throws -> (
+        token: UUID,
+        previous: SimulatorLocationRouteRecoverySnapshot?,
+        replacement: SimulatorLocationRouteRecoverySnapshot?
+    ) {
+        let record = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
+        guard record?.pending == nil else { throw CocoaError(.fileReadCorruptFile) }
+        let previous = record?.committed
+        let token: UUID
+        if claimNewOwnership {
+            token = await locationOwnershipRegistry.makeToken()
+        } else {
+            guard let previous else { throw CocoaError(.fileReadCorruptFile) }
+            token = previous.ownershipToken
+        }
+        let ownerProcessIdentity = try currentLocationProcessIdentity()
+        let replacement: SimulatorLocationRouteRecoverySnapshot?
+        switch (replacementInitialCoordinate, replacementState) {
+        case let (initialCoordinate?, state?):
+            replacement = SimulatorLocationRouteRecoverySnapshot(
+                initialCoordinate: initialCoordinate,
+                state: state,
+                ownershipToken: token,
+                ownerProcessIdentity: ownerProcessIdentity
+            )
+        case (nil, nil):
+            replacement = nil
+        default:
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let transactionRecord: SimulatorLocationRouteRecoveryRecord
+        if let record {
+            transactionRecord = record.preparing(
+                replacement: replacement,
+                ownershipToken: token,
+                ownerProcessIdentity: ownerProcessIdentity
+            )
+        } else if let replacement {
+            transactionRecord = SimulatorLocationRouteRecoveryRecord(
+                deviceIdentifier: deviceID,
+                replacement: replacement,
+                ownershipToken: token,
+                ownerProcessIdentity: ownerProcessIdentity
+            )
+        } else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        try locationRouteRecoveryStore.save(transactionRecord)
+        if claimNewOwnership {
+            do {
+                try await locationOwnershipRegistry.claim(
+                    token,
+                    deviceIdentifier: deviceID
+                )
+            } catch {
+                try await restoreCommittedLocationRecord(
+                    previous,
+                    deviceID: deviceID,
+                    expectedOwnershipToken: token
+                )
+                throw error
+            }
+        }
+        cancelLocationLifecycle(deviceID: deviceID)
+        locationRouteTokens[deviceID] = token
+        return (token, previous, replacement)
     }
 
-    private func restoreLocationRecoveryRecord(
-        _ record: SimulatorLocationRouteRecoveryRecord?,
+    private func commitLocationTransaction(
         deviceID: String,
-        replacingOwnershipToken ownershipToken: UUID
+        token: UUID,
+        replacement: SimulatorLocationRouteRecoverySnapshot?
     ) throws {
-        if let record {
-            try locationRouteRecoveryStore.save(record.adopting(
-                ownershipToken: ownershipToken,
-                ownerProcessIdentity: try currentLocationProcessIdentity()
+        if let replacement {
+            try locationRouteRecoveryStore.save(SimulatorLocationRouteRecoveryRecord(
+                deviceIdentifier: deviceID,
+                committed: replacement,
+                pending: nil
             ))
         } else {
-            _ = try locationRouteRecoveryStore.remove(
+            guard try locationRouteRecoveryStore.remove(
                 deviceIdentifier: deviceID,
-                expectedOwnershipToken: ownershipToken
-            )
+                expectedOwnershipToken: token
+            ) else { throw CancellationError() }
         }
     }
 
-    private func requireLocationRecoveryRecord(
+    private func abortLocationTransaction(
+        deviceID: String,
+        token: UUID,
+        previous: SimulatorLocationRouteRecoverySnapshot?
+    ) async throws {
+        try await restoreCommittedLocationRecord(
+            previous,
+            deviceID: deviceID,
+            expectedOwnershipToken: token
+        )
+    }
+
+    private func requireLocationRecoverySnapshot(
         deviceID: String,
         ownershipToken: UUID
-    ) throws -> SimulatorLocationRouteRecoveryRecord {
+    ) throws -> SimulatorLocationRouteRecoverySnapshot {
         guard let record = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID),
-              record.ownershipToken == ownershipToken else {
+              record.pending == nil,
+              let committed = record.committed,
+              committed.ownershipToken == ownershipToken else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        return record
+        return committed
     }
 
     private func currentLocationProcessIdentity() throws -> SimulatorProcessIdentity {

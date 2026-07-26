@@ -2,26 +2,68 @@ import Foundation
 
 struct SimulatorLocationRouteRecoveryRecord: Codable, Equatable, Sendable {
     let deviceIdentifier: String
-    let initialCoordinate: SimulatorLocationCoordinate
-    let state: SimulatorLocationRouteRecoveryState
-    let ownershipToken: UUID
-    let ownerProcessIdentity: SimulatorProcessIdentity
+    let committed: SimulatorLocationRouteRecoverySnapshot?
+    let pending: SimulatorLocationRoutePendingTransaction?
 
-    var isOwnedByRunningProcess: Bool {
-        ownerProcessIdentity.isRunning
+    init(
+        deviceIdentifier: String,
+        committed: SimulatorLocationRouteRecoverySnapshot?,
+        pending: SimulatorLocationRoutePendingTransaction?
+    ) {
+        self.deviceIdentifier = deviceIdentifier
+        self.committed = committed
+        self.pending = pending
     }
 
-    func adopting(
+    init(
+        deviceIdentifier: String,
+        initialCoordinate: SimulatorLocationCoordinate,
+        state: SimulatorLocationRouteRecoveryState,
         ownershipToken: UUID,
-        ownerProcessIdentity: SimulatorProcessIdentity,
-        state: SimulatorLocationRouteRecoveryState? = nil
+        ownerProcessIdentity: SimulatorProcessIdentity
+    ) {
+        self.init(
+            deviceIdentifier: deviceIdentifier,
+            committed: SimulatorLocationRouteRecoverySnapshot(
+                initialCoordinate: initialCoordinate,
+                state: state,
+                ownershipToken: ownershipToken,
+                ownerProcessIdentity: ownerProcessIdentity
+            ),
+            pending: nil
+        )
+    }
+
+    func preparing(
+        replacement: SimulatorLocationRouteRecoverySnapshot?,
+        ownershipToken: UUID,
+        ownerProcessIdentity: SimulatorProcessIdentity
     ) -> SimulatorLocationRouteRecoveryRecord {
         SimulatorLocationRouteRecoveryRecord(
             deviceIdentifier: deviceIdentifier,
-            initialCoordinate: initialCoordinate,
-            state: state ?? self.state,
-            ownershipToken: ownershipToken,
-            ownerProcessIdentity: ownerProcessIdentity
+            committed: committed,
+            pending: SimulatorLocationRoutePendingTransaction(
+                ownershipToken: ownershipToken,
+                ownerProcessIdentity: ownerProcessIdentity,
+                replacement: replacement
+            )
+        )
+    }
+
+    init(
+        deviceIdentifier: String,
+        replacement: SimulatorLocationRouteRecoverySnapshot,
+        ownershipToken: UUID,
+        ownerProcessIdentity: SimulatorProcessIdentity
+    ) {
+        self.init(
+            deviceIdentifier: deviceIdentifier,
+            committed: nil,
+            pending: SimulatorLocationRoutePendingTransaction(
+                ownershipToken: ownershipToken,
+                ownerProcessIdentity: ownerProcessIdentity,
+                replacement: replacement
+            )
         )
     }
 }

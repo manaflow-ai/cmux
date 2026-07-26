@@ -6,19 +6,25 @@ import Foundation
 /// cleanup can restore the prior TCC state after relaunching the target app.
 public struct SimulatorCameraAuthorizationStore: Sendable {
     private let directory: URL?
+    private let legacyDirectory: URL?
 
     /// Creates a store in durable per-user Application Support by default.
     public init(
         directory: URL? = nil,
+        legacyDirectory: URL? = nil,
         fileManager: FileManager = FileManager()
     ) {
         if let directory {
             self.directory = directory
+            self.legacyDirectory = legacyDirectory
         } else {
             self.directory = fileManager.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
             ).first?
+                .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
+                .appendingPathComponent("camera-authorizations", isDirectory: true)
+            self.legacyDirectory = legacyDirectory ?? fileManager.temporaryDirectory
                 .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
                 .appendingPathComponent("camera-authorizations", isDirectory: true)
         }
@@ -40,11 +46,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         )
         let directory = try requiredDirectory()
         let fileManager = FileManager()
-        try fileManager.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        try prepare(directory, fileManager: fileManager)
         let data = try JSONEncoder().encode(SimulatorCameraAuthorizationRecord(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
@@ -76,6 +78,10 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) throws -> SimulatorCameraAuthorizationRecord? {
+        try migrateLegacyRecordIfNeeded(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
         let url = try fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -94,10 +100,16 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         return record
     }
 
-    package func records() throws -> [SimulatorCameraAuthorizationRecord] {
+    package func records() throws -> (
+        records: [SimulatorCameraAuthorizationRecord],
+        hadFailures: Bool
+    ) {
         let directory = try requiredDirectory()
         let fileManager = FileManager()
-        guard fileManager.fileExists(atPath: directory.path) else { return [] }
+        var hadFailures = try migrateLegacyRecords(fileManager: fileManager)
+        guard fileManager.fileExists(atPath: directory.path) else {
+            return ([], hadFailures)
+        }
         let urls = try fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
@@ -105,31 +117,39 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         )
         var records: [SimulatorCameraAuthorizationRecord] = []
         for url in urls where url.pathExtension == "json" {
-            let record = try JSONDecoder().decode(
-                SimulatorCameraAuthorizationRecord.self,
-                from: Data(contentsOf: url)
-            )
-            try validate(
-                record,
-                expectedDeviceIdentifier: record.deviceIdentifier,
-                expectedBundleIdentifier: record.bundleIdentifier,
-                sourceURL: url
-            )
-            records.append(record)
+            do {
+                let record = try JSONDecoder().decode(
+                    SimulatorCameraAuthorizationRecord.self,
+                    from: Data(contentsOf: url)
+                )
+                try validate(
+                    record,
+                    expectedDeviceIdentifier: record.deviceIdentifier,
+                    expectedBundleIdentifier: record.bundleIdentifier,
+                    sourceURL: url
+                )
+                records.append(record)
+            } catch {
+                hadFailures = true
+                _ = quarantine(
+                    url,
+                    rootDirectory: directory,
+                    fileManager: fileManager
+                )
+            }
         }
-        return records
+        return (records, hadFailures)
     }
 
     package func remove(
         deviceIdentifier: String,
         bundleIdentifier: String
     ) throws {
-        let url = try fileURL(
+        guard try record(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
-        )
-        guard FileManager().fileExists(atPath: url.path) else { return }
-        _ = try authorization(
+        ) != nil else { return }
+        let url = try fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
@@ -163,10 +183,159 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         guard record.deviceIdentifier == expectedDeviceIdentifier,
               record.bundleIdentifier == expectedBundleIdentifier,
               [.notDetermined, .denied, .granted].contains(record.authorization),
-              record.ownerProcessIdentity.map(processIdentityIsValid) == true,
+              record.ownerProcessIdentity.map(processIdentityIsValid) != false,
               sourceURL.standardizedFileURL == expectedURL.standardizedFileURL
         else {
             throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    private func migrateLegacyRecordIfNeeded(
+        deviceIdentifier: String,
+        bundleIdentifier: String
+    ) throws {
+        let durableDirectory = try requiredDirectory()
+        guard let legacyDirectory,
+              legacyDirectory.standardizedFileURL
+                != durableDirectory.standardizedFileURL else { return }
+        let legacyURL = legacyDirectory.appendingPathComponent(
+            hash([deviceIdentifier, bundleIdentifier]) + ".json"
+        )
+        let fileManager = FileManager()
+        guard fileManager.fileExists(atPath: legacyURL.path) else { return }
+        let record = try JSONDecoder().decode(
+            SimulatorCameraAuthorizationRecord.self,
+            from: Data(contentsOf: legacyURL)
+        )
+        try validateLegacy(
+            record,
+            expectedDeviceIdentifier: deviceIdentifier,
+            expectedBundleIdentifier: bundleIdentifier,
+            sourceURL: legacyURL
+        )
+        let destination = try fileURL(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        if fileManager.fileExists(atPath: destination.path) {
+            let durableRecord = try JSONDecoder().decode(
+                SimulatorCameraAuthorizationRecord.self,
+                from: Data(contentsOf: destination)
+            )
+            try validate(
+                durableRecord,
+                expectedDeviceIdentifier: deviceIdentifier,
+                expectedBundleIdentifier: bundleIdentifier,
+                sourceURL: destination
+            )
+        } else {
+            let directory = try requiredDirectory()
+            try prepare(directory, fileManager: fileManager)
+            try JSONEncoder().encode(record).write(to: destination, options: .atomic)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: destination.path
+            )
+        }
+        try fileManager.removeItem(at: legacyURL)
+    }
+
+    private func migrateLegacyRecords(fileManager: FileManager) throws -> Bool {
+        let durableDirectory = try requiredDirectory()
+        guard let legacyDirectory,
+              legacyDirectory.standardizedFileURL
+                != durableDirectory.standardizedFileURL,
+              fileManager.fileExists(atPath: legacyDirectory.path) else {
+            return false
+        }
+        let urls = try fileManager.contentsOfDirectory(
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        var hadFailures = false
+        for url in urls where url.pathExtension == "json" {
+            do {
+                let record = try JSONDecoder().decode(
+                    SimulatorCameraAuthorizationRecord.self,
+                    from: Data(contentsOf: url)
+                )
+                try validateLegacy(
+                    record,
+                    expectedDeviceIdentifier: record.deviceIdentifier,
+                    expectedBundleIdentifier: record.bundleIdentifier,
+                    sourceURL: url
+                )
+                try migrateLegacyRecordIfNeeded(
+                    deviceIdentifier: record.deviceIdentifier,
+                    bundleIdentifier: record.bundleIdentifier
+                )
+            } catch {
+                hadFailures = true
+                _ = quarantine(
+                    url,
+                    rootDirectory: legacyDirectory,
+                    fileManager: fileManager
+                )
+            }
+        }
+        return hadFailures
+    }
+
+    private func validateLegacy(
+        _ record: SimulatorCameraAuthorizationRecord,
+        expectedDeviceIdentifier: String,
+        expectedBundleIdentifier: String,
+        sourceURL: URL
+    ) throws {
+        guard let legacyDirectory else { throw CocoaError(.fileReadNoSuchFile) }
+        let expectedURL = legacyDirectory.appendingPathComponent(
+            hash([record.deviceIdentifier, record.bundleIdentifier]) + ".json"
+        )
+        guard record.deviceIdentifier == expectedDeviceIdentifier,
+              record.bundleIdentifier == expectedBundleIdentifier,
+              [.notDetermined, .denied, .granted].contains(record.authorization),
+              record.ownerProcessIdentity.map(processIdentityIsValid) != false,
+              sourceURL.standardizedFileURL == expectedURL.standardizedFileURL
+        else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    private func prepare(_ directory: URL, fileManager: FileManager) throws {
+        try fileManager.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directory.path
+        )
+    }
+
+    private func quarantine(
+        _ url: URL,
+        rootDirectory: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        let quarantineDirectory = rootDirectory.appendingPathComponent(
+            "quarantine",
+            isDirectory: true
+        )
+        do {
+            try prepare(quarantineDirectory, fileManager: fileManager)
+            let destination = quarantineDirectory.appendingPathComponent(
+                "\(url.lastPathComponent).corrupt-\(UUID().uuidString)"
+            )
+            try fileManager.moveItem(at: url, to: destination)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: destination.path
+            )
+            return true
+        } catch {
+            return false
         }
     }
 

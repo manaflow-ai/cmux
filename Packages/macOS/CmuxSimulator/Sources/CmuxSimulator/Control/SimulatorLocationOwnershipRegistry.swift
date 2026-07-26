@@ -17,6 +17,30 @@ actor SimulatorLocationOwnershipRegistry {
         return publishedToken
     }
 
+    func makeToken() -> UUID {
+        UUID()
+    }
+
+    func claim(_ token: UUID, deviceIdentifier: String) throws {
+        try store.publish(
+            token,
+            namespace: "location",
+            components: [deviceIdentifier]
+        )
+        tokenByDeviceIdentifier[deviceIdentifier] = token
+    }
+
+    func restore(_ token: UUID, deviceIdentifier: String) throws {
+        try claim(token, deviceIdentifier: deviceIdentifier)
+    }
+
+    func publishedToken(deviceIdentifier: String) -> UUID? {
+        store.currentToken(
+            namespace: "location",
+            components: [deviceIdentifier]
+        )
+    }
+
     func isCurrent(_ token: UUID, deviceIdentifier: String) -> Bool {
         tokenByDeviceIdentifier[deviceIdentifier] == token
             && store.isCurrent(token, namespace: "location", components: [deviceIdentifier])

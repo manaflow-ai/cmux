@@ -384,13 +384,19 @@ class TerminalController {
             for: .applicationSupportDirectory,
             in: .userDomainMask
         )[0]
-        let simulatorOwnershipDirectory = simulatorApplicationSupportDirectory
+        let simulatorDurableRecoveryDirectory = simulatorApplicationSupportDirectory
+            .appendingPathComponent(
+                "com.cmux.simulator-ownership",
+                isDirectory: true
+            )
+        let simulatorOwnershipDirectory = simulatorOwnershipFileManager.temporaryDirectory
             .appendingPathComponent(
                 "com.cmux.simulator-ownership",
                 isDirectory: true
             )
         self.simulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(
-            directory: simulatorOwnershipDirectory
+            ownershipDirectory: simulatorOwnershipDirectory,
+            recoveryDirectory: simulatorDurableRecoveryDirectory
         )
         self.simulatorCameraCleanupOwnershipScope = SimulatorCameraCleanupOwnershipScope(
             directory: simulatorOwnershipDirectory
