@@ -272,7 +272,7 @@ extension DockSplitStore {
             BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
         }
         let isReady = dockBrowserPortalReady(browser)
-        if isReady && (!wasReady || snapshot?.containerHidden == true) {
+        if wasReady && isReady && snapshot?.containerHidden == true {
             BrowserWindowPortalRegistry.refresh(webView: webView, reason: reason)
         }
         return !isReady
