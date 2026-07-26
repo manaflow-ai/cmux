@@ -41,8 +41,9 @@ pub use mux::{
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
     NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, RunPlacement,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    TreeDelta, TreeDeltaKind, WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
+    ShutdownRequestWatch, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    SurfaceResizeReporter, TreeDelta, TreeDeltaKind, WorkspaceMutationResult, WorkspacePlacement,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;

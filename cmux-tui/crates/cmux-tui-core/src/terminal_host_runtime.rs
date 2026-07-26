@@ -2066,26 +2066,44 @@ mod unix {
             // before reaping. Holding it reserves the session leader and its
             // numeric session id across enumeration and signaling.
             let _signal = self.child_signal_lock.lock().unwrap();
-            if self.child_reaped.load(Ordering::Acquire) {
-                return Ok(());
-            }
             let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 return Err(std::io::Error::other("PTY child has no process id"));
             };
+            if self.child_reaped.load(Ordering::Acquire) {
+                return match crate::process_session::session_is_empty_until(session, deadline) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(std::io::Error::other(
+                        "PTY session still has members after its leader was reaped",
+                    )),
+                    Err(error) => Err(error),
+                };
+            }
             crate::process_session::signal_until(session, signal, deadline)
         }
 
         fn kill_terminal_process_session_until(&self, deadline: Instant) -> std::io::Result<bool> {
             let _signal = self.child_signal_lock.lock().unwrap();
-            if self.child_reaped.load(Ordering::Acquire) {
-                return Ok(true);
-            }
             let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 return Err(std::io::Error::other("PTY child has no process id"));
             };
+            if self.child_reaped.load(Ordering::Acquire) {
+                return crate::process_session::session_is_empty_until(leader, deadline);
+            }
             crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
                 self.child_waitable.load(Ordering::Acquire)
             })
+        }
+
+        fn kill_session_descendants_before_reap(&self, deadline: Instant) -> bool {
+            let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return false;
+            };
+            matches!(
+                crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
+                    self.child_waitable.load(Ordering::Acquire)
+                }),
+                Ok(true)
+            )
         }
 
         fn request_forced_pty_drain(&self) {
@@ -2103,6 +2121,7 @@ mod unix {
                 let _signal = self.child_signal_lock.lock().unwrap();
                 self.termination_started.swap(true, Ordering::AcqRel)
             };
+            self.child_exit.1.notify_all();
             if already_started {
                 return;
             }
@@ -2135,9 +2154,35 @@ mod unix {
         }
 
         fn terminate_and_wait(&self) {
-            {
+            let child_reaped = {
                 let _signal = self.child_signal_lock.lock().unwrap();
                 self.termination_started.store(true, Ordering::Release);
+                self.child_reaped.load(Ordering::Acquire)
+            };
+            self.child_exit.1.notify_all();
+            if child_reaped {
+                let session_empty = self
+                    .pid
+                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                    .is_some_and(|session| {
+                        matches!(
+                            crate::process_session::session_is_empty_until(
+                                session,
+                                Instant::now() + HOST_KILL_WAIT,
+                            ),
+                            Ok(true)
+                        )
+                    });
+                if session_empty {
+                    let mut exited = self.child_exit.0.lock().unwrap();
+                    *exited = true;
+                    drop(exited);
+                    self.child_exit.1.notify_all();
+                    self.publish_exit_if_drained();
+                } else {
+                    self.termination_started.store(false, Ordering::Release);
+                }
+                return;
             }
             // ProcessSignaller only targets the direct child. Start with a
             // graceful session hangup so foreground and background jobs can
@@ -2633,7 +2678,13 @@ mod unix {
                     let termination_started =
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                    if escalation_complete || (!termination_started && pty_drained) {
+                    let normal_cleanup_complete = !escalation_complete
+                        && !termination_started
+                        && pty_drained
+                        && child_host
+                            .kill_session_descendants_before_reap(Instant::now() + HOST_KILL_WAIT);
+                    if escalation_complete || normal_cleanup_complete {
+                        child_host.group_escalation_complete.store(true, Ordering::Release);
                         let _ = child.wait();
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
@@ -2641,15 +2692,26 @@ mod unix {
                     }
                     drop(signal);
                     let state = child_host.child_exit.0.lock().unwrap();
-                    let _state = child_host
-                        .child_exit
-                        .1
-                        .wait_while(state, |_| {
-                            !child_host.group_escalation_complete.load(Ordering::Acquire)
-                                && (child_host.termination_started.load(Ordering::Acquire)
-                                    || !child_host.pty_drained.load(Ordering::Acquire))
-                        })
-                        .unwrap();
+                    let _state = if !termination_started && pty_drained {
+                        child_host
+                            .child_exit
+                            .1
+                            .wait_while(state, |_| {
+                                !child_host.termination_started.load(Ordering::Acquire)
+                                    && !child_host.group_escalation_complete.load(Ordering::Acquire)
+                            })
+                            .unwrap()
+                    } else {
+                        child_host
+                            .child_exit
+                            .1
+                            .wait_while(state, |_| {
+                                !child_host.group_escalation_complete.load(Ordering::Acquire)
+                                    && (child_host.termination_started.load(Ordering::Acquire)
+                                        || !child_host.pty_drained.load(Ordering::Acquire))
+                            })
+                            .unwrap()
+                    };
                 }
                 let mut exited = child_host.child_exit.0.lock().unwrap();
                 *exited = true;
@@ -2662,10 +2724,25 @@ mod unix {
                 let _ = child.wait();
                 child_host.child_reaped.store(true, Ordering::Release);
                 child_host.child_waitable.store(true, Ordering::Release);
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = true;
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
+                let session_empty = child_host
+                    .pid
+                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                    .is_some_and(|session| {
+                        matches!(
+                            crate::process_session::session_is_empty_until(
+                                session,
+                                Instant::now() + HOST_KILL_WAIT,
+                            ),
+                            Ok(true)
+                        )
+                    });
+                if session_empty {
+                    let mut exited = child_host.child_exit.0.lock().unwrap();
+                    *exited = true;
+                    child_host.child_exit.1.notify_all();
+                    drop(exited);
+                    child_host.publish_exit_if_drained();
+                }
             }
         })?;
         Ok(shared)

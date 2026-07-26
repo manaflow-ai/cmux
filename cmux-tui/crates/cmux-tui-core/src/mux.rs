@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, MutexGuard, TryLockError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -917,6 +917,113 @@ impl Drop for SurfaceOwnerReservation<'_> {
 }
 
 #[derive(Default)]
+struct ShutdownCoordinatorState {
+    held: bool,
+    poisoned: bool,
+}
+
+#[derive(Default)]
+struct ShutdownCoordinator {
+    state: Mutex<ShutdownCoordinatorState>,
+    available: std::sync::Condvar,
+}
+
+impl ShutdownCoordinator {
+    fn lock_until(&self, deadline: Instant) -> anyhow::Result<ShutdownCoordinatorGuard<'_>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("shutdown coordinator is unavailable"))?;
+        loop {
+            if state.poisoned {
+                anyhow::bail!("shutdown coordinator is unavailable");
+            }
+            if !state.held {
+                state.held = true;
+                return Ok(ShutdownCoordinatorGuard { coordinator: self });
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                anyhow::bail!("another shutdown request exceeded the shutdown deadline");
+            };
+            let (next, timeout) = self
+                .available
+                .wait_timeout(state, remaining)
+                .map_err(|_| anyhow::anyhow!("shutdown coordinator is unavailable"))?;
+            state = next;
+            if timeout.timed_out() && state.held {
+                anyhow::bail!("another shutdown request exceeded the shutdown deadline");
+            }
+        }
+    }
+}
+
+struct ShutdownCoordinatorGuard<'a> {
+    coordinator: &'a ShutdownCoordinator,
+}
+
+impl Drop for ShutdownCoordinatorGuard<'_> {
+    fn drop(&mut self) {
+        let mut state =
+            self.coordinator.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.poisoned |= std::thread::panicking();
+        state.held = false;
+        self.coordinator.available.notify_one();
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ShutdownRequestWatchState {
+    #[default]
+    Pending,
+    Requested,
+    Cancelled,
+}
+
+#[derive(Default)]
+struct ShutdownRequestWatchInner {
+    state: Mutex<ShutdownRequestWatchState>,
+    changed: std::sync::Condvar,
+}
+
+impl ShutdownRequestWatchInner {
+    fn transition(&self, next: ShutdownRequestWatchState) {
+        let mut state = self.state.lock().unwrap();
+        if *state == ShutdownRequestWatchState::Pending {
+            *state = next;
+            self.changed.notify_all();
+        }
+    }
+}
+
+/// One-shot notification for a successful server-shutdown request.
+#[derive(Clone)]
+pub struct ShutdownRequestWatch {
+    inner: Arc<ShutdownRequestWatchInner>,
+}
+
+impl ShutdownRequestWatch {
+    /// Block until shutdown is requested or this watch is cancelled.
+    pub fn wait(&self) -> bool {
+        let state = self.inner.state.lock().unwrap();
+        let state = self
+            .inner
+            .changed
+            .wait_while(state, |state| *state == ShutdownRequestWatchState::Pending)
+            .unwrap();
+        *state == ShutdownRequestWatchState::Requested
+    }
+
+    /// Wake a waiter that no longer needs to observe shutdown.
+    pub fn cancel(&self) {
+        self.inner.transition(ShutdownRequestWatchState::Cancelled);
+    }
+
+    fn request(&self) {
+        self.inner.transition(ShutdownRequestWatchState::Requested);
+    }
+}
+
+#[derive(Default)]
 struct AsyncSurfaceCreationState {
     shutting_down: bool,
     active: usize,
@@ -1168,9 +1275,10 @@ pub struct Mux {
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     shutdown_requested: AtomicBool,
+    shutdown_request_watchers: Mutex<Vec<Weak<ShutdownRequestWatchInner>>>,
     surface_creations: SurfaceCreationGate,
     async_surface_creations: AsyncSurfaceCreationGate,
-    shutdown_coordinator: Mutex<()>,
+    shutdown_coordinator: ShutdownCoordinator,
     shutdown_owners: ShutdownOwnerLedger,
     shutdown_owner_reconciler: Arc<ShutdownOwnerReconciler>,
     surface_owner_reservations: AtomicUsize,
@@ -1408,9 +1516,10 @@ impl Mux {
             }),
             subscribers: MuxEventBroadcaster::default(),
             shutdown_requested: AtomicBool::new(false),
+            shutdown_request_watchers: Mutex::new(Vec::new()),
             surface_creations: SurfaceCreationGate::default(),
             async_surface_creations: AsyncSurfaceCreationGate::default(),
-            shutdown_coordinator: Mutex::new(()),
+            shutdown_coordinator: ShutdownCoordinator::default(),
             shutdown_owners: ShutdownOwnerLedger::default(),
             shutdown_owner_reconciler: Arc::new(ShutdownOwnerReconciler::default()),
             surface_owner_reservations: AtomicUsize::new(0),
@@ -1644,7 +1753,7 @@ impl Mux {
                 )
                 .is_err()
             {
-                surface.kill();
+                self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
                 self.mark_terminal_exited_and_materialize(
                     &terminal_id,
                     "terminal-adoption-failed",
@@ -2073,7 +2182,7 @@ impl Mux {
                             mux.reap_if_dead(&surface);
                             break;
                         }
-                        surface.kill();
+                        mux.retire_reserved_surface_runtime(surface, &mut owner_reservation);
                         let _ = mux.mark_terminal_exited_and_materialize(
                             &terminal_id,
                             "terminal-adoption-failed",
@@ -2799,6 +2908,7 @@ impl Mux {
         workspace_key: Option<&str>,
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let mut owner_reservation = self.reserve_surface_owner()?;
         let id = self.next_id();
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
@@ -2892,9 +3002,10 @@ impl Mux {
                     return Err(error);
                 }
             };
-            let identity = surface
-                .terminal_host_identity()
-                .ok_or_else(|| anyhow::anyhow!("reserved terminal did not return host identity"))?;
+            let Some(identity) = surface.terminal_host_identity() else {
+                self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
+                anyhow::bail!("reserved terminal did not return host identity");
+            };
             if identity.terminal_id != terminal_hex {
                 let _ = self.transition_terminal_lifecycle(
                     "terminal-exited",
@@ -2904,7 +3015,7 @@ impl Mux {
                     None,
                     Some(serde_json::json!({"reason":"host-identity-mismatch"})),
                 );
-                surface.kill();
+                self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
                 anyhow::bail!("terminal host changed registry-reserved identity");
             }
             {
@@ -2921,14 +3032,22 @@ impl Mux {
                 let (_, ready_revision) = match ready {
                     Ok(ready) => ready,
                     Err(error) => {
-                        surface.kill();
+                        drop(registry);
+                        self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
                         return Err(error);
                     }
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
-                if let Err(error) =
-                    insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())
-                {
+                let insertion = {
+                    let mut state = self.state.lock().unwrap();
+                    insert_reserved_surface_checked(
+                        self,
+                        &mut state,
+                        surface.clone(),
+                        &mut owner_reservation,
+                    )
+                };
+                if let Err(error) = insertion {
                     if let Ok((_, revision)) = commit_terminal_lifecycle(
                         &mut registry,
                         "terminal-exited",
@@ -2940,7 +3059,8 @@ impl Mux {
                     ) {
                         self.emit_terminal_registry_changed(&registry, revision);
                     }
-                    surface.kill();
+                    drop(registry);
+                    self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
                     return Err(error);
                 }
             }
@@ -2966,11 +3086,18 @@ impl Mux {
                 return Err(error);
             }
         };
-        if let Err(error) =
-            insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())
-        {
+        let insertion = {
+            let mut state = self.state.lock().unwrap();
+            insert_reserved_surface_checked(
+                self,
+                &mut state,
+                surface.clone(),
+                &mut owner_reservation,
+            )
+        };
+        if let Err(error) = insertion {
             self.pending_workspace_surfaces.lock().unwrap().remove(&id);
-            surface.kill();
+            self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
             return Err(error);
         }
         Ok(surface)
@@ -3000,12 +3127,19 @@ impl Mux {
         };
         #[cfg(not(test))]
         let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
-        insert_reserved_surface_checked(
-            self,
-            &mut self.state.lock().unwrap(),
-            surface.clone(),
-            &mut owner_reservation,
-        )?;
+        let insertion = {
+            let mut state = self.state.lock().unwrap();
+            insert_reserved_surface_checked(
+                self,
+                &mut state,
+                surface.clone(),
+                &mut owner_reservation,
+            )
+        };
+        if let Err(error) = insertion {
+            self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
+            return Err(error);
+        }
         Ok(surface)
     }
 
@@ -4035,9 +4169,12 @@ impl Mux {
         reason: &str,
     ) -> anyhow::Result<()> {
         let Some(identity) = surface.terminal_host_identity() else {
-            let removed = self.state.lock().unwrap().surfaces.remove(&surface.id);
-            if removed.is_some() {
-                surface.kill();
+            let removed = {
+                let mut state = self.state.lock().unwrap();
+                take_surface_for_retirement(self, &mut state, surface.id)
+            };
+            if let Some(removed) = removed {
+                self.retire_surface_runtime(removed);
             }
             return Ok(());
         };
@@ -4242,6 +4379,30 @@ impl Mux {
         self.retire_surface_runtimes([surface]);
     }
 
+    /// Transfer an uninserted runtime from its admission reservation into the
+    /// retry ledger without opening a capacity-accounting gap.
+    fn retire_reserved_surface_runtime(
+        &self,
+        surface: Arc<Surface>,
+        reservation: &mut SurfaceOwnerReservation<'_>,
+    ) {
+        let owner = {
+            let _state = self.state.lock().unwrap();
+            let owner = self.shutdown_owners.stage_surface(&surface);
+            reservation.release();
+            owner
+        };
+        let Some(owner) = owner else { return };
+        let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
+        let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else {
+            self.shutdown_owner_reconciler.schedule();
+            return;
+        };
+        if self.terminate_shutdown_owners_until(vec![owner], deadline) {
+            self.shutdown_owner_reconciler.schedule();
+        }
+    }
+
     fn retire_surface_runtimes(&self, surfaces: impl IntoIterator<Item = Arc<Surface>>) {
         let owners = surfaces
             .into_iter()
@@ -4326,10 +4487,30 @@ impl Mux {
 
     pub fn request_shutdown(&self) {
         self.shutdown_requested.store(true, Ordering::Release);
+        let watchers = {
+            let mut watchers = self.shutdown_request_watchers.lock().unwrap();
+            watchers.drain(..).filter_map(|watcher| watcher.upgrade()).collect::<Vec<_>>()
+        };
+        for watcher in watchers {
+            ShutdownRequestWatch { inner: watcher }.request();
+        }
     }
 
     pub fn shutdown_requested(&self) -> bool {
         self.shutdown_requested.load(Ordering::Acquire)
+    }
+
+    pub fn watch_shutdown_request(&self) -> ShutdownRequestWatch {
+        let inner = Arc::new(ShutdownRequestWatchInner::default());
+        let watch = ShutdownRequestWatch { inner: inner.clone() };
+        let mut watchers = self.shutdown_request_watchers.lock().unwrap();
+        watchers.retain(|watcher| watcher.strong_count() != 0);
+        if self.shutdown_requested.load(Ordering::Acquire) {
+            watch.request();
+        } else {
+            watchers.push(Arc::downgrade(&inner));
+        }
+        watch
     }
 
     pub(crate) fn shutdown_cleanup_health(&self) -> ShutdownCleanupHealth {
@@ -4531,20 +4712,8 @@ impl Mux {
     fn lock_shutdown_coordinator_until(
         &self,
         deadline: Instant,
-    ) -> anyhow::Result<MutexGuard<'_, ()>> {
-        loop {
-            match self.shutdown_coordinator.try_lock() {
-                Ok(coordinator) => return Ok(coordinator),
-                Err(TryLockError::Poisoned(_)) => {
-                    anyhow::bail!("shutdown coordinator is unavailable")
-                }
-                Err(TryLockError::WouldBlock) => {}
-            }
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                anyhow::bail!("another shutdown request exceeded the shutdown deadline");
-            };
-            std::thread::sleep(remaining.min(Duration::from_millis(10)));
-        }
+    ) -> anyhow::Result<ShutdownCoordinatorGuard<'_>> {
+        self.shutdown_coordinator.lock_until(deadline)
     }
 
     /// Atomically reserve a daemon handoff while proving no other native
@@ -5488,26 +5657,20 @@ impl Mux {
         }
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
-        let attached = {
+        let attached = (|| -> anyhow::Result<(RunPlacement, TreeDelta, bool)> {
             let mut state = self.state.lock().unwrap();
             if !state.surfaces.contains_key(&surface.id) {
                 anyhow::bail!("terminal closed while its topology binding was being created");
             }
             let Some(wi) = state.workspace_index(workspace) else {
-                state.surfaces.remove(&surface.id);
-                surface.kill();
                 anyhow::bail!("workspace disappeared while creating terminal");
             };
             let target = state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
             if let Some(target) = target {
                 let Some((_, si)) = state.screen_of(target) else {
-                    state.surfaces.remove(&surface.id);
-                    surface.kill();
                     anyhow::bail!("workspace active pane disappeared while creating terminal");
                 };
                 let Some(pane) = state.panes.get_mut(&target) else {
-                    state.surfaces.remove(&surface.id);
-                    surface.kill();
                     anyhow::bail!("workspace active pane disappeared while creating terminal");
                 };
                 pane.tabs.push(surface.id);
@@ -5522,7 +5685,7 @@ impl Mux {
                     surface.id,
                 )
                 .expect("new terminal tab is present in tree snapshot");
-                (
+                Ok((
                     RunPlacement { surface: surface.id, pane: target, screen, workspace },
                     TreeDelta {
                         kind: TreeDeltaKind::TabAdded,
@@ -5535,7 +5698,7 @@ impl Mux {
                         workspace_revision: None,
                     },
                     true,
-                )
+                ))
             } else {
                 let (pane_id, pane) = self.make_pane(surface.id);
                 let screen_id = self.next_id();
@@ -5557,7 +5720,7 @@ impl Mux {
                     screen_id,
                 )
                 .expect("first workspace screen is present in tree snapshot");
-                (
+                Ok((
                     RunPlacement {
                         surface: surface.id,
                         pane: pane_id,
@@ -5575,7 +5738,19 @@ impl Mux {
                         workspace_revision: None,
                     },
                     false,
-                )
+                ))
+            }
+        })();
+        let attached = match attached {
+            Ok(attached) => attached,
+            Err(error) => {
+                drop(pending_surface);
+                self.fail_hosted_terminal_attachment(
+                    &surface,
+                    "terminal-topology-attach-failed",
+                    "topology-attach-failed",
+                )?;
+                return Err(error);
             }
         };
         drop(pending_surface);
@@ -8315,19 +8490,24 @@ fn bounded_shutdown_fanout<T: Sync>(
     let next = AtomicUsize::new(0);
     let workers = items.len().min(SHUTDOWN_FANOUT_WORKERS);
     std::thread::scope(|scope| {
-        for _ in 0..workers {
+        for worker in 0..workers {
             let next = &next;
             let operation = &operation;
-            scope.spawn(move || {
-                loop {
-                    if Instant::now() >= deadline {
-                        break;
+            let spawned = std::thread::Builder::new()
+                .name(format!("shutdown-owner-{worker}"))
+                .spawn_scoped(scope, move || {
+                    loop {
+                        if Instant::now() >= deadline {
+                            break;
+                        }
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(item) = items.get(index) else { break };
+                        operation(item, deadline);
                     }
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(item) = items.get(index) else { break };
-                    operation(item, deadline);
-                }
-            });
+                });
+            if spawned.is_err() {
+                break;
+            }
         }
     });
     next.load(Ordering::Relaxed).min(items.len())
@@ -8430,6 +8610,11 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 impl Drop for Mux {
     fn drop(&mut self) {
         self.shutdown_owner_reconciler.stop();
+        if let Ok(watchers) = self.shutdown_request_watchers.get_mut() {
+            for watcher in watchers.drain(..).filter_map(|watcher| watcher.upgrade()) {
+                ShutdownRequestWatch { inner: watcher }.cancel();
+            }
+        }
         if let Ok(state) = self.state.get_mut() {
             for surface in state.surfaces.values() {
                 surface.disconnect_for_daemon_shutdown();
@@ -11200,9 +11385,34 @@ mod tests {
 
         assert!(close.join().unwrap());
         owned.set_server_shutdown_failure_for_test(false);
-        assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        mux.close_all_surfaces_for_shutdown().unwrap();
+        assert!(mux.shutdown_owners.is_empty());
         let error = shutdown.expect_err("server shutdown passed an untracked retirement owner");
         assert!(error.to_string().contains("could not terminate 1 surface process"));
+    }
+
+    #[test]
+    fn shutdown_request_watch_is_signaled_and_cancellable() {
+        let mux = test_mux();
+        let watch = mux.watch_shutdown_request();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let waiter = std::thread::spawn(move || result_tx.send(watch.wait()).unwrap());
+        assert!(result_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        mux.request_shutdown();
+
+        assert!(result_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        waiter.join().unwrap();
+        assert!(mux.watch_shutdown_request().wait());
+
+        let fresh = test_mux();
+        let watch = fresh.watch_shutdown_request();
+        let cancel = watch.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let waiter = std::thread::spawn(move || result_tx.send(watch.wait()).unwrap());
+        cancel.cancel();
+        assert!(!result_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        waiter.join().unwrap();
     }
 
     #[test]

@@ -337,6 +337,8 @@ impl HostedFrameStager {
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
 const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
+#[cfg(unix)]
+const NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 pub(crate) const VT_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 pub struct AttachFrameReceiver {
@@ -822,7 +824,14 @@ impl LocalPtyProcess {
                         let termination_started =
                             process.termination_started.load(Ordering::Acquire);
                         let pty_drained = process.pty_drained.load(Ordering::Acquire);
-                        if escalation_complete || (!termination_started && pty_drained) {
+                        let normal_cleanup_complete = !escalation_complete
+                            && !termination_started
+                            && pty_drained
+                            && process.kill_session_descendants_before_reap(
+                                Instant::now() + NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
+                            );
+                        if escalation_complete || normal_cleanup_complete {
+                            process.group_escalation_complete.store(true, Ordering::Release);
                             let _ = child.wait();
                             process.child_reaped.store(true, Ordering::Release);
                             drop(signal);
@@ -830,15 +839,28 @@ impl LocalPtyProcess {
                         }
                         drop(signal);
                         let state = process.exited.0.lock().unwrap();
-                        let _state = process
-                            .exited
-                            .1
-                            .wait_while(state, |_| {
-                                !process.group_escalation_complete.load(Ordering::Acquire)
-                                    && (process.termination_started.load(Ordering::Acquire)
-                                        || !process.pty_drained.load(Ordering::Acquire))
-                            })
-                            .unwrap();
+                        let _state = if !termination_started && pty_drained {
+                            process
+                                .exited
+                                .1
+                                .wait_while(state, |_| {
+                                    !process.termination_started.load(Ordering::Acquire)
+                                        && !process
+                                            .group_escalation_complete
+                                            .load(Ordering::Acquire)
+                                })
+                                .unwrap()
+                        } else {
+                            process
+                                .exited
+                                .1
+                                .wait_while(state, |_| {
+                                    !process.group_escalation_complete.load(Ordering::Acquire)
+                                        && (process.termination_started.load(Ordering::Acquire)
+                                            || !process.pty_drained.load(Ordering::Acquire))
+                                })
+                                .unwrap()
+                        };
                     }
                 } else {
                     let _ = child.wait();
@@ -912,12 +934,18 @@ impl LocalPtyProcess {
         snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
     ) -> std::io::Result<()> {
         let _signal = self.child_signal_lock.lock().unwrap();
-        if self.child_reaped.load(Ordering::Acquire) {
-            return Ok(());
-        }
         let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return Err(std::io::Error::other("PTY child has no process id"));
         };
+        if self.child_reaped.load(Ordering::Acquire) {
+            return match crate::process_session::session_is_empty_until(session, deadline) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(std::io::Error::other(
+                    "PTY session still has members after its leader was reaped",
+                )),
+                Err(error) => Err(error),
+            };
+        }
         match snapshot {
             Some(snapshot) => {
                 crate::process_session::signal_from_snapshot(snapshot, session, signal)
@@ -933,12 +961,12 @@ impl LocalPtyProcess {
         snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
     ) -> std::io::Result<bool> {
         let _signal = self.child_signal_lock.lock().unwrap();
-        if self.child_reaped.load(Ordering::Acquire) {
-            return Ok(true);
-        }
         let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return Err(std::io::Error::other("PTY child has no process id"));
         };
+        if self.child_reaped.load(Ordering::Acquire) {
+            return crate::process_session::session_is_empty_until(leader, deadline);
+        }
         match snapshot {
             Some(snapshot) => crate::process_session::kill_until_only_leader_from_snapshot(
                 snapshot,
@@ -953,6 +981,19 @@ impl LocalPtyProcess {
                 })
             }
         }
+    }
+
+    #[cfg(unix)]
+    fn kill_session_descendants_before_reap(&self, deadline: Instant) -> bool {
+        let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+            return false;
+        };
+        matches!(
+            crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
+                self.child_waitable.load(Ordering::Acquire)
+            }),
+            Ok(true)
+        )
     }
 
     fn terminate_and_wait(&self, deadline: Instant) -> bool {
@@ -975,12 +1016,20 @@ impl LocalPtyProcess {
     ) -> bool {
         #[cfg(unix)]
         {
-            {
+            let child_reaped = {
                 let _signal = self.child_signal_lock.lock().unwrap();
-                if self.child_reaped.load(Ordering::Acquire) {
-                    return true;
-                }
                 self.termination_started.store(true, Ordering::Release);
+                self.child_reaped.load(Ordering::Acquire)
+            };
+            self.exited.1.notify_all();
+            if child_reaped {
+                let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                    return false;
+                };
+                return matches!(
+                    crate::process_session::session_is_empty_until(session, deadline),
+                    Ok(true)
+                );
             }
             if self.signal_terminal_process_session(libc::SIGHUP, deadline, snapshot).is_err() {
                 return false;

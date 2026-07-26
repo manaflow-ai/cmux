@@ -60,7 +60,6 @@ static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
 const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
-const SERVER_SHUTDOWN_WATCH_POLL: std::time::Duration = std::time::Duration::from_millis(25);
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -944,28 +943,21 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 
 struct ServerProcessShutdownGuard {
     socket_path: PathBuf,
+    shutdown_watch: cmux_tui_core::ShutdownRequestWatch,
     completion: Option<std::sync::mpsc::Sender<()>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl ServerProcessShutdownGuard {
     fn start(mux: &Arc<Mux>, socket_path: PathBuf) -> io::Result<Self> {
-        let weak_mux = Arc::downgrade(mux);
+        let shutdown_watch = mux.watch_shutdown_request();
+        let worker_watch = shutdown_watch.clone();
         let worker_socket_path = socket_path.clone();
         let (completion, completed) = std::sync::mpsc::channel();
         let worker = std::thread::Builder::new().name("cmux-server-exit-watchdog".into()).spawn(
             move || {
-                loop {
-                    match completed.recv_timeout(SERVER_SHUTDOWN_WATCH_POLL) {
-                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    }
-                    let Some(mux) = weak_mux.upgrade() else {
-                        return;
-                    };
-                    if mux.shutdown_requested() {
-                        break;
-                    }
+                if !worker_watch.wait() {
+                    return;
                 }
 
                 if matches!(
@@ -982,7 +974,7 @@ impl ServerProcessShutdownGuard {
                 }
             },
         )?;
-        Ok(Self { socket_path, completion: Some(completion), worker: Some(worker) })
+        Ok(Self { socket_path, shutdown_watch, completion: Some(completion), worker: Some(worker) })
     }
 
     fn complete(mut self) {
@@ -994,6 +986,7 @@ impl ServerProcessShutdownGuard {
         if let Some(completion) = self.completion.take() {
             let _ = completion.send(());
         }
+        self.shutdown_watch.cancel();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }

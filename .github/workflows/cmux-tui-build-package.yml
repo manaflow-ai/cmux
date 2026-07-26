@@ -296,6 +296,7 @@ jobs:
       - name: Build PyPI wheels
         if: inputs.package_pypi
         run: |
+          python3 cmux-tui/dist/scripts/test_package_pypi.py
           python3 cmux-tui/dist/scripts/package_pypi.py \
             --binaries-dir dist/binaries \
             --version "$PYPI_VERSION" \

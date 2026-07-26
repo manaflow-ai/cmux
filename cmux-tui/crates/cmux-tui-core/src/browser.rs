@@ -554,14 +554,6 @@ impl BrowserRuntime {
         deadline: Instant,
     ) -> bool {
         self.unregister(target_id, session_id);
-        if self.source == BrowserSource::Launched {
-            if !self.is_closed() {
-                let _ = self.client.close_target_detached(target_id);
-            }
-            // The shared runtime confirms the owned browser process itself
-            // exited before shutdown can succeed.
-            return true;
-        }
         if !self.is_closed() {
             match Self::close_external_target_until(&self.client, target_id, deadline) {
                 ExternalTargetShutdown::Closed => return true,

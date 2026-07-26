@@ -378,6 +378,7 @@ impl ServerLifecycle {
         let mut next_request_id = LEGACY_LIST_REQUEST_ID;
         let mut consecutive_empty_scans = 0;
         let mut owners = Vec::<CapturedProcessSession>::new();
+        let mut owner_ids = HashSet::<libc::pid_t>::new();
         for _ in 0..LEGACY_MAX_SCAN_ROUNDS {
             ensure_legacy_helper_active()?;
             if Instant::now() >= deadline {
@@ -387,6 +388,7 @@ impl ServerLifecycle {
                 &mut next_request_id,
                 expected,
                 &mut owners,
+                &mut owner_ids,
                 deadline,
             ) {
                 Ok(closed) => closed,
@@ -436,6 +438,7 @@ impl ServerLifecycle {
         next_request_id: &mut u64,
         expected: ProcessIdentity,
         owners: &mut Vec<CapturedProcessSession>,
+        owner_ids: &mut HashSet<libc::pid_t>,
         deadline: Instant,
     ) -> anyhow::Result<usize> {
         let list_request_id = take_legacy_request_id(next_request_id)?;
@@ -488,7 +491,7 @@ impl ServerLifecycle {
                     .ok_or_else(|| {
                         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
                     })?;
-                if !owners.iter().any(|captured| captured.id() == owner.id()) {
+                if owner_ids.insert(owner.id()) {
                     owners.push(owner);
                 }
             }
