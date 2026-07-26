@@ -69,6 +69,9 @@ extension CMUXCLI {
                 homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
             ).resolve()
             let loader = ClaudeTaskSnapshotLoader(tasksRootURL: tasksRootURL)
+            // The cross-process lock intentionally spans both the authoritative
+            // read and both socket deliveries. A later hook cannot publish before
+            // an earlier hook finishes, then each hook reads the latest files.
             try withClaudeTaskSnapshotLock(loader: loader) {
                 let todos = try loader.load(sessionID: sessionID)
                 let feedSnapshot: [String: Any] = [
