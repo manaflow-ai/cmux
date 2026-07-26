@@ -32,6 +32,20 @@ const SHUTDOWN_RESPONSE_TIMEOUT: Duration =
 
 type TransportReader = BufReader<Box<dyn transport::Stream>>;
 
+#[cfg(unix)]
+#[derive(Debug)]
+struct LegacyConnectionInterrupted;
+
+#[cfg(unix)]
+impl std::fmt::Display for LegacyConnectionInterrupted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("legacy server control connection was interrupted")
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for LegacyConnectionInterrupted {}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReleaseMismatch {
     DistributionVersion,
@@ -229,11 +243,22 @@ impl ServerLifecycle {
     }
 
     #[cfg(unix)]
-    fn close_legacy_surfaces_until_stable(&mut self) -> anyhow::Result<()> {
+    fn close_legacy_surfaces_until_stable(
+        &mut self,
+        expected: ProcessIdentity,
+    ) -> anyhow::Result<()> {
         let mut next_request_id = LEGACY_LIST_REQUEST_ID;
         let mut consecutive_empty_scans = 0;
         for _ in 0..LEGACY_MAX_SCAN_ROUNDS {
-            let closed = self.close_legacy_surface_snapshot(&mut next_request_id)?;
+            let closed = match self.close_legacy_surface_snapshot(&mut next_request_id) {
+                Ok(closed) => closed,
+                Err(error) if error.downcast_ref::<LegacyConnectionInterrupted>().is_some() => {
+                    self.reconnect_legacy_server(expected)?;
+                    consecutive_empty_scans = 0;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             if closed == 0 {
                 consecutive_empty_scans += 1;
                 if consecutive_empty_scans == LEGACY_STABLE_EMPTY_SCANS {
@@ -247,6 +272,23 @@ impl ServerLifecycle {
     }
 
     #[cfg(unix)]
+    fn reconnect_legacy_server(&mut self, expected: ProcessIdentity) -> anyhow::Result<()> {
+        let replacement = Self::connect(self.path.clone()).map_err(|_| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })?;
+        if replacement.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
+            anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
+        }
+        let actual =
+            verified_legacy_process(replacement.probe.identity.pid, replacement.peer_process_id)?;
+        if actual != expected {
+            anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
+        }
+        *self = replacement;
+        Ok(())
+    }
+
+    #[cfg(unix)]
     fn close_legacy_surface_snapshot(
         &mut self,
         next_request_id: &mut u64,
@@ -256,8 +298,9 @@ impl ServerLifecycle {
             self.reader.get_mut(),
             &json!({"id": list_request_id, "cmd": "list-workspaces"}),
         )
-        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-        let response = read_response(&mut self.reader, list_request_id)?;
+        .map_err(|_| LegacyConnectionInterrupted)?;
+        let response = read_response(&mut self.reader, list_request_id)
+            .map_err(|_| LegacyConnectionInterrupted)?;
         let data = response_data(&response)?;
         let mut surfaces = legacy_surface_ids(data);
         surfaces.sort_unstable();
@@ -269,8 +312,9 @@ impl ServerLifecycle {
                 self.reader.get_mut(),
                 &json!({"id": request_id, "cmd": "close-surface", "surface": surface}),
             )
-            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-            let _response = read_response(&mut self.reader, request_id)?;
+            .map_err(|_| LegacyConnectionInterrupted)?;
+            let _response = read_response(&mut self.reader, request_id)
+                .map_err(|_| LegacyConnectionInterrupted)?;
             // Older servers can commit topology removal, then report a late
             // runtime-cleanup error. Reconcile every close response against
             // subsequent authoritative workspace snapshots. A genuinely
@@ -345,7 +389,7 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
         anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
     }
 
-    lifecycle.close_legacy_surfaces_until_stable().map_err(|_| {
+    lifecycle.close_legacy_surfaces_until_stable(actual).map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
     terminate_legacy_process_tree(actual)?;
