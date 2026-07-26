@@ -687,6 +687,32 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    inner()\n"
                     "outer()\n"
                 ),
+                "call-before-module-rebind.py": (
+                    "import time\n"
+                    "def check():\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "check()\n"
+                    "time = fake_clock\n"
+                ),
+                "nested-call-before-rebind.py": (
+                    "def outer():\n"
+                    "    import time as clock\n"
+                    "    def inner():\n"
+                    "        clock.sleep(0.01)\n"
+                    "        assert finished\n"
+                    "    inner()\n"
+                    "    clock = fake_clock\n"
+                    "outer()\n"
+                ),
+                "shadow-then-trusted-import.py": (
+                    "clock = fake_clock\n"
+                    "def check():\n"
+                    "    clock.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "import time as clock\n"
+                    "check()\n"
+                ),
             }
         )
 
@@ -709,6 +735,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "deferred-trusted-alias.py",
             "deferred-later-trusted-alias.py",
             "nested-trusted-closure.py",
+            "call-before-module-rebind.py",
+            "nested-call-before-rebind.py",
+            "shadow-then-trusted-import.py",
         ):
             line = (
                 4
@@ -716,6 +745,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 in (
                     "parenthesized-from-time.py",
                     "nested-trusted-closure.py",
+                    "nested-call-before-rebind.py",
+                )
+                else 3
+                if relative_path
+                in (
+                    "call-before-module-rebind.py",
+                    "shadow-then-trusted-import.py",
                 )
                 else 3
                 if relative_path == "deferred-trusted-alias.py"
