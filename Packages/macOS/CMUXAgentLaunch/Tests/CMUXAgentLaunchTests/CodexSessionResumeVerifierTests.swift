@@ -60,6 +60,52 @@ struct CodexSessionResumeVerifierTests {
         ) == nil)
     }
 
+    @Test func indexedExecThreadWithNestedSourceIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f9c52-a430-72e1-b6e9-e563bc74b434"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            nestedExecSource: true
+        )
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "user"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
+    @Test func indexedExecThreadWithLargeMetadataLineIsNotResumable() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f9c52-c523-77c2-a3cb-31d165897f31"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            source: "exec",
+            originator: "codex_exec",
+            metadataPaddingBytes: 300 * 1_024
+        )
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "user"
+        )
+
+        #expect(CodexSessionResumeVerifier().evidence(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+    }
+
     @Test func verifierSeesThreadInsertedAfterEarlierMiss() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -224,7 +270,9 @@ struct CodexSessionResumeVerifierTests {
             sessionId: String,
             parentSessionId: String? = nil,
             source: String? = nil,
-            originator: String? = nil
+            originator: String? = nil,
+            nestedExecSource: Bool = false,
+            metadataPaddingBytes: Int = 0
         ) throws -> URL {
             let rollout = root.appendingPathComponent("rollout-2026-07-16T19-29-41-\(sessionId).jsonl")
             var payload: [String: Any] = ["id": sessionId]
@@ -242,9 +290,18 @@ struct CodexSessionResumeVerifierTests {
                 ]
             } else if let source {
                 payload["source"] = source
+            } else if nestedExecSource {
+                payload["source"] = [
+                    "exec": [
+                        "command": "review",
+                    ],
+                ]
             }
             if let originator {
                 payload["originator"] = originator
+            }
+            if metadataPaddingBytes > 0 {
+                payload["aaa_padding"] = String(repeating: "x", count: metadataPaddingBytes)
             }
             let metadata: [String: Any] = [
                 "type": "session_meta",

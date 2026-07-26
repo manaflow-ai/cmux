@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import SQLite3
 import Testing
 
 #if canImport(cmux_DEV)
@@ -40,6 +41,94 @@ import Testing
 
         #expect(inputs.binding == nil)
         #expect(inputs.restorableAgent?.sessionId == verifiedAgent.sessionId)
+    }
+
+    @Test func legacyKindlessUnindexedCodexBindingIsRejected() throws {
+        let fixture = try CodexRestoreFixture()
+        defer { fixture.remove() }
+        let sessionId = "019f9c54-6ff2-7332-9afe-2f5a61c4e32d"
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume \(sessionId)",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            environment: ["CODEX_HOME": fixture.codexHome.path],
+            autoResume: true
+        )
+
+        let inputs = Workspace.sessionRestoreInputsForTesting(
+            binding: binding,
+            restorableAgent: nil
+        )
+
+        #expect(inputs.binding == nil)
+        #expect(inputs.restorableAgent == nil)
+    }
+
+    @Test func legacyKindlessIndexedCodexBindingMigratesKind() throws {
+        let fixture = try CodexRestoreFixture()
+        defer { fixture.remove() }
+        let sessionId = "019f9c54-8b82-72f1-839b-5022912965f0"
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            threadSource: "user"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume \(sessionId)",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            environment: ["CODEX_HOME": fixture.codexHome.path],
+            autoResume: true
+        )
+
+        let inputs = Workspace.sessionRestoreInputsForTesting(
+            binding: binding,
+            restorableAgent: nil
+        )
+
+        #expect(inputs.binding?.kind == "codex")
+        #expect(inputs.binding?.checkpointId == sessionId)
+    }
+
+    @Test func indexedCodexSubagentBindingRetargetsToUserOwnedParent() throws {
+        let fixture = try CodexRestoreFixture()
+        defer { fixture.remove() }
+        let parentSessionId = "019f9c54-aa01-7250-8175-ec73f3103d19"
+        let childSessionId = "019f9c54-b54a-7202-be60-028a3b715b74"
+        let parentRollout = try fixture.writeRollout(sessionId: parentSessionId)
+        let childRollout = try fixture.writeRollout(
+            sessionId: childSessionId,
+            parentSessionId: parentSessionId
+        )
+        try fixture.insertThread(
+            sessionId: parentSessionId,
+            rolloutPath: parentRollout.path,
+            threadSource: "user"
+        )
+        try fixture.insertThread(
+            sessionId: childSessionId,
+            rolloutPath: childRollout.path,
+            threadSource: "subagent"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(childSessionId) --yolo",
+            checkpointId: childSessionId,
+            source: "agent-hook",
+            environment: ["CODEX_HOME": fixture.codexHome.path],
+            autoResume: true
+        )
+
+        let inputs = Workspace.sessionRestoreInputsForTesting(
+            binding: binding,
+            restorableAgent: nil
+        )
+
+        #expect(inputs.binding?.kind == "codex")
+        #expect(inputs.binding?.checkpointId == parentSessionId)
+        #expect(inputs.binding?.command.contains(parentSessionId) == true)
+        #expect(inputs.binding?.command.contains(childSessionId) == false)
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
@@ -677,6 +766,99 @@ import Testing
             atomically: true,
             encoding: .utf8
         )
+    }
+
+    private final class CodexRestoreFixture {
+        let root: URL
+        let codexHome: URL
+        private let database: OpaquePointer
+
+        init() throws {
+            root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-codex-restore-\(UUID().uuidString)", isDirectory: true)
+            codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+            try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+            var opened: OpaquePointer?
+            let databasePath = codexHome.appendingPathComponent("state_5.sqlite").path
+            guard sqlite3_open(databasePath, &opened) == SQLITE_OK, let opened else {
+                throw CodexRestoreFixtureError.database
+            }
+            database = opened
+            guard sqlite3_exec(
+                database,
+                """
+                CREATE TABLE threads (
+                    id TEXT PRIMARY KEY,
+                    rollout_path TEXT NOT NULL,
+                    thread_source TEXT
+                )
+                """,
+                nil,
+                nil,
+                nil
+            ) == SQLITE_OK else {
+                throw CodexRestoreFixtureError.database
+            }
+        }
+
+        deinit {
+            sqlite3_close(database)
+        }
+
+        func remove() {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        func writeRollout(sessionId: String, parentSessionId: String? = nil) throws -> URL {
+            let rollout = root.appendingPathComponent("rollout-\(sessionId).jsonl", isDirectory: false)
+            var payload: [String: Any] = ["id": sessionId]
+            if let parentSessionId {
+                payload["parent_thread_id"] = parentSessionId
+                payload["source"] = [
+                    "subagent": [
+                        "thread_spawn": [
+                            "parent_thread_id": parentSessionId,
+                        ],
+                    ],
+                ]
+            }
+            let metadata: [String: Any] = [
+                "type": "session_meta",
+                "payload": payload,
+            ]
+            try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+                .write(to: rollout, options: .atomic)
+            return rollout
+        }
+
+        func insertThread(
+            sessionId: String,
+            rolloutPath: String,
+            threadSource: String
+        ) throws {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                database,
+                "INSERT INTO threads (id, rollout_path, thread_source) VALUES (?, ?, ?)",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK, let statement else {
+                throw CodexRestoreFixtureError.database
+            }
+            defer { sqlite3_finalize(statement) }
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+            sqlite3_bind_text(statement, 1, sessionId, -1, transient)
+            sqlite3_bind_text(statement, 2, rolloutPath, -1, transient)
+            sqlite3_bind_text(statement, 3, threadSource, -1, transient)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw CodexRestoreFixtureError.database
+            }
+        }
+    }
+
+    private enum CodexRestoreFixtureError: Error {
+        case database
     }
 
     private static func homeManagedExecutablePath(executableName: String, _ components: String...) -> String {
