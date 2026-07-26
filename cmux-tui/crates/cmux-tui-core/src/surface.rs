@@ -3356,6 +3356,67 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn persistent_natural_cleanup_uses_one_shared_reaper() {
+        const CHILDREN: usize = 8;
+
+        let root = std::env::temp_dir()
+            .join(format!("cmux-local-reap-bound-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let release_path = root.join("release");
+        let mux = Mux::new_for_test("local-reap-bound", SurfaceOptions::default());
+        let baseline = crate::process_session::dedicated_natural_reap_workers_for_test();
+        let mut surfaces = Vec::new();
+        let mut processes = Vec::new();
+        for index in 0..CHILDREN {
+            let options = SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!("while [ ! -e {} ]; do sleep 0.01; done", release_path.display()),
+                ]),
+                ..SurfaceOptions::default()
+            };
+            let surface = Surface::spawn(
+                SurfaceId::try_from(index + 1).unwrap(),
+                options,
+                Arc::downgrade(&mux),
+            )
+            .unwrap();
+            let process =
+                match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
+                    LocalProcess::Owned(process) => process.clone(),
+                    LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+                };
+            process.normal_cleanup_failures.store(usize::MAX, Ordering::Release);
+            surfaces.push(surface);
+            processes.push(process);
+        }
+        std::fs::write(&release_path, b"ready").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while crate::process_session::dedicated_natural_reap_workers_for_test()
+            < baseline + CHILDREN
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let dedicated = crate::process_session::dedicated_natural_reap_workers_for_test()
+            .saturating_sub(baseline);
+
+        for process in &processes {
+            let _ = process.terminate_and_wait(Instant::now() + Duration::from_secs(2));
+        }
+        drop(surfaces);
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(
+            dedicated <= 1,
+            "persistent natural cleanup retained {dedicated} dedicated retry workers"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn explicit_shutdown_deadline_does_not_wait_for_natural_cleanup_sweep() {
         let root = std::env::temp_dir()
             .join(format!("cmux-local-reap-lock-{}", crate::workspace_registry::new_uuid_v4()));

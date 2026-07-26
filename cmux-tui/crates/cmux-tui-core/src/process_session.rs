@@ -9,6 +9,8 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 #[cfg(target_os = "macos")]
 use std::mem::size_of;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -16,6 +18,43 @@ use std::time::{Duration, Instant};
 const SESSION_KILL_POLL: Duration = Duration::from_millis(5);
 const NATURAL_REAP_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const NATURAL_REAP_RETRY_MAX: Duration = Duration::from_secs(1);
+
+#[cfg(test)]
+static DEDICATED_NATURAL_REAP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+thread_local! {
+    static FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+struct DedicatedNaturalReapWorker;
+
+#[cfg(test)]
+impl DedicatedNaturalReapWorker {
+    fn enter() -> Self {
+        DEDICATED_NATURAL_REAP_WORKERS.fetch_add(1, Ordering::AcqRel);
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for DedicatedNaturalReapWorker {
+    fn drop(&mut self) {
+        DEDICATED_NATURAL_REAP_WORKERS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn dedicated_natural_reap_workers_for_test() -> usize {
+    DEDICATED_NATURAL_REAP_WORKERS.load(Ordering::Acquire)
+}
+
+#[cfg(test)]
+pub(crate) fn set_process_session_preflight_failure_for_test(enabled: bool) {
+    FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.set(enabled);
+}
 
 /// Synchronization shared by a WNOWAIT child observer and explicit PTY
 /// shutdown. The session leader remains reserved until this state machine
@@ -38,6 +77,8 @@ pub(crate) fn reap_reserved_session_leader(
     mut cleanup: impl FnMut(Instant) -> bool,
     reap: impl FnOnce(),
 ) {
+    #[cfg(test)]
+    let _dedicated_worker = DedicatedNaturalReapWorker::enter();
     let mut reap = Some(reap);
     let mut retry_delay = NATURAL_REAP_RETRY_INITIAL;
     loop {
@@ -108,7 +149,7 @@ pub(crate) struct SessionProcessSnapshot {
     state: Mutex<SessionProcessSnapshotState>,
     refreshed: Condvar,
     #[cfg(test)]
-    scan_count: std::sync::atomic::AtomicUsize,
+    scan_count: AtomicUsize,
 }
 
 struct SessionProcessSnapshotState {
@@ -156,7 +197,7 @@ impl SessionProcessSnapshot {
             }),
             refreshed: Condvar::new(),
             #[cfg(test)]
-            scan_count: std::sync::atomic::AtomicUsize::new(usize::from(has_sessions)),
+            scan_count: AtomicUsize::new(usize::from(has_sessions)),
         })
     }
 
@@ -649,6 +690,13 @@ impl StableProcessHandle {
 
 /// Verify that this runtime can signal exact process instances before any PTY is spawned.
 pub fn require_stable_process_signaling() -> io::Result<()> {
+    #[cfg(test)]
+    if FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.get() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "forced process-session preflight failure",
+        ));
+    }
     let pid = libc::pid_t::try_from(std::process::id())
         .map_err(|_| io::Error::new(io::ErrorKind::Unsupported, "invalid process id"))?;
     let process = StableProcessHandle::capture(pid)?.ok_or_else(|| {
@@ -987,6 +1035,22 @@ mod tests {
             CHILD_ENV,
             "process_session::tests::missing_exact_signal_support_fails_the_runtime_preflight",
             &[libc::SYS_pidfd_open, libc::SYS_pidfd_send_signal],
+        ) {
+            return;
+        }
+
+        let error = require_stable_process_signaling().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn missing_process_enumeration_fails_the_runtime_preflight() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PROCESS_ENUMERATION";
+        if !enter_syscall_blocked_subprocess(
+            CHILD_ENV,
+            "process_session::tests::missing_process_enumeration_fails_the_runtime_preflight",
+            &[libc::SYS_getdents64],
         ) {
             return;
         }

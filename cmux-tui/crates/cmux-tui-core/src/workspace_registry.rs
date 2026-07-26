@@ -7,6 +7,8 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Context;
 use fs4::FileExt;
@@ -175,6 +177,8 @@ pub struct WorkspaceRegistry {
     generation: String,
     session_name: String,
     _lease: Option<SessionLease>,
+    #[cfg(test)]
+    terminal_snapshot_count: AtomicUsize,
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {
@@ -295,7 +299,15 @@ impl WorkspaceRegistry {
         if quick_check != "ok" {
             anyhow::bail!("workspace registry integrity check failed: {quick_check}");
         }
-        Ok(Self { connection, registry_id, generation: new_uuid_v4(), session_name, _lease: lease })
+        Ok(Self {
+            connection,
+            registry_id,
+            generation: new_uuid_v4(),
+            session_name,
+            _lease: lease,
+            #[cfg(test)]
+            terminal_snapshot_count: AtomicUsize::new(0),
+        })
     }
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
@@ -348,6 +360,8 @@ impl WorkspaceRegistry {
     /// Returns the canonical, non-tombstoned terminal placement projection.
     /// Runtime surface ids and renderer process ids are intentionally absent.
     pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
+        #[cfg(test)]
+        self.terminal_snapshot_count.fetch_add(1, Ordering::Relaxed);
         let revision = current_terminal_revision(&self.connection)?;
         let mut statement = self.connection.prepare(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
@@ -374,6 +388,16 @@ impl WorkspaceRegistry {
             revision,
             terminals,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reset_terminal_snapshot_count_for_test(&self) {
+        self.terminal_snapshot_count.store(0, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_snapshot_count_for_test(&self) -> usize {
+        self.terminal_snapshot_count.load(Ordering::Relaxed)
     }
 
     /// Includes tombstones and is intended for reconciliation and idempotent

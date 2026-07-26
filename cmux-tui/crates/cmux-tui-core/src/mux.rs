@@ -1393,6 +1393,8 @@ pub struct Mux {
     #[cfg(test)]
     browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    browser_runtime_connect: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     shutdown_owner_capacity: AtomicUsize,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
@@ -1639,6 +1641,8 @@ impl Mux {
             terminal_adoption_workers_started: AtomicUsize::new(0),
             #[cfg(test)]
             browser_bootstrap_before_runtime: Mutex::new(None),
+            #[cfg(test)]
+            browser_runtime_connect: Mutex::new(None),
             #[cfg(test)]
             shutdown_owner_capacity: AtomicUsize::new(usize::MAX),
             browser_runtime: Mutex::new(None),
@@ -4171,6 +4175,10 @@ impl Mux {
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
         let mut runtime = self.browser_runtime.lock().unwrap();
+        #[cfg(test)]
+        if let Some(hook) = self.browser_runtime_connect.lock().unwrap().clone() {
+            hook();
+        }
         if self.is_shutting_down() {
             anyhow::bail!("server is shutting down");
         }
@@ -11623,6 +11631,102 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn terminal_adoption_overflow_refills_at_a_low_water_mark() {
+        let mux = Mux::new_for_test("adoption-low-water", SurfaceOptions::default());
+        {
+            let mut tracked = mux.terminal_adoptions.lock().unwrap();
+            tracked
+                .extend((0..TERMINAL_ADOPTION_QUEUE_CAPACITY).map(|index| format!("{index:032x}")));
+        }
+        {
+            let mut state = mux.terminal_adoption_coordinator.state.lock().unwrap();
+            state.rescan_required = true;
+            state.next_rescan = Some(Instant::now());
+        }
+        mux.ensure_terminal_adoption_workers().unwrap();
+
+        mux.terminal_adoptions.lock().unwrap().remove(&format!("{:032x}", 0));
+        mux.terminal_adoption_coordinator.wake.notify_all();
+        std::thread::sleep(Duration::from_millis(200));
+        let retained_after_one_slot =
+            mux.terminal_adoption_coordinator.state.lock().unwrap().rescan_required;
+
+        {
+            let mut tracked = mux.terminal_adoptions.lock().unwrap();
+            while tracked.len() > TERMINAL_ADOPTION_QUEUE_CAPACITY / 2 {
+                let terminal_id = tracked.iter().next().unwrap().clone();
+                tracked.remove(&terminal_id);
+            }
+        }
+        mux.terminal_adoption_coordinator.wake.notify_all();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            if !mux.terminal_adoption_coordinator.state.lock().unwrap().rescan_required
+                || Instant::now() >= deadline
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let refilled = !mux.terminal_adoption_coordinator.state.lock().unwrap().rescan_required;
+        mux.request_terminal_adoption_stop();
+        assert!(
+            mux.wait_for_terminal_adoption_workers_until(Instant::now() + Duration::from_secs(2))
+        );
+
+        assert!(
+            retained_after_one_slot,
+            "adoption overflow triggered a full rescan after one queue slot opened"
+        );
+        assert!(refilled, "adoption overflow did not refill after reaching its low-water mark");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_adoption_rescan_uses_one_registry_snapshot() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let root = std::env::temp_dir()
+            .join(format!("cmux-adoption-snapshot-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let uid = std::fs::metadata(&root).unwrap().uid();
+        for _ in 0..3 {
+            let terminal_id = TerminalId::random().unwrap().to_hex();
+            let record = crate::terminal_host_runtime::TerminalHostRecord {
+                record_version: 1,
+                terminal_id: terminal_id.clone(),
+                incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+                endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+                owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+                host_pid: 0,
+                host_start_nonce: String::new(),
+                workspace_key: String::new(),
+                supports_set_defaults: false,
+                supports_terminate_only: false,
+            };
+            let path = root.join(format!("{terminal_id}.json"));
+            std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+            let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+            permissions.set_mode(0o600);
+            std::fs::set_permissions(path, permissions).unwrap();
+        }
+        let mux = Mux::new_for_test("adoption-snapshot", SurfaceOptions::default());
+        mux.update_surface_options(|options| options.terminal_host_root = Some(root.clone()));
+        mux.shutting_down.store(true, Ordering::Release);
+        mux.workspace_registry.lock().unwrap().reset_terminal_snapshot_count_for_test();
+
+        assert!(mux.rescan_terminal_adoptions());
+        let snapshots = mux.workspace_registry.lock().unwrap().terminal_snapshot_count_for_test();
+        let _ = std::fs::remove_dir_all(root);
+
+        assert_eq!(
+            snapshots, 1,
+            "one adoption rescan queried the full terminal registry {snapshots} times"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn blocked_terminal_adoption_does_not_stall_an_unrelated_terminal() {
         let options = SurfaceOptions::default();
         let mux = Mux::new_for_test("adoption-parallel-progress", options.clone());
@@ -12205,6 +12309,23 @@ mod tests {
         assert!(topology_retained);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn server_shutdown_preflights_process_control_before_removing_topology() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        crate::process_session::set_process_session_preflight_failure_for_test(true);
+
+        let result = mux.close_all_surfaces_for_shutdown();
+
+        crate::process_session::set_process_session_preflight_failure_for_test(false);
+        assert!(result.is_err(), "server shutdown ignored an unavailable process-control runtime");
+        assert!(
+            mux.surface(surface.id).is_some(),
+            "server shutdown removed topology before process-control preflight"
+        );
+    }
+
     #[test]
     fn server_shutdown_waits_for_async_browser_bootstrap() {
         let mux = test_mux();
@@ -12233,6 +12354,47 @@ mod tests {
         assert_eq!(shutdown_done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 1);
         shutdown.join().unwrap();
         assert!(mux.browser_runtime.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn browser_runtime_connection_does_not_hold_the_shared_slot() {
+        let mux = Mux::new_for_test(
+            "browser-runtime-slot",
+            SurfaceOptions {
+                cdp_url: Some("ws://127.0.0.1:9/devtools/browser/unreachable".into()),
+                ..SurfaceOptions::default()
+            },
+        );
+        let (connect_started_tx, connect_started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_connect_tx, release_connect_rx) = std::sync::mpsc::sync_channel(1);
+        let release_connect_rx = Arc::new(Mutex::new(release_connect_rx));
+        *mux.browser_runtime_connect.lock().unwrap() = Some(Arc::new({
+            move || {
+                connect_started_tx.send(()).unwrap();
+                release_connect_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+        mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
+        connect_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let slot_available = mux.browser_runtime.try_lock().is_ok();
+        release_connect_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            if mux.async_surface_creations.inner.state.lock().unwrap().active == 0
+                || Instant::now() >= deadline
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        mux.request_daemon_shutdown();
+        mux.shutdown();
+
+        assert!(
+            slot_available,
+            "browser connection setup held the shared runtime slot across blocking work"
+        );
     }
 
     #[test]
