@@ -85,10 +85,11 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) throws -> SimulatorCameraAuthorizationRecord? {
-        _ = try migrateLegacyRecordIfPossible(
+        let hasLiveLegacyOwner = try migrateLegacyRecordIfPossible(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
+        guard !hasLiveLegacyOwner else { return nil }
         let url = try fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -113,7 +114,8 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
     ) {
         let directory = try requiredDirectory()
         let fileManager = FileManager()
-        var hadFailures = try migrateLegacyRecords(fileManager: fileManager)
+        let migration = try migrateLegacyRecords(fileManager: fileManager)
+        var hadFailures = migration.hadFailures
         guard fileManager.fileExists(atPath: directory.path) else {
             return ([], hadFailures)
         }
@@ -124,6 +126,9 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         )
         var records: [SimulatorCameraAuthorizationRecord] = []
         for url in urls where url.pathExtension == "json" {
+            guard !migration.liveLegacyFileNames.contains(url.lastPathComponent) else {
+                continue
+            }
             do {
                 let record = try JSONDecoder().decode(
                     SimulatorCameraAuthorizationRecord.self,
@@ -226,18 +231,29 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
+        var shouldWriteLegacyRecord = true
         if fileManager.fileExists(atPath: destination.path) {
-            let durableRecord = try JSONDecoder().decode(
-                SimulatorCameraAuthorizationRecord.self,
-                from: Data(contentsOf: destination)
-            )
-            try validate(
-                durableRecord,
-                expectedDeviceIdentifier: deviceIdentifier,
-                expectedBundleIdentifier: bundleIdentifier,
-                sourceURL: destination
-            )
-        } else {
+            do {
+                let durableRecord = try JSONDecoder().decode(
+                    SimulatorCameraAuthorizationRecord.self,
+                    from: Data(contentsOf: destination)
+                )
+                try validate(
+                    durableRecord,
+                    expectedDeviceIdentifier: deviceIdentifier,
+                    expectedBundleIdentifier: bundleIdentifier,
+                    sourceURL: destination
+                )
+                shouldWriteLegacyRecord = !durableRecord.isOwnedByRunningProcess
+            } catch {
+                guard quarantine(
+                    destination,
+                    rootDirectory: durableDirectory,
+                    fileManager: fileManager
+                ) else { throw error }
+            }
+        }
+        if shouldWriteLegacyRecord {
             let directory = try requiredDirectory()
             try prepare(directory, fileManager: fileManager)
             try JSONEncoder().encode(record).write(to: destination, options: .atomic)
@@ -250,13 +266,18 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         return false
     }
 
-    private func migrateLegacyRecords(fileManager: FileManager) throws -> Bool {
+    private func migrateLegacyRecords(
+        fileManager: FileManager
+    ) throws -> (
+        hadFailures: Bool,
+        liveLegacyFileNames: Set<String>
+    ) {
         let durableDirectory = try requiredDirectory()
         guard let legacyDirectory,
               legacyDirectory.standardizedFileURL
                 != durableDirectory.standardizedFileURL,
               fileManager.fileExists(atPath: legacyDirectory.path) else {
-            return false
+            return (false, [])
         }
         let urls = try fileManager.contentsOfDirectory(
             at: legacyDirectory,
@@ -264,6 +285,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             options: [.skipsHiddenFiles]
         )
         var hadFailures = false
+        var liveLegacyFileNames: Set<String> = []
         for url in urls where url.pathExtension == "json" {
             do {
                 let record = try JSONDecoder().decode(
@@ -276,10 +298,12 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
                     expectedBundleIdentifier: record.bundleIdentifier,
                     sourceURL: url
                 )
-                _ = try migrateLegacyRecordIfPossible(
+                if try migrateLegacyRecordIfPossible(
                     deviceIdentifier: record.deviceIdentifier,
                     bundleIdentifier: record.bundleIdentifier
-                )
+                ) {
+                    liveLegacyFileNames.insert(url.lastPathComponent)
+                }
             } catch {
                 hadFailures = true
                 _ = quarantine(
@@ -289,7 +313,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
                 )
             }
         }
-        return hadFailures
+        return (hadFailures, liveLegacyFileNames)
     }
 
     private func validateLegacy(

@@ -442,6 +442,50 @@ struct SimulatorControlServiceTests {
         }
     }
 
+    @Test("A dead legacy camera journal replaces a stale durable duplicate")
+    func deadLegacyCameraJournalReplacesDurableDuplicate() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "camera-dead-legacy-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        let durableDirectory = root.appendingPathComponent("durable", isDirectory: true)
+        let legacyDirectory = root.appendingPathComponent("legacy", isDirectory: true)
+        let deviceIdentifier = UUID().uuidString
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let deadOwner = SimulatorProcessIdentity(
+            pid: Int32.max,
+            startSeconds: 1,
+            startMicroseconds: 1
+        )
+        try SimulatorCameraAuthorizationStore(directory: durableDirectory).save(
+            .granted,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: deadOwner
+        )
+        try SimulatorCameraAuthorizationStore(directory: legacyDirectory).save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: deadOwner
+        )
+        let store = SimulatorCameraAuthorizationStore(
+            directory: durableDirectory,
+            legacyDirectory: legacyDirectory
+        )
+
+        let scan = try store.records()
+
+        #expect(scan.records.count == 1)
+        #expect(scan.records[0].authorization == .denied)
+        #expect(try fileManager.contentsOfDirectory(
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil
+        ).allSatisfy { $0.pathExtension != "json" })
+    }
+
     @Test("Device type identifies family when runtimes omit family metadata")
     func handlesDuplicateRuntimeIdentifiers() async throws {
         let commands = RecordingCommandRunner(results: [
