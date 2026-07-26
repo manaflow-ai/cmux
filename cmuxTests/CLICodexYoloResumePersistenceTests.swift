@@ -17,22 +17,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
             suffixBytes: Int,
             mappedPID: Int,
             currentPID: Int,
+            currentArguments: [String]?,
             expectedArguments: [String]
         )] = [
             (
                 "legacy-bare", [executable], "never", "danger-full-access",
                 4 * 1024 * 1024 + 1, 0, 4100, 4100,
+                [executable],
                 [executable, "--yolo"]
             ),
             (
                 "current-plain", [executable, "--yolo"], "on-request", "workspace-write",
                 0, 0, 4100, 4200,
+                [executable],
                 [executable, "-a", "on-request", "-s", "workspace-write"]
             ),
             (
                 "legacy-bare-large-tail", [executable], "never", "danger-full-access",
                 0, 256 * 1024 + 1, 4300, 4400,
+                [executable],
                 [executable, "--yolo"]
+            ),
+            (
+                "resumed-environment-only", [executable, "--yolo"], "never", "danger-full-access",
+                0, 0, 4500, 4600,
+                nil,
+                ["codex", "--yolo"]
             ),
         ]
 
@@ -108,10 +118,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment["CMUX_SURFACE_ID"] = surfaceId
             environment["CMUX_CLI_TTY_NAME"] = ttyName
             environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
-            environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
-            environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = executable
-            environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([executable])
-            environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+            if let currentArguments = scenario.currentArguments {
+                environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+                environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = executable
+                environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(currentArguments)
+                environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+                environment.removeValue(forKey: "CODEX_HOME")
+            } else {
+                environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_KIND")
+                environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_EXECUTABLE")
+                environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_ARGV_B64")
+                environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_CWD")
+                environment["CODEX_HOME"] = root.appendingPathComponent(".codex", isDirectory: true).path
+            }
             environment["CMUX_CODEX_PID"] = String(scenario.currentPID)
             environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
@@ -143,7 +162,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return payload["params"] as? [String: Any]
             }.last
             let command = try XCTUnwrap(resumeParams?["command"] as? String, commands.joined(separator: "\n"))
-            for argument in scenario.expectedArguments.dropFirst() {
+            for argument in scenario.expectedArguments {
                 XCTAssertTrue(command.contains("'\(argument)'"), "\(scenario.name): \(command)")
             }
         }
