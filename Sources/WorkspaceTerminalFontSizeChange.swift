@@ -181,7 +181,9 @@ struct TerminalFontSizeChangeInheritanceContext {
         self.magnificationPercent = magnificationPercent
 
         let preferredSourceLineage =
-            preferredSourcePanel?.surface.fontSizeLineageSnapshot()
+            preferredSourcePanel?.surface.fontSizeLineageForAdjustment(
+                fallbackRuntimePoints: configuredRuntimePoints
+            )
         initialLineageProbeCount = preferredSourcePanel == nil ? 0 : 1
         if preferredSourceLineage == nil,
            fallbackLineageAlreadyIncludesChange,
@@ -201,7 +203,9 @@ struct TerminalFontSizeChangeInheritanceContext {
     ) -> TerminalFontSizeLineage {
         guard let sourceTerminalPanel else { return fallbackLineage }
         let sourceLineage =
-            sourceTerminalPanel.surface.fontSizeLineageSnapshot()
+            sourceTerminalPanel.surface.fontSizeLineageForAdjustment(
+                fallbackRuntimePoints: configuredRuntimePoints
+            )
         if sourceTerminalPanel.surface.hasAppliedFontSizeChange(token: token) {
             return sourceLineage ?? fallbackLineage
         }

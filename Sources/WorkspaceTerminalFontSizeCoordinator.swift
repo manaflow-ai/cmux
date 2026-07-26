@@ -158,6 +158,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
         ) -> TerminalFontSizeMutationOutcome
 
     private static let repeatCoalescingInterval: TimeInterval = 0.05
+    private static let mutationRetryBackoffInterval: TimeInterval = 0.05
+
+    private enum MutationRetryDisposition {
+        case ready
+        case backoff
+        case awaitingSignal
+    }
 
     fileprivate final class WeakWorkspaceReference {
         weak var value: Workspace?
@@ -473,6 +480,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     workspaceCoordinator
                     ?? windowDockCoordinator
                     ?? preferred
+                eventCoordinator.signalMutationRetry()
                 eventCoordinator.claimWorkspace(workspace)
                 eventCoordinator.claimWindowDockSlot(
                     join.windowDockSlot
@@ -672,6 +680,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
         [ObjectIdentifier: EventBatchLineage] = [:]
     private var activeTransferRequestTokens: Set<UUID> = []
     private var isDraining = false
+    private var mutationRetryDisposition:
+        MutationRetryDisposition = .ready
+    private var automaticMutationRetryAvailable = true
     private let arbiter: Arbiter
     private let schedule: DrainScheduler
     private let applyChange: ChangeApplier
@@ -725,6 +736,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     func attachWindowDock(_ dock: DockSplitStore) {
         windowDockSlot.value = dock
         let requestCoordinator = windowDockSlot.coordinator ?? self
+        requestCoordinator.signalMutationRetry()
         requestCoordinator.windowDockResourceKeys[ObjectIdentifier(dock)] =
             .windowDock(ObjectIdentifier(windowDockSlot))
         dock.terminalFontSizeChangeCoordinator = requestCoordinator
@@ -758,6 +770,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return
         }
         arbiter.promoteDeferredCoordinatorJoins()
+        workspace.terminalFontSizeChangeCoordinator?
+            .signalMutationRetry()
+        windowDockSlot.coordinator?.signalMutationRetry()
         let workspaceReference = WeakWorkspaceReference(workspace)
         if arbiter.hasDeferredCoordinatorJoin(
             targeting: workspace,
@@ -792,6 +807,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             workspaceCoordinator
             ?? windowDockCoordinator
             ?? self
+        eventCoordinator.signalMutationRetry()
         eventCoordinator.claimWorkspace(workspace)
         eventCoordinator.claimWindowDockSlot(windowDockSlot)
         eventCoordinator.appendEvent(
@@ -813,6 +829,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         activeRequest = nil
         pendingEventBatch = nil
         sealedRequests.removeAll()
+        resetMutationRetryState()
         arbiter.removeDeferredCoordinatorJoins {
             $0.preferredCoordinator === self
         }
@@ -870,7 +887,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         arbiter.promoteDeferredCoordinatorJoins()
         if activeRequest != nil || hasPendingRequests {
             retainWhileOutstanding()
-            scheduleDrain(after: 0)
+            signalMutationRetry()
+            scheduleOutstandingContinuation()
         } else {
             releaseRetentionIfIdle()
         }
@@ -881,12 +899,19 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     func debugFlushOneDrain() {
         invalidateScheduledDrain()
+        signalMutationRetry()
         drain()
     }
 
     func debugDrainAll() {
         invalidateScheduledDrain()
+        signalMutationRetry()
         while activeRequest != nil || hasPendingRequests {
+            if mutationRetryDisposition == .backoff {
+                mutationRetryDisposition = .ready
+            } else if mutationRetryDisposition == .awaitingSignal {
+                break
+            }
             drain(scheduleContinuation: false)
         }
     }
@@ -1536,6 +1561,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         resourceKey: RequestResourceKey,
         processImmediately: Bool
     ) {
+        signalMutationRetry()
 #if DEBUG
         debugLastSynchronousTransferRequestVisitCount = 0
 #endif
@@ -1701,7 +1727,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
         let sourceLineage =
             alreadyIncludesChange
             ? nil
-            : terminalPanel.surface.fontSizeLineageSnapshot()
+            : terminalPanel.surface.fontSizeLineageForAdjustment(
+                fallbackRuntimePoints:
+                    requestRecord.configuredRuntimePoints
+            )
         let panelHasLiveSurface =
             terminalPanel.surface.hasLiveSurface
             && terminalPanel.surface.surface != nil
@@ -1713,7 +1742,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return false
         }
 
-        let outcome: TerminalFontSizeMutationOutcome
+        var outcome: TerminalFontSizeMutationOutcome
         if !alreadyIncludesChange {
             outcome = applyChange(
                 request.change,
@@ -1723,13 +1752,19 @@ final class WorkspaceTerminalFontSizeCoordinator {
         } else {
             outcome = .alreadySatisfied
         }
+        outcome = reconciledMutationOutcome(
+            outcome,
+            terminalPanel: terminalPanel,
+            sourceLineage: sourceLineage,
+            request: request,
+            configuredRuntimePoints:
+                requestRecord.configuredRuntimePoints
+        )
         guard outcome.didSucceed else {
-            // Keep the failed head in the heap. Returning false ends this
-            // bounded drain, and the scheduled continuation retries it before
-            // any later request can overtake it, even if the panel has already
-            // moved beyond this coordinator's ownership.
+            recordMutationFailure()
             return false
         }
+        recordMutationSuccess()
         if case .windowDock = request.target {
             request.batchLineage.didParticipateWindowDock = true
             if !alreadyIncludesChange {
@@ -1759,7 +1794,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private func drainTransferObligationsImmediately() {
         guard !isDraining else {
-            scheduleDrain(after: 0)
+            scheduleOutstandingContinuation()
             return
         }
         isDraining = true
@@ -1780,7 +1815,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             budget.requestVisitCount
 #endif
         if !transferObligations.isEmpty {
-            scheduleDrain(after: 0)
+            scheduleOutstandingContinuation()
         }
     }
 
@@ -1834,6 +1869,38 @@ final class WorkspaceTerminalFontSizeCoordinator {
             || terminalPanel.surface.hasAppliedFontSizeChange(
                 token: counterpartTransferToken(for: request)
             )
+    }
+
+    /// Ghostty can update its logical font size before later native font work
+    /// reports failure. Reconcile that observable target here so a relative
+    /// request is never replayed against an already-advanced starting point.
+    private func reconciledMutationOutcome(
+        _ outcome: TerminalFontSizeMutationOutcome,
+        terminalPanel: TerminalPanel,
+        sourceLineage: TerminalFontSizeLineage?,
+        request: PendingRequest,
+        configuredRuntimePoints: Float32
+    ) -> TerminalFontSizeMutationOutcome {
+        guard outcome == .failed else { return outcome }
+        let expectedLineage =
+            request.change.resultingInheritanceLineage(
+                from: sourceLineage,
+                configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent:
+                    request.batchLineage.magnificationPercent
+                    ?? GlobalFontMagnification.storedPercent
+            )
+        guard let observedLineage =
+                terminalPanel.surface.fontSizeLineageSnapshot(),
+              observedLineage.isExplicitOverride
+                == expectedLineage.isExplicitOverride,
+              abs(
+                observedLineage.basePoints
+                    - expectedLineage.basePoints
+              ) < 0.000_1 else {
+            return .failed
+        }
+        return .applied
     }
 
     private func recordAppliedChange(
@@ -1941,8 +2008,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
         let sourceLineage =
             alreadyIncludesChange
             ? nil
-            : terminalPanel.surface.fontSizeLineageSnapshot()
-        let outcome: TerminalFontSizeMutationOutcome
+            : terminalPanel.surface.fontSizeLineageForAdjustment(
+                fallbackRuntimePoints:
+                    activeRequest.configuredRuntimePoints
+            )
+        var outcome: TerminalFontSizeMutationOutcome
         if !alreadyIncludesChange {
             outcome = applyChange(
                 activeRequest.request.change,
@@ -1952,7 +2022,19 @@ final class WorkspaceTerminalFontSizeCoordinator {
         } else {
             outcome = .alreadySatisfied
         }
-        guard outcome.didSucceed else { return outcome }
+        outcome = reconciledMutationOutcome(
+            outcome,
+            terminalPanel: terminalPanel,
+            sourceLineage: sourceLineage,
+            request: activeRequest.request,
+            configuredRuntimePoints:
+                activeRequest.configuredRuntimePoints
+        )
+        guard outcome.didSucceed else {
+            recordMutationFailure()
+            return outcome
+        }
+        recordMutationSuccess()
         recordAppliedChange(
             on: terminalPanel,
             for: activeRequest.request
@@ -2066,6 +2148,47 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
     }
 
+    private func resetMutationRetryState() {
+        mutationRetryDisposition = .ready
+        automaticMutationRetryAvailable = true
+    }
+
+    /// A new user request or terminal ownership transition is evidence that
+    /// the failed native path may be viable again.
+    private func signalMutationRetry() {
+        resetMutationRetryState()
+    }
+
+    private func recordMutationSuccess() {
+        resetMutationRetryState()
+    }
+
+    private func recordMutationFailure() {
+        invalidateScheduledDrain()
+        if automaticMutationRetryAvailable {
+            automaticMutationRetryAvailable = false
+            mutationRetryDisposition = .backoff
+        } else {
+            mutationRetryDisposition = .awaitingSignal
+        }
+    }
+
+    private func scheduleOutstandingContinuation(
+        defaultDelay: TimeInterval = 0
+    ) {
+        guard activeRequest != nil || hasPendingRequests else { return }
+        switch mutationRetryDisposition {
+        case .ready:
+            scheduleDrain(after: defaultDelay)
+        case .backoff:
+            scheduleDrain(
+                after: Self.mutationRetryBackoffInterval
+            )
+        case .awaitingSignal:
+            break
+        }
+    }
+
     private func scheduleDrain(after delay: TimeInterval) {
         guard cancelScheduledDrain == nil,
               activeRequest != nil || hasPendingRequests else {
@@ -2074,6 +2197,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
         cancelScheduledDrain = schedule(delay) { [weak self] in
             guard let self else { return }
             self.cancelScheduledDrain = nil
+            if self.mutationRetryDisposition == .backoff {
+                self.mutationRetryDisposition = .ready
+            }
             self.drain()
         }
     }
@@ -2086,7 +2212,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func drain(scheduleContinuation: Bool = true) {
         guard !isDraining else {
             if scheduleContinuation {
-                scheduleDrain(after: 0)
+                scheduleOutstandingContinuation()
             }
             return
         }
@@ -2254,7 +2380,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
         if scheduleContinuation,
            activeRequest != nil || hasPendingRequests {
-            scheduleDrain(after: 0)
+            scheduleOutstandingContinuation()
         }
         releaseRetentionIfIdle()
     }

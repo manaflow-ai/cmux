@@ -191,30 +191,16 @@ extension TerminalSurface {
            ) {
             return mobileFitResult
         }
-        let currentRuntimePoints: Float32
-        if let runtimeSurface,
-           let observedRuntimePoints =
-                GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(runtimeSurface) {
-            currentRuntimePoints = observedRuntimePoints
-        } else if !followsConfiguredFontSize,
-           let lineage = lastKnownFontSizeLineage,
-           lineage.isExplicitOverride || runtimeSurfaceGeneration == 0 {
-            // After one native lifetime, non-explicit lineage is descendant-only;
-            // this surface itself follows the current configured fallback.
-            currentRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
-                fromBasePoints: lineage.basePoints,
-                percent: percent
-            )
-        } else if let fallbackRuntimePoints,
-                  fallbackRuntimePoints.isFinite,
-                  fallbackRuntimePoints > 0 {
-            currentRuntimePoints = fallbackRuntimePoints
-        } else {
+        guard let baseline = fontSizeAdjustmentBaseline(
+            fallbackRuntimePoints: fallbackRuntimePoints
+        ) else {
             return .failed
         }
 
         let policy = TerminalFontSizePolicy()
-        let boundedCurrentRuntimePoints = policy.clampedRuntimePoints(currentRuntimePoints)
+        let boundedCurrentRuntimePoints = policy.clampedRuntimePoints(
+            baseline.runtimePoints
+        )
         let adjustedRuntimePoints = transform.applying(
             to: boundedCurrentRuntimePoints
         )
@@ -247,6 +233,78 @@ extension TerminalSurface {
             )
         )
         return .applied
+    }
+
+    /// Returns the same starting lineage used by a relative font mutation.
+    ///
+    /// Active workspace inheritance uses this prediction before a bounded
+    /// drain reaches the source panel. A hibernated follower therefore starts
+    /// from current configuration, while an explicit override and a
+    /// never-realized inherited value retain their own base.
+    @MainActor
+    public func fontSizeLineageForAdjustment(
+        fallbackRuntimePoints: Float32? = nil
+    ) -> TerminalFontSizeLineage? {
+        fontSizeAdjustmentBaseline(
+            fallbackRuntimePoints: fallbackRuntimePoints
+        )?.lineage
+    }
+
+    @MainActor
+    private func fontSizeAdjustmentBaseline(
+        fallbackRuntimePoints: Float32?
+    ) -> (
+        runtimePoints: Float32,
+        lineage: TerminalFontSizeLineage
+    )? {
+        let percent = globalFontMagnificationPercent()
+        if let runtimeSurface = liveSurfaceForGhosttyAccess(
+            reason: "fontSize.adjustBaseline"
+        ),
+        let observedRuntimePoints =
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ),
+        let observedLineage = recordObservedFontSizeLineage(
+            runtimePoints: observedRuntimePoints,
+            isExplicitOverride:
+                ghostty_surface_font_size_adjusted(runtimeSurface),
+            globalFontMagnificationPercent: percent
+        ) {
+            return (observedRuntimePoints, observedLineage)
+        }
+
+        if !followsConfiguredFontSize,
+           let lineage = lastKnownFontSizeLineage,
+           lineage.isExplicitOverride || runtimeSurfaceGeneration == 0 {
+            return (
+                CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: lineage.basePoints,
+                    percent: percent
+                ),
+                lineage
+            )
+        }
+
+        guard let fallbackRuntimePoints,
+              fallbackRuntimePoints.isFinite,
+              fallbackRuntimePoints > 0 else {
+            return nil
+        }
+        let boundedRuntimePoints =
+            TerminalFontSizePolicy().clampedRuntimePoints(
+                fallbackRuntimePoints
+            )
+        return (
+            boundedRuntimePoints,
+            TerminalFontSizeLineage(
+                basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
+                    fromRuntimePoints: boundedRuntimePoints,
+                    percent: percent
+                ),
+                isExplicitOverride: false
+            )
+        )
     }
 
     /// Resets this terminal to the current configured runtime font size.
