@@ -191,6 +191,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "await delay(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
+            "node-timer-namespace.ts": (
+                'import * as timers from "node:timers/promises"\n'
+                "await timers.setTimeout(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
             "shell.sh": 'sleep 1\nassert "$actual" "$expected"\n',
             "shell-variable.sh": (
                 'sleep "$STARTUP_DELAY"\n'
@@ -559,6 +564,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "inferred-mutable-suspending-clock.swift",
                     "node-timer-alias.ts",
                     "timer-delay-alias.ts",
+                    "node-timer-namespace.ts",
                     "template-multiline-interpolation.ts",
                     "js-comment-close.ts",
                     "shell-arithmetic-before-sleep.sh",
@@ -670,6 +676,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "delay = fakeDelay\n"
                     "await delay(1)\n"
                     "expect(completed).toBe(true)\n"
+                ),
+                "timer-alias-destructured-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "run(async () => {\n"
+                    "    const { delay } = fakeTimers\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "})\n"
                 ),
                 "spaced-members.ts": (
                     "fixture. setTimeout(resolve, 1)\n"
@@ -890,6 +904,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "import time as clock\n"
                     "check()\n"
                 ),
+                "deferred-shadow-then-trusted-import.py": (
+                    "import fake_clock as time\n"
+                    "import time\n"
+                    "def test_framework_invoked():\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
             }
         )
 
@@ -919,6 +940,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "branch-call-before-module-rebind.py",
             "nested-call-before-rebind.py",
             "shadow-then-trusted-import.py",
+            "deferred-shadow-then-trusted-import.py",
         ):
             line = (
                 4
@@ -927,6 +949,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "parenthesized-from-time.py",
                     "nested-trusted-closure.py",
                     "nested-call-before-rebind.py",
+                    "deferred-shadow-then-trusted-import.py",
                 )
                 else 3
                 if relative_path
