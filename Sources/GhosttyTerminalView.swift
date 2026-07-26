@@ -3040,18 +3040,6 @@ private final class TerminalSharedBackdropCutoutFilter: CIFilter {
 
 // TerminalSurfaceFocusPlacement moved to CmuxTerminalCore (SurfaceRegistry/).
 
-private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
-    guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
-    }
-}
-
 // TerminalSurface and its SearchState moved to the CmuxTerminal package
 // (Surface/TerminalSurface*.swift), with the legacy GhosttyApp /
 // TerminalController / MobileTerminalByteTee / RendererRealizationController /

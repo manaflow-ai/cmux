@@ -3108,7 +3108,7 @@ struct TextBoxInputView: NSViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextBoxInputView
         private var pendingAttachmentUploadStateForNextLayout: Bool?
         private var pendingMarkedTextStateForNextLayout: Bool?

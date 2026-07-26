@@ -3,10 +3,11 @@ import AppKit
 extension GhosttyNSView {
     func recordDirectAgentHibernationTerminalInput() {
         guard let terminalSurface else { return }
-        recordAgentHibernationTerminalInput(
-            workspaceId: terminalSurface.tabId,
-            panelId: terminalSurface.id
-        )
+        GhosttyApp.terminalSurfaceRuntimeDependencies
+            .hibernationRecorder.recordTerminalInput(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+            )
     }
 
     @IBAction func paste(_ sender: Any?) {

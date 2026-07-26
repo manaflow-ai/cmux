@@ -36,7 +36,7 @@ struct TerminalPastePreparationWorker {
         let result = TerminalPastePreparationOperation(
             pasteboardService: pasteboardService
         ).prepare(request: request)
-        let ownedNames = result.transferredFileURLs.compactMap { fileURL in
+        let ownedNames: [String] = result.transferredFileURLs.compactMap { fileURL in
             guard pasteboardService.isOwnedTemporaryImageFile(fileURL) else {
                 return nil
             }
