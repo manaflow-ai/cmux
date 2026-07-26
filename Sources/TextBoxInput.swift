@@ -3424,6 +3424,7 @@ final class TextBoxInputTextView: NSTextView {
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
         if handleTextChangeTouchingPendingPasteReservation(in: affectedCharRange, replacementString: replacementString) { return false }
         guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        updateMarkerlessPendingPasteReservations(for: affectedCharRange, replacementString: replacementString)
         queueAutomaticAttachmentFileCleanup(in: affectedCharRange)
         return true
     }
@@ -3686,7 +3687,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func hasPendingAttachmentUploadPlaceholder() -> Bool {
-        pendingAttachmentUploadPlaceholderRange(id: nil) != nil
+        !pendingPasteReservations.isEmpty
     }
 
     func insertAttachments(

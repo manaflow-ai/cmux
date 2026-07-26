@@ -11,29 +11,36 @@ extension TextBoxInputTextView {
 
         let originalRange = selectedRange()
         guard isValidSelectedRange(originalRange) else { return false }
+        supersedePendingPasteReservations(intersecting: originalRange)
 
         let originalSelection = attributedString().attributedSubstring(
             from: originalRange
         )
-        var markerAttributes = currentTextAttributes()
-        markerAttributes[Self.pendingAttachmentUploadPlaceholderAttribute] =
-            id.uuidString
-        let marker = NSAttributedString(
-            string: Self.pendingAttachmentUploadPlaceholderCharacter,
-            attributes: markerAttributes
-        )
+        let usesMarker = originalSelection.length > 0
+        if usesMarker {
+            var markerAttributes = currentTextAttributes()
+            markerAttributes[Self.pendingAttachmentUploadPlaceholderAttribute] =
+                id.uuidString
+            let marker = NSAttributedString(
+                string: String(
+                    repeating: Self.pendingAttachmentUploadPlaceholderCharacter,
+                    count: originalSelection.length
+                ),
+                attributes: markerAttributes
+            )
+            performWithoutUndoRegistration {
+                textStorage.replaceCharacters(in: originalRange, with: marker)
+            }
+        }
         let stagedSelection = NSRange(
-            location: originalRange.location + marker.length,
+            location: NSMaxRange(originalRange),
             length: 0
         )
 
-        performWithoutUndoRegistration {
-            textStorage.replaceCharacters(in: originalRange, with: marker)
-        }
         pendingPasteReservations[id] = TextBoxPendingPasteReservation(
             originalAttributedSelection: originalSelection,
-            originalSelectionRange: originalRange,
-            stagedSelectionRange: stagedSelection
+            replacementRange: originalRange,
+            usesMarker: usesMarker
         )
         setSelectedRange(stagedSelection)
         normalizeTextBaselineOffsets()
@@ -105,16 +112,16 @@ extension TextBoxInputTextView {
         guard let reservation = pendingPasteReservations[id] else {
             return false
         }
+        guard reservation.usesMarker else {
+            pendingPasteReservations[id] = nil
+            return true
+        }
         guard let textStorage else { return false }
         guard let markerRange = pendingAttachmentUploadPlaceholderRange(
             id: id
         ) else {
-            return restorePendingPasteReservationWithoutMarker(
-                id: id,
-                reservation: reservation,
-                in: textStorage,
-                notifyingTextChange: notifyingTextChange
-            )
+            pendingPasteReservations[id] = nil
+            return false
         }
 
         let selectionBeforeRestore = selectedRange()
@@ -173,6 +180,7 @@ extension TextBoxInputTextView {
         let restorations = pendingPasteReservations.compactMap {
             id,
             reservation -> (NSRange, NSAttributedString)? in
+            guard reservation.usesMarker else { return nil }
             guard let range = Self.pendingAttachmentUploadPlaceholderRanges(
                 in: preservedContent,
                 id: id
@@ -238,7 +246,10 @@ extension TextBoxInputTextView {
 
         if replacementString.isEmpty,
            restorations.count == 1,
-           affectedRange == restorations[0].markerRange {
+           NSIntersectionRange(
+               affectedRange,
+               restorations[0].markerRange
+           ).length == affectedRange.length {
             setSelectedRange(restoredEditRange)
             didChangeText()
             return true
@@ -252,22 +263,54 @@ extension TextBoxInputTextView {
     }
 
     @MainActor
+    func updateMarkerlessPendingPasteReservations(
+        for affectedRange: NSRange,
+        replacementString: String?
+    ) {
+        guard let replacementString else { return }
+        let insertedLength = (replacementString as NSString).length
+        let delta = insertedLength - affectedRange.length
+        var cancelledIDs: [UUID] = []
+        var updatedReservations: [UUID: TextBoxPendingPasteReservation] = [:]
+
+        for (id, var reservation) in pendingPasteReservations
+        where !reservation.usesMarker {
+            let anchor = reservation.replacementRange.location
+            guard affectedRange.location < anchor else { continue }
+            if NSMaxRange(affectedRange) > anchor {
+                cancelledIDs.append(id)
+                continue
+            }
+            reservation.replacementRange.location = max(0, anchor + delta)
+            updatedReservations[id] = reservation
+        }
+
+        for (id, reservation) in updatedReservations {
+            pendingPasteReservations[id] = reservation
+        }
+        for id in cancelledIDs {
+            activePastePreparationTasks.removeValue(forKey: id)?.cancel()
+            pendingPasteReservations[id] = nil
+        }
+    }
+
+    @MainActor
     private func restorePendingPasteReservationForCommit(
         id: UUID
     ) -> (replacementRange: NSRange, selection: NSRange)? {
-        guard let reservation = pendingPasteReservations[id],
-              let textStorage else {
+        guard let reservation = pendingPasteReservations[id] else {
             return nil
         }
+        breakUndoCoalescing()
+        guard reservation.usesMarker else {
+            pendingPasteReservations[id] = nil
+            return (reservation.replacementRange, selectedRange())
+        }
+        guard let textStorage else { return nil }
         guard let markerRange = pendingAttachmentUploadPlaceholderRange(
             id: id
         ) else {
-            _ = restorePendingPasteReservationWithoutMarker(
-                id: id,
-                reservation: reservation,
-                in: textStorage,
-                notifyingTextChange: true
-            )
+            pendingPasteReservations[id] = nil
             return nil
         }
 
@@ -319,36 +362,52 @@ extension TextBoxInputTextView {
     }
 
     @MainActor
-    private func restorePendingPasteReservationWithoutMarker(
-        id: UUID,
-        reservation: TextBoxPendingPasteReservation,
-        in textStorage: NSTextStorage,
-        notifyingTextChange: Bool
+    private func supersedePendingPasteReservations(
+        intersecting selectedRange: NSRange
+    ) {
+        let selectionBeforeRestore = self.selectedRange()
+        let overlappingIDs = pendingPasteReservations.compactMap {
+            id,
+            reservation -> UUID? in
+            let reservedRange = reservation.usesMarker
+                ? pendingAttachmentUploadPlaceholderRange(id: id)
+                : reservation.replacementRange
+            guard let reservedRange,
+                  Self.pasteReservationRangesIntersect(
+                    selectedRange,
+                    reservedRange
+                  ) else {
+                return nil
+            }
+            return id
+        }
+        for id in overlappingIDs {
+            activePastePreparationTasks.removeValue(forKey: id)?.cancel()
+            _ = rollbackPendingPasteReservation(
+                id: id,
+                notifyingTextChange: false
+            )
+        }
+        if !overlappingIDs.isEmpty {
+            setSelectedRange(selectionBeforeRestore)
+        }
+    }
+
+    private static func pasteReservationRangesIntersect(
+        _ lhs: NSRange,
+        _ rhs: NSRange
     ) -> Bool {
-        let restoreLocation = min(
-            reservation.originalSelectionRange.location,
-            textStorage.length
-        )
-        let restoreRange = NSRange(location: restoreLocation, length: 0)
-        performWithoutUndoRegistration {
-            textStorage.replaceCharacters(
-                in: restoreRange,
-                with: reservation.originalAttributedSelection
-            )
+        if lhs.length == 0 {
+            return rhs.length == 0
+                ? lhs.location == rhs.location
+                : lhs.location >= rhs.location
+                    && lhs.location < NSMaxRange(rhs)
         }
-        pendingPasteReservations[id] = nil
-        setSelectedRange(
-            NSRange(
-                location: restoreLocation,
-                length: reservation.originalAttributedSelection.length
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        if notifyingTextChange {
-            didChangeText()
+        if rhs.length == 0 {
+            return rhs.location >= lhs.location
+                && rhs.location < NSMaxRange(lhs)
         }
-        return true
+        return NSIntersectionRange(lhs, rhs).length > 0
     }
 
     private static func editRange(

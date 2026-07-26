@@ -7,6 +7,11 @@ extension TextBoxInputTextView {
         text: String,
         attachments: [TextBoxAttachment]
     ) {
+        guard pendingPasteReservations.values.contains(
+            where: { $0.usesMarker }
+        ) else {
+            return (plainText(), inlineAttachments())
+        }
         let projectedParts = TextBoxSubmissionFormatter.parts(
             from: attributedContentForPreservation()
         )
