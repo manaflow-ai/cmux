@@ -49,7 +49,7 @@ test("shared web test runner isolates module mocks across files", () => {
   expect(result.output).toContain("0 fail");
 });
 
-test("shared web test runner preserves sorted recursive discovery", () => {
+test("shared web test runner preserves recursive discovery", () => {
   const fixtureRoot = createRunnerFixture();
   try {
     mkdirSync(join(fixtureRoot, ".hidden"));
@@ -98,7 +98,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
     ];
-    expectHeadingsInOrder(result.output, expectedHeadings);
+    expectHeadings(result.output, expectedHeadings);
     expect(result.output).not.toContain("ignored.test.ts:");
 
     const optionedResult = runChild(
@@ -111,7 +111,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
         `option-only web test run lost discovery:\n${optionedResult.output}`,
       );
     }
-    expectHeadingsInOrder(optionedResult.output, expectedHeadings);
+    expectHeadings(optionedResult.output, expectedHeadings);
     expect(optionedResult.output).not.toContain("ignored.test.ts:");
 
     const scopedResult = runChild(
@@ -144,7 +144,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
     }
     // Configured discovery belongs to Bun, so verify the selected set without
     // imposing filesystem-dependent reporter order.
-    expectHeadingsPresent(rootedResult.output, [
+    expectHeadings(rootedResult.output, [
       "tests/beta.test.ts:",
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
@@ -166,7 +166,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
         `alternate Bun test root was not preserved:\n${configuredResult.output}`,
       );
     }
-    expectHeadingsPresent(configuredResult.output, [
+    expectHeadings(configuredResult.output, [
       "tests/beta.test.ts:",
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
@@ -242,16 +242,10 @@ function runChild(
   return { status: result.status, output };
 }
 
-function expectHeadingsInOrder(output: string, headings: string[]): void {
-  let previousIndex = -1;
-  for (const heading of headings) {
-    const index = output.indexOf(heading);
-    expect(index).toBeGreaterThan(previousIndex);
-    previousIndex = index;
-  }
-}
-
-function expectHeadingsPresent(output: string, headings: string[]): void {
+function expectHeadings(output: string, headings: string[]): void {
+  // Bun can execute files concurrently and report their headings in completion
+  // order. The shell guard asserts the runner passes files to Bun in sorted
+  // order; this integration test asserts every discovered file actually runs.
   for (const heading of headings) {
     expect(output).toContain(heading);
   }

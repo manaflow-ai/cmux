@@ -47,21 +47,25 @@ struct TerminalDockKeyboardTransitionPlannerTests {
 
     @Test("zero-duration interruption synthesizes a remaining-fraction duration")
     func zeroDurationSynthesizesDuration() {
+        let visibleOccupancy: CGFloat = 220
+        let targetOccupancy: CGFloat = 34
+        let activeTargetOverlap: CGFloat = 336
+        let lastTransitionDuration: TimeInterval = 0.25
+        let remainingFraction =
+            abs(targetOccupancy - visibleOccupancy) / activeTargetOverlap
+        let expectedDuration =
+            lastTransitionDuration * TimeInterval(remainingFraction)
         let plan = planner.plan(for: input(
             targetOverlap: 0,
             notificationDuration: 0,
-            visibleOccupancy: 220,
-            targetOccupancy: 34,
+            visibleOccupancy: visibleOccupancy,
+            targetOccupancy: targetOccupancy,
             isAnimating: true,
-            activeTargetOverlap: 336,
-            lastTransitionDuration: 0.25
+            activeTargetOverlap: activeTargetOverlap,
+            lastTransitionDuration: lastTransitionDuration
         ))
-        guard case let .animate(duration) = plan else {
-            Issue.record("Expected a synthesized animation")
-            return
-        }
 
-        #expect(duration == 0.25 * (186.0 / 336.0))
+        #expect(plan == .animate(duration: expectedDuration))
     }
 
     @Test("tiny remaining distance applies directly when an old animation is active")
