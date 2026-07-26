@@ -3969,7 +3969,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(overlay.isHidden, "Restoring visibility should restore the active drop-zone overlay")
     }
 
-    func testPortalRevealRefreshesHostedWebViewWithoutFrameDelta() {
+    func testPortalRevealRefreshesHostedWebViewSynchronouslyOnceWithoutFrameDelta() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -4006,7 +4006,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        let revealedEnterInWindowCount = webView.enterInWindowCount
+        let revealedEndDeferringCount = webView.endDeferringViewInWindowChangesCount
 
         XCTAssertGreaterThanOrEqual(hiddenDisplayCount, initialDisplayCount)
         XCTAssertEqual(
@@ -4022,7 +4023,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertGreaterThan(
             webView.setNeedsDisplayCount,
             hiddenSetNeedsDisplayCount,
-            "Revealing an existing portal-hosted browser should invalidate WebKit presentation"
+            "Revealing an existing portal-hosted browser should invalidate WebKit presentation synchronously"
         )
         XCTAssertEqual(
             webView.displayIfNeededCount,
@@ -4034,6 +4035,66 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             hiddenReattachCount,
             "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
         )
+
+        advanceAnimations()
+
+        XCTAssertEqual(
+            webView.enterInWindowCount,
+            revealedEnterInWindowCount,
+            "Reveal must not enqueue a later duplicate WebKit window-entry repair"
+        )
+        XCTAssertEqual(
+            webView.endDeferringViewInWindowChangesCount,
+            revealedEndDeferringCount,
+            "Reveal must not enqueue a later duplicate deferred-window repair"
+        )
+    }
+
+    func testForcedPortalRefreshRunsSynchronouslyOnce() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webViewId = ObjectIdentifier(webView)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+        let initialEnterInWindowCount = webView.enterInWindowCount
+        let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+
+        portal.forceRefreshWebView(withId: webViewId, reason: "unitTest")
+        let refreshedEnterInWindowCount = webView.enterInWindowCount
+        let refreshedEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+
+        XCTAssertEqual(
+            refreshedEnterInWindowCount - initialEnterInWindowCount,
+            1,
+            "A forced refresh should invoke the WebKit window-entry selector once in the portal sync"
+        )
+        XCTAssertEqual(
+            refreshedEndDeferringCount - initialEndDeferringCount,
+            1,
+            "A forced refresh should invoke the WebKit deferred-window selector once in the portal sync"
+        )
+
+        advanceAnimations()
+
+        XCTAssertEqual(webView.enterInWindowCount, refreshedEnterInWindowCount)
+        XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
     }
 
     func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() {
