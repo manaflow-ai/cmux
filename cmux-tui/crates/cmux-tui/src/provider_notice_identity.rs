@@ -399,6 +399,18 @@ mod tests {
     }
 
     #[test]
+    fn identity_rejects_unsupported_version() {
+        let state = TestStateRoot::create("unsupported-version");
+        let consumer_id = load_or_create(&state.path).unwrap();
+        let path = identity_path(&state.path);
+        let future = StoredIdentity { version: STATE_VERSION + 1, consumer_id };
+        fs::write(&path, serde_json::to_vec(&future).unwrap()).unwrap();
+
+        let error = load_or_create(&state.path).unwrap_err();
+        assert!(error.to_string().contains("unsupported provider notice identity version"));
+    }
+
+    #[test]
     fn concurrent_creators_share_one_identity() {
         let state = TestStateRoot::create("concurrent");
         let root = Arc::new(state.path.clone());
