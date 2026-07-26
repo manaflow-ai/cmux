@@ -336,10 +336,20 @@ impl ProviderEventReceiver {
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+enum DurableSubscriptionState {
+    #[default]
+    NotStarted,
+    WaitingForCursor,
+    Active,
+}
+
+#[cfg(unix)]
 #[derive(Default)]
 struct ProviderEventHubState {
     retained_durable: VecDeque<ReceivedProviderEvent>,
     acknowledged_sequence: u64,
+    durable_subscription: DurableSubscriptionState,
     subscribers: Vec<Weak<ProviderEventQueue>>,
 }
 
@@ -398,13 +408,43 @@ impl ProviderClientInner {
         });
     }
 
+    fn publish_to_event_subscribers(
+        events: &mut ProviderEventHubState,
+        event: ReceivedProviderEvent,
+    ) -> Result<(), ReaderFailure> {
+        let mut overflowed = false;
+        events.subscribers.retain(|subscriber| {
+            let Some(subscriber) = subscriber.upgrade() else {
+                return false;
+            };
+            if subscriber.publish(event.clone()).is_err() {
+                overflowed = true;
+            }
+            true
+        });
+        if overflowed {
+            Err(ReaderFailure::InvalidFrame(
+                "durable provider event subscriber exceeded its bounded capacity".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     fn publish_event(&self, event: ReceivedProviderEvent) -> Result<(), ReaderFailure> {
         let mut events = self
             .events
             .lock()
             .map_err(|_| ReaderFailure::InvalidFrame("event state is poisoned".into()))?;
         if let Some(delivery) = event.delivery.as_ref() {
-            if delivery.sequence <= events.acknowledged_sequence {
+            if events.durable_subscription == DurableSubscriptionState::NotStarted {
+                return Err(ReaderFailure::InvalidFrame(
+                    "durable notice arrived before subscription".into(),
+                ));
+            }
+            if events.durable_subscription == DurableSubscriptionState::Active
+                && delivery.sequence <= events.acknowledged_sequence
+            {
                 return Ok(());
             }
             if let Some(retained) = events.retained_durable.iter().find(|retained| {
@@ -426,18 +466,22 @@ impl ProviderClientInner {
                 .retained_durable
                 .back()
                 .and_then(|retained| retained.delivery.as_ref())
-                .map(|retained| retained.sequence)
-                .unwrap_or(events.acknowledged_sequence);
-            let Some(expected_sequence) = retained_sequence.checked_add(1) else {
-                return Err(ReaderFailure::InvalidFrame(format!(
-                    "durable notice sequence overflowed after {retained_sequence}",
-                )));
-            };
-            if delivery.sequence != expected_sequence {
-                return Err(ReaderFailure::InvalidFrame(format!(
-                    "durable notice sequence {} did not match expected sequence {expected_sequence}",
-                    delivery.sequence,
-                )));
+                .map(|retained| retained.sequence);
+            if let Some(retained_sequence) = retained_sequence.or_else(|| {
+                (events.durable_subscription == DurableSubscriptionState::Active)
+                    .then_some(events.acknowledged_sequence)
+            }) {
+                let Some(expected_sequence) = retained_sequence.checked_add(1) else {
+                    return Err(ReaderFailure::InvalidFrame(format!(
+                        "durable notice sequence overflowed after {retained_sequence}",
+                    )));
+                };
+                if delivery.sequence != expected_sequence {
+                    return Err(ReaderFailure::InvalidFrame(format!(
+                        "durable notice sequence {} did not match expected sequence {expected_sequence}",
+                        delivery.sequence,
+                    )));
+                }
             }
             if events.retained_durable.len() >= PROVIDER_EVENT_QUEUE_CAPACITY {
                 return Err(ReaderFailure::InvalidFrame(
@@ -445,30 +489,79 @@ impl ProviderClientInner {
                 ));
             }
             events.retained_durable.push_back(event.clone());
+            if events.durable_subscription == DurableSubscriptionState::WaitingForCursor {
+                return Ok(());
+            }
         }
 
-        let mut overflowed = false;
-        events.subscribers.retain(|subscriber| {
-            let Some(subscriber) = subscriber.upgrade() else {
-                return false;
-            };
-            if subscriber.publish(event.clone()).is_err() {
-                overflowed = true;
-            }
-            true
-        });
-        if overflowed {
-            Err(ReaderFailure::InvalidFrame(
-                "durable provider event subscriber exceeded its bounded capacity".into(),
-            ))
-        } else {
-            Ok(())
+        Self::publish_to_event_subscribers(&mut events, event)
+    }
+
+    fn begin_notice_subscription(&self) -> ProviderResult<()> {
+        let mut events =
+            self.events.lock().map_err(|_| ProviderClientError::StatePoisoned("event"))?;
+        if events.durable_subscription != DurableSubscriptionState::NotStarted {
+            return Err(ProviderClientError::Protocol(
+                "durable notice subscription was already started".into(),
+            ));
         }
+        events.durable_subscription = DurableSubscriptionState::WaitingForCursor;
+        Ok(())
+    }
+
+    fn cancel_notice_subscription(&self) {
+        let Ok(mut events) = self.events.lock() else {
+            return;
+        };
+        if events.durable_subscription == DurableSubscriptionState::WaitingForCursor {
+            events.durable_subscription = DurableSubscriptionState::NotStarted;
+            events.retained_durable.clear();
+        }
+    }
+
+    fn complete_notice_subscription(&self, sequence: u64) -> Result<(), ReaderFailure> {
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|_| ReaderFailure::InvalidFrame("event state is poisoned".into()))?;
+        if events.durable_subscription != DurableSubscriptionState::WaitingForCursor {
+            return Err(ReaderFailure::InvalidFrame(
+                "durable notice subscription cursor arrived without a pending subscription".into(),
+            ));
+        }
+        if let Some(first_sequence) = events
+            .retained_durable
+            .front()
+            .and_then(|event| event.delivery.as_ref())
+            .map(|delivery| delivery.sequence)
+        {
+            let Some(expected_sequence) = sequence.checked_add(1) else {
+                return Err(ReaderFailure::InvalidFrame(format!(
+                    "durable notice sequence overflowed after {sequence}",
+                )));
+            };
+            if first_sequence != expected_sequence {
+                return Err(ReaderFailure::InvalidFrame(format!(
+                    "durable notice sequence {first_sequence} did not match resumed sequence {expected_sequence}",
+                )));
+            }
+        }
+        events.acknowledged_sequence = sequence;
+        events.durable_subscription = DurableSubscriptionState::Active;
+        for event in events.retained_durable.iter().cloned().collect::<Vec<_>>() {
+            Self::publish_to_event_subscribers(&mut events, event)?;
+        }
+        Ok(())
     }
 
     fn acknowledge_sequence(&self, sequence: u64) -> ProviderResult<()> {
         let mut events =
             self.events.lock().map_err(|_| ProviderClientError::StatePoisoned("event"))?;
+        if events.durable_subscription != DurableSubscriptionState::Active {
+            return Err(ProviderClientError::Protocol(
+                "durable notice acknowledgement preceded subscription".into(),
+            ));
+        }
         if sequence < events.acknowledged_sequence {
             return Err(ProviderClientError::Protocol(format!(
                 "durable notice cursor moved backward from {} to {sequence}",
@@ -778,9 +871,21 @@ impl ProviderClient {
         consumer_id: OpaqueId,
     ) -> ProviderResult<SubscribeNoticesResult> {
         self.require_capability(DURABLE_NOTICES_CAPABILITY)?;
-        let result: SubscribeNoticesResult = self
-            .request(ProviderRequest::SubscribeNotices(SubscribeNoticesParams { consumer_id }))?;
-        self.inner.acknowledge_sequence(result.sequence)?;
+        self.inner.begin_notice_subscription()?;
+        let result: SubscribeNoticesResult = match self
+            .request(ProviderRequest::SubscribeNotices(SubscribeNoticesParams { consumer_id }))
+        {
+            Ok(result) => result,
+            Err(error) => {
+                self.inner.cancel_notice_subscription();
+                self.inner.mark_disconnected(ReaderFailure::Disconnected);
+                return Err(error);
+            }
+        };
+        if let Err(failure) = self.inner.complete_notice_subscription(result.sequence) {
+            self.inner.mark_disconnected(failure.clone());
+            return Err(failure.into());
+        }
         Ok(result)
     }
 
@@ -830,12 +935,14 @@ impl ProviderClient {
         // Recheck while holding the same lock used by disconnection cleanup so
         // a receiver cannot be registered after the cleanup drain has passed.
         self.ensure_live()?;
-        for retained in events.retained_durable.iter().cloned() {
-            queue.publish(retained).map_err(|()| {
-                ProviderClientError::Protocol(
-                    "retained durable notice backlog exceeded subscriber capacity".into(),
-                )
-            })?;
+        if events.durable_subscription == DurableSubscriptionState::Active {
+            for retained in events.retained_durable.iter().cloned() {
+                queue.publish(retained).map_err(|()| {
+                    ProviderClientError::Protocol(
+                        "retained durable notice backlog exceeded subscriber capacity".into(),
+                    )
+                })?;
+            }
         }
         events.subscribers.push(Arc::downgrade(&queue));
         Ok(ProviderEventReceiver { queue })
@@ -844,7 +951,8 @@ impl ProviderClient {
     pub(crate) fn has_retained_durable_notices(&self) -> ProviderResult<bool> {
         let events =
             self.inner.events.lock().map_err(|_| ProviderClientError::StatePoisoned("event"))?;
-        Ok(!events.retained_durable.is_empty())
+        Ok(events.durable_subscription == DurableSubscriptionState::Active
+            && !events.retained_durable.is_empty())
     }
 
     pub(crate) fn is_live(&self) -> bool {
@@ -1657,6 +1765,70 @@ mod tests {
     }
 
     #[test]
+    fn durable_notice_replay_waits_for_the_resumed_subscription_cursor() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[DURABLE_NOTICES_CAPABILITY],
+            );
+
+            let subscribe: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(
+                subscribe.request,
+                ProviderRequest::SubscribeNotices(SubscribeNoticesParams {
+                    ref consumer_id
+                }) if consumer_id == &id("cmux-process-1")
+            ));
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(
+                    ProviderEvent::Notice(ProviderNotice {
+                        level: NoticeLevel::Warning,
+                        message: "trial has ten minutes remaining".into(),
+                    }),
+                    NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 },
+                ),
+            );
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 41 }),
+            );
+            finished.recv().expect("hold provider connection open");
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert_eq!(
+            provider.subscribe_notices(id("cmux-process-1")).expect("resume durable subscription"),
+            SubscribeNoticesResult { sequence: 41 }
+        );
+        assert!(provider.is_live(), "valid replay closed the provider connection");
+        let events = provider.subscribe_events().expect("subscribe to retained events");
+        assert_eq!(
+            events
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive replay after cursor initialization")
+                .delivery,
+            Some(NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 })
+        );
+
+        finish.send(()).expect("finish provider server");
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
     fn durable_notice_methods_are_rejected_without_the_capability() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
@@ -1740,6 +1912,7 @@ mod tests {
     fn durable_notice_sequences_must_be_contiguous() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept control socket");
             let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
@@ -1761,6 +1934,11 @@ mod tests {
                     NoticeDelivery { notice_id: id("usage-warning-skipped"), sequence: 2 },
                 ),
             );
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 0 }),
+            );
+            finished.recv().expect("hold provider connection open");
         });
 
         let (provider, _) = ProviderClient::connect_authenticated(
@@ -1771,6 +1949,7 @@ mod tests {
         .expect("authenticate provider");
         assert!(provider.subscribe_notices(id("cmux-process-1")).is_err());
         assert!(!provider.is_live());
+        finish.send(()).expect("finish provider server");
         drop(provider);
         server.join().expect("join fake provider");
     }

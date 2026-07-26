@@ -10,7 +10,7 @@ The machine list and built-in workspace list use the same rail renderer, selecti
 
 `Ctrl-b S` focuses the workspace rail. Left or `h` moves to the machine rail, and Right or `l` returns to the workspace rail. Up/Down or `k`/`j` changes the selected machine. Home, End, PageUp, and PageDown move through long catalogs. Enter connects to the selected machine or invokes the selected footer action. Esc returns focus to the active pane. Mouse clicks focus either rail; a machine switch occurs on release over the same machine row. Drag either divider to resize only that rail. Wheel input scrolls the rail body, or the footer when a very short terminal clips its actions.
 
-The static catalog shows `+ Connect machine`. It accepts one `host` or `user@host` without whitespace, adds an SSH target for the current process, and connects to its `main` session. This temporary target is not written to configuration. `+ New VM` is capability-gated and does not appear for the static catalog.
+The static catalog shows `+ Connect machine`. It accepts one `host` or `user@host` without whitespace, adds an SSH target for the current process, and connects to its `main` session. This temporary target is not written to configuration. `+ new machine` is capability-gated and does not appear for the static catalog.
 
 ## Static targets
 
