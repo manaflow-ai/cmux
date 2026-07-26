@@ -2924,7 +2924,7 @@ mod tests {
             display_name: "Paired mini".into(),
             subtitle: "external".into(),
             status: protocol::MachineStatus::Running,
-            connectable: true,
+            connectable: false,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
@@ -3071,6 +3071,13 @@ mod tests {
         assert_eq!(accepted.ui.request, Some(MachineRequest::ReconnectProvider));
 
         let reconnected = controller.perform_request(MachineRequest::ReconnectProvider).unwrap();
+        let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
+        assert_eq!(reconnected.ui.snapshot.active, Some(local_key));
+        assert!(reconnected.ui.request.is_none());
+
+        controller.provider.snapshot.machines[1].connectable = true;
+        let provider_update = controller.provider.ui_state_for_open_connection();
+        let available = controller.merge_local_ui(provider_update);
         let paired = reconnected
             .ui
             .snapshot
@@ -3078,8 +3085,8 @@ mod tests {
             .iter()
             .find(|machine| machine.id == "paired-machine")
             .unwrap();
-        assert_eq!(reconnected.ui.snapshot.active, Some(paired.key));
-        assert_eq!(reconnected.ui.request, Some(MachineRequest::Switch(paired.key)));
+        assert_eq!(available.snapshot.active, Some(paired.key));
+        assert_eq!(available.request, Some(MachineRequest::Switch(paired.key)));
 
         finish.send(()).unwrap();
         controller.close();
