@@ -657,6 +657,24 @@ mod tests {
         assert!(message.contains("Stopping exits pane processes."));
     }
 
+    #[test]
+    fn replayable_launcher_override_survives_one_shot_package_shims() {
+        let argv0 = std::ffi::OsStr::new("/tmp/ephemeral/bin/cmux");
+
+        assert_eq!(
+            launcher_command_from(Some(std::ffi::OsStr::new("npx cmux")), Some(argv0)),
+            "npx cmux"
+        );
+        assert_eq!(
+            launcher_command_from(Some(std::ffi::OsStr::new("uvx cmux")), Some(argv0)),
+            "uvx cmux"
+        );
+        assert_eq!(
+            launcher_command_from(Some(std::ffi::OsStr::new("bad\ncommand")), Some(argv0)),
+            "/tmp/ephemeral/bin/cmux"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn legacy_stop_terminates_only_the_identified_process() {
