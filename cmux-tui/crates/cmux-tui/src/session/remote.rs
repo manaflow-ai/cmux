@@ -2122,7 +2122,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_shortcut_uses_plain_clear_on_intermediate_remote_server() {
+    fn intermediate_remote_server_keeps_plain_clear_but_forwards_shortcut_key() {
         let session_slot = Arc::new(Mutex::new(None));
         let requests = Arc::new(Mutex::new(Vec::new()));
         let session = test_session_with_provider_context(
@@ -2159,20 +2159,19 @@ mod tests {
         {
             let recorded = requests.lock().unwrap();
             assert_eq!(recorded.len(), 1);
-            assert_eq!(recorded[0]["cmd"], "clear-history");
-            assert_eq!(recorded[0]["surface"], 7);
-            assert_eq!(recorded[0]["fallback_key"], Value::Null);
+            assert_eq!(recorded[0]["cmd"], "send");
+            let encoded = recorded[0]["bytes"].as_str().unwrap();
+            assert_eq!(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap(), b"\x0c");
         }
 
-        session.surface(7).unwrap().term.lock().unwrap().vt_write(b"\x1b[?1049h");
         requests.lock().unwrap().clear();
-        session.clear_history_or_send_key(7, &fallback).unwrap();
+        session.clear_history(7).unwrap();
 
         let recorded = requests.lock().unwrap();
         assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0]["cmd"], "send");
-        let encoded = recorded[0]["bytes"].as_str().unwrap();
-        assert_eq!(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap(), b"\x0c");
+        assert_eq!(recorded[0]["cmd"], "clear-history");
+        assert_eq!(recorded[0]["surface"], 7);
+        assert_eq!(recorded[0]["fallback_key"], Value::Null);
     }
 
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
