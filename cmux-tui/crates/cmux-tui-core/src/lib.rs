@@ -36,7 +36,7 @@ pub use layout::{
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
+    CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, LayoutUndoResult, Mux, MuxEvent,
     NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, RunPlacement,
     SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,

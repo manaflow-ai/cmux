@@ -39,7 +39,7 @@ Wheel over a PTY pane focuses that pane first. When the inner app enables termin
 
 Drag pane borders to resize the matching split. Dragging a corner adjusts both intersecting split axes. Ordinary split ratios are clamped from 0.05 to 0.95. Outer edges that do not correspond to a split do not change layout.
 
-On a horizontally scrollable screen, drag either side of a column divider to resize the column on its left. Drag the final column's right border to resize that column. Column widths are clamped from one tenth through one full viewport. Splits inside each column remain independently resizable.
+On a horizontally scrollable screen, drag either side of a column divider to resize the column on its left. Drag the final column's right border to resize that column. Column widths are clamped from one tenth through one full viewport. Splits inside each column remain independently resizable. One continuous divider drag is coalesced into one `Ctrl-b U` layout-undo entry.
 
 Drag a rail border to resize that rail for the current TUI session. The configured base widths come from `machine_sidebar.width` and `sidebar.width`, and each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
 

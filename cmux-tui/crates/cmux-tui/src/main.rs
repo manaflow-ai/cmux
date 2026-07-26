@@ -280,6 +280,7 @@ KEYS (prefix: Ctrl-b)
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
   w  next workspace    W    new workspace       s    toggle sidebar
   e  toggle sidebar view   S    focus sidebar   g    new 2/3 pane right
+  U  undo layout
   <  browser back      >    browser forward     r/u  browser reload/edit URL
   Ctrl-b  send a literal Ctrl-b
 
@@ -297,7 +298,7 @@ CLI VERBS
   list-workspaces, export-layout, apply-layout, send,
   read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, new-pane, new-pane-right, split, set-ratio, set-split-ratio,
-  set-viewport-pane-width,
+  set-viewport-pane-width, undo-layout,
   pane-neighbor, focus-direction,
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,
@@ -1536,6 +1537,8 @@ mod tests {
     fn startup_help_lists_viewport_pane_action() {
         assert!(USAGE.contains("g    new 2/3 pane right"));
         assert!(USAGE.contains("new-pane-right"));
+        assert!(USAGE.contains("U  undo layout"));
+        assert!(USAGE.contains("undo-layout"));
     }
 
     #[test]

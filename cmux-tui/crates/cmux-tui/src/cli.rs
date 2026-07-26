@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
+use cmux_tui_core::server::{
+    LAYOUT_UNDO_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+};
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
@@ -254,6 +256,12 @@ const VERBS: &[VerbSpec] = &[
         help: "Set the viewport width of the column containing a pane.",
         allowed: &["pane", "width"],
         kind: socket(build_set_viewport_pane_width, print_empty, false),
+    },
+    VerbSpec {
+        name: "undo-layout",
+        help: "Undo the latest structural layout change.",
+        allowed: &["pane", "revision", "confirm-close"],
+        kind: socket(build_undo_layout, print_layout_undo, false),
     },
     VerbSpec {
         name: "pane-neighbor",
@@ -597,6 +605,7 @@ fn run_command(args: CliArgs) -> i32 {
     let required_capability = match request.get("cmd").and_then(Value::as_str) {
         Some("new-pane-right") => Some(VIEWPORT_SPLITS_CAPABILITY),
         Some("set-viewport-pane-width") => Some(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+        Some("undo-layout") => Some(LAYOUT_UNDO_CAPABILITY),
         _ => None,
     };
     if let Some(capability) = required_capability {
@@ -694,6 +703,7 @@ fn server_supports_capability(
 fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
     (spec.name == "run" && name == "new-workspace")
         || (spec.name == "send" && name == "paste")
+        || (spec.name == "undo-layout" && name == "confirm-close")
         || (spec.name == "plugin" && matches!(name, "force" | "builtin"))
 }
 
@@ -1139,6 +1149,15 @@ fn build_set_viewport_pane_width(flags: &FlagMap) -> Result<Value, UsageError> {
     }))
 }
 
+fn build_undo_layout(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({
+        "pane": flags.required_u64("pane")?,
+        "confirm_close": flags.optional("confirm-close").is_some(),
+    });
+    flags.insert_optional_u64(&mut value, "revision")?;
+    Ok(value)
+}
+
 fn required_viewport_width(flags: &FlagMap) -> Result<f32, UsageError> {
     let width = flags.required_f32("width")?;
     if !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
@@ -1496,6 +1515,30 @@ fn print_surface(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "{}", data.get("surface").and_then(Value::as_u64).unwrap_or(0))
 }
 
+fn print_layout_undo(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let screen = data.get("screen").and_then(Value::as_u64).unwrap_or(0);
+    let revision = data.get("revision").and_then(Value::as_u64).unwrap_or(0);
+    if data.get("undone").and_then(Value::as_bool) == Some(true) {
+        return writeln!(out, "undone screen={screen} revision={revision}");
+    }
+    let panes = data
+        .get("closes_panes")
+        .and_then(Value::as_array)
+        .map(|panes| {
+            panes
+                .iter()
+                .filter_map(Value::as_u64)
+                .map(|pane| pane.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    writeln!(
+        out,
+        "confirmation required: rerun with --revision {revision} --confirm-close (closes panes {panes})"
+    )
+}
+
 fn print_notification(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "{}", data.get("notification").and_then(Value::as_u64).unwrap_or(0))
 }
@@ -1813,6 +1856,38 @@ mod tests {
             assert!(build_new_pane_right(&flags).is_err(), "accepted width {width}");
             assert!(build_set_viewport_pane_width(&flags).is_err(), "accepted width {width}");
         }
+    }
+
+    #[test]
+    fn layout_undo_builder_and_printer_preserve_the_confirmation_revision() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("revision".to_string(), "42".to_string()),
+                ("confirm-close".to_string(), "true".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_undo_layout(&flags).unwrap(),
+            json!({"pane": 7, "revision": 42, "confirm_close": true})
+        );
+
+        let mut output = Vec::new();
+        print_layout_undo(
+            &json!({
+                "undone": false,
+                "screen": 3,
+                "revision": 42,
+                "closes_panes": [7, 8],
+            }),
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "confirmation required: rerun with --revision 42 --confirm-close (closes panes 7,8)\n"
+        );
     }
 
     #[test]

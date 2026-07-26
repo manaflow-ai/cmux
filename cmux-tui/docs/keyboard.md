@@ -15,7 +15,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
-| `Alt-n` | Create a pane with Zellij's default vertical auto-layout |
+| `Alt-n` | Create a pane with Zellij's default auto-layout in the focused horizontal column |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
 | `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
@@ -41,6 +41,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
+| `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -62,6 +63,8 @@ When a screen is wider than the viewport, `h`/`l`, Left/Right, and their modeles
 
 On a screen created with `Ctrl-b g`, `Alt-=` and `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
 
+`Ctrl-b U` undoes the latest pane creation, split resize, column resize, swap, zoom, or automatic-layout change on the focused screen. Repeated resize updates to one divider form one undo entry. An undo that closes a created pane opens a confirmation prompt; type `CONFIRM` to close its PTY and commit the undo. Closing a pane directly clears that screen's undo history because a closed process cannot be restored.
+
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `cmux-tui.json`.
@@ -78,7 +81,7 @@ When the optional machine rail is visible, `Ctrl-b S` still enters through the w
 
 ## Modeless Alt Layer
 
-Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
+Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence inside the focused horizontal column: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded. A screen without horizontal columns is one implicit column, preserving the previous whole-screen behavior.
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 
@@ -160,6 +163,7 @@ toggle-sidebar
 toggle-sidebar-view
 focus-sidebar
 new-pane-right
+undo-layout
 focus-left
 focus-right
 focus-up

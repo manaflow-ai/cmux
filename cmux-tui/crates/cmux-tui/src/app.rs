@@ -18,10 +18,10 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, MAX_VIEWPORT_PANE_WIDTH,
-    MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId, Rect, ScreenId, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, ViewportColumn, WorkspaceId,
-    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, LayoutUndoResult,
+    MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId,
+    Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, ViewportColumn,
+    WorkspaceId, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
@@ -589,6 +589,9 @@ pub struct SessionCompletion {
 enum SessionCompletionAction {
     SurfaceCreated { surface: SurfaceId },
     BrowserTabCreated { surface: SurfaceId },
+    LayoutUndoConfirmation { pane: PaneId, revision: u64 },
+    LayoutUndoUnavailable,
+    LayoutUndoStale,
 }
 
 struct PendingSessionMutationState {
@@ -1874,6 +1877,37 @@ impl OrderedSession {
         Ok(())
     }
 
+    pub fn undo_layout(
+        &self,
+        pane: PaneId,
+        revision: Option<u64>,
+        confirm_close: bool,
+    ) -> anyhow::Result<()> {
+        self.enqueue_with_completion("undo layout", true, move |session| {
+            let result = match session.undo_layout(pane, revision, confirm_close) {
+                Ok(result) => result,
+                Err(error) if error.to_string() == "no layout change to undo" => {
+                    return Ok(Some(SessionCompletionAction::LayoutUndoUnavailable));
+                }
+                Err(error)
+                    if confirm_close
+                        && (error.to_string().contains("layout revision")
+                            || error.to_string().contains("layout changed")) =>
+                {
+                    return Ok(Some(SessionCompletionAction::LayoutUndoStale));
+                }
+                Err(error) => return Err(error),
+            };
+            match result {
+                LayoutUndoResult::Undone { .. } => Ok(None),
+                LayoutUndoResult::ConfirmationRequired { revision, .. } => {
+                    Ok(Some(SessionCompletionAction::LayoutUndoConfirmation { pane, revision }))
+                }
+            }
+        });
+        Ok(())
+    }
+
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) {
         self.set_split_ratio_deferred(split, ratio);
         self.settle_split_ratio();
@@ -2767,6 +2801,7 @@ pub enum PromptTarget {
     ConnectMachine,
     ProviderAction(usize),
     ConfirmProviderAction(usize),
+    ConfirmLayoutUndo { pane: PaneId, revision: u64 },
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
@@ -5153,6 +5188,22 @@ impl App {
                     self.focus_omnibar_with_buffer(pane, String::new(), false);
                 }
             }
+            SessionCompletionAction::LayoutUndoConfirmation { pane, revision } => {
+                self.cancel_pty_mouse_drag();
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().sidebar.confirm_layout_undo,
+                    String::new(),
+                    PromptTarget::ConfirmLayoutUndo { pane, revision },
+                ));
+            }
+            SessionCompletionAction::LayoutUndoUnavailable => {
+                self.status_message =
+                    Some(localization::catalog().sidebar.layout_nothing_to_undo.to_string());
+            }
+            SessionCompletionAction::LayoutUndoStale => {
+                self.status_message =
+                    Some(localization::catalog().sidebar.layout_undo_stale.to_string());
+            }
         }
     }
 
@@ -6961,10 +7012,26 @@ impl App {
         let Some(hint) = self.tree.active_screen().and_then(|screen| {
             let mut panes = Vec::new();
             screen.layout.pane_ids(&mut panes);
+            let mut local_area = self.content_area;
+            if !screen.viewport_splits.is_empty() {
+                let owner = screen.layout.viewport_column_owner(pane, &screen.viewport_splits)?;
+                panes.retain(|candidate| {
+                    screen.layout.viewport_column_owner(*candidate, &screen.viewport_splits)
+                        == Some(owner)
+                });
+                let width = match owner {
+                    ViewportColumn::Base => screen.viewport_base_width.unwrap_or(1.0),
+                    ViewportColumn::Split(split) => {
+                        screen.viewport_splits.get(&split).copied().unwrap_or(1.0)
+                    }
+                };
+                local_area.width =
+                    ((f32::from(self.content_area.width) * width).round() as u16).max(1);
+            }
             panes.push(PaneId::MAX);
             let layout = zellij_default_pane_layout(&panes)?;
-            let rect = layout_screen(&layout, self.content_area, Some(PaneId::MAX))
-                .rect_of(PaneId::MAX)?;
+            let rect =
+                layout_screen(&layout, local_area, Some(PaneId::MAX)).rect_of(PaneId::MAX)?;
             self.size_of_rect(rect)
         }) else {
             return Ok(());
@@ -7885,6 +7952,23 @@ impl App {
             }
             return;
         }
+        if let PromptTarget::ConfirmLayoutUndo { pane, revision } = prompt.target {
+            if input.trim() != "CONFIRM" {
+                self.status_message =
+                    Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
+                self.prompt = Some(prompt);
+                self.shake_frames = 6;
+                return;
+            }
+            if !self.prepare_pty_input_before_mutation() {
+                self.prompt = Some(prompt);
+                return;
+            }
+            if let Err(error) = self.session.undo_layout(pane, Some(revision), true) {
+                self.status_message = Some(error.to_string());
+            }
+            return;
+        }
         if !self.prepare_pty_input_before_mutation() {
             return;
         }
@@ -7904,7 +7988,8 @@ impl App {
             | PromptTarget::ProviderAction(_)
             | PromptTarget::ConfirmProviderAction(_)
             | PromptTarget::ManagedWorkspace(_)
-            | PromptTarget::ConfirmPurgeManagedWorkspace(_) => {
+            | PromptTarget::ConfirmPurgeManagedWorkspace(_)
+            | PromptTarget::ConfirmLayoutUndo { .. } => {
                 unreachable!("handled before session mutation")
             }
         }
@@ -8168,6 +8253,11 @@ impl App {
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
             Action::NewPaneRight => self.new_pane_right()?,
+            Action::UndoLayout => {
+                if let Some(pane) = pane {
+                    self.session.undo_layout(pane, None, false)?;
+                }
+            }
             Action::FocusLeft => self.move_focus(Direction::Left),
             Action::FocusRight => self.move_focus(Direction::Right),
             Action::FocusUp => self.move_focus(Direction::Up),
@@ -11677,6 +11767,94 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn layout_undo_action_confirms_before_closing_a_created_pane() {
+        let mux = Mux::new("layout-undo-action-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let base = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let right = mux
+            .new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+
+        app.run_action(Action::UndoLayout).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::ConfirmLayoutUndo { pane, .. }) if pane == right_pane
+        ));
+        assert!(mux.surface(right.id).is_some());
+
+        app.prompt.as_mut().unwrap().input.insert_str("confirm");
+        app.commit_prompt();
+        assert!(app.prompt.is_some());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.confirmation_mismatch)
+        );
+
+        app.prompt.as_mut().unwrap().input.clear();
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(app.prompt.is_none());
+        assert!(mux.surface(right.id).is_none());
+        assert_eq!(app.tree.active_screen().unwrap().layout.pane_ids_vec(), vec![base]);
+
+        app.run_action(Action::UndoLayout).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.layout_nothing_to_undo)
+        );
+    }
+
+    #[test]
+    fn stale_layout_undo_confirmation_keeps_the_created_pane() {
+        let mux = Mux::new("stale-layout-undo-action-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let base = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let right = mux
+            .new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+
+        app.run_action(Action::UndoLayout).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(app.prompt.is_some());
+        assert!(mux.set_viewport_pane_width(right_pane, 0.5));
+
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        app.commit_prompt();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert!(mux.surface(right.id).is_some());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().sidebar.layout_undo_stale)
+        );
+
+        mux.close_pane(right_pane).unwrap();
     }
 
     #[test]

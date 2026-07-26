@@ -48,16 +48,17 @@ use crate::platform::{self, transport};
 use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
-    Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind,
-    SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId,
+    RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
+    WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -460,6 +461,13 @@ enum Command {
     SetViewportPaneWidth {
         pane: PaneId,
         width: f32,
+    },
+    UndoLayout {
+        pane: PaneId,
+        #[serde(default)]
+        revision: Option<u64>,
+        #[serde(default)]
+        confirm_close: bool,
     },
     PaneNeighbor {
         pane: PaneId,
@@ -2978,6 +2986,7 @@ fn handle_command(
                     WORKSPACE_REGISTRY_CAPABILITY,
                     VIEWPORT_SPLITS_CAPABILITY,
                     VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+                    LAYOUT_UNDO_CAPABILITY,
                     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
                 ],
                 "session": mux.session,
@@ -3731,6 +3740,24 @@ fn handle_command(
                 anyhow::bail!("pane {pane} has no resizable viewport column");
             }
             Ok(json!({}))
+        }
+        Command::UndoLayout { pane, revision, confirm_close } => {
+            match mux.undo_layout(pane, revision, confirm_close)? {
+                LayoutUndoResult::Undone { screen, revision } => Ok(json!({
+                    "undone": true,
+                    "screen": screen,
+                    "revision": revision,
+                })),
+                LayoutUndoResult::ConfirmationRequired { screen, revision, closes_panes } => {
+                    Ok(json!({
+                        "undone": false,
+                        "confirmation_required": true,
+                        "screen": screen,
+                        "revision": revision,
+                        "closes_panes": closes_panes,
+                    }))
+                }
+            }
         }
         Command::PaneNeighbor { pane, dir } => {
             let dir = parse_direction(&dir)?;
@@ -6504,10 +6531,53 @@ mod tests {
             "workspace-registry-v1",
             VIEWPORT_SPLITS_CAPABILITY,
             VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+            LAYOUT_UNDO_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+    }
+
+    #[test]
+    fn layout_undo_protocol_requires_the_preview_revision_before_closing_a_pane() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let writer = test_writer();
+
+        let preview = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: None, confirm_close: false },
+            &writer,
+        )
+        .unwrap();
+        let revision = preview["revision"].as_u64().expect("preview revision");
+        assert_eq!(preview["undone"].as_bool(), Some(false));
+        assert_eq!(preview["confirmation_required"].as_bool(), Some(true));
+        assert_eq!(preview["closes_panes"], json!([right_pane]));
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: None, confirm_close: true },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("requires the preview revision"));
+        assert!(mux.surface(right.id).is_some());
+
+        let result = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: Some(revision), confirm_close: true },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(result["undone"].as_bool(), Some(true));
+        assert!(mux.surface(right.id).is_none());
     }
 
     #[test]

@@ -99,6 +99,7 @@
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
 //! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
 //! `new-pane-right`,
+//! `undo-layout`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
@@ -849,6 +850,7 @@ pub enum Action {
     ToggleSidebarView,
     FocusSidebar,
     NewPaneRight,
+    UndoLayout,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -895,6 +897,7 @@ impl Action {
             Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
             Action::FocusSidebar => "focus-sidebar".to_string(),
             Action::NewPaneRight => "new-pane-right".to_string(),
+            Action::UndoLayout => "undo-layout".to_string(),
             Action::FocusLeft => "focus-left".to_string(),
             Action::FocusRight => "focus-right".to_string(),
             Action::FocusUp => "focus-up".to_string(),
@@ -1002,6 +1005,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('g'), Action::NewPaneRight),
+                bind(KeyCode::Char('U'), Action::UndoLayout),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
@@ -1161,6 +1165,7 @@ fn all_actions() -> &'static [Action] {
         Action::ToggleSidebarView,
         Action::FocusSidebar,
         Action::NewPaneRight,
+        Action::UndoLayout,
         Action::FocusLeft,
         Action::FocusRight,
         Action::FocusUp,
@@ -2702,6 +2707,15 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_has_a_default_prefix_binding() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('U'), KeyModifiers::SHIFT)),
+            Some(Action::UndoLayout)
+        );
+    }
+
+    #[test]
     fn new_action_names_parse_from_config_overrides() {
         let cases = [
             ("zoom-pane", Action::ZoomPane),
@@ -2711,6 +2725,7 @@ mod tests {
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
             ("new-pane-right", Action::NewPaneRight),
+            ("undo-layout", Action::UndoLayout),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();

@@ -65,7 +65,10 @@ pub(crate) struct SidebarMessages {
     pub action_above_maximum: &'static str,
     pub action_multiple_fields_unsupported: &'static str,
     pub confirm_destructive_action: &'static str,
+    pub confirm_layout_undo: &'static str,
     pub confirmation_mismatch: &'static str,
+    pub layout_nothing_to_undo: &'static str,
+    pub layout_undo_stale: &'static str,
     pub initial_machine_connection_failed: &'static str,
     pub machine_provider_disconnected: &'static str,
     pub machine_action_failed: &'static str,
@@ -189,7 +192,10 @@ static ENGLISH: Catalog = Catalog {
         action_above_maximum: "This number is above the allowed maximum",
         action_multiple_fields_unsupported: "This action needs a form that this client cannot show",
         confirm_destructive_action: "Type CONFIRM to continue",
+        confirm_layout_undo: "Type CONFIRM to close the new pane",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
+        layout_nothing_to_undo: "Nothing to undo",
+        layout_undo_stale: "The layout changed; undo was not applied",
         initial_machine_connection_failed: "Could not connect",
         machine_provider_disconnected: "Machine provider disconnected; reconnecting",
         machine_action_failed: "Machine action failed",
@@ -269,7 +275,10 @@ static JAPANESE: Catalog = Catalog {
         action_above_maximum: "この数値は許可された最大値を超えています",
         action_multiple_fields_unsupported: "この操作に必要なフォームをこのクライアントでは表示できません",
         confirm_destructive_action: "続行するには CONFIRM と入力",
+        confirm_layout_undo: "新規ペインを閉じる: CONFIRM",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
+        layout_nothing_to_undo: "元に戻せるレイアウト操作はありません",
+        layout_undo_stale: "レイアウトが変更されたため、元に戻す操作は適用されませんでした",
         initial_machine_connection_failed: "マシンに接続できませんでした",
         machine_provider_disconnected: "マシンプロバイダーから切断されました。再接続しています",
         machine_action_failed: "マシン操作に失敗しました",
@@ -355,6 +364,22 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_invalid,
             "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.confirm_layout_undo,
+            "Type CONFIRM to close the new pane"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.confirm_layout_undo,
+            "新規ペインを閉じる: CONFIRM"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.layout_nothing_to_undo,
+            "元に戻せるレイアウト操作はありません"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.layout_undo_stale,
+            "レイアウトが変更されたため、元に戻す操作は適用されませんでした"
         );
     }
 

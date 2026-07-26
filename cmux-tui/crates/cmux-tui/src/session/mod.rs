@@ -14,13 +14,13 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use cmux_tui_core::server::{
-    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-    VIEWPORT_SPLITS_CAPABILITY,
+    LAYOUT_UNDO_CAPABILITY, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    SurfaceResizeReporter, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserStatus, DefaultColors, LayoutUndoResult, Mux, MuxEventReceiver, PaneId,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind,
+    SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde::Deserialize;
@@ -792,6 +792,58 @@ impl Session {
                         "width": width,
                     }))
                     .map(|_| ())
+            }
+        }
+    }
+
+    pub fn undo_layout(
+        &self,
+        pane: PaneId,
+        revision: Option<u64>,
+        confirm_close: bool,
+    ) -> anyhow::Result<LayoutUndoResult> {
+        match self {
+            Session::Local(mux) => mux.undo_layout(pane, revision, confirm_close),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(LAYOUT_UNDO_CAPABILITY) {
+                    anyhow::bail!(
+                        "remote cmux server does not support layout undo; upgrade the server"
+                    );
+                }
+                let result = remote.request(json!({
+                    "cmd": "undo-layout",
+                    "pane": pane,
+                    "revision": revision,
+                    "confirm_close": confirm_close,
+                }))?;
+                let screen = result
+                    .get("screen")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| anyhow::anyhow!("layout undo response is missing screen"))?;
+                let revision = result
+                    .get("revision")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| anyhow::anyhow!("layout undo response is missing revision"))?;
+                if result.get("undone").and_then(serde_json::Value::as_bool) == Some(true) {
+                    return Ok(LayoutUndoResult::Undone { screen, revision });
+                }
+                if result.get("confirmation_required").and_then(serde_json::Value::as_bool)
+                    != Some(true)
+                {
+                    anyhow::bail!("layout undo response has no outcome");
+                }
+                let closes_panes = result
+                    .get("closes_panes")
+                    .and_then(serde_json::Value::as_array)
+                    .ok_or_else(|| anyhow::anyhow!("layout undo response is missing closes_panes"))?
+                    .iter()
+                    .map(|value| {
+                        value.as_u64().ok_or_else(|| {
+                            anyhow::anyhow!("layout undo response contains an invalid pane")
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                Ok(LayoutUndoResult::ConfirmationRequired { screen, revision, closes_panes })
             }
         }
     }

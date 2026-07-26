@@ -16,7 +16,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","viewport-column-resize-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -41,6 +41,8 @@ common flows rather than duplicating the exhaustive command list.
 `viewport-splits-v1` adds `new-pane-right` and a `viewport_splits` array to screen snapshots that use horizontal viewport columns. Each entry identifies a stable split id and gives the right child's width as a fraction of the frontend viewport. Frontends that implement it render the existing tree at one viewport width, append the marked right child, and expose horizontal viewport movement. Ordinary screen snapshots omit this viewport-only metadata. Other clients can ignore it and use the split ratio.
 
 `viewport-column-resize-v1` adds `set-viewport-pane-width` and `viewport_base_width`. Widths remain frontend-relative, from 0.1 through 1.0. Clients must require this capability before sending the resize command. An older server still renders the fallback split ratios and rejects the unknown command without changing layout.
+
+`layout-undo-v1` adds server-owned structural layout history and `undo-layout`. A creation undo first returns `confirmation_required`, the pane ids it would close, and a layout revision. The client must show that consequence and resend the exact revision with `confirm_close:true`. A stale revision fails without closing a pane. Resize-only and other non-destructive entries undo in one request.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
