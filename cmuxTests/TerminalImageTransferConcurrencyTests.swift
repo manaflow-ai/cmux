@@ -55,6 +55,36 @@ struct TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
+    @Test("existing file URLs bypass worker-file adoption")
+    func existingFileURLSurvivesWorkerTransport() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-tests-existing-file-\(UUID().uuidString).txt"
+            )
+        try Data("existing".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-existing-file-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        #expect(pasteboard.writeObjects([fileURL as NSURL]))
+
+        let preparedContent = await TerminalImageTransferPlanner.prepare(
+            pasteboard: pasteboard,
+            mode: .paste
+        )
+
+        #expect(
+            preparedContent == .fileURLs([fileURL.standardizedFileURL])
+        )
+    }
+
+    @MainActor
     @Test("large plain text crosses the bounded worker envelope")
     func largePlainTextCrossesWorkerEnvelope() async {
         let pasteboard = NSPasteboard(
