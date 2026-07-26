@@ -2903,6 +2903,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
         private(set) var reattachRenderingStateCount = 0
+        private(set) var viewDidUnhideCount = 0
         private(set) var enterInWindowCount = 0
         private(set) var endDeferringViewInWindowChangesCount = 0
         private(set) var setNeedsDisplayCount = 0
@@ -2915,6 +2916,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         override func displayIfNeeded() {
             displayIfNeededCount += 1
             super.displayIfNeeded()
+        }
+
+        override func viewDidUnhide() {
+            viewDidUnhideCount += 1
+            reattachRenderingStateCount += 1
         }
 
         @objc(_enterInWindow)
@@ -4278,6 +4284,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             visibleInUI: true
         )
         await waitForNextMainTurn()
+        let viewDidUnhideCountBeforeRebind = webView.viewDidUnhideCount
         let enterInWindowCountBeforeRebind = webView.enterInWindowCount
         let endDeferringCountBeforeRebind = webView.endDeferringViewInWindowChangesCount
 
@@ -4287,9 +4294,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             visibleInUI: true,
             forcePresentationRefresh: true
         )
+        let viewDidUnhideCountAfterRebind = webView.viewDidUnhideCount
         let enterInWindowCountAfterRebind = webView.enterInWindowCount
         let endDeferringCountAfterRebind = webView.endDeferringViewInWindowChangesCount
 
+        XCTAssertEqual(
+            viewDidUnhideCountAfterRebind - viewDidUnhideCountBeforeRebind,
+            1,
+            "Same-anchor host replacement should invoke one synchronous AppKit unhide refresh"
+        )
         XCTAssertEqual(
             enterInWindowCountAfterRebind - enterInWindowCountBeforeRebind,
             1,
@@ -4302,6 +4315,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
 
         await waitForNextMainTurn()
+        XCTAssertEqual(webView.viewDidUnhideCount, viewDidUnhideCountAfterRebind)
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
@@ -4339,7 +4353,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         anchor1.removeFromSuperview()
         portal.synchronizeWebViewForAnchor(anchor1)
-        advanceAnimations()
+        for _ in 0..<16 {
+            await waitForNextMainTurn()
+        }
 
         XCTAssertTrue(webView.superview === slot, "Visible browser entries should not detach during transient anchor removal")
         XCTAssertTrue(
