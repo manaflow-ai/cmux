@@ -78,6 +78,12 @@ pub(crate) enum RemoteRequestError {
     Shutdown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GuardedPointerLifecycle {
+    Motion,
+    CaptureMutation,
+}
+
 impl RemoteRequestError {
     pub(crate) fn is_transport_failure(&self) -> bool {
         matches!(self, Self::Transport(_))
@@ -1400,13 +1406,18 @@ impl RemoteSession {
         }
     }
 
-    pub(super) fn request_guarded_pointer(&self, cmd: Value) -> anyhow::Result<Value> {
+    pub(super) fn request_guarded_pointer(
+        &self,
+        cmd: Value,
+        lifecycle: GuardedPointerLifecycle,
+    ) -> anyhow::Result<Value> {
         let result = self.request_with_timeout(cmd, GUARDED_POINTER_REQUEST_TIMEOUT);
-        if result
-            .as_ref()
-            .err()
-            .and_then(|error| error.downcast_ref::<RemoteRequestError>())
-            .is_some_and(RemoteRequestError::is_timeout)
+        if lifecycle == GuardedPointerLifecycle::CaptureMutation
+            && result
+                .as_ref()
+                .err()
+                .and_then(|error| error.downcast_ref::<RemoteRequestError>())
+                .is_some_and(RemoteRequestError::is_timeout)
         {
             // The server may have accepted a press whose reply was lost.
             // Closing the connection removes this client from the server
@@ -2427,10 +2438,13 @@ mod tests {
 
         assert!(
             session
-                .request_guarded_pointer(json!({
-                    "cmd": "browser-mouse-guarded",
-                    "kind": "down"
-                }))
+                .request_guarded_pointer(
+                    json!({
+                        "cmd": "browser-mouse-guarded",
+                        "kind": "down"
+                    }),
+                    GuardedPointerLifecycle::CaptureMutation
+                )
                 .unwrap_err()
                 .downcast_ref::<RemoteRequestError>()
                 .is_some_and(RemoteRequestError::is_timeout)
@@ -2446,10 +2460,13 @@ mod tests {
 
         assert!(
             session
-                .request_guarded_pointer(json!({
-                    "cmd": "browser-mouse-guarded",
-                    "kind": "move"
-                }))
+                .request_guarded_pointer(
+                    json!({
+                        "cmd": "browser-mouse-guarded",
+                        "kind": "move"
+                    }),
+                    GuardedPointerLifecycle::Motion
+                )
                 .unwrap_err()
                 .downcast_ref::<RemoteRequestError>()
                 .is_some_and(RemoteRequestError::is_timeout)

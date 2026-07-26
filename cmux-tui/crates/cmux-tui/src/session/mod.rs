@@ -1543,23 +1543,26 @@ impl SurfaceHandle {
                 let frame_seq = frame_seq.ok_or_else(|| {
                     anyhow::anyhow!("remote browser pointer input requires an admitted frame")
                 })?;
-                let kind = match event_type {
-                    "mousePressed" => "down",
-                    "mouseReleased" => "up",
-                    "mouseMoved" => "move",
+                let (kind, lifecycle) = match event_type {
+                    "mousePressed" => ("down", remote::GuardedPointerLifecycle::CaptureMutation),
+                    "mouseReleased" => ("up", remote::GuardedPointerLifecycle::CaptureMutation),
+                    "mouseMoved" => ("move", remote::GuardedPointerLifecycle::Motion),
                     _ => anyhow::bail!("bad browser mouse event type {event_type:?}"),
                 };
                 session
-                    .request_guarded_pointer(json!({
-                        "cmd": "browser-mouse-guarded",
-                        "surface": surface.id,
-                        "kind": kind,
-                        "x_px": x,
-                        "y_px": y,
-                        "button": button,
-                        "click_count": click_count,
-                        "frame_seq": frame_seq,
-                    }))
+                    .request_guarded_pointer(
+                        json!({
+                            "cmd": "browser-mouse-guarded",
+                            "surface": surface.id,
+                            "kind": kind,
+                            "x_px": x,
+                            "y_px": y,
+                            "button": button,
+                            "click_count": click_count,
+                            "frame_seq": frame_seq,
+                        }),
+                        lifecycle,
+                    )
                     .map(|_| ())
             }
             SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),

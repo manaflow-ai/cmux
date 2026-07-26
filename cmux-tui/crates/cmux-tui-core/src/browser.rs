@@ -1891,6 +1891,17 @@ impl BrowserSurface {
             attempts,
             retry_at: retry_delay.map(|delay| Instant::now() + delay),
         });
+        if retry_delay.is_none() && state.pending_reconfigures.is_empty() {
+            state.pending_frame_epoch = None;
+            state.pending_navigation_epoch = None;
+            state.pending_document_epoch = None;
+            state.pending_same_document_navigation = false;
+            state.pending_frame = None;
+            state.pending_navigation_rollback = None;
+            Self::mark_failed_locked(&mut state, "browser resize recovery failed; reload to retry");
+            Self::mark_state_dirty_locked(&mut state);
+            self.dirty.store(true, Ordering::Release);
+        }
         Some((attempts, retry_delay))
     }
 
@@ -2142,9 +2153,9 @@ impl BrowserSurface {
 
     fn mark_failed_locked(state: &mut BrowserState, message: &str) {
         state.status = BrowserStatus::Failed(message.to_string());
-        // A transport timeout revokes admission for new input, but it does not
-        // prove that the document or its coordinate mapping changed. Preserve
-        // an accepted press long enough to deliver its balancing release.
+        // Failure revokes admission for new input, but does not always prove
+        // that the document or its coordinate mapping changed. Preserve an
+        // accepted press long enough to deliver its balancing release.
         Self::invalidate_pointer_frame_locked(state, false);
         state.pending_navigation_rollback = None;
         state.title = format!("browser failed: {message}");
@@ -2162,6 +2173,10 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
+            // A successful navigation or reload is the explicit recovery
+            // action for an exhausted resize. Let the desired geometry enter
+            // a new bounded retry cycle after that lifecycle command.
+            state.reconfigure_failure = None;
             Self::mark_state_dirty_locked(&mut state);
         }
     }
