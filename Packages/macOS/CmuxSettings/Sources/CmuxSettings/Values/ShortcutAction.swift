@@ -147,6 +147,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleBrowserDeveloperTools
     case showBrowserJavaScriptConsole
     case toggleBrowserFocusMode
+    case toggleBrowserDesignMode
     case toggleReactGrab
     /// Scrolls the focused diff viewer down one step.
     case diffViewerScrollDown
@@ -209,7 +210,7 @@ extension ShortcutAction {
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
-             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
+             .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleBrowserDesignMode, .toggleReactGrab,
              .diffViewerScrollDown, .diffViewerScrollUp,
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
@@ -294,7 +295,8 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
-             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+             .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,
+             .diffViewerPreviousFile:
             return .atom(.browserFocus)
         case .diffViewerScrollDown, .diffViewerScrollUp,
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
@@ -465,6 +467,8 @@ extension ShortcutAction {
         case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
         case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
         case .toggleBrowserFocusMode: return "Enter Browser Focus Mode"
+        case .toggleBrowserDesignMode:
+            return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
         case .toggleReactGrab: return "Toggle React Grab"
         case .diffViewerScrollDown:
             return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
