@@ -64,7 +64,7 @@ Keep the headless process under your normal service supervisor when it must surv
 npx cmux
 ```
 
-The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. The remote process serves workspaces and terminals through its existing protocol-v9 session.
+The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. The remote process serves workspaces and terminals through its existing protocol-v10 session.
 
 For a direct transport check, the equivalent relay is:
 

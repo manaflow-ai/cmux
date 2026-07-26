@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v9 commands, events, transports, stable split ids, stack layouts, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+All bindings must expose the implemented protocol v10 commands, events, transports, stable split ids, stack layouts, per-surface client sizing, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 
@@ -32,6 +32,10 @@ SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A 
 ## Protocol v9 SDK Expectations
 
 SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older.
+
+## Protocol v10 SDK Expectations
+
+SDKs must require a surface id for every client-sizing mutation and expose `size_participating` on each surface-size report. They must not model participation as one client-wide boolean.
 
 ## Rust
 
