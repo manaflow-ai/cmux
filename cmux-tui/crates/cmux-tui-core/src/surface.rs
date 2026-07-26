@@ -626,9 +626,9 @@ impl LocalProcess {
         }
     }
 
-    fn terminate_and_wait(&mut self, master: &dyn MasterPty, deadline: Instant) -> bool {
+    fn terminate_and_wait(&mut self, deadline: Instant) -> bool {
         match self {
-            Self::Owned(process) => process.terminate_and_wait(master, deadline),
+            Self::Owned(process) => process.terminate_and_wait(deadline),
             #[cfg(test)]
             Self::Untracked(killer) => killer.kill().is_ok(),
         }
@@ -783,29 +783,32 @@ impl LocalPtyProcess {
     }
 
     #[cfg(unix)]
-    fn signal_terminal_process_groups(&self, master: &dyn MasterPty, signal: libc::c_int) {
+    fn signal_terminal_process_session(&self, signal: libc::c_int) -> std::io::Result<()> {
         let _signal = self.child_signal_lock.lock().unwrap();
         if self.child_reaped.load(Ordering::Acquire) {
-            return;
+            return Ok(());
         }
-        let mut groups = self
-            .pid
-            .and_then(|pid| libc::pid_t::try_from(pid).ok())
-            .into_iter()
-            .chain(master.process_group_leader())
-            .collect::<Vec<_>>();
-        groups.sort_unstable();
-        groups.dedup();
-        // portable-pty creates a new session for the shell. Signal its
-        // original group and the current foreground job group, while never
-        // addressing the mux's own process group.
-        let mux_group = unsafe { libc::getpgrp() };
-        for group in groups.into_iter().filter(|group| *group > 0 && *group != mux_group) {
-            let _ = unsafe { libc::killpg(group, signal) };
-        }
+        let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+            return Err(std::io::Error::other("PTY child has no process id"));
+        };
+        crate::process_session::signal(session, signal)
     }
 
-    fn terminate_and_wait(&self, master: &dyn MasterPty, deadline: Instant) -> bool {
+    #[cfg(unix)]
+    fn kill_terminal_process_session_until(&self, deadline: Instant) -> std::io::Result<bool> {
+        let _signal = self.child_signal_lock.lock().unwrap();
+        if self.child_reaped.load(Ordering::Acquire) {
+            return Ok(true);
+        }
+        let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+            return Err(std::io::Error::other("PTY child has no process id"));
+        };
+        crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
+            self.child_waitable.load(Ordering::Acquire)
+        })
+    }
+
+    fn terminate_and_wait(&self, deadline: Instant) -> bool {
         #[cfg(unix)]
         {
             {
@@ -815,21 +818,25 @@ impl LocalPtyProcess {
                 }
                 self.termination_started.store(true, Ordering::Release);
             }
-            self.signal_terminal_process_groups(master, libc::SIGHUP);
+            if self.signal_terminal_process_session(libc::SIGHUP).is_err() {
+                return false;
+            }
             let _ = self.request_hangup();
             self.wait_for_child_waitable_until(
                 deadline.min(Instant::now() + Duration::from_millis(250)),
             );
-            // SIGHUP is cooperative. Escalate every owned terminal group so
-            // an ignoring shell or foreground job cannot survive a successful
-            // shutdown acknowledgement.
-            self.signal_terminal_process_groups(master, libc::SIGKILL);
+            // Process groups are transient job-control details. Repeatedly
+            // kill every member of the owned PTY session while its leader is
+            // reserved with WNOWAIT, and do not acknowledge shutdown until no
+            // background group remains.
+            if !matches!(self.kill_terminal_process_session_until(deadline), Ok(true)) {
+                return false;
+            }
             self.group_escalation_complete.store(true, Ordering::Release);
             self.exited.1.notify_all();
         }
         #[cfg(not(unix))]
         {
-            let _ = master;
             let _ = self.request_hangup();
         }
         self.wait_for_exit_until(deadline)
@@ -2387,9 +2394,7 @@ impl Surface {
                         let _ = host.terminate_with_timeout(timeout);
                         true
                     }
-                    PtyRuntime::Local { master, process, .. } => {
-                        process.terminate_and_wait(master.as_ref(), deadline)
-                    }
+                    PtyRuntime::Local { process, .. } => process.terminate_and_wait(deadline),
                     #[cfg(unix)]
                     PtyRuntime::ExitedHosted => true,
                 }

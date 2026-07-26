@@ -553,7 +553,7 @@ fn explicit_terminate_reaps_background_jobs_in_separate_pty_process_groups() {
     // SAFETY: both fixture processes are live and owned by this test.
     let descendant_session = unsafe { libc::getsid(descendant_pid) };
 
-    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let host = adopt_terminal_host(record, record_path).unwrap();
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());

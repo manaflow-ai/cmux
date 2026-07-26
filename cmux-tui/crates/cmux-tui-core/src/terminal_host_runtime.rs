@@ -1846,39 +1846,31 @@ mod unix {
             self.pty_drained.load(Ordering::Acquire)
         }
 
-        fn signal_terminal_process_groups(&self, signal: libc::c_int) {
-            let mut groups = Vec::with_capacity(2);
+        fn signal_terminal_process_session(&self, signal: libc::c_int) -> std::io::Result<()> {
             // The wait thread observes exit with WNOWAIT, then takes this lock
-            // before reaping. While we hold it, `!child_reaped` means the
-            // original PID/PGID is still kernel-reserved and cannot have been
-            // reused between validation and killpg.
+            // before reaping. Holding it reserves the session leader and its
+            // numeric session id across enumeration and signaling.
             let _signal = self.child_signal_lock.lock().unwrap();
-            let child_reserved = !self.child_reaped.load(Ordering::Acquire);
-            if child_reserved
-                && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
-            {
-                groups.push(pid);
+            if self.child_reaped.load(Ordering::Acquire) {
+                return Ok(());
             }
-            // Query the PTY each time rather than trusting the original group:
-            // a foreground job or retained descendant may own a different
-            // group by the time explicit Terminate escalates.
-            if child_reserved
-                && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
-            {
-                groups.push(foreground);
+            let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return Err(std::io::Error::other("PTY child has no process id"));
+            };
+            crate::process_session::signal(session, signal)
+        }
+
+        fn kill_terminal_process_session_until(&self, deadline: Instant) -> std::io::Result<bool> {
+            let _signal = self.child_signal_lock.lock().unwrap();
+            if self.child_reaped.load(Ordering::Acquire) {
+                return Ok(true);
             }
-            groups.sort_unstable();
-            groups.dedup();
-            // A portable-pty child starts as a new session/process-group
-            // leader. Signal both that durable group and any foreground job
-            // group, but never risk addressing the terminal-host's own group.
-            // SAFETY: getpgrp has no preconditions.
-            let host_group = unsafe { libc::getpgrp() };
-            for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
-                // SAFETY: validated positive process-group ids owned by this
-                // PTY session; signal is a platform constant from this module.
-                let _ = unsafe { libc::killpg(group, signal) };
-            }
+            let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                return Err(std::io::Error::other("PTY child has no process id"));
+            };
+            crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
+                self.child_waitable.load(Ordering::Acquire)
+            })
         }
 
         fn request_forced_pty_drain(&self) {
@@ -1933,24 +1925,30 @@ mod unix {
                 self.termination_started.store(true, Ordering::Release);
             }
             // ProcessSignaller only targets the direct child. Start with a
-            // graceful group hangup so foreground jobs and normal descendants
-            // can clean up too, then escalate after a strict bound.
-            self.signal_terminal_process_groups(libc::SIGHUP);
+            // graceful session hangup so foreground and background jobs can
+            // clean up too, then escalate after a strict bound.
+            if self.signal_terminal_process_session(libc::SIGHUP).is_err() {
+                self.termination_started.store(false, Ordering::Release);
+                return;
+            }
             if !self.child_waitable.load(Ordering::Acquire) {
                 let _ = self.killer.lock().unwrap().kill();
             }
             let _ = self.wait_for_child_waitable(HOST_TERMINATE_GRACE);
             let _ = self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE);
 
-            // The direct child may ignore SIGHUP, or it may already have
-            // exited while a descendant retains the PTY. Kill both the
-            // original session group and its current foreground job group.
-            // This escalation is mandatory even if Darwin reports PTY EOF as
-            // soon as the session leader exits: an HUP-ignoring descendant
-            // can still be alive in the now-invisible original group.
-            self.signal_terminal_process_groups(libc::SIGKILL);
+            // Process groups are transient job-control details. Repeatedly
+            // kill every member of the PTY session while WNOWAIT reserves the
+            // leader, then publish Exit only after every background group is
+            // gone.
+            let kill_deadline = Instant::now() + HOST_KILL_WAIT;
+            if !matches!(self.kill_terminal_process_session_until(kill_deadline), Ok(true)) {
+                self.termination_started.store(false, Ordering::Release);
+                return;
+            }
             self.finish_group_escalation();
-            let child_exited = self.wait_for_child_exit(HOST_KILL_WAIT);
+            let child_exited =
+                self.wait_for_child_exit(kill_deadline.saturating_duration_since(Instant::now()));
             if child_exited && self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE) {
                 return;
             }
@@ -2087,21 +2085,36 @@ mod unix {
             if !self.shared.child_exited() {
                 return;
             }
-            let mut removed_record = !self.published;
-            if self.published
-                && let Ok(bytes) = fs::read(&self.record_path)
-                && let Ok(current) = serde_json::from_slice::<TerminalHostRecord>(&bytes)
-                && current.terminal_id == self.record.terminal_id
-                && current.incarnation == self.record.incarnation
-                && current.host_start_nonce == self.record.host_start_nonce
-            {
-                removed_record = fs::remove_file(&self.record_path).is_ok();
-            }
-            let _ = fs::remove_file(&self.endpoint);
-            if removed_record {
-                let _ = fs::remove_file(&self.lease.path);
-            }
+            let owns_record = !self.published
+                || fs::read(&self.record_path)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<TerminalHostRecord>(&bytes).ok())
+                    .is_some_and(|current| {
+                        current.terminal_id == self.record.terminal_id
+                            && current.incarnation == self.record.incarnation
+                            && current.host_start_nonce == self.record.host_start_nonce
+                    });
+            let endpoint_removed = match fs::remove_file(&self.endpoint) {
+                Ok(()) => true,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                Err(_) => false,
+            };
+            let lease_removed = if owns_record {
+                match fs::remove_file(&self.lease.path) {
+                    Ok(()) => true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
             let _ = self.lease.file.sync_all();
+            // Record removal is the final cleanup barrier. Once observers see
+            // it absent, both the transport endpoint and process-bound
+            // liveness path are already gone.
+            if self.published && owns_record && endpoint_removed && lease_removed {
+                let _ = fs::remove_file(&self.record_path);
+            }
         }
     }
 

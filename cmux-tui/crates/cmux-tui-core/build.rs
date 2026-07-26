@@ -8,6 +8,8 @@ use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
+const CMUX_TUI_SOURCE_PATHS: &[&str] = &["Cargo.toml", "Cargo.lock", "bindings/rust", "crates"];
+const GHOSTTY_SOURCE_PATHS: &[&str] = &["build.zig", "build.zig.zon", "include", "src"];
 
 fn main() {
     for name in [
@@ -30,22 +32,18 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| repository_root.join("ghostty"));
 
-    println!("cargo:rerun-if-changed={}", workspace_root.join("Cargo.toml").display());
-    println!("cargo:rerun-if-changed={}", workspace_root.join("Cargo.lock").display());
-    println!("cargo:rerun-if-changed={}", workspace_root.join("crates").display());
-    println!("cargo:rerun-if-changed={}", ghostty_root.join("build.zig").display());
-    println!("cargo:rerun-if-changed={}", ghostty_root.join("include").display());
-    println!("cargo:rerun-if-changed={}", ghostty_root.join("src").display());
+    track_source_paths(workspace_root, CMUX_TUI_SOURCE_PATHS);
+    track_source_paths(&ghostty_root, GHOSTTY_SOURCE_PATHS);
     track_git_identity(repository_root);
     track_git_identity(&ghostty_root);
 
     if !nonempty_env("CMUX_TUI_BUILD_COMMIT") && !nonempty_env("CMUX_MUX_BUILD_COMMIT") {
-        let identity = source_identity(workspace_root, workspace_root)
+        let identity = source_identity(workspace_root, workspace_root, CMUX_TUI_SOURCE_PATHS)
             .expect("derive an exact cmux-tui source identity");
         println!("cargo:rustc-env=CMUX_TUI_SOURCE_COMMIT={identity}");
     }
     if !nonempty_env("CMUX_TUI_GHOSTTY_COMMIT") {
-        let identity = source_identity(&ghostty_root, &ghostty_root)
+        let identity = source_identity(&ghostty_root, &ghostty_root, GHOSTTY_SOURCE_PATHS)
             .expect("derive an exact Ghostty source identity");
         println!("cargo:rustc-env=CMUX_TUI_SOURCE_GHOSTTY_COMMIT={identity}");
     }
@@ -55,7 +53,13 @@ fn nonempty_env(name: &str) -> bool {
     env::var_os(name).is_some_and(|value| !value.is_empty())
 }
 
-fn source_identity(git_root: &Path, fallback_root: &Path) -> io::Result<String> {
+fn track_source_paths(root: &Path, paths: &[&str]) {
+    for path in paths {
+        println!("cargo:rerun-if-changed={}", root.join(path).display());
+    }
+}
+
+fn source_identity(git_root: &Path, fallback_root: &Path, paths: &[&str]) -> io::Result<String> {
     if let Some(commit) = optional_git_bytes(git_root, &["rev-parse", "HEAD"])? {
         let commit = std::str::from_utf8(&commit)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "git commit is not UTF-8"))?
@@ -63,26 +67,31 @@ fn source_identity(git_root: &Path, fallback_root: &Path) -> io::Result<String> 
         if commit.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "git commit is empty"));
         }
-        let status = required_git_bytes(
+        let status = required_git_bytes_for_paths(
             git_root,
-            &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."],
+            &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            paths,
         )?;
         if status.is_empty() {
             return Ok(commit.to_string());
         }
-        return Ok(format!("{commit}-dirty-{:016x}", dirty_fingerprint(git_root)?));
+        return Ok(format!("{commit}-dirty-{:016x}", dirty_fingerprint(git_root, paths)?));
     }
-    directory_fingerprint(fallback_root).map(|fingerprint| format!("source-{fingerprint:016x}"))
+    directory_fingerprint(fallback_root, paths)
+        .map(|fingerprint| format!("source-{fingerprint:016x}"))
 }
 
-fn dirty_fingerprint(root: &Path) -> io::Result<u64> {
+fn dirty_fingerprint(root: &Path, paths: &[&str]) -> io::Result<u64> {
     let mut hash = FNV_OFFSET;
     hash_component(
         &mut hash,
-        &required_git_bytes(root, &["diff", "--binary", "--full-index", "HEAD", "--", "."])?,
+        &required_git_bytes_for_paths(root, &["diff", "--binary", "--full-index", "HEAD"], paths)?,
     );
-    let untracked =
-        required_git_bytes(root, &["ls-files", "-z", "--others", "--exclude-standard", "--", "."])?;
+    let untracked = required_git_bytes_for_paths(
+        root,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+        paths,
+    )?;
     for path in untracked.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
         hash_component(&mut hash, path);
         hash_filesystem_entry(&mut hash, &path_from_git_bytes(root, path)?)?;
@@ -90,7 +99,7 @@ fn dirty_fingerprint(root: &Path) -> io::Result<u64> {
     Ok(hash)
 }
 
-fn directory_fingerprint(root: &Path) -> io::Result<u64> {
+fn directory_fingerprint(root: &Path, paths: &[&str]) -> io::Result<u64> {
     fn visit(root: &Path, path: &Path, hash: &mut u64) -> io::Result<()> {
         let mut entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
         entries.sort_by_key(|entry| entry.file_name());
@@ -118,7 +127,19 @@ fn directory_fingerprint(root: &Path) -> io::Result<u64> {
     }
 
     let mut hash = FNV_OFFSET;
-    visit(root, root, &mut hash)?;
+    for path in paths {
+        let path = root.join(path);
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_dir() {
+            visit(root, &path, &mut hash)?;
+        } else {
+            hash_component(
+                &mut hash,
+                path.strip_prefix(root).unwrap_or(&path).as_os_str().as_encoded_bytes(),
+            );
+            hash_filesystem_entry(&mut hash, &path)?;
+        }
+    }
     Ok(hash)
 }
 
@@ -191,6 +212,14 @@ fn required_git_bytes(root: &Path, args: &[&str]) -> io::Result<Vec<u8>> {
     })
 }
 
+fn required_git_bytes_for_paths(root: &Path, args: &[&str], paths: &[&str]) -> io::Result<Vec<u8>> {
+    let mut scoped = Vec::with_capacity(args.len() + paths.len() + 1);
+    scoped.extend_from_slice(args);
+    scoped.push("--");
+    scoped.extend_from_slice(paths);
+    required_git_bytes(root, &scoped)
+}
+
 #[cfg(unix)]
 fn path_from_git_bytes(root: &Path, path: &[u8]) -> io::Result<PathBuf> {
     Ok(root.join(OsStr::from_bytes(path)))
@@ -255,10 +284,10 @@ mod tests {
         let name = OsString::from_vec(vec![b'n', b'o', b'n', b'-', 0xff]);
         let path = repository.root.join(name);
         fs::write(&path, b"one").unwrap();
-        let first = source_identity(&repository.root, &repository.root).unwrap();
+        let first = source_identity(&repository.root, &repository.root, &["."]).unwrap();
 
         fs::write(path, b"two").unwrap();
-        let second = source_identity(&repository.root, &repository.root).unwrap();
+        let second = source_identity(&repository.root, &repository.root, &["."]).unwrap();
 
         assert!(first.contains("-dirty-"));
         assert!(second.contains("-dirty-"));
@@ -271,11 +300,11 @@ mod tests {
         let repository = TestRepository::new("dangling-symlink");
         let link = repository.root.join("untracked-link");
         symlink("missing-one", &link).unwrap();
-        let first = source_identity(&repository.root, &repository.root).unwrap();
+        let first = source_identity(&repository.root, &repository.root, &["."]).unwrap();
 
         fs::remove_file(&link).unwrap();
         symlink("missing-two", &link).unwrap();
-        let second = source_identity(&repository.root, &repository.root).unwrap();
+        let second = source_identity(&repository.root, &repository.root, &["."]).unwrap();
 
         assert_ne!(first, second);
     }
@@ -285,6 +314,29 @@ mod tests {
         let repository = TestRepository::new("git-failure");
         fs::write(repository.root.join(".git/index"), b"invalid index").unwrap();
 
-        assert!(source_identity(&repository.root, &repository.root).is_err());
+        assert!(source_identity(&repository.root, &repository.root, &["."]).is_err());
+    }
+
+    #[test]
+    fn identity_and_invalidation_share_the_same_source_scope() {
+        let repository = TestRepository::new("scoped");
+        fs::create_dir(repository.root.join("source")).unwrap();
+        fs::create_dir(repository.root.join("docs")).unwrap();
+        fs::write(repository.root.join("source/input"), b"one").unwrap();
+        fs::write(repository.root.join("docs/guide"), b"one").unwrap();
+        run_git(&repository.root, &["add", "source", "docs"]);
+        run_git(&repository.root, &["commit", "-qm", "add scoped inputs"]);
+        let clean = source_identity(&repository.root, &repository.root, &["source"]).unwrap();
+
+        fs::write(repository.root.join("docs/guide"), b"two").unwrap();
+        let docs_changed =
+            source_identity(&repository.root, &repository.root, &["source"]).unwrap();
+        fs::write(repository.root.join("source/input"), b"two").unwrap();
+        let source_changed =
+            source_identity(&repository.root, &repository.root, &["source"]).unwrap();
+
+        assert_eq!(docs_changed, clean);
+        assert!(source_changed.contains("-dirty-"));
+        assert_ne!(source_changed, clean);
     }
 }
