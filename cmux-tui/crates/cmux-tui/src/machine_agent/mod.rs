@@ -221,5 +221,31 @@ mod tests {
                 .localized(&crate::localization::catalog_for_locale("ja_JP.UTF-8").machine_agent),
             "オプション --cloud-host には値が必要です"
         );
+
+        let unsafe_argument =
+            parse_args(&["--cloud-port".into(), "22\u{1b}[31m\nspoof".into()]).unwrap_err();
+        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+            let message = unsafe_argument
+                .localized(&crate::localization::catalog_for_locale(locale).machine_agent);
+            assert!(!message.contains('\u{1b}'));
+            assert!(!message.contains('\n'));
+            assert!(message.contains(r"\u{1b}[31m\nspoof"));
+        }
+    }
+
+    #[test]
+    fn pairing_code_is_written_only_to_the_verified_terminal_stream() {
+        let messages = &crate::localization::catalog_for_locale("en_US.UTF-8").machine_agent;
+        let mut terminal = Vec::new();
+        let mut diagnostics = Vec::new();
+        write_pairing_code(Some(&mut terminal), &mut diagnostics, messages, "secret-code").unwrap();
+        assert!(String::from_utf8(terminal).unwrap().contains("secret-code"));
+        assert!(!String::from_utf8(diagnostics).unwrap().contains("secret-code"));
+
+        let mut diagnostics = Vec::new();
+        write_pairing_code(None, &mut diagnostics, messages, "secret-code").unwrap();
+        let diagnostics = String::from_utf8(diagnostics).unwrap();
+        assert!(!diagnostics.contains("secret-code"));
+        assert!(diagnostics.contains(messages.pairing_code_unavailable));
     }
 }
