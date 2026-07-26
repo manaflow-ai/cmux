@@ -52,7 +52,9 @@ struct CLIHookNoResponseTests {
             FeedHookCase(source: "gemini", event: "PreToolUse", toolName: "read", pidKey: "CMUX_GEMINI_PID"),
             FeedHookCase(source: "kiro", event: "postToolUse", toolName: "fs_write", pidKey: "CMUX_KIRO_PID"),
             FeedHookCase(source: "hermes-agent", event: "pre_tool_call", toolName: "terminal", pidKey: "CMUX_HERMES_AGENT_PID"),
+            FeedHookCase(source: "antigravity", event: "PreToolUse", toolName: "Bash", pidKey: "CMUX_ANTIGRAVITY_PID"),
             FeedHookCase(source: "antigravity", event: "PostToolUse", toolName: "run_command", pidKey: "CMUX_ANTIGRAVITY_PID"),
+            FeedHookCase(source: "cursor", event: "beforeShellExecution", toolName: "Bash", pidKey: "CMUX_CURSOR_PID"),
         ]
 
         for testCase in cases {

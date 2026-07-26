@@ -146,9 +146,22 @@ struct FeedEventClassificationTests {
         }
     }
 
-    /// Unknown source + unknown event is safe by default.
-    @Test func unknownSourceUnknownEventIsSafe() {
+    /// Unknown sources must stay non-blocking even when they emit a familiar
+    /// pre-tool event for a side-effecting tool. A new integration must opt in
+    /// to decision semantics explicitly before it can stall an agent process.
+    @Test func unknownSourcePreToolUseIsSafeByDefault() {
+        let preTool = classify("totally-new-agent", "PreToolUse", tool: "Bash")
+        #expect(preTool.name == "PreToolUse")
+        #expect(preTool.actionable == false)
+
         #expect(classify("totally-new-agent", "some_future_event", tool: "Bash").actionable == false)
+    }
+
+    /// Antigravity and Cursor tool-start hooks are telemetry, not approval
+    /// requests. Neither integration has a safe blocking bridge contract.
+    @Test func incompatibleToolLifecycleHooksStayTelemetry() {
+        #expect(classify("antigravity", "PreToolUse", tool: "Bash").actionable == false)
+        #expect(classify("cursor", "beforeShellExecution", tool: "Bash").actionable == false)
     }
 
     // MARK: Kiro (camelCase events, no dedicated approval event)
