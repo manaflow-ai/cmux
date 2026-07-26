@@ -221,6 +221,7 @@ struct FrameSession {
     main_loader_id: Option<String>,
     pending_document: Option<PendingDocument>,
     minimum_screencast_timestamp: Option<f64>,
+    timestampless_authority_epoch: Option<u64>,
 }
 
 struct PendingDocument {
@@ -541,6 +542,7 @@ impl CdpClient {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
+                timestampless_authority_epoch: None,
             },
         );
     }
@@ -707,6 +709,7 @@ impl CdpClient {
             // stopScreencast may otherwise be emitted after this restart with
             // the new Chromium session id.
             frame_session.minimum_screencast_timestamp = Some(minimum_screencast_timestamp);
+            frame_session.timestampless_authority_epoch = None;
         }
         self.call_with_frame_barrier(
             "Page.startScreencast",
@@ -720,6 +723,24 @@ impl CdpClient {
             frame_epoch.clone(),
         )?;
         Ok(frame_epoch.current())
+    }
+
+    /// Admit timestamp-less frames after a loader-verified capture establishes
+    /// that this restarted stream is presenting the current document.
+    pub fn authorize_timestampless_screencast_epoch(
+        &self,
+        session_id: &str,
+        frame_epoch: u64,
+    ) -> bool {
+        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(frame_session) = frame_sessions.get_mut(session_id) else {
+            return false;
+        };
+        if frame_session.epoch.current() != frame_epoch {
+            return false;
+        }
+        frame_session.timestampless_authority_epoch = Some(frame_epoch);
+        true
     }
 
     fn chrome_wall_time_upper_bound(
@@ -1107,15 +1128,17 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     frame_epoch,
                     navigation_epoch,
                     minimum_screencast_timestamp,
+                    timestampless_authority_epoch,
                     frame_id,
                     loader_id,
                 ) = inner.frame_epochs.lock().unwrap().get(target_session).map_or(
-                    (0, 0, None, None, None),
+                    (0, 0, None, None, None, None),
                     |frame_session| {
                         (
                             frame_session.epoch.current(),
                             frame_session.epoch.latest_navigation(),
                             frame_session.minimum_screencast_timestamp,
+                            frame_session.timestampless_authority_epoch,
                             frame_session.main_frame_id.clone(),
                             frame_session.main_loader_id.clone(),
                         )
@@ -1133,8 +1156,15 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                         .filter(|value| value.is_finite());
                     match capture_timestamp {
                         Some(timestamp) if timestamp < minimum_timestamp => return,
-                        Some(_) => {}
-                        None => {
+                        Some(_) => {
+                            if let Some(frame_session) =
+                                inner.frame_epochs.lock().unwrap().get_mut(target_session)
+                                && frame_session.epoch.current() == frame_epoch
+                            {
+                                frame_session.timestampless_authority_epoch = Some(frame_epoch);
+                            }
+                        }
+                        None if timestampless_authority_epoch != Some(frame_epoch) => {
                             let (Some(frame_id), Some(loader_id)) = (frame_id, loader_id) else {
                                 return;
                             };
@@ -1150,6 +1180,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                             );
                             return;
                         }
+                        None => {}
                     }
                 }
                 dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
@@ -1737,6 +1768,7 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
+                timestampless_authority_epoch: None,
             },
         );
 
@@ -1816,6 +1848,7 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
+                timestampless_authority_epoch: None,
             },
         );
 
@@ -1865,6 +1898,7 @@ mod tests {
                 main_loader_id: None,
                 pending_document: None,
                 minimum_screencast_timestamp: None,
+                timestampless_authority_epoch: None,
             },
         );
         handle_text(
@@ -2004,6 +2038,7 @@ mod tests {
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
                 minimum_screencast_timestamp: Some(1.0),
+                timestampless_authority_epoch: None,
             },
         );
 

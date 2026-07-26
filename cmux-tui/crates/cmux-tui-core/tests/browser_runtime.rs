@@ -12,6 +12,7 @@ use tungstenite::{Message, accept};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 static SOCKET_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const CAPTURE_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyAQAAAACCTkMTAAAAD0lEQVQoz2NgGAWjYGgCAAK8AAFtkh10AAAAAElFTkSuQmCC";
 
 fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
     loop {
@@ -25,6 +26,59 @@ fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
 
 fn write_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, value: Value) {
     ws.send(Message::Text(value.to_string().into())).unwrap();
+}
+
+fn write_main_frame_commit(
+    ws: &mut tungstenite::WebSocket<std::net::TcpStream>,
+    session_id: &str,
+    loader_id: &str,
+    url: &str,
+) {
+    write_json(
+        ws,
+        json!({
+            "method": "Page.frameNavigated",
+            "sessionId": session_id,
+            "params": {
+                "frame": {
+                    "id": "main-frame",
+                    "loaderId": loader_id,
+                    "url": url
+                }
+            }
+        }),
+    );
+    write_json(
+        ws,
+        json!({
+            "method": "Page.lifecycleEvent",
+            "sessionId": session_id,
+            "params": {
+                "frameId": "main-frame",
+                "loaderId": loader_id,
+                "name": "firstPaint",
+                "timestamp": 1.0
+            }
+        }),
+    );
+}
+
+fn write_default_frame_tree(ws: &mut tungstenite::WebSocket<std::net::TcpStream>, id: Value) {
+    write_json(
+        ws,
+        json!({
+            "id": id,
+            "result": {
+                "frameTree": {
+                    "frame": {
+                        "id": "main-frame",
+                        "loaderId": "loader-1",
+                        "url": "https://example.test"
+                    }
+                }
+            }
+        }),
+    );
 }
 
 fn rpc(path: &std::path::Path, mut cmd: Value) -> Value {
@@ -119,6 +173,9 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         let mut opener_second_frame_sent = false;
         let mut opener_drag_frame_sent = false;
         let mut opener_ack_count = 0u32;
+        let mut resized_frame_sent = false;
+        let mut main_loader = 1u32;
+        let mut main_url = "https://example.test".to_string();
 
         loop {
             let request = read_json(&mut ws);
@@ -139,6 +196,37 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     let session = target.replace("target", "session");
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": session}}));
                 }
+                "Page.getFrameTree" => {
+                    let session = request["sessionId"].as_str().unwrap();
+                    let (frame_id, loader_id, url) = if session == "session-1" {
+                        (
+                            "main-frame".to_string(),
+                            format!("loader-{main_loader}"),
+                            main_url.clone(),
+                        )
+                    } else {
+                        (
+                            "popup-frame".to_string(),
+                            "popup-loader".to_string(),
+                            "https://popup.test".to_string(),
+                        )
+                    };
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "result": {
+                                "frameTree": {
+                                    "frame": {
+                                        "id": frame_id,
+                                        "loaderId": loader_id,
+                                        "url": url
+                                    }
+                                }
+                            }
+                        }),
+                    );
+                }
                 "Emulation.setDeviceMetricsOverride" => {
                     if request["params"]["width"] == 96 && request["params"]["height"] == 96 {
                         attach_resize_started_tx.send(()).unwrap();
@@ -147,12 +235,11 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
                 | "Page.stopScreencast"
                 | "Target.activateTarget"
                 | "Page.bringToFront"
                 | "Input.insertText"
-                | "Page.navigateToHistoryEntry"
-                | "Page.reload"
                 | "Page.handleJavaScriptDialog" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
@@ -165,6 +252,14 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     };
                     write_json(&mut ws, json!({"id": id, "result": result}));
                     if url.contains("live.test") && !opener_second_frame_sent {
+                        main_loader += 1;
+                        main_url = url.to_string();
+                        write_main_frame_commit(
+                            &mut ws,
+                            "session-1",
+                            &format!("loader-{main_loader}"),
+                            &main_url,
+                        );
                         frame_rx.recv_timeout(Duration::from_secs(30)).unwrap();
                         write_json(
                             &mut ws,
@@ -173,13 +268,44 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                                 "sessionId": "session-1",
                                 "params": {
                                     "data": "c2Vjb25k",
-                                    "metadata": {"deviceWidth": 100, "deviceHeight": 50},
+                                    "metadata": {
+                                        "deviceWidth": 100,
+                                        "deviceHeight": 50,
+                                        "timestamp": 10.002
+                                    },
                                     "sessionId": 77
                                 }
                             }),
                         );
                         opener_second_frame_sent = true;
                     }
+                }
+                "Page.navigateToHistoryEntry" => {
+                    let entry_id = request["params"]["entryId"].as_u64().unwrap();
+                    main_loader += 1;
+                    main_url = match entry_id {
+                        10 => "https://back.test",
+                        12 => "https://forward.test",
+                        _ => panic!("unexpected history entry {entry_id}"),
+                    }
+                    .to_string();
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_main_frame_commit(
+                        &mut ws,
+                        "session-1",
+                        &format!("loader-{main_loader}"),
+                        &main_url,
+                    );
+                }
+                "Page.reload" => {
+                    main_loader += 1;
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_main_frame_commit(
+                        &mut ws,
+                        "session-1",
+                        &format!("loader-{main_loader}"),
+                        &main_url,
+                    );
                 }
                 "Input.dispatchMouseEvent" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
@@ -191,13 +317,34 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                                 "sessionId": "session-1",
                                 "params": {
                                     "data": "dGhpcmQ=",
-                                    "metadata": {"deviceWidth": 100, "deviceHeight": 50},
+                                    "metadata": {
+                                        "deviceWidth": 100,
+                                        "deviceHeight": 50,
+                                        "timestamp": 10.002
+                                    },
                                     "sessionId": 77
                                 }
                             }),
                         );
                         opener_drag_frame_sent = true;
                     }
+                }
+                "Page.createIsolatedWorld" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"executionContextId": 41}}));
+                }
+                "Runtime.evaluate" => {
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "result": {
+                                "result": {"type": "number", "value": 10_000.0}
+                            }
+                        }),
+                    );
+                }
+                "Page.captureScreenshot" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"data": CAPTURE_PNG}}));
                 }
                 "Page.getNavigationHistory" => {
                     write_json(
@@ -217,6 +364,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 }
                 "Page.startScreencast" => {
                     let session = request["sessionId"].as_str().unwrap().to_string();
+                    let max_width = request["params"]["maxWidth"].as_u64().unwrap();
+                    let max_height = request["params"]["maxHeight"].as_u64().unwrap();
                     start_count += 1;
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                     if start_count == 1 {
@@ -284,11 +433,36 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                                 }
                             }),
                         );
+                    } else if session == "session-1"
+                        && max_width == 132
+                        && max_height == 102
+                        && !resized_frame_sent
+                    {
+                        write_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": session,
+                                "params": {
+                                    "data": "Zm91cnRo",
+                                    "metadata": {
+                                        "deviceWidth": 100,
+                                        "deviceHeight": 50,
+                                        "timestamp": 10.002
+                                    },
+                                    "sessionId": 99
+                                }
+                            }),
+                        );
+                        resized_frame_sent = true;
                     }
                 }
                 "Page.screencastFrameAck" => {
                     if request["sessionId"] == "session-1" {
-                        assert_eq!(request["params"]["sessionId"], 77);
+                        assert!(
+                            matches!(request["params"]["sessionId"].as_u64(), Some(77 | 99)),
+                            "unexpected opener screencast acknowledgement: {request}"
+                        );
                         opener_ack_count += 1;
                     }
                     write_json(&mut ws, json!({"id": id, "result": {}}));
@@ -297,7 +471,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     closed += 1;
                     if closed >= 2 {
-                        assert_eq!(opener_ack_count, 3);
+                        assert_eq!(opener_ack_count, 4);
                         break;
                     }
                 }
@@ -436,7 +610,12 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         json!({"id": 101, "cmd": "browser-navigate", "surface": surface, "url": "live.test"}),
     );
     assert_eq!(navigate["ok"], true, "browser-navigate failed: {navigate}");
-    let live_state = recv_attach_event(&mut attach_reader, "browser-state");
+    let live_state = loop {
+        let state = recv_attach_event(&mut attach_reader, "browser-state");
+        if state["url"] == "https://live.test" {
+            break state;
+        }
+    };
     assert_eq!(live_state["surface"], surface);
     assert_eq!(live_state["url"], "https://live.test");
     assert_eq!(live_state["status"], "live");
@@ -448,7 +627,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(second_frame["seq"], 2);
     assert_eq!(second_frame["width"], 100);
     assert_eq!(second_frame["height"], 50);
-    assert_eq!(second_frame["data"], "c2Vjb25k");
+    assert_eq!(second_frame["data"], CAPTURE_PNG);
 
     let dialog = recv_method(&seen_rx, "Page.handleJavaScriptDialog");
     assert_eq!(dialog["sessionId"], "session-1");
@@ -632,23 +811,57 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         });
     assert_eq!(metrics_request["params"]["width"], 132);
     assert_eq!(metrics_request["params"]["height"], 102);
+    wait_for(
+        || {
+            mux.surface(surface)
+                .and_then(|surface| surface.browser_frame())
+                .filter(|frame| frame.data_b64 == "Zm91cnRo")
+        },
+        Duration::from_secs(10),
+    )
+    .expect("browser frame after accepted cell-pixel reconfigure");
 
     let back = rpc(&socket_path, json!({"id": 6, "cmd": "browser-back", "surface": surface}));
     assert_eq!(back["ok"], true);
     let back_nav = recv_method(&seen_rx, "Page.navigateToHistoryEntry");
     assert_eq!(back_nav["sessionId"], "session-1");
     assert_eq!(back_nav["params"]["entryId"], 10);
+    wait_for(
+        || {
+            let surface = mux.surface(surface)?;
+            (surface.browser_url().as_deref() == Some("https://back.test")
+                && surface.browser_frame_seq().is_some_and(|seq| seq >= 5))
+            .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("back navigation authority committed");
 
     let forward = rpc(&socket_path, json!({"id": 7, "cmd": "browser-forward", "surface": surface}));
     assert_eq!(forward["ok"], true);
     let forward_nav = recv_method(&seen_rx, "Page.navigateToHistoryEntry");
     assert_eq!(forward_nav["sessionId"], "session-1");
     assert_eq!(forward_nav["params"]["entryId"], 12);
+    wait_for(
+        || {
+            let surface = mux.surface(surface)?;
+            (surface.browser_url().as_deref() == Some("https://forward.test")
+                && surface.browser_frame_seq().is_some_and(|seq| seq >= 6))
+            .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("forward navigation authority committed");
 
     let reload = rpc(&socket_path, json!({"id": 8, "cmd": "browser-reload", "surface": surface}));
     assert_eq!(reload["ok"], true);
     let reload_request = recv_method(&seen_rx, "Page.reload");
     assert_eq!(reload_request["sessionId"], "session-1");
+    wait_for(
+        || mux.surface(surface)?.browser_frame_seq().filter(|seq| *seq >= 7).map(|_| ()),
+        Duration::from_secs(10),
+    )
+    .expect("reload authority committed");
 
     let navigate = rpc(
         &socket_path,
@@ -699,7 +912,11 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
-                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+                "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.navigate" => {
@@ -840,14 +1057,28 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
-                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+                "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.navigate" => {
                     // Hold the worker inside the CDP call until the test has
-                    // queued back+forward behind it, then let it finish.
+                    // queued back+forward behind it, then reject definitively
+                    // so the prior document can admit both control commands.
                     let _ = release_rx.recv();
-                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "error": {
+                                "code": -32000,
+                                "message": "injected navigation rejection"
+                            }
+                        }),
+                    );
                 }
                 "Page.getNavigationHistory" => {
                     write_json(
@@ -866,7 +1097,16 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                     );
                 }
                 "Page.navigateToHistoryEntry" => {
-                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "error": {
+                                "code": -32000,
+                                "message": "injected history rejection"
+                            }
+                        }),
+                    );
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
@@ -968,7 +1208,11 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
-                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+                "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.navigate" => {
@@ -1075,10 +1319,29 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
                 "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
                 | "Emulation.setDeviceMetricsOverride"
-                | "Page.startScreencast"
                 | "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.startScreencast" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "method": "Page.screencastFrame",
+                            "sessionId": "session-1",
+                            "params": {
+                                "data": "c2NhbGU=",
+                                "metadata": {"deviceWidth": 100, "deviceHeight": 100},
+                                "sessionId": 70
+                            }
+                        }),
+                    );
+                }
+                "Page.screencastFrameAck" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Target.closeTarget" => {
@@ -1151,12 +1414,31 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
                 "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
                 | "Emulation.setDeviceMetricsOverride"
-                | "Page.startScreencast"
                 | "Target.activateTarget"
                 | "Page.bringToFront"
                 | "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.startScreencast" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "method": "Page.screencastFrame",
+                            "sessionId": "session-1",
+                            "params": {
+                                "data": "c3RhbGw=",
+                                "metadata": {"deviceWidth": 80, "deviceHeight": 80},
+                                "sessionId": 71
+                            }
+                        }),
+                    );
+                }
+                "Page.screencastFrameAck" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Target.closeTarget" => {

@@ -146,6 +146,10 @@ struct BrowserState {
     /// Frame epoch already backed by a loader-verified screenshot, so a
     /// timestamp-less screencast frame needs no additional recovery capture.
     verified_screencast_capture_epoch: Option<u64>,
+    /// Frame epoch whose loader-verified recovery exhausted its bounded
+    /// attempts. Further timestamp-less frames stay fail-closed until a later
+    /// epoch or an authoritative streamed frame arrives.
+    failed_screencast_capture_epoch: Option<u64>,
     pending_frame: Option<(u64, BrowserFrame)>,
     /// Frame that may currently receive guarded pointer input. Navigation and
     /// geometry changes invalidate it before the next screencast frame lands.
@@ -713,6 +717,7 @@ pub(crate) fn new_surface(
             pending_document_epoch: None,
             pending_same_document_navigation: false,
             verified_screencast_capture_epoch: None,
+            failed_screencast_capture_epoch: None,
             pending_frame: None,
             pointer_frame_seq: None,
             pointer_frame_revision: 0,
@@ -1806,6 +1811,9 @@ impl BrowserSurface {
         if frame_epoch < state.accepted_frame_epoch {
             return;
         }
+        if state.failed_screencast_capture_epoch == Some(frame_epoch) {
+            state.failed_screencast_capture_epoch = None;
+        }
         Self::store_frame_locked(&mut state, frame);
     }
 
@@ -1881,6 +1889,9 @@ impl BrowserSurface {
         }
         Self::reconcile_navigation_capture_locked(state, navigation_epoch);
         state.accepted_frame_epoch = frame_epoch;
+        if state.failed_screencast_capture_epoch == Some(frame_epoch) {
+            state.failed_screencast_capture_epoch = None;
+        }
         if state.pending_frame_epoch.is_some_and(|pending_epoch| frame_epoch >= pending_epoch) {
             state.pending_frame_epoch = None;
         }
@@ -2068,8 +2079,8 @@ impl BrowserSurface {
         y: f64,
     ) -> Option<(f64, f64)> {
         let state = self.state.lock().unwrap();
-        if !self.pointer_epoch_is_current_locked(&state)
-            || state.pointer_capture_generation != capture_generation
+        if state.pointer_capture_generation != capture_generation
+            || state.accepted_navigation_epoch != self.frame_epoch.latest_navigation()
         {
             return None;
         }
@@ -2236,6 +2247,7 @@ impl BrowserSurface {
             && self.frame_epoch.current() == frame_epoch
             && state.accepted_frame_epoch <= frame_epoch
             && state.verified_screencast_capture_epoch != Some(frame_epoch)
+            && state.failed_screencast_capture_epoch != Some(frame_epoch)
     }
 
     fn needs_same_document_paint(&self) -> bool {
@@ -2265,6 +2277,7 @@ impl BrowserSurface {
         state.accepted_navigation_epoch = navigation_epoch;
         state.accepted_frame_epoch = frame_epoch;
         state.verified_screencast_capture_epoch = Some(frame_epoch);
+        state.failed_screencast_capture_epoch = None;
         Self::store_frame_locked(&mut state, frame);
         Self::mark_state_dirty_locked(&mut state);
         true
@@ -2285,6 +2298,7 @@ impl BrowserSurface {
         state.pending_frame = None;
         state.accepted_frame_epoch = frame_epoch;
         state.verified_screencast_capture_epoch = Some(frame_epoch);
+        state.failed_screencast_capture_epoch = None;
         Self::store_frame_locked(&mut state, frame);
         Self::mark_state_dirty_locked(&mut state);
         true
@@ -2312,9 +2326,26 @@ impl BrowserSurface {
         state.pending_frame = None;
         state.accepted_frame_epoch = frame_epoch;
         state.verified_screencast_capture_epoch = Some(frame_epoch);
+        state.failed_screencast_capture_epoch = None;
         Self::store_frame_locked(&mut state, frame);
         Self::mark_state_dirty_locked(&mut state);
         true
+    }
+
+    fn suppress_failed_screencast_capture(&self, frame_epoch: u64, navigation_epoch: u64) {
+        let mut state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Live)
+            && state.pending_navigation_epoch.is_none()
+            && state.pending_document_epoch.is_none()
+            && !state.pending_same_document_navigation
+            && state.accepted_navigation_epoch == navigation_epoch
+            && self.frame_epoch.latest_navigation() == navigation_epoch
+            && self.frame_epoch.current() == frame_epoch
+            && state.accepted_frame_epoch <= frame_epoch
+            && state.verified_screencast_capture_epoch != Some(frame_epoch)
+        {
+            state.failed_screencast_capture_epoch = Some(frame_epoch);
+        }
     }
 
     fn release_failed_document_authority(&self, navigation_epoch: u64) {
@@ -2850,6 +2881,10 @@ impl BrowserSurface {
             }
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id) {
                 Ok((frame_epoch, captured)) => {
+                    let _ = session
+                        .runtime
+                        .client
+                        .authorize_timestampless_screencast_epoch(session_id, frame_epoch);
                     let accepted = self.accept_document_paint(
                         navigation_epoch,
                         frame_epoch,
@@ -2888,6 +2923,10 @@ impl BrowserSurface {
             }
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id) {
                 Ok((frame_epoch, captured)) => {
+                    let _ = session
+                        .runtime
+                        .client
+                        .authorize_timestampless_screencast_epoch(session_id, frame_epoch);
                     let accepted = self.accept_same_document_paint(
                         frame_epoch,
                         browser_frame_from_capture(session_id, captured),
@@ -2930,6 +2969,10 @@ impl BrowserSurface {
                 .capture_main_frame_for_loader(session_id, frame_id, loader_id)
             {
                 Ok(captured) => {
+                    let _ = session
+                        .runtime
+                        .client
+                        .authorize_timestampless_screencast_epoch(session_id, frame_epoch);
                     let accepted = self.accept_screencast_capture(
                         frame_epoch,
                         navigation_epoch,
@@ -2943,6 +2986,7 @@ impl BrowserSurface {
                 Err(error) => last_error = Some(error),
             }
         }
+        self.suppress_failed_screencast_capture(frame_epoch, navigation_epoch);
         Err(last_error.expect("authority capture attempts must record an error"))
     }
 
@@ -4583,7 +4627,7 @@ mod tests {
         let (_, capture_generation) =
             browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
 
-        browser.frame_epoch.advance();
+        browser.frame_epoch.advance_navigation();
 
         assert!(
             browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none(),
