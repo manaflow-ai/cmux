@@ -142,11 +142,12 @@ impl ProviderMachineController {
             }
             MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
             MachineRequest::ReconnectProvider if self.active_local.is_some() => {
+                let switching_provider = self.provider.accepted_selection.is_some();
                 self.provider.reconnect_control()?;
                 let ui = self.provider.ui_state_for_open_connection();
-                let mut result = MachineActionResult::ui(self.merge_local_ui(ui));
+                let mut result = MachineActionResult::ui(ui);
                 result.restart_updates = true;
-                Ok(result)
+                Ok(self.finish_provider_result(switching_provider, result))
             }
             request => {
                 let switching_provider = matches!(request, MachineRequest::Switch(_));
@@ -754,7 +755,10 @@ impl ProviderMachineRuntime {
         {
             Ok(connected) => connected,
             Err(error) => {
-                if matches!(error, ProviderClientError::Provider(_)) {
+                if matches!(
+                    &error,
+                    ProviderClientError::Provider(provider_error) if !provider_error.retryable
+                ) {
                     self.pending_external_connect = None;
                 }
                 return Err(error.into());
@@ -3006,7 +3010,7 @@ mod tests {
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
-        let server_initial = initial.clone();
+        let server_initial = initial;
         let server_enrolled = enrolled;
         let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
