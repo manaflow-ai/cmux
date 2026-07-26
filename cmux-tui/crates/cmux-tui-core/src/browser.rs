@@ -5523,6 +5523,43 @@ mod tests {
     }
 
     #[test]
+    fn failed_same_document_capture_exposes_a_retryable_terminal_failure() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
+        handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/#next"
+            }),
+        )
+        .expect("same-document URL");
+        let failed_capture_epoch = browser.frame_epoch.advance();
+
+        browser.release_failed_same_document_authority();
+
+        assert!(
+            matches!(
+                browser.status(),
+                BrowserStatus::Failed(ref error) if error.contains("reload to retry")
+            ),
+            "exhausted same-document verification must expose a bounded recovery action"
+        );
+        browser.store_frame_for_epoch(test_frame(2), failed_capture_epoch);
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "later unverified frames must not escape the terminal failure"
+        );
+        assert!(
+            browser.begin_targeted_navigation_frame_transition().is_ok(),
+            "reload must be able to start a fresh navigation after terminal failure"
+        );
+    }
+
+    #[test]
     fn same_document_navigation_preserves_an_accepted_pointer_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
