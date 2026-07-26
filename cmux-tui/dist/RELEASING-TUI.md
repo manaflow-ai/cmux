@@ -107,8 +107,9 @@ npm publishing is manual dispatch only and requires `confirm_tui_cmux=true`.
 The platform packages are published first, then the `cmux` launcher.
 
 Each publisher runs its generated Linux entrypoint packages across the
-supported glibc and musl distribution matrix before its publish job starts.
-A compatibility regression therefore blocks writes to that registry.
+supported glibc and musl distribution matrix on x86_64 and ARM64 before its
+publish job starts. A compatibility regression therefore blocks writes to that
+registry.
 
 The npm launcher publish deliberately does not pass `--tag`: when the TUI
 version is greater than `0.8.3`, this coordinated release takes over the npm

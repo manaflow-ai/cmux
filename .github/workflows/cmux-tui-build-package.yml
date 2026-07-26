@@ -370,13 +370,19 @@ jobs:
           if-no-files-found: error
 
   verify-linux-packages:
-    name: verify Linux package entrypoints
+    name: verify Linux package entrypoints (${{ matrix.architecture }})
     needs: package
     if: ${{ inputs.package_npm || inputs.package_pypi }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture:
+          - x64
+          - arm64
     env:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
@@ -392,6 +398,12 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.checkout_ref }}
+
+      - name: Set up ARM64 emulation
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          platforms: arm64
 
       - name: Download npm package archive
         if: inputs.package_npm
@@ -427,4 +439,6 @@ jobs:
           if [[ "$PACKAGE_PYPI" == "true" ]]; then
             args+=(--pypi-wheels dist/pypi-wheels)
           fi
-          python3 cmux-tui/dist/scripts/test_linux_packages.py "${args[@]}"
+          python3 cmux-tui/dist/scripts/test_linux_packages.py \
+            --architecture "${{ matrix.architecture }}" \
+            "${args[@]}"

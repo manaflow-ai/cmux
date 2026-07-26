@@ -28,6 +28,11 @@ BINARY_IMAGES = (
     ("alpine-3.22", "alpine:3.22"),
 )
 
+ARCHITECTURES = {
+    "x64": ("linux/amd64", "cmux-tui-linux-x64"),
+    "arm64": ("linux/arm64", "cmux-tui-linux-arm64"),
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -36,6 +41,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--npm-packages", type=pathlib.Path)
     parser.add_argument("--pypi-wheels", type=pathlib.Path)
     parser.add_argument("--version", required=True)
+    parser.add_argument(
+        "--architecture",
+        choices=ARCHITECTURES,
+        default="x64",
+        help="Linux package architecture to exercise (default: x64).",
+    )
     args = parser.parse_args()
     if args.npm_packages is None and args.pypi_wheels is None:
         parser.error("at least one of --npm-packages or --pypi-wheels is required")
@@ -50,6 +61,7 @@ def run(label: str, command: list[str]) -> None:
 def container_command(
     image: str,
     *,
+    platform: str,
     mounts: tuple[tuple[pathlib.Path, str], ...],
     script: str,
     entrypoint: str | None = None,
@@ -59,7 +71,7 @@ def container_command(
         "run",
         "--rm",
         "--platform",
-        "linux/amd64",
+        platform,
         "--network",
         "none",
     ]
@@ -110,10 +122,10 @@ server_pid=""
 """
 
 
-def test_npm(packages: pathlib.Path) -> None:
+def test_npm(packages: pathlib.Path, platform: str, package_name: str) -> None:
     launcher = packages / "cmux"
-    platform = packages / "cmux-tui-linux-x64"
-    for path in (launcher, platform):
+    platform_package = packages / package_name
+    for path in (launcher, platform_package):
         if not path.is_dir():
             raise SystemExit(f"missing npm package directory: {path}")
 
@@ -122,7 +134,7 @@ def test_npm(packages: pathlib.Path) -> None:
         node_modules = root / "node_modules"
         node_modules.mkdir()
         shutil.copytree(launcher, node_modules / launcher.name)
-        shutil.copytree(platform, node_modules / platform.name)
+        shutil.copytree(platform_package, node_modules / platform_package.name)
         bin_dir = node_modules / ".bin"
         bin_dir.mkdir()
         (bin_dir / "cmux").symlink_to("../cmux/bin/cmux.js")
@@ -132,13 +144,14 @@ def test_npm(packages: pathlib.Path) -> None:
                 f"npx on {distro}",
                 container_command(
                     image,
+                    platform=platform,
                     mounts=((root, "/test"),),
                     script=script,
                 ),
             )
 
 
-def test_uvx(wheels: pathlib.Path, version: str) -> None:
+def test_uvx(wheels: pathlib.Path, version: str, platform: str) -> None:
     if not any(wheels.glob("*.whl")):
         raise SystemExit(f"missing PyPI wheels: {wheels}")
     command = f"uvx --offline --find-links /wheels 'cmux=={version}'"
@@ -148,6 +161,7 @@ def test_uvx(wheels: pathlib.Path, version: str) -> None:
             f"uvx on {distro}",
             container_command(
                 image,
+                platform=platform,
                 entrypoint="",
                 mounts=((wheels, "/wheels"),),
                 script=script,
@@ -155,8 +169,10 @@ def test_uvx(wheels: pathlib.Path, version: str) -> None:
         )
 
 
-def test_native_binary(packages: pathlib.Path) -> None:
-    binary = packages / "cmux-tui-linux-x64" / "bin" / "cmux-tui"
+def test_native_binary(
+    packages: pathlib.Path, platform: str, package_name: str
+) -> None:
+    binary = packages / package_name / "bin" / "cmux-tui"
     if not binary.is_file():
         raise SystemExit(f"missing Linux binary: {binary}")
     for distro, image in BINARY_IMAGES:
@@ -164,6 +180,7 @@ def test_native_binary(packages: pathlib.Path) -> None:
             f"native binary on {distro}",
             container_command(
                 image,
+                platform=platform,
                 mounts=((binary, "/cmux-tui"),),
                 script="/cmux-tui --version",
             ),
@@ -174,12 +191,13 @@ def main() -> None:
     args = parse_args()
     if shutil.which("docker") is None:
         raise SystemExit("docker is required")
+    platform, package_name = ARCHITECTURES[args.architecture]
     if args.npm_packages is not None:
         npm_packages = args.npm_packages.resolve()
-        test_npm(npm_packages)
-        test_native_binary(npm_packages)
+        test_npm(npm_packages, platform, package_name)
+        test_native_binary(npm_packages, platform, package_name)
     if args.pypi_wheels is not None:
-        test_uvx(args.pypi_wheels.resolve(), args.version)
+        test_uvx(args.pypi_wheels.resolve(), args.version, platform)
 
 
 if __name__ == "__main__":
