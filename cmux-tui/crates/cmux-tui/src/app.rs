@@ -13686,7 +13686,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_fallback_operations_coalesce_per_surface() {
+    fn clear_history_fallback_operations_remain_ordered() {
         let (mux, surface) = test_mux("clear-history-fallback-budget-test", None);
         let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -13704,7 +13704,7 @@ mod tests {
             app.session.clear_history_or_send_key(surface.id, fallback_key.clone());
         }
 
-        assert_eq!(app.session.operations.queued_bytes_for_test(), retained_bytes);
+        assert_eq!(app.session.operations.queued_bytes_for_test(), retained_bytes * 8);
         unblock_tx.send(()).unwrap();
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         mux.close_surface(surface.id).unwrap();

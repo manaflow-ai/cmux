@@ -3544,6 +3544,40 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_reuses_timeout_until_stream_progress() {
+        let mux = Mux::new_for_test("clear-history-shared-timeout", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let first_error = surface.clear_history().unwrap_err();
+        assert_eq!(first_error.to_string(), CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
+
+        let second_started = Instant::now();
+        let second_error = surface.clear_history().unwrap_err();
+        assert_eq!(second_error.to_string(), CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
+        assert!(
+            second_started.elapsed() < Duration::from_millis(100),
+            "a repeated clear restarted the full stream wait"
+        );
+
+        surface.apply_stream_output_for_test(b"m\x1b[31").unwrap();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_surface = surface.clone();
+        std::thread::spawn(move || {
+            let _ = finished_tx.send(clear_surface.clear_history());
+        });
+        assert!(
+            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            "new stream progress did not restore the bounded clear wait"
+        );
+        surface.apply_stream_output_for_test(b"m").unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+    }
+
+    #[test]
     fn clear_history_reports_when_active_input_reaches_retained_history() {
         let mux = Mux::new_for_test("clear-history-spanning-input", SurfaceOptions::default());
         let options = SurfaceOptions { cols: 8, rows: 3, ..SurfaceOptions::default() };
