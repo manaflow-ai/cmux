@@ -138,6 +138,8 @@ struct ShutdownOwnerReconcilerState {
 struct ShutdownOwnerReconciler {
     state: Mutex<ShutdownOwnerReconcilerState>,
     wake: std::sync::Condvar,
+    #[cfg(test)]
+    worker_started: AtomicBool,
 }
 
 impl ShutdownOwnerReconciler {
@@ -147,7 +149,14 @@ impl ShutdownOwnerReconciler {
             .name("cmux-shutdown-owner-reconciler".into())
             .spawn(move || reconciler.run(mux))
             .context("start shutdown owner reconciler")?;
+        #[cfg(test)]
+        self.worker_started.store(true, Ordering::Release);
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn worker_started(&self) -> bool {
+        self.worker_started.load(Ordering::Acquire)
     }
 
     fn schedule(&self) {
@@ -10521,6 +10530,17 @@ mod tests {
         owned.set_server_shutdown_failure_for_test(false);
         assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
         assert!(mux.shutdown_owners.is_empty());
+    }
+
+    #[test]
+    fn ordinary_mux_lifecycle_does_not_start_a_reconciler_worker() {
+        let mux = test_mux();
+        assert!(!mux.shutdown_owner_reconciler.worker_started());
+
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        assert!(mux.close_surface(surface.id).unwrap());
+
+        assert!(!mux.shutdown_owner_reconciler.worker_started());
     }
 
     #[test]
