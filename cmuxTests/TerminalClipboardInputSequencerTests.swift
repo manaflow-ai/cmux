@@ -36,8 +36,8 @@ struct TerminalClipboardInputSequencerTests {
         await deadlines.waitForArrivalCount(1)
         let startedName = await started.next()
         #expect(startedName == request.pasteboardName)
-        #expect(sequencer.route("suffix") == .queued)
-        #expect(sequencer.route("return") == .queued)
+        #expect(sequencer.shouldDefer("suffix"))
+        #expect(sequencer.shouldDefer("return"))
         #expect(delivered.isEmpty)
 
         await operation.release(request.pasteboardName)
@@ -58,8 +58,8 @@ struct TerminalClipboardInputSequencerTests {
         )
         var delivered: [String] = []
         sequencer.beginRequest(id: 1)
-        #expect(sequencer.route("paste-2") == .queued)
-        #expect(sequencer.route("suffix") == .queued)
+        #expect(sequencer.shouldDefer("paste-2"))
+        #expect(sequencer.shouldDefer("suffix"))
 
         sequencer.completeRequest(id: 1, confirmed: false) { event in
             delivered.append(event)
@@ -83,7 +83,7 @@ struct TerminalClipboardInputSequencerTests {
         )
         var delivered: [String] = []
         sequencer.beginRequest(id: 1)
-        #expect(sequencer.route("suffix") == .queued)
+        #expect(sequencer.shouldDefer("suffix"))
         sequencer.requireConfirmation(for: 1)
 
         sequencer.completeRequest(id: 1, confirmed: true) {
@@ -105,13 +105,13 @@ struct TerminalClipboardInputSequencerTests {
         var delivered: [String] = []
         sequencer.beginRequest(id: 1)
 
-        #expect(sequencer.route("first", replay: { _ in }) == .queued)
-        #expect(sequencer.route("second", replay: { _ in }) == .queued)
+        #expect(sequencer.shouldDefer("first", replay: { _ in }))
+        #expect(sequencer.shouldDefer("second", replay: { _ in }))
         #expect(
-            sequencer.route(
+            !sequencer.shouldDefer(
                 "overflow",
                 replay: { delivered.append($0) }
-            ) == .dispatchNow
+            )
         )
         delivered.append("overflow")
         sequencer.completeRequest(id: 1, confirmed: false) {

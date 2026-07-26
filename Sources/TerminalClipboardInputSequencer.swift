@@ -3,11 +3,6 @@ import Foundation
 /// Preserves terminal input order while Ghostty is resolving a clipboard read.
 @MainActor
 final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
-    enum Routing: Equatable {
-        case dispatchNow
-        case queued
-    }
-
     private let maximumBufferedEvents: Int
     private var activeRequestIDs: Set<RequestID> = []
     private var confirmationRequestIDs: Set<RequestID> = []
@@ -30,21 +25,21 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         confirmationRequestIDs.insert(id)
     }
 
-    func route(
+    func shouldDefer(
         _ event: Event,
         replay: (Event) -> Void = { _ in }
-    ) -> Routing {
-        guard !isReplaying else { return .dispatchNow }
-        guard !activeRequestIDs.isEmpty else { return .dispatchNow }
+    ) -> Bool {
+        guard !isReplaying else { return false }
+        guard !activeRequestIDs.isEmpty else { return false }
         guard bufferedEventCount < maximumBufferedEvents else {
             replayBufferedEvents(
                 replay,
                 whileRequestsAreActive: true
             )
-            return .dispatchNow
+            return false
         }
         bufferedEvents.append(event)
-        return .queued
+        return true
     }
 
     func completeRequest(
