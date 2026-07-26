@@ -295,6 +295,7 @@ mod tests {
         assert!(args.contains(&OsString::from("lawrence@cmux.cloud")));
         assert!(args.contains(&OsString::from("IdentitiesOnly=yes")));
         assert!(args.contains(&OsString::from("BatchMode=yes")));
+        assert!(args.contains(&OsString::from("StrictHostKeyChecking=yes")));
         assert!(args.contains(&OsString::from("RemoteCommand=none")));
         assert!(args.contains(&OsString::from("ClearAllForwardings=yes")));
         assert!(args.contains(&OsString::from("ForwardAgent=no")));
