@@ -690,8 +690,9 @@ struct TerminalStreamProgressState {
 
 struct ClearHistoryWaitState {
     deadline: Instant,
-    // Timed-out waits leave this state latched at zero until real PTY output
-    // advances the stream. Queued repeats then fail without restarting the
+    revision: u64,
+    // Timed-out waits leave this state latched at zero only while the stream
+    // revision is unchanged. Queued repeats then fail without restarting the
     // full timeout, while concurrent callers share one deadline.
     waiters: usize,
 }
@@ -742,8 +743,10 @@ impl TerminalStreamProgress {
 
     pub(crate) fn begin_clear_history_wait(&self, timeout: Duration) -> ClearHistoryWaitLease<'_> {
         let mut state = self.state.lock().unwrap();
+        let revision = state.revision;
         let wait = state.clear_history_wait.get_or_insert_with(|| ClearHistoryWaitState {
             deadline: Instant::now() + timeout,
+            revision,
             waiters: 0,
         });
         wait.waiters += 1;
@@ -752,12 +755,16 @@ impl TerminalStreamProgress {
 
     fn finish_clear_history_wait(&self, timed_out: bool) {
         let mut state = self.state.lock().unwrap();
-        let Some(wait) = state.clear_history_wait.as_mut() else {
-            return;
+        let current_revision = state.revision;
+        let clear_wait = {
+            let Some(wait) = state.clear_history_wait.as_mut() else {
+                return;
+            };
+            debug_assert!(wait.waiters > 0);
+            wait.waiters -= 1;
+            wait.waiters == 0 && (!timed_out || wait.revision != current_revision)
         };
-        debug_assert!(wait.waiters > 0);
-        wait.waiters -= 1;
-        if !timed_out && wait.waiters == 0 {
+        if clear_wait {
             state.clear_history_wait = None;
         }
     }
