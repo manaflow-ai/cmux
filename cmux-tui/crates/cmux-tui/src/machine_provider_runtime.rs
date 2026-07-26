@@ -2990,6 +2990,167 @@ mod tests {
     }
 
     #[test]
+    fn accepted_external_connect_reconnect_keeps_provider_switch_over_local_session() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut initial = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        initial.capabilities.connect_external_machine = true;
+        let mut enrolled = initial.clone();
+        enrolled.revision = 2;
+        enrolled.machines.push(protocol::MachineDescriptor {
+            id: id("paired-machine"),
+            display_name: "Paired mini".into(),
+            subtitle: "external".into(),
+            status: protocol::MachineStatus::Running,
+            connectable: true,
+            workspace_create: protocol::WorkspaceCreatePolicy::Session,
+        });
+        enrolled.selected_machine_id = Some(id("paired-machine"));
+        let server_initial = initial.clone();
+        let server_enrolled = enrolled;
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            {
+                let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                    &listener,
+                    server_initial.clone(),
+                    &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+                );
+                serve_runtime_refresh(&mut stream, &mut reader, &server_initial, None);
+                let connect: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(
+                    connect.request,
+                    protocol::ProviderRequest::ConnectExternalMachine(_)
+                ));
+                write_frame(
+                    &mut stream,
+                    &protocol::ResponseEnvelope::success(
+                        connect.id,
+                        protocol::ConnectExternalMachineResult {
+                            machine_id: id("paired-machine"),
+                            revision: 2,
+                            notice: None,
+                        },
+                    ),
+                );
+                let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+                write_frame(
+                    &mut stream,
+                    &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+                        refresh.id,
+                        protocol::ProviderError {
+                            code: protocol::ProviderErrorCode::Unavailable,
+                            message: "accepted pairing refresh failed".into(),
+                            retryable: true,
+                        },
+                    ),
+                );
+            }
+
+            let (_stream, _reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                server_enrolled,
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            finished.recv().unwrap();
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
+            pending_active_local: None,
+        };
+        let accepted = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
+        assert_eq!(accepted.ui.request, Some(MachineRequest::ReconnectProvider));
+
+        let reconnected = controller.perform_request(MachineRequest::ReconnectProvider).unwrap();
+        let paired = reconnected
+            .ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == "paired-machine")
+            .unwrap();
+        assert_eq!(reconnected.ui.snapshot.active, Some(paired.key));
+        assert_eq!(reconnected.ui.request, Some(MachineRequest::Switch(paired.key)));
+
+        finish.send(()).unwrap();
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn retryable_external_connect_error_reuses_mutation_id() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        catalog.capabilities.connect_external_machine = true;
+        let mut enrolled = catalog.clone();
+        enrolled.revision = 2;
+        enrolled.selected_machine_id = Some(id("machine-1"));
+        let server_catalog = catalog;
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                server_catalog.clone(),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+            let first: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::ConnectExternalMachine(first_params) = first.request
+            else {
+                panic!("first request was not external connect");
+            };
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::ConnectExternalMachineResult>::failure(
+                    first.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "pairing outcome unknown".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+
+            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+            let retry: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::ConnectExternalMachine(retry_params) = retry.request
+            else {
+                panic!("retry request was not external connect");
+            };
+            assert_eq!(retry_params.specifier, first_params.specifier);
+            assert_eq!(retry_params.mutation_id, first_params.mutation_id);
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    retry.id,
+                    protocol::ConnectExternalMachineResult {
+                        machine_id: id("machine-1"),
+                        revision: 2,
+                        notice: None,
+                    },
+                ),
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &enrolled, None);
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let Err(first) = runtime.perform_external_connect("PAIR 4J7K".into()) else {
+            panic!("retryable provider error unexpectedly completed external connect");
+        };
+        assert!(first.to_string().contains("pairing outcome unknown"));
+        let retry = runtime.perform_external_connect("PAIR 4J7K".into()).unwrap();
+
+        assert!(retry.ui.request.is_some());
+        runtime.close();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn capability_revocation_fails_the_presented_provider_route_closed() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
