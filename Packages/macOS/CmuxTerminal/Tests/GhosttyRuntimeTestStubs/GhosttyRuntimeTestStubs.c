@@ -29,6 +29,7 @@ static void* cmux_test_font_surface = NULL;
 static float cmux_test_font_runtime_points = 0;
 static float cmux_test_font_configured_runtime_points = 0;
 static bool cmux_test_font_adjusted = false;
+static bool cmux_test_font_binding_succeeds = true;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
@@ -140,6 +141,7 @@ bool ghostty_surface_binding_action(
     uintptr_t action_len
 ) {
     if (surface == cmux_test_font_surface) {
+        if (!cmux_test_font_binding_succeeds) return false;
         char buffer[128];
         const uintptr_t copy_len =
             action_len < sizeof(buffer) - 1
@@ -160,6 +162,12 @@ bool ghostty_surface_binding_action(
             cmux_test_font_runtime_points =
                 cmux_test_font_configured_runtime_points;
             cmux_test_font_adjusted = false;
+        } else if (strncmp(buffer, "increase_font_size:", 19) == 0) {
+            cmux_test_font_runtime_points += strtof(buffer + 19, NULL);
+            cmux_test_font_adjusted = true;
+        } else if (strncmp(buffer, "decrease_font_size:", 19) == 0) {
+            cmux_test_font_runtime_points -= strtof(buffer + 19, NULL);
+            cmux_test_font_adjusted = true;
         }
     }
     return true;
@@ -250,6 +258,7 @@ void cmux_test_ghostty_font_state_begin(
     cmux_test_font_adjusted = adjusted;
     cmux_test_font_configured_runtime_points =
         configured_runtime_points;
+    cmux_test_font_binding_succeeds = true;
 }
 
 void cmux_test_ghostty_font_state_end(void) {
@@ -257,4 +266,9 @@ void cmux_test_ghostty_font_state_end(void) {
     cmux_test_font_runtime_points = 0;
     cmux_test_font_configured_runtime_points = 0;
     cmux_test_font_adjusted = false;
+    cmux_test_font_binding_succeeds = true;
+}
+
+void cmux_test_ghostty_font_binding_result(bool result) {
+    cmux_test_font_binding_succeeds = result;
 }

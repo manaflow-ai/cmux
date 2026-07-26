@@ -18,6 +18,9 @@ private func beginFontState(
 @_silgen_name("cmux_test_ghostty_font_state_end")
 private func endFontState()
 
+@_silgen_name("cmux_test_ghostty_font_binding_result")
+private func setFontBindingResult(_ result: Bool)
+
 @MainActor
 @Suite struct TerminalSurfaceFontSizeLineageTests {
     @Test func initialNonExplicitTemplateSeedsFirstRuntimeCreation() {
@@ -661,6 +664,166 @@ private func endFontState()
         )
         #expect(
             surface.runtimeCreationConfigTemplate().fontSizeLineage == nil
+        )
+    }
+
+    @Test
+    func configurationReloadMergesTerminalLocalFontInput() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        beginFontState(runtimeSurface, 13, true, 26)
+        defer {
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        let state =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100,
+                targetConfiguredRuntimePoints: 26,
+                targetMagnificationPercent: 200
+            )
+        #expect(
+            surface.performExplicitInputBindingAction(
+                "increase_font_size:1"
+            )
+        )
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: state,
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ) == .applied
+        )
+
+        #expect(
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) == 27
+        )
+        #expect(
+            try #require(
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent: 200
+                )
+            ) == TerminalFontSizeLineage(
+                basePoints: 13.5,
+                isExplicitOverride: true
+            )
+        )
+    }
+
+    @Test
+    func failedConfigurationReloadReconciliationRemainsRetryable()
+        throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        beginFontState(runtimeSurface, 13, true, 26)
+        defer {
+            setFontBindingResult(true)
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        let state =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100,
+                targetConfiguredRuntimePoints: 26,
+                targetMagnificationPercent: 200
+            )
+        setFontBindingResult(false)
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: state,
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ) == .failed
+        )
+        #expect(
+            try #require(
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent: 200
+                )
+            ) == TerminalFontSizeLineage(
+                basePoints: 13,
+                isExplicitOverride: true
+            ),
+            "A failed native mutation must retain the captured authority"
+        )
+
+        setFontBindingResult(true)
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: state,
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ) == .applied
+        )
+        #expect(
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) == 26
+        )
+    }
+
+    @Test
+    func neverRealizedFollowerUsesTargetReloadInheritance() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(12, isExplicitOverride: false)
+        let surface = makeSurface(configTemplate: template)
+
+        let state =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100,
+                targetConfiguredRuntimePoints: 28,
+                targetMagnificationPercent: 200
+            )
+        #expect(
+            try #require(
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent: 200
+                )
+            ) == TerminalFontSizeLineage(
+                basePoints: 14,
+                isExplicitOverride: false
+            )
+        )
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: state,
+                configuredRuntimePoints: 28,
+                magnificationPercent: 200
+            ) == .alreadySatisfied
         )
     }
 

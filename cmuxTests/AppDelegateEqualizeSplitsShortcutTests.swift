@@ -3315,6 +3315,104 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
+    func testConfigurationFontReconcilerBoundsCaptureBeforeApply() {
+        let scheduler =
+            ManualTerminalFontConfigurationReloadScheduler()
+        let reconciler =
+            TerminalFontConfigurationReloadReconciler(
+                maximumSurfaceVisitsPerDrain: 3,
+                schedule: scheduler.schedule(action:)
+            )
+        var nextCaptureIndex = 0
+        var captured: [Int] = []
+        var reconciled: [Int] = []
+        var didApplyConfiguration = false
+        var didComplete = false
+
+        reconciler.reconcileIncrementally(
+            captureNextWork: {
+                guard nextCaptureIndex < 8 else { return nil }
+                let index = nextCaptureIndex
+                nextCaptureIndex += 1
+                captured.append(index)
+                return .init(attempt: {
+                    reconciled.append(index)
+                    return true
+                })
+            },
+            applyConfiguration: {
+                didApplyConfiguration = true
+            },
+            completion: {
+                didComplete = true
+            }
+        )
+
+        scheduler.fire(at: 0)
+        XCTAssertEqual(captured, [0, 1, 2])
+        XCTAssertFalse(didApplyConfiguration)
+        XCTAssertTrue(reconciled.isEmpty)
+
+        scheduler.fire(at: 1)
+        XCTAssertEqual(captured, [0, 1, 2, 3, 4, 5])
+        XCTAssertFalse(didApplyConfiguration)
+        XCTAssertTrue(reconciled.isEmpty)
+
+        scheduler.fire(at: 2)
+        XCTAssertEqual(captured, [0, 1, 2, 3, 4, 5, 6, 7])
+        XCTAssertTrue(didApplyConfiguration)
+        XCTAssertTrue(reconciled.isEmpty)
+        XCTAssertFalse(didComplete)
+
+        scheduler.fire(at: 3)
+        XCTAssertEqual(reconciled, [0, 1, 2])
+        scheduler.fire(at: 4)
+        XCTAssertEqual(reconciled, [0, 1, 2, 3, 4, 5])
+        scheduler.fire(at: 5)
+        XCTAssertEqual(reconciled, [0, 1, 2, 3, 4, 5, 6, 7])
+        XCTAssertTrue(didComplete)
+    }
+
+    func testConfigurationFontReconcilerRetriesFailedWork() {
+        let scheduler =
+            ManualTerminalFontConfigurationReloadScheduler()
+        let reconciler =
+            TerminalFontConfigurationReloadReconciler(
+                maximumSurfaceVisitsPerDrain: 3,
+                schedule: scheduler.schedule(action:)
+            )
+        var didCapture = false
+        var attempts = 0
+        var didComplete = false
+
+        reconciler.reconcileIncrementally(
+            captureNextWork: {
+                guard !didCapture else { return nil }
+                didCapture = true
+                return .init(attempt: {
+                    attempts += 1
+                    return attempts > 1
+                })
+            },
+            applyConfiguration: {},
+            completion: {
+                didComplete = true
+            }
+        )
+
+        scheduler.fire(at: 0)
+        XCTAssertEqual(attempts, 0)
+        XCTAssertFalse(didComplete)
+
+        scheduler.fire(at: 1)
+        XCTAssertEqual(attempts, 1)
+        XCTAssertFalse(didComplete)
+
+        scheduler.fire(at: 2)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(didComplete)
+    }
+
     func testConfigurationReloadReadsMagnificationAfterSettingsReload() {
         var storedMagnificationPercent = 100
 

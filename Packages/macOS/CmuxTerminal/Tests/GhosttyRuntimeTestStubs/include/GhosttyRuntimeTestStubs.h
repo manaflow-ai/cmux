@@ -84,5 +84,6 @@ void cmux_test_ghostty_font_state_begin(
     bool adjusted,
     float configured_runtime_points);
 void cmux_test_ghostty_font_state_end(void);
+void cmux_test_ghostty_font_binding_result(bool result);
 
 #endif
