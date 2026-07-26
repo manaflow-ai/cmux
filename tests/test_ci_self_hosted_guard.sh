@@ -882,6 +882,36 @@ EOF
     exit 1
   fi
 
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --coverage -t "fixture runs"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner option-only discovery should execute"
+    exit 1
+  fi
+  expected_args+=$'\n--coverage\n-t\nfixture runs'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: option-only runs must retain sorted discovery before forwarding options"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" tests/beta; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner explicit filter should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\ntests/beta'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: explicit test filters must remain scoped instead of expanding to every test"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
   mkdir -p "$fixture_dir/empty/scripts"
   cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"
   if PATH="$fixture_dir/bin:/usr/bin:/bin" \

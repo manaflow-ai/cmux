@@ -98,13 +98,21 @@ test("shared web test runner preserves sorted recursive discovery", () => {
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
     ];
-    let previousIndex = -1;
-    for (const heading of expectedHeadings) {
-      const index = result.output.indexOf(heading);
-      expect(index).toBeGreaterThan(previousIndex);
-      previousIndex = index;
-    }
+    expectHeadingsInOrder(result.output, expectedHeadings);
     expect(result.output).not.toContain("ignored.test.ts:");
+
+    const optionedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "-t", "fixture runs"],
+      fixtureRoot,
+    );
+    if (optionedResult.status !== 0) {
+      throw new Error(
+        `option-only web test run lost discovery:\n${optionedResult.output}`,
+      );
+    }
+    expectHeadingsInOrder(optionedResult.output, expectedHeadings);
+    expect(optionedResult.output).not.toContain("ignored.test.ts:");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -152,4 +160,13 @@ function runChild(
     );
   }
   return { status: result.status, output };
+}
+
+function expectHeadingsInOrder(output: string, headings: string[]): void {
+  let previousIndex = -1;
+  for (const heading of headings) {
+    const index = output.indexOf(heading);
+    expect(index).toBeGreaterThan(previousIndex);
+    previousIndex = index;
+  }
 }
