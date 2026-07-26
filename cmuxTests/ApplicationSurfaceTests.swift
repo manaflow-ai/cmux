@@ -80,4 +80,26 @@ struct ApplicationSurfaceTests {
         #expect(dash?.flags == plus?.flags)
         #expect(ApplicationCaptureView.parseNamedKey("hyper-c") == nil)
     }
+
+    @Test func modifierTransitionsTrackPhysicalKeysIndependently() {
+        var pressed: Set<UInt16> = []
+
+        #expect(ApplicationCaptureView.modifierKeyTransition(
+            keyCode: UInt16(kVK_Shift),
+            pressedKeyCodes: &pressed
+        ))
+        #expect(ApplicationCaptureView.modifierKeyTransition(
+            keyCode: UInt16(kVK_RightShift),
+            pressedKeyCodes: &pressed
+        ))
+        #expect(!ApplicationCaptureView.modifierKeyTransition(
+            keyCode: UInt16(kVK_Shift),
+            pressedKeyCodes: &pressed
+        ))
+        #expect(!ApplicationCaptureView.modifierKeyTransition(
+            keyCode: UInt16(kVK_RightShift),
+            pressedKeyCodes: &pressed
+        ))
+        #expect(pressed.isEmpty)
+    }
 }

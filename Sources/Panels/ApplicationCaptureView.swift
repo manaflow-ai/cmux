@@ -56,7 +56,11 @@ final class ApplicationCaptureView: NSView {
     private let onStateChanged: (ApplicationPanel.CaptureState) -> Void
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let displayLayer = AVSampleBufferDisplayLayer()
-    private let streamOutput: ApplicationCaptureStreamOutput
+    private lazy var streamOutput = ApplicationCaptureStreamOutput(
+        displayLayer: displayLayer
+    ) { [weak self] frame in
+        self?.captureFrameDidArrive(frame)
+    }
     private lazy var streamDelegate = ApplicationCaptureStreamDelegate { [weak self] streamID in
         Task { @MainActor [weak self] in
             self?.handleUnexpectedStreamStop(streamID: streamID)
@@ -74,6 +78,7 @@ final class ApplicationCaptureView: NSView {
     private var targetUnavailable = false
     private var pendingScrollX = 0.0
     private var pendingScrollY = 0.0
+    private var pressedModifierKeyCodes: Set<UInt16> = []
     private var mouseTrackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
@@ -91,7 +96,6 @@ final class ApplicationCaptureView: NSView {
         self.targetFrameRate = targetFrameRate
         self.onStateChanged = onStateChanged
         self.onMovedToWindow = onMovedToWindow
-        self.streamOutput = ApplicationCaptureStreamOutput(displayLayer: displayLayer)
         super.init(frame: .zero)
         wantsLayer = true
         layer = CALayer()
@@ -177,6 +181,7 @@ final class ApplicationCaptureView: NSView {
         configuredCapturePixelSize = .zero
         pendingScrollX = 0
         pendingScrollY = 0
+        pressedModifierKeyCodes.removeAll()
 
         let activeStream = stream
         stream = nil
@@ -324,48 +329,21 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        let modifier: NSEvent.ModifierFlags
         switch Int(event.keyCode) {
-        case kVK_Command, kVK_RightCommand:
-            modifier = .command
-        case kVK_Shift, kVK_RightShift:
-            modifier = .shift
-        case kVK_Option, kVK_RightOption:
-            modifier = .option
-        case kVK_Control, kVK_RightControl:
-            modifier = .control
-        case kVK_CapsLock:
-            modifier = .capsLock
-        case kVK_Function:
-            modifier = .function
+        case kVK_Command, kVK_RightCommand,
+             kVK_Shift, kVK_RightShift,
+             kVK_Option, kVK_RightOption,
+             kVK_Control, kVK_RightControl,
+             kVK_CapsLock, kVK_Function:
+            break
         default:
             return
         }
-        postKey(event, keyDown: event.modifierFlags.contains(modifier))
-    }
-
-    func sendNamedKey(_ name: String) -> ApplicationNamedKeySendResult {
-        guard let parsed = Self.parseNamedKey(name) else {
-            return .unknownKey
-        }
-        guard validatedSourceFrame() != nil, AXIsProcessTrusted(),
-              let down = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: parsed.keyCode,
-                keyDown: true
-              ),
-              let up = CGEvent(
-                keyboardEventSource: nil,
-                virtualKey: parsed.keyCode,
-                keyDown: false
-              ) else {
-            return .surfaceUnavailable
-        }
-        down.flags = parsed.flags
-        up.flags = parsed.flags
-        down.postToPid(processID)
-        up.postToPid(processID)
-        return .sent
+        let keyDown = Self.modifierKeyTransition(
+            keyCode: event.keyCode,
+            pressedKeyCodes: &pressedModifierKeyCodes
+        )
+        postKey(event, keyDown: keyDown)
     }
 
     static func parseNamedKey(_ name: String) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {
@@ -388,6 +366,17 @@ final class ApplicationCaptureView: NSView {
             }
         }
         return (keyCode, flags)
+    }
+
+    static func modifierKeyTransition(
+        keyCode: UInt16,
+        pressedKeyCodes: inout Set<UInt16>
+    ) -> Bool {
+        if pressedKeyCodes.remove(keyCode) != nil {
+            return false
+        }
+        pressedKeyCodes.insert(keyCode)
+        return true
     }
 
     private func postMouse(_ event: NSEvent, type: CGEventType, button: CGMouseButton) {
@@ -498,37 +487,27 @@ final class ApplicationCaptureView: NSView {
         return false
     }
 
+    private func captureFrameDidArrive(_ frame: CGRect) {
+        guard captureDesired, let activeStream = stream else { return }
+        sourceFrame = frame
+        _ = updateStreamConfigurationIfNeeded(
+            for: frame.size,
+            activeStream: activeStream
+        )
+    }
+
     private func validatedSourceFrame() -> CGRect? {
         guard captureDesired, stream != nil, sourceFrame.width > 0, sourceFrame.height > 0 else {
             return nil
         }
-        let windows = CGWindowListCopyWindowInfo(
-            [.optionIncludingWindow],
-            sourceWindowID
-        ) as? [[String: Any]]
-        guard let window = windows?.first,
-              let ownerPID = window[kCGWindowOwnerPID as String] as? Int,
-              pid_t(ownerPID) == processID,
-              let bounds = window[kCGWindowBounds as String] as? NSDictionary else {
-            handleWindowUnavailable()
-            return nil
-        }
-        var frame = CGRect.zero
-        guard CGRectMakeWithDictionaryRepresentation(bounds, &frame),
-              frame.width > 0,
-              frame.height > 0 else {
-            handleWindowUnavailable()
-            return nil
-        }
-        sourceFrame = frame
         guard let activeStream = stream,
               updateStreamConfigurationIfNeeded(
-                for: frame.size,
+                for: sourceFrame.size,
                 activeStream: activeStream
               ) else {
             return nil
         }
-        return frame
+        return sourceFrame
     }
 
     private func postKey(_ event: NSEvent, keyDown: Bool) {
@@ -552,6 +531,10 @@ final class ApplicationCaptureView: NSView {
     private func handleUnexpectedStreamStop(streamID: ObjectIdentifier) {
         guard let activeStream = stream,
               ObjectIdentifier(activeStream) == streamID else { return }
+        let targetStillAvailable = ApplicationPanel.hasLiveTarget(
+            windowID: sourceWindowID,
+            processID: processID
+        )
         stream = nil
         captureDesired = false
         captureTask?.cancel()
@@ -562,7 +545,13 @@ final class ApplicationCaptureView: NSView {
         configuredCapturePixelSize = .zero
         pendingScrollX = 0
         pendingScrollY = 0
+        pressedModifierKeyCodes.removeAll()
         displayLayer.flushAndRemoveImage()
-        onStateChanged(.failed)
+        if targetStillAvailable {
+            onStateChanged(.failed)
+        } else {
+            targetUnavailable = true
+            onStateChanged(.windowUnavailable)
+        }
     }
 }

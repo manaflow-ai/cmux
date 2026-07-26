@@ -134397,6 +134397,57 @@
         }
       }
     },
+    "cli.applicationSurface.list.help.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List capturable native application windows without connecting to CMUX."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX に接続せずにキャプチャ可能なネイティブアプリケーションウィンドウを一覧表示します。"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.help.jsonOutput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON output:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON 出力:"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.help.textOutput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text output columns:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト出力の列:"
+          }
+        }
+      }
+    },
     "commandPalette.kind.application": {
       "extractionState": "manual",
       "localizations": {

@@ -16190,12 +16190,12 @@ struct CMUXCLI {
             return """
             Usage: cmux list-application-windows [--json]
 
-            List capturable native application windows without connecting to CMUX.
+            \(String(localized: "cli.applicationSurface.list.help.description", defaultValue: "List capturable native application windows without connecting to CMUX."))
 
-            Text output columns:
+            \(String(localized: "cli.applicationSurface.list.help.textOutput", defaultValue: "Text output columns:"))
               window_id    process_id    owner    title
 
-            JSON output:
+            \(String(localized: "cli.applicationSurface.list.help.jsonOutput", defaultValue: "JSON output:"))
               {"windows":[{"window_id":123,"process_id":456,"owner":"Preview","title":"Document"}]}
             """
         case "close-surface":

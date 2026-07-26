@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import Observation
 
@@ -153,7 +154,28 @@ final class ApplicationPanel: Panel {
     }
 
     func sendNamedKey(_ name: String) -> ApplicationNamedKeySendResult {
-        hostedView?.sendNamedKey(name) ?? .surfaceUnavailable
+        guard let parsed = ApplicationCaptureView.parseNamedKey(name) else {
+            return .unknownKey
+        }
+        guard Self.hasLiveTarget(windowID: windowID, processID: processID),
+              AXIsProcessTrusted(),
+              let down = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: parsed.keyCode,
+                keyDown: true
+              ),
+              let up = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: parsed.keyCode,
+                keyDown: false
+              ) else {
+            return .surfaceUnavailable
+        }
+        down.flags = parsed.flags
+        up.flags = parsed.flags
+        down.postToPid(processID)
+        up.postToPid(processID)
+        return .sent
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -168,5 +190,22 @@ final class ApplicationPanel: Panel {
 
     private func applyCaptureVisibility() {
         hostedView?.setCaptureActive(captureVisibleInUI && canvasRendering)
+    }
+
+    static func hasLiveTarget(windowID: CGWindowID, processID: pid_t) -> Bool {
+        let windows = CGWindowListCopyWindowInfo(
+            [.optionIncludingWindow],
+            windowID
+        ) as? [[String: Any]]
+        guard let window = windows?.first,
+              let ownerPID = window[kCGWindowOwnerPID as String] as? Int,
+              pid_t(ownerPID) == processID,
+              let bounds = window[kCGWindowBounds as String] as? NSDictionary else {
+            return false
+        }
+        var frame = CGRect.zero
+        return CGRectMakeWithDictionaryRepresentation(bounds, &frame)
+            && frame.width > 0
+            && frame.height > 0
     }
 }
