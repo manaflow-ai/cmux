@@ -1,6 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::OnceLock;
 
+use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::Action;
@@ -147,7 +148,14 @@ pub(crate) struct SidebarMessages {
     pub action_invalid_integer: &'static str,
     pub action_below_minimum: &'static str,
     pub action_above_maximum: &'static str,
+    pub action_missing_selected_machine: &'static str,
+    pub action_missing_selected_workspace: &'static str,
     pub action_multiple_fields_unsupported: &'static str,
+    pub action_list_workspace_ports: &'static str,
+    pub action_make_workspace_port_public: &'static str,
+    pub action_make_workspace_port_private: &'static str,
+    pub action_open_private_workspace_port: &'static str,
+    pub action_workspace_port: &'static str,
     pub confirm_destructive_action: &'static str,
     pub confirm_layout_undo: &'static str,
     pub confirmation_mismatch: &'static str,
@@ -176,6 +184,41 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_stale: &'static str,
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
+}
+
+impl SidebarMessages {
+    pub(crate) fn provider_action_label(&self, action_id: &str) -> Option<&'static str> {
+        match action_id {
+            provider_action_id::LIST_WORKSPACE_PORTS => Some(self.action_list_workspace_ports),
+            provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC => {
+                Some(self.action_make_workspace_port_public)
+            }
+            provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE => {
+                Some(self.action_make_workspace_port_private)
+            }
+            provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT => {
+                Some(self.action_open_private_workspace_port)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn provider_action_field_label(
+        &self,
+        action_id: &str,
+        field_id: &str,
+    ) -> Option<&'static str> {
+        matches!(
+            (action_id, field_id),
+            (
+                provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC
+                    | provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE
+                    | provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT,
+                "port"
+            )
+        )
+        .then_some(self.action_workspace_port)
+    }
 }
 
 impl ForeignViewportMessages {
@@ -348,7 +391,14 @@ edits shell files. Authenticate with the configured host before retrying.
         action_invalid_integer: "Enter a whole number",
         action_below_minimum: "This number is below the allowed minimum",
         action_above_maximum: "This number is above the allowed maximum",
+        action_missing_selected_machine: "Select a machine before running this action",
+        action_missing_selected_workspace: "Select a workspace before running this action",
         action_multiple_fields_unsupported: "This action needs a form that this client cannot show",
+        action_list_workspace_ports: "List workspace ports",
+        action_make_workspace_port_public: "Make workspace port public",
+        action_make_workspace_port_private: "Make workspace port private",
+        action_open_private_workspace_port: "Open private workspace port",
+        action_workspace_port: "Port",
         confirm_destructive_action: "Type CONFIRM to continue",
         confirm_layout_undo: "Type CONFIRM to close the new pane",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
@@ -493,7 +543,14 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         action_invalid_integer: "整数を入力してください",
         action_below_minimum: "この数値は許可された最小値未満です",
         action_above_maximum: "この数値は許可された最大値を超えています",
+        action_missing_selected_machine: "この操作を実行する前にマシンを選択してください",
+        action_missing_selected_workspace: "この操作を実行する前にワークスペースを選択してください",
         action_multiple_fields_unsupported: "この操作に必要なフォームをこのクライアントでは表示できません",
+        action_list_workspace_ports: "ワークスペースのポートを表示",
+        action_make_workspace_port_public: "ワークスペースのポートを公開",
+        action_make_workspace_port_private: "ワークスペースのポートを非公開",
+        action_open_private_workspace_port: "非公開のワークスペースポートを開く",
+        action_workspace_port: "ポート",
         confirm_destructive_action: "続行するには CONFIRM と入力",
         confirm_layout_undo: "新規ペインを閉じる: CONFIRM",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
@@ -697,6 +754,22 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").sidebar.layout_undo_stale,
             "レイアウトが変更されたため、元に戻す操作は適用されませんでした"
         );
+    }
+
+    #[test]
+    fn workspace_port_provider_actions_use_localized_labels() {
+        assert_eq!(
+            catalog().sidebar.provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
+            Some(catalog().sidebar.action_list_workspace_ports)
+        );
+        assert_eq!(
+            catalog().sidebar.provider_action_field_label(
+                provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC,
+                "port"
+            ),
+            Some(catalog().sidebar.action_workspace_port)
+        );
+        assert_eq!(catalog().sidebar.provider_action_label("external.action"), None);
     }
 
     #[test]
