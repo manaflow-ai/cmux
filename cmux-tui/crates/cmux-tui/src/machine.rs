@@ -406,6 +406,15 @@ pub(crate) fn validate_machine_session(
 pub(crate) trait MachineController: Send {
     fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult>;
 
+    /// Persist acknowledgement of a provider notice only after the app has
+    /// accepted and painted that exact delivery.
+    fn acknowledge_durable_notice(
+        &mut self,
+        _delivery: &DurableNoticeDelivery,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     /// Commit controller-side ownership changes for a replacement only after
     /// the replacement session has passed the shared workspace guard.
     fn commit_replacement(&mut self) -> anyhow::Result<()> {
@@ -457,9 +466,35 @@ pub struct MachineUiState {
     managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurableNoticeLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DurableNoticeDelivery {
+    pub notice_id: String,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DurableProviderNotice {
+    pub delivery: DurableNoticeDelivery,
+    pub level: DurableNoticeLevel,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum MachineUpdate {
+    Ui(Box<MachineUiState>),
+    DurableNotice(DurableProviderNotice),
+}
+
 /// A cancelable stream of provider-owned presentation snapshots.
 pub struct MachineUpdateStream {
-    receiver: Option<Receiver<MachineUiState>>,
+    receiver: Option<Receiver<MachineUpdate>>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
     armed: bool,
@@ -467,7 +502,7 @@ pub struct MachineUpdateStream {
 
 impl MachineUpdateStream {
     pub fn new(
-        receiver: Receiver<MachineUiState>,
+        receiver: Receiver<MachineUpdate>,
         stop: Arc<AtomicBool>,
         worker: JoinHandle<()>,
     ) -> Self {
@@ -476,7 +511,7 @@ impl MachineUpdateStream {
 
     pub(crate) fn into_parts(
         mut self,
-    ) -> (Receiver<MachineUiState>, Arc<AtomicBool>, JoinHandle<()>) {
+    ) -> (Receiver<MachineUpdate>, Arc<AtomicBool>, JoinHandle<()>) {
         self.armed = false;
         (
             self.receiver.take().expect("machine update receiver is present"),
@@ -966,13 +1001,13 @@ mod tests {
             capabilities: MachineCapabilities::default(),
         });
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        sender.send(update.clone()).unwrap();
+        sender.send(MachineUpdate::Ui(Box::new(update.clone()))).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let exited = Arc::new(AtomicBool::new(false));
         let worker_exited = exited.clone();
         let worker = std::thread::spawn(move || {
             // This blocks until MachineUpdateStream drops its receiver.
-            let _ = sender.send(update);
+            let _ = sender.send(MachineUpdate::Ui(Box::new(update)));
             worker_exited.store(true, Ordering::Release);
         });
         let stream = MachineUpdateStream::new(receiver, stop.clone(), worker);
