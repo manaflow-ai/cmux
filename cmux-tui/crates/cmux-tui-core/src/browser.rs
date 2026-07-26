@@ -546,11 +546,20 @@ impl BrowserRuntime {
     }
 
     pub(crate) fn shutdown_until(&self, deadline: Instant) -> bool {
+        let outbound_flushed = if self.source == BrowserSource::External {
+            if self.is_closed() {
+                false
+            } else {
+                deadline
+                    .checked_duration_since(Instant::now())
+                    .is_some_and(|remaining| self.client.flush_outbound(remaining).is_ok())
+            }
+        } else {
+            true
+        };
         close_browser_runtime(self, "browser runtime shut down".to_string());
-        if let Some(chrome) = &self.chrome {
-            return chrome.kill_until(deadline);
-        }
-        true
+        let browser_stopped = self.chrome.as_ref().is_none_or(|chrome| chrome.kill_until(deadline));
+        outbound_flushed && browser_stopped
     }
 }
 
@@ -1205,18 +1214,28 @@ impl BrowserSurface {
     }
 
     pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
-        if self.dead.swap(true, Ordering::AcqRel) {
-            return true;
+        if !self.dead.swap(true, Ordering::AcqRel) {
+            self.close_taps();
+            self.close_command_sender();
         }
-        self.close_taps();
-        let terminated = self.session.lock().unwrap().take().is_none_or(|session| {
-            session.runtime.close_surface_for_shutdown(
-                &session.target_id,
-                &session.session_id,
-                deadline,
-            )
-        });
-        self.close_command_sender();
+        let Some(session) = self.session.lock().unwrap().clone() else {
+            return true;
+        };
+        let terminated = session.runtime.close_surface_for_shutdown(
+            &session.target_id,
+            &session.session_id,
+            deadline,
+        );
+        if terminated {
+            let mut current = self.session.lock().unwrap();
+            if current.as_ref().is_some_and(|candidate| {
+                candidate.target_id == session.target_id
+                    && candidate.session_id == session.session_id
+                    && Arc::ptr_eq(&candidate.runtime, &session.runtime)
+            }) {
+                current.take();
+            }
+        }
         terminated
     }
 
