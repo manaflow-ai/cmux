@@ -2434,10 +2434,9 @@ final class WindowBrowserPortal: NSObject {
         containerView.needsLayout = true
         containerView.needsDisplay = true
         containerView.setNeedsDisplay(containerView.bounds)
-        let presentationView = webView.cmuxBrowserViewportPresentationView
-        if presentationView !== webView {
-            presentationView.needsLayout = true
-            presentationView.setNeedsDisplay(presentationView.bounds)
+        if let viewportHost =
+            webView.cmuxBrowserViewportPresentationView as? BrowserViewportHostView {
+            viewportHost.invalidateBrowserPortalPresentation()
         }
 
         for webKitSubview in hostedWebKitSubviews {
