@@ -1237,11 +1237,38 @@ impl ConnectionSurfaceScheduler {
         retained_bytes: usize,
         writer: MessageWriter,
     ) -> Option<bool> {
-        let surface = request.as_ref().unwrap().cmd.ordering_surface()?;
+        let ordering_surface = request.as_ref().unwrap().cmd.ordering_surface();
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return Some(false);
         }
+        let Some(surface) = ordering_surface else {
+            if state.lanes.is_empty() {
+                return None;
+            }
+            let deadline = Instant::now() + CONNECTION_SURFACE_SHUTDOWN_TIMEOUT;
+            while !state.lanes.is_empty()
+                && !state.closed
+                && writer.is_open()
+                && Instant::now() < deadline
+            {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
+                state = next;
+            }
+            if state.closed || !writer.is_open() {
+                return Some(false);
+            }
+            if state.lanes.is_empty() {
+                return None;
+            }
+            drop(state);
+            return Some(send_request_error(
+                &writer,
+                request.take().unwrap().id,
+                "prior surface operation did not settle; request was not executed",
+            ));
+        };
         if state.lanes.contains_key(&surface) {
             let over_count = state.queued_requests >= CONNECTION_SURFACE_QUEUE_CAPACITY;
             let over_bytes = retained_bytes
@@ -5613,7 +5640,7 @@ mod tests {
         let listener = transport::listen(&path).unwrap();
         let mut client = transport::connect(&path).unwrap();
         let server = listener.accept().unwrap();
-        let server_mux = mux.clone();
+        let server_mux = mux;
         let handler = std::thread::spawn(move || handle_connection(server_mux, server));
 
         writeln!(client, "{}", json!({"id": 1, "cmd": "clear-history", "surface": blocked.id}))

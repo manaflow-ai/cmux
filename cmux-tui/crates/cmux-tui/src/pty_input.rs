@@ -19,6 +19,7 @@ use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failu
 
 const QUEUE_CAPACITY: usize = 512;
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
+const MAX_CONCURRENT_SURFACE_OPERATIONS: usize = 32;
 const RESERVED_RELEASE_BYTES: usize = 64;
 const REMOTE_RELEASE_MAX_ATTEMPTS: u8 = 3;
 
@@ -218,7 +219,7 @@ struct QueueState {
     queued_bytes: usize,
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
-    in_flight_surface_operations: HashSet<SurfaceId>,
+    in_flight_surface_operations: HashMap<SurfaceId, usize>,
     closed: bool,
     remote_failed: bool,
     shutdown_release_drain: bool,
@@ -405,14 +406,18 @@ impl PtyInputSender {
             return (PtyInputEnqueueResult::Oversized, None);
         }
         let reserves_release = event.kind == PtyInputKind::Press;
+        let active_operations = state.in_flight_surface_operations.len();
+        let active_bytes = state.in_flight_surface_operations.values().copied().sum::<usize>();
+        let available_capacity = QUEUE_CAPACITY.saturating_sub(active_operations);
+        let available_bytes = MAX_QUEUED_BYTES.saturating_sub(active_bytes);
         let QueueState { events, queued_bytes, release_reservations, .. } = &mut *state;
         let outcome = enqueue_bounded_with_evictions(
             events,
             queued_bytes,
             release_reservations,
             event,
-            QUEUE_CAPACITY,
-            MAX_QUEUED_BYTES,
+            available_capacity,
+            available_bytes,
         );
         let result = if outcome.accepted {
             let reservation_id = reserves_release.then_some(release_reservations.next_id);
@@ -760,22 +765,40 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 }
 
 fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
-    let index = state.events.iter().enumerate().find_map(|(index, event)| {
+    let mut ready_index = None;
+    for (index, event) in state.events.iter().enumerate() {
         if event.kind == PtyInputKind::Mutation && !event.concurrent_surface_operation {
-            return (index == 0 && state.in_flight_surface_operations.is_empty()).then_some(index);
+            if index == 0 && state.in_flight_surface_operations.is_empty() {
+                ready_index = Some(index);
+            }
+            // A session mutation is a global ordering barrier. If earlier
+            // surface work keeps it from running, later input must wait too.
+            break;
         }
         let surface = event
             .ordering_surface_id()
             .expect("surface input and concurrent operations have an ordering surface");
-        (!state.in_flight_surface_operations.contains(&surface)).then_some(index)
-    })?;
+        if state.in_flight_surface_operations.contains_key(&surface) {
+            continue;
+        }
+        if event.concurrent_surface_operation
+            && state.in_flight_surface_operations.len() >= MAX_CONCURRENT_SURFACE_OPERATIONS
+        {
+            continue;
+        }
+        ready_index = Some(index);
+        break;
+    }
+    let index = ready_index?;
     let event = state.events.remove(index).unwrap();
     state.queued_bytes = state.queued_bytes.saturating_sub(event.queued_byte_len());
     if event.concurrent_surface_operation {
         let surface = event
             .ordering_surface_id()
             .expect("concurrent surface operation has an ordering surface");
-        assert!(state.in_flight_surface_operations.insert(surface));
+        assert!(
+            state.in_flight_surface_operations.insert(surface, event.queued_byte_len()).is_none()
+        );
     } else {
         state.in_flight = Some(InFlightInput { surface_id: event.surface_id, kind: event.kind });
     }
