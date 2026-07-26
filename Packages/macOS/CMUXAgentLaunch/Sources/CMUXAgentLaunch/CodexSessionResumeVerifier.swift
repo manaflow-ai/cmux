@@ -60,7 +60,8 @@ public struct CodexSessionResumeVerifier: Sendable {
               let metadata = sessionMetadata(atPath: transcriptPath, fileManager: fileManager),
               metadata.sessionId == sessionId,
               !metadata.isSubagent,
-              !metadata.isAutomation else {
+              !metadata.isAutomation,
+              !metadata.isExec else {
             return nil
         }
         return CodexSessionResumeEvidence(
@@ -102,7 +103,9 @@ public struct CodexSessionResumeVerifier: Sendable {
             }
 
             let threadSource = normalized(thread.threadSource)?.lowercased()
-            if threadSource == "automation" || metadata?.isAutomation == true {
+            if threadSource == "automation" ||
+                metadata?.isAutomation == true ||
+                metadata?.isExec == true {
                 return nil
             }
 
@@ -138,6 +141,7 @@ public struct CodexSessionResumeVerifier: Sendable {
         let parentSessionId: String?
         let isSubagent: Bool
         let isAutomation: Bool
+        let isExec: Bool
     }
 
     private final class CodexThreadIndexCache: @unchecked Sendable {
@@ -256,6 +260,8 @@ public struct CodexSessionResumeVerifier: Sendable {
             }
             let source = payload["source"]
             let sourceIsSubagent = sourceContainsKind("subagent", value: source)
+            let sourceKind = normalized(source as? String)?.lowercased()
+            let originator = normalized(payload["originator"] as? String)?.lowercased()
             let parentSessionId = normalized(payload["parent_thread_id"] as? String)
                 ?? normalized(payload["forked_from_id"] as? String)
                 ?? nestedNormalizedString(forKey: "parent_thread_id", value: source)
@@ -266,7 +272,8 @@ public struct CodexSessionResumeVerifier: Sendable {
                 sessionId: sessionId,
                 parentSessionId: parentSessionId,
                 isSubagent: sourceIsSubagent,
-                isAutomation: sourceContainsKind("automation", value: source)
+                isAutomation: sourceContainsKind("automation", value: source),
+                isExec: sourceKind == "exec" || originator == "codex_exec"
             )
         }
         return nil
