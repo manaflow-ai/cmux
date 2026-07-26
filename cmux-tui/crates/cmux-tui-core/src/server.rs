@@ -5230,6 +5230,66 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_does_not_block_unrelated_surface_input_on_one_connection() {
+        let mux = test_mux();
+        let blocked = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let unrelated = mux.new_workspace(None, Some((80, 24))).unwrap();
+        blocked.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = platform::fallback_runtime_dir().join(format!(
+            "clear-concurrency-{}-{}.sock",
+            std::process::id(),
+            nonce % 1_000_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let mut client = transport::connect(&path).unwrap();
+        let server = listener.accept().unwrap();
+        let server_mux = mux.clone();
+        let handler = std::thread::spawn(move || handle_connection(server_mux, server));
+
+        client.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!({"id": 1, "cmd": "clear-history", "surface": blocked.id})
+        )
+        .unwrap();
+        client.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        writeln!(
+            client,
+            "{}",
+            json!({"id": 2, "cmd": "send", "surface": unrelated.id, "text": "x"})
+        )
+        .unwrap();
+        client.flush().unwrap();
+
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        let response = reader.read_line(&mut line);
+        let _ = reader.get_ref().shutdown(Shutdown::Both);
+        handler.join().unwrap();
+        let _ = std::fs::remove_file(path);
+        mux.close_surface(blocked.id).unwrap();
+        mux.close_surface(unrelated.id).unwrap();
+
+        response.expect("unrelated input response was blocked behind clear-history");
+        let response: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["id"], 2);
+        assert_eq!(response["ok"], true);
+    }
+
+    #[test]
     fn stalled_websocket_handshake_times_out() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();

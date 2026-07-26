@@ -1092,6 +1092,19 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_csi_u_accepts_empty_modifiers_before_associated_text() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;;97u").unwrap(),
+            Some(InternalEvent::Event(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+                shifted_key: None,
+                base_layout_key: None,
+                text: "a".to_string(),
+            }))),
+        );
+    }
+
+    #[test]
     fn test_parse_csi_u_preserves_empty_alt_character_provenance() {
         assert_eq!(
             parse_csi_u_encoded_key_code(b"\x1B[110;3u").unwrap(),
