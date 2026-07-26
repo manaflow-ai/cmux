@@ -588,4 +588,46 @@ struct SimulatorCameraAdapterTests {
         #expect(mutation?.service == .camera)
         #expect(mutation?.bundle == "com.example.CameraFixture")
     }
+
+    @Test("A camera grant preserves prior authorization and adopts the live host")
+    func cameraPermissionGrantAdoptsExistingJournal() async throws {
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.CameraFixture"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "camera-adoption-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
+        let staleOwner = SimulatorProcessIdentity(
+            pid: Int32.max,
+            startSeconds: 1,
+            startMicroseconds: 1
+        )
+        try authorizationStore.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: staleOwner
+        )
+        let liveHost = try #require(SimulatorProcessIdentity.parent)
+        let adapter = SimulatorCameraPermissionAdapter(
+            authorization: { _, _ in .granted },
+            authorizationStore: authorizationStore,
+            mutation: { _, _, _, _ in }
+        )
+
+        try await adapter.grant(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+
+        let storedRecord = try authorizationStore.record(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let record = try #require(storedRecord)
+        #expect(record.authorization == .denied)
+        #expect(record.ownerProcessIdentity == liveHost)
+    }
 }

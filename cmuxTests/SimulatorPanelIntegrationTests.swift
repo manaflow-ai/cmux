@@ -253,6 +253,53 @@ struct SimulatorPanelIntegrationTests {
         #expect(await completion.isCompleted)
     }
 
+    @Test("Cancelling application termination restores the live Simulator panel")
+    func cancelledApplicationTerminationRestoresPanel() async {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+        let firstClient = SimulatorFeatureFlagPaneClient(blockStop: true)
+        let secondClient = SimulatorFeatureFlagPaneClient()
+        var clients = [firstClient, secondClient]
+        let panel = SimulatorPanel(clientFactory: { clients.removeFirst() })
+        defer { panel.close() }
+        panel.setVisibleInUI(true)
+        for _ in 0..<100 {
+            if await firstClient.discoveryCount != 0 { break }
+            await Task.yield()
+        }
+        let firstCoordinator = panel.coordinator
+
+        let cleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
+        for _ in 0..<100 {
+            if await firstClient.stopCount != 0 { break }
+            await Task.yield()
+        }
+        #expect(await firstClient.stopCount == 1)
+
+        SimulatorPanel.cancelApplicationTerminationCleanup()
+        await firstClient.releaseStop()
+        for task in cleanupTasks {
+            await task.value
+        }
+        for _ in 0..<100 {
+            let replacementStarted = await secondClient.discoveryCount == 1
+            if panel.isFeatureReady,
+               panel.coordinator !== firstCoordinator,
+               replacementStarted {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(panel.isFeatureReady)
+        #expect(panel.coordinator !== firstCoordinator)
+        #expect(await secondClient.discoveryCount == 1)
+    }
+
     @Test("External file drops target Simulator import instead of file previews")
     func externalFileDropRouting() async throws {
         let flags = CmuxFeatureFlags.shared

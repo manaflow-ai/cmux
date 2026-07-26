@@ -270,6 +270,29 @@ struct SimulatorControlServiceTests {
         ])
     }
 
+    @Test("A zero-distance route fails before simctl and never becomes active")
+    func rejectsZeroDistanceLocationRoute() async {
+        let commands = RecordingCommandRunner()
+        let service = SimulatorControlService(commands: commands)
+        let coordinate = SimulatorLocationCoordinate(latitude: 37.7, longitude: -122.4)
+        let route = SimulatorLocationRoute(
+            waypoints: [coordinate, coordinate],
+            speed: 4.5
+        )
+
+        do {
+            try await service.startLocationRoute(deviceID: "DEVICE", route: route)
+            Issue.record("Expected a zero-distance route to fail validation")
+        } catch let error as SimulatorControlError {
+            #expect(error.code == "invalid_location_route")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(await commands.recordedInvocations().isEmpty)
+        #expect(await service.activeLocationRoutes["DEVICE"] == nil)
+    }
+
     @Test("Looping routes close their path and rotate pause progress")
     func loopingLocationRoute() async throws {
         let commands = RecordingCommandRunner()
