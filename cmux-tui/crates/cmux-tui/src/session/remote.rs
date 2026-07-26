@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
+    REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId, SurfaceKind, platform::transport,
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
@@ -630,7 +630,16 @@ pub(crate) fn read_json_line_with_progress<R: BufRead>(
     reader: &mut R,
     on_progress: &mut dyn FnMut(&[u8]),
 ) -> io::Result<Option<String>> {
+    read_json_line_with_progress_bounded(reader, on_progress, REMOTE_SESSION_MESSAGE_MAX_BYTES)
+}
+
+fn read_json_line_with_progress_bounded<R: BufRead>(
+    reader: &mut R,
+    on_progress: &mut dyn FnMut(&[u8]),
+    max_message_bytes: usize,
+) -> io::Result<Option<String>> {
     let mut bytes = Vec::new();
+    let mut complete_line = false;
     loop {
         let (consumed, complete) = {
             let available = reader.fill_buf()?;
@@ -638,25 +647,30 @@ pub(crate) fn read_json_line_with_progress<R: BufRead>(
                 break;
             }
             let complete_at = available.iter().position(|byte| *byte == b'\n');
+            let payload_bytes = complete_at.unwrap_or(available.len());
+            if payload_bytes > max_message_bytes.saturating_sub(bytes.len()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("remote session message exceeds the {max_message_bytes}-byte limit"),
+                ));
+            }
             let consumed = complete_at.map_or(available.len(), |index| index + 1);
-            bytes.extend_from_slice(&available[..consumed]);
+            bytes.extend_from_slice(&available[..payload_bytes]);
             (consumed, complete_at.is_some())
         };
         reader.consume(consumed);
         on_progress(&bytes);
         if complete {
+            complete_line = true;
             break;
         }
     }
 
-    if bytes.is_empty() {
+    if bytes.is_empty() && !complete_line {
         return Ok(None);
     }
-    if bytes.last() == Some(&b'\n') {
+    if complete_line && bytes.last() == Some(&b'\r') {
         bytes.pop();
-        if bytes.last() == Some(&b'\r') {
-            bytes.pop();
-        }
     }
     String::from_utf8(bytes)
         .map(Some)
@@ -765,6 +779,9 @@ impl RemoteSession {
                 }
             };
             while let Ok(Some(message)) = reader.receive_with_progress(&mut report_progress) {
+                if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
+                    break;
+                }
                 let Ok(value) = serde_json::from_str::<Value>(&message) else { continue };
                 let Some(session) = reader_session.upgrade() else { break };
                 session.handle_line(value);
@@ -1590,45 +1607,57 @@ impl RemoteSession {
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-        if self.exited_surfaces.lock().unwrap().contains(&id) {
-            return Ok(None);
-        }
-        if !self.can_attach_after_overflow(id) {
-            return Ok(None);
-        }
-        if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
-            return Ok(Some(surface.clone()));
-        }
         let source = {
             let tree = self.tree.lock().unwrap();
             browser_source_from_tree(&tree.view, id)
         };
         let (cols, rows) = size.unwrap_or((80, 24));
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
-        term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
-        let surface = Arc::new(RemoteSurface {
-            id,
-            kind,
-            term: Mutex::new(term),
-            mouse_encoders: Mutex::new(MouseEncoders::new()?),
-            dirty: AtomicBool::new(false),
-            geometry_lifecycle: Mutex::new(()),
-            cell_pixels: Mutex::new(cell_pixels),
-            #[cfg(test)]
-            geometry_test_hook: Mutex::new(None),
-            reported_size: Mutex::new(None),
-            browser: Mutex::new(RemoteBrowserState::default()),
-        });
-        surface.update_browser_source(source);
-        self.surfaces.lock().unwrap().insert(id, surface.clone());
+        let surface = {
+            // Coordinate only the local mirror commit with cell-metric
+            // updates. The remote attach can stream for minutes and must not
+            // retain this lifecycle lock while it waits.
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            if self.exited_surfaces.lock().unwrap().contains(&id) {
+                return Ok(None);
+            }
+            if !self.can_attach_after_overflow(id) {
+                return Ok(None);
+            }
+            if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
+                return Ok(Some(surface.clone()));
+            }
+            let cell_pixels = *self.cell_pixels.lock().unwrap();
+            let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
+            term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
+            let surface = Arc::new(RemoteSurface {
+                id,
+                kind,
+                term: Mutex::new(term),
+                mouse_encoders: Mutex::new(MouseEncoders::new()?),
+                dirty: AtomicBool::new(false),
+                geometry_lifecycle: Mutex::new(()),
+                cell_pixels: Mutex::new(cell_pixels),
+                #[cfg(test)]
+                geometry_test_hook: Mutex::new(None),
+                reported_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            });
+            surface.update_browser_source(source);
+            self.surfaces.lock().unwrap().insert(id, surface.clone());
+            surface
+        };
         // The vt-state event that follows fills the mirror.
         if let Err(error) = self.request_with_deadline(
             json!({"cmd": "attach-surface", "surface": id}),
             RequestDeadline::Attach,
         ) {
-            self.surfaces.lock().unwrap().remove(&id);
+            {
+                let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+                let mut surfaces = self.surfaces.lock().unwrap();
+                if surfaces.get(&id).is_some_and(|current| Arc::ptr_eq(current, &surface)) {
+                    surfaces.remove(&id);
+                }
+            }
             if error
                 .downcast_ref::<RemoteRequestError>()
                 .is_some_and(RemoteRequestError::is_timeout)
@@ -1949,8 +1978,21 @@ fn test_session_with_provider_context(
         }
     }
 
+    test_session_with_writer_and_provider_context(
+        Box::new(NoopWriter),
+        provider_workspace_authority,
+        capabilities,
+    )
+}
+
+#[cfg(test)]
+fn test_session_with_writer_and_provider_context(
+    writer: Box<dyn RemoteMessageWriter>,
+    provider_workspace_authority: Option<BearerToken>,
+    capabilities: HashSet<String>,
+) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
-        writer: Mutex::new(Box::new(NoopWriter)),
+        writer: Mutex::new(writer),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
         shutdown: AtomicBool::new(false),
@@ -1969,6 +2011,88 @@ fn test_session_with_provider_context(
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
     })
+}
+
+#[cfg(test)]
+struct DeferredAttachTestWriter {
+    session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+    attach_started: std::sync::mpsc::SyncSender<()>,
+    release_attach: Option<Receiver<()>>,
+}
+
+#[cfg(test)]
+impl RemoteMessageWriter for DeferredAttachTestWriter {
+    fn send(&mut self, message: &str) -> io::Result<()> {
+        let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+        let id = request
+            .get("id")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+        let session = self
+            .session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+        if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
+            self.attach_started.send(()).map_err(io::Error::other)?;
+            let release = self
+                .release_attach
+                .take()
+                .ok_or_else(|| io::Error::other("attach release already consumed"))?;
+            std::thread::spawn(move || {
+                let _ = release.recv();
+                let Some(session) = session.upgrade() else { return };
+                let Some(response) = session.pending.lock().unwrap().remove(&id) else {
+                    return;
+                };
+                let _ = response.response.send(json!({"id": id, "ok": true, "data": null}));
+            });
+            return Ok(());
+        }
+        let session =
+            session.upgrade().ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+        let response = session
+            .pending
+            .lock()
+            .unwrap()
+            .remove(&id)
+            .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+        let data = if request.get("cmd").and_then(Value::as_str) == Some("set-cell-pixels") {
+            json!({"resizes": [], "failures": []})
+        } else {
+            Value::Null
+        };
+        response
+            .response
+            .send(json!({"id": id, "ok": true, "data": data}))
+            .map_err(|_| io::Error::other("remote response receiver was dropped"))
+    }
+
+    fn close(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiver<()>, Sender<()>)
+{
+    let session_slot = Arc::new(Mutex::new(None));
+    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_attach_tx, release_attach_rx) = channel();
+    let session = test_session_with_writer_and_provider_context(
+        Box::new(DeferredAttachTestWriter {
+            session: session_slot.clone(),
+            attach_started: attach_started_tx,
+            release_attach: Some(release_attach_rx),
+        }),
+        None,
+        HashSet::new(),
+    );
+    *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+    session.tree_stale.store(false, Ordering::Release);
+    (session, attach_started_rx, release_attach_tx)
 }
 
 #[cfg(test)]
@@ -2045,6 +2169,42 @@ mod tests {
             None
         );
         assert_eq!(remote_progress_target(br#"{"id":41"#), None);
+    }
+
+    #[test]
+    fn json_line_reader_rejects_oversized_frames_before_buffering_them() {
+        let mut reader = BufReader::with_capacity(4, io::Cursor::new(b"123456789\n".to_vec()));
+        let mut largest_progress = 0;
+        let error = read_json_line_with_progress_bounded(
+            &mut reader,
+            &mut |partial| largest_progress = largest_progress.max(partial.len()),
+            8,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "remote session message exceeds the 8-byte limit");
+        assert!(largest_progress <= 8);
+    }
+
+    #[test]
+    fn json_line_reader_accepts_a_frame_at_the_exact_limit() {
+        let mut reader = BufReader::with_capacity(3, io::Cursor::new(b"12345678\n".to_vec()));
+
+        let line =
+            read_json_line_with_progress_bounded(&mut reader, &mut |_| {}, 8).unwrap().unwrap();
+
+        assert_eq!(line, "12345678");
+    }
+
+    #[test]
+    fn json_line_reader_preserves_an_empty_delimited_frame() {
+        let mut reader = BufReader::new(io::Cursor::new(b"\n".to_vec()));
+
+        let line =
+            read_json_line_with_progress_bounded(&mut reader, &mut |_| {}, 8).unwrap().unwrap();
+
+        assert!(line.is_empty());
     }
 
     #[test]
@@ -2579,6 +2739,24 @@ mod tests {
         assert!(!session.shutdown.load(Ordering::Acquire));
         release_tx.send(()).unwrap();
         peer.join().unwrap();
+    }
+
+    #[test]
+    fn inflight_attach_does_not_hold_the_cell_pixel_lifecycle() {
+        let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || {
+            attaching.try_ensure_surface_with_kind(7, SurfaceKind::Pty, Some((80, 24)))
+        });
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let update = session.set_cell_pixel_size(9, 18).unwrap();
+
+        assert!(update.failures.is_empty());
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
+        assert_eq!(session.surface(7).unwrap().cell_pixel_size(), (9, 18));
+        release_attach_tx.send(()).unwrap();
+        assert!(worker.join().unwrap().unwrap().is_some());
     }
 
     #[cfg(unix)]

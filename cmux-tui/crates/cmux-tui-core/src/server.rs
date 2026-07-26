@@ -701,7 +701,7 @@ const RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES: usize = 442;
 const RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES: usize = 2
     + RENDER_GRAPHIC_MAX_PLACEMENTS * RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES
     + (RENDER_GRAPHIC_MAX_PLACEMENTS - 1);
-const RENDER_ATTACH_MAX_BYTES: usize = 32 * 1024 * 1024;
+const RENDER_ATTACH_MAX_BYTES: usize = crate::REMOTE_SESSION_MESSAGE_MAX_BYTES;
 // Share expensive image encoding across render clients without retaining an
 // unbounded second copy of terminal pixel state process-wide.
 const RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES: usize = RENDER_GRAPHIC_MAX_ENCODED_BYTES * 2;

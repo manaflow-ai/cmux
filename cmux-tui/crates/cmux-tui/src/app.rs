@@ -73,6 +73,7 @@ const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
 const MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT: u8 = 5;
+const MAX_CONCURRENT_REMOTE_SURFACE_ATTACHES: usize = 8;
 
 pub enum AppEvent {
     SessionScoped {
@@ -96,6 +97,9 @@ pub enum AppEvent {
     SessionMutationSettled {
         outcome: SessionMutationOutcome,
         routing: bool,
+    },
+    SurfaceAttachSettled {
+        outcome: SessionMutationOutcome,
     },
     RemoteTreeUpdated {
         refresh_sequence: u64,
@@ -752,6 +756,68 @@ fn surface_sync_failure_blocks(state: SurfaceSyncFailureState) -> bool {
     state.retry_after.is_none_or(|retry_after| Instant::now() < retry_after)
 }
 
+struct SurfaceAttachResult {
+    outcome: SessionMutationOutcome,
+    lane_error: Option<anyhow::Error>,
+}
+
+fn perform_surface_attach(
+    session: &Session,
+    exited_surfaces: &Mutex<HashSet<SurfaceId>>,
+    attach_failures: &Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>,
+    remote: bool,
+    id: SurfaceId,
+    size: Option<(u16, u16)>,
+) -> SurfaceAttachResult {
+    if exited_surfaces.lock().unwrap().contains(&id) || (remote && session.remote_tree_is_stale()) {
+        return SurfaceAttachResult {
+            outcome: SessionMutationOutcome::Success { tree: None },
+            lane_error: None,
+        };
+    }
+    match session.try_surface_sized(id, size) {
+        Ok(Some(_)) => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult {
+                outcome: SessionMutationOutcome::Success { tree: None },
+                lane_error: None,
+            }
+        }
+        Ok(None) => {
+            let mut failures = attach_failures.lock().unwrap();
+            let state = next_surface_sync_failure(failures.get(&id).copied(), false, false);
+            failures.insert(id, state);
+            SurfaceAttachResult {
+                outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: id,
+                    operation: "attach",
+                    error: format!("surface {id} is unavailable"),
+                    reconnect_required: false,
+                },
+                lane_error: None,
+            }
+        }
+        Err(error) => {
+            let timed_out = is_remote_timeout(&error);
+            let transport_failed = is_remote_transport_failure(&error);
+            let message = error.to_string();
+            let mut failures = attach_failures.lock().unwrap();
+            let state =
+                next_surface_sync_failure(failures.get(&id).copied(), transport_failed, timed_out);
+            failures.insert(id, state);
+            SurfaceAttachResult {
+                outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: id,
+                    operation: "attach",
+                    error: message,
+                    reconnect_required: timed_out,
+                },
+                lane_error: (timed_out || transport_failed).then_some(error),
+            }
+        }
+    }
+}
+
 enum SurfaceResizeDecision {
     Noop,
     AlreadyClaimed,
@@ -1079,65 +1145,66 @@ impl OrderedSession {
         let session = self.inner.clone();
         let exited_surfaces = self.exited_surfaces.clone();
         let attach_failures = self.surface_attach_failures.clone();
+
+        if self.remote {
+            // Attach is mirror synchronization, not an authoritative session
+            // mutation. Wait on its progress-aware deadline independently so
+            // routing, input, resize, and close operations keep flowing.
+            let events = self.events.clone();
+            let failure_events = events.clone();
+            let spawn =
+                std::thread::Builder::new().name(format!("surface-{id}-attach")).spawn(move || {
+                    let _claim = claim;
+                    let result = perform_surface_attach(
+                        &session,
+                        &exited_surfaces,
+                        &attach_failures,
+                        true,
+                        id,
+                        size,
+                    );
+                    let _ = events.send(AppEvent::SurfaceAttachSettled { outcome: result.outcome });
+                });
+            if let Err(error) = spawn {
+                let message = format!("could not start surface attach worker: {error}");
+                let mut failures = self.surface_attach_failures.lock().unwrap();
+                let state = next_surface_sync_failure(failures.get(&id).copied(), true, false);
+                failures.insert(id, state);
+                drop(failures);
+                let _ = failure_events.send(AppEvent::SurfaceAttachSettled {
+                    outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                        surface: id,
+                        operation: "attach",
+                        error: message,
+                        reconnect_required: false,
+                    },
+                });
+            }
+            return;
+        }
+
         let enqueue_failures = attach_failures.clone();
-        let remote = self.remote;
         let pending = self.pending_mutation();
         let superseded = pending.clone();
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "attach surface",
             ("attach surface", id),
-            self.remote,
+            false,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
             move || {
                 let _claim = claim;
-                if exited_surfaces.lock().unwrap().contains(&id)
-                    || (remote && session.remote_tree_is_stale())
-                {
-                    pending.defer(SessionMutationOutcome::Success { tree: None });
-                    return Ok(());
-                }
-                match session.try_surface_sized(id, size) {
-                    Ok(Some(_)) => {
-                        attach_failures.lock().unwrap().remove(&id);
-                        pending.defer(SessionMutationOutcome::Success { tree: None });
-                        Ok(())
-                    }
-                    Ok(None) => {
-                        let mut failures = attach_failures.lock().unwrap();
-                        let state =
-                            next_surface_sync_failure(failures.get(&id).copied(), false, false);
-                        failures.insert(id, state);
-                        drop(failures);
-                        pending.defer(SessionMutationOutcome::SurfaceSyncFailed {
-                            surface: id,
-                            operation: "attach",
-                            error: format!("surface {id} is unavailable"),
-                            reconnect_required: false,
-                        });
-                        Ok(())
-                    }
-                    Err(error) => {
-                        let timed_out = is_remote_timeout(&error);
-                        let transport_failed = is_remote_transport_failure(&error);
-                        let mut failures = attach_failures.lock().unwrap();
-                        let state = next_surface_sync_failure(
-                            failures.get(&id).copied(),
-                            transport_failed,
-                            timed_out,
-                        );
-                        failures.insert(id, state);
-                        drop(failures);
-                        pending.defer(SessionMutationOutcome::SurfaceSyncFailed {
-                            surface: id,
-                            operation: "attach",
-                            error: error.to_string(),
-                            reconnect_required: timed_out,
-                        });
-                        if timed_out || transport_failed { Err(error) } else { Ok(()) }
-                    }
-                }
+                let result = perform_surface_attach(
+                    &session,
+                    &exited_surfaces,
+                    &attach_failures,
+                    false,
+                    id,
+                    size,
+                );
+                pending.defer(result.outcome);
+                if let Some(error) = result.lane_error { Err(error) } else { Ok(()) }
             },
         );
         if enqueue_result != PtyInputEnqueueResult::Accepted {
@@ -1149,6 +1216,11 @@ impl OrderedSession {
     }
 
     fn can_attach_surface(&self, id: SurfaceId) -> bool {
+        let attach_available = {
+            let attach_claims = self.surface_attach_claims.lock().unwrap();
+            !attach_claims.contains(&id)
+                && (!self.remote || attach_claims.len() < MAX_CONCURRENT_REMOTE_SURFACE_ATTACHES)
+        };
         self.inner.cached_surface(id).is_none()
             && self.inner.can_attach_after_overflow(id)
             && !self.exited_surfaces.lock().unwrap().contains(&id)
@@ -1159,7 +1231,7 @@ impl OrderedSession {
                 .get(&id)
                 .copied()
                 .is_some_and(surface_sync_failure_blocks)
-            && !self.surface_attach_claims.lock().unwrap().contains(&id)
+            && attach_available
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
@@ -2918,35 +2990,31 @@ struct GraphicsPaneSceneKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct GraphicsSceneKey {
+struct GraphicsSceneContextKey {
     session_generation: u64,
     cell_pixels: (u16, u16),
     occluders: Vec<Rect>,
-    panes: Vec<GraphicsPaneSceneKey>,
+}
+
+struct CachedGraphicsProjection {
+    key: GraphicsPaneSceneKey,
+    placements: Arc<[GraphicPlacement]>,
 }
 
 #[derive(Default)]
 struct GraphicsSceneCache {
-    key: Option<GraphicsSceneKey>,
+    context: Option<GraphicsSceneContextKey>,
+    projections: HashMap<SurfaceId, CachedGraphicsProjection>,
     #[cfg(test)]
     rebuilds: usize,
+    #[cfg(test)]
+    projection_rebuilds: HashMap<SurfaceId, usize>,
 }
 
 impl GraphicsSceneCache {
-    fn replace_if_changed(&mut self, key: GraphicsSceneKey) -> bool {
-        if self.key.as_ref() == Some(&key) {
-            return false;
-        }
-        self.key = Some(key);
-        #[cfg(test)]
-        {
-            self.rebuilds += 1;
-        }
-        true
-    }
-
     fn invalidate(&mut self) {
-        self.key = None;
+        self.context = None;
+        self.projections.clear();
     }
 }
 
@@ -2979,6 +3047,7 @@ pub struct App {
     pub graphics_supported: bool,
     graphics_host_scene_reset_pending: bool,
     graphics_scene_cache: GraphicsSceneCache,
+    graphics_dirty_surfaces: HashSet<SurfaceId>,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
@@ -4056,6 +4125,7 @@ fn run_with_machine_updates_inner(
         graphics_supported,
         graphics_host_scene_reset_pending: false,
         graphics_scene_cache: GraphicsSceneCache::default(),
+        graphics_dirty_surfaces: HashSet::new(),
         stdout_lock,
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
@@ -4881,6 +4951,7 @@ impl App {
         self.rendered_terminal_bounds.clear();
         self.rendered_kitty_graphics.clear();
         self.graphics_scene_cache.invalidate();
+        self.graphics_dirty_surfaces.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
         self.prefix_armed = false;
@@ -4952,7 +5023,7 @@ impl App {
                 self.draw_terminal(terminal)?;
                 self.emit_graphics()?;
             }
-            RenderAction::Graphics => self.emit_graphics()?,
+            RenderAction::Graphics => self.emit_dirty_graphics()?,
             RenderAction::None => {}
         }
         Ok(())
@@ -5219,6 +5290,7 @@ impl App {
         self.render_states.remove(&surface);
         self.rendered_kitty_graphics.remove(&surface);
         self.graphics_scene_cache.invalidate();
+        self.graphics_dirty_surfaces.remove(&surface);
         self.rendered_terminal_sizes.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
@@ -5392,10 +5464,11 @@ impl App {
             && area.content.height > 0
     }
 
-    fn mark_graphics_clean(&self) {
-        let mut surfaces = HashSet::new();
+    fn mark_graphics_clean(&self, dirty_surfaces: Option<&HashSet<SurfaceId>>) {
+        let mut visited = HashSet::new();
         for area in &self.pane_areas {
-            if surfaces.insert(area.surface)
+            if dirty_surfaces.is_none_or(|dirty| dirty.contains(&area.surface))
+                && visited.insert(area.surface)
                 && let Some(surface) = self.session.surface(area.surface)
             {
                 surface.take_dirty();
@@ -5415,116 +5488,185 @@ impl App {
         rects
     }
 
-    fn graphics_scene_key(&self, occluders: Vec<Rect>) -> GraphicsSceneKey {
-        let panes =
-            self.pane_areas
-                .iter()
-                .map(|area| {
-                    let (terminal_bounds, source) = match self.session.surface(area.surface) {
-                        None => (None, GraphicsSceneSourceKey::Unavailable),
-                        Some(surface) => match surface.kind() {
-                            SurfaceKind::Browser => (
-                                None,
-                                GraphicsSceneSourceKey::Browser {
-                                    frame: surface.browser_frame_metadata(),
-                                },
-                            ),
-                            SurfaceKind::Pty => {
-                                let snapshot = self.rendered_kitty_graphics.get(&area.surface).map(
-                                    |snapshot| KittySceneSnapshotKey {
-                                        identity: Arc::as_ptr(snapshot) as usize,
-                                        generation: snapshot.generation,
-                                    },
-                                );
-                                (
-                                    self.rendered_terminal_bounds.get(&area.surface).copied(),
-                                    GraphicsSceneSourceKey::Pty { snapshot },
-                                )
+    fn graphics_pane_scene_key(
+        &self,
+        area: PaneArea,
+        surface: Option<&SurfaceHandle>,
+    ) -> GraphicsPaneSceneKey {
+        let (terminal_bounds, source) = match surface {
+            None => (None, GraphicsSceneSourceKey::Unavailable),
+            Some(surface) => match surface.kind() {
+                SurfaceKind::Browser => (
+                    None,
+                    GraphicsSceneSourceKey::Browser { frame: surface.browser_frame_metadata() },
+                ),
+                SurfaceKind::Pty => {
+                    let snapshot =
+                        self.rendered_kitty_graphics.get(&area.surface).map(|snapshot| {
+                            KittySceneSnapshotKey {
+                                identity: Arc::as_ptr(snapshot) as usize,
+                                generation: snapshot.generation,
                             }
-                        },
-                    };
-                    GraphicsPaneSceneKey {
-                        surface: area.surface,
-                        content: area.content,
-                        terminal_bounds,
-                        source,
-                    }
-                })
-                .collect();
-        GraphicsSceneKey {
-            session_generation: self.session_generation,
-            cell_pixels: self.cell_pixels,
-            occluders,
-            panes,
+                        });
+                    (
+                        self.rendered_terminal_bounds.get(&area.surface).copied(),
+                        GraphicsSceneSourceKey::Pty { snapshot },
+                    )
+                }
+            },
+        };
+        GraphicsPaneSceneKey {
+            surface: area.surface,
+            content: area.content,
+            terminal_bounds,
+            source,
         }
     }
 
     fn emit_graphics(&mut self) -> anyhow::Result<()> {
+        self.emit_graphics_with_scope(false)
+    }
+
+    fn emit_dirty_graphics(&mut self) -> anyhow::Result<()> {
+        self.emit_graphics_with_scope(true)
+    }
+
+    fn emit_graphics_with_scope(&mut self, dirty_only: bool) -> anyhow::Result<()> {
         if !self.graphics_supported {
             return Ok(());
         }
-        self.mark_graphics_clean();
+        let dirty_surfaces = std::mem::take(&mut self.graphics_dirty_surfaces);
         let occluders = self.graphic_occlusion_rects();
-        let scene_key = self.graphics_scene_key(occluders.clone());
-        if !self.graphics_scene_cache.replace_if_changed(scene_key) {
+        let context = GraphicsSceneContextKey {
+            session_generation: self.session_generation,
+            cell_pixels: self.cell_pixels,
+            occluders: occluders.clone(),
+        };
+        let context_changed = self.graphics_scene_cache.context.as_ref() != Some(&context);
+        let full_scan = !dirty_only || context_changed;
+        self.mark_graphics_clean((!full_scan).then_some(&dirty_surfaces));
+        let areas = self
+            .pane_areas
+            .iter()
+            .copied()
+            .filter(|area| full_scan || dirty_surfaces.contains(&area.surface))
+            .collect::<Vec<_>>();
+        let mut updates = Vec::new();
+        for area in areas {
+            let surface = self.session.surface(area.surface);
+            let key = self.graphics_pane_scene_key(area, surface.as_ref());
+            let unchanged = !context_changed
+                && self
+                    .graphics_scene_cache
+                    .projections
+                    .get(&area.surface)
+                    .is_some_and(|cached| cached.key == key);
+            if unchanged {
+                continue;
+            }
+            let placements =
+                Arc::from(self.graphic_placements_for_area(area, surface.as_ref(), &occluders));
+            updates.push((area.surface, key, placements));
+        }
+
+        let visible = full_scan.then(|| {
+            self.pane_areas.iter().map(|area| area.surface).collect::<HashSet<SurfaceId>>()
+        });
+        let removed = visible.as_ref().is_some_and(|visible| {
+            self.graphics_scene_cache.projections.keys().any(|surface| !visible.contains(surface))
+        });
+        let projection_changed = !updates.is_empty();
+        if context_changed {
+            self.graphics_scene_cache.context = Some(context);
+            self.graphics_scene_cache.projections.clear();
+        }
+        if let Some(visible) = &visible {
+            self.graphics_scene_cache.projections.retain(|surface, _| visible.contains(surface));
+        }
+        for (surface, key, placements) in updates {
+            self.graphics_scene_cache
+                .projections
+                .insert(surface, CachedGraphicsProjection { key, placements });
+            #[cfg(test)]
+            {
+                *self.graphics_scene_cache.projection_rebuilds.entry(surface).or_default() += 1;
+            }
+        }
+        if !context_changed && !removed && !projection_changed {
             return Ok(());
         }
-        let placements = self.graphic_placements(&occluders);
+        #[cfg(test)]
+        {
+            self.graphics_scene_cache.rebuilds += 1;
+        }
+        let scene = self
+            .pane_areas
+            .iter()
+            .filter_map(|area| {
+                self.graphics_scene_cache
+                    .projections
+                    .get(&area.surface)
+                    .map(|cached| cached.placements.clone())
+            })
+            .collect();
         if let Some(writer) = &self.graphics_writer {
-            writer.submit(placements);
+            writer.submit_scene(scene);
         }
         Ok(())
     }
 
-    fn graphic_placements(&self, occluders: &[Rect]) -> Vec<GraphicPlacement> {
+    fn graphic_placements_for_area(
+        &self,
+        area: PaneArea,
+        surface: Option<&SurfaceHandle>,
+        occluders: &[Rect],
+    ) -> Vec<GraphicPlacement> {
         let mut placements = Vec::new();
-        for area in &self.pane_areas {
-            let Some(surface) = self.session.surface(area.surface) else { continue };
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
+        let Some(surface) = surface else { return placements };
+        if area.content.width == 0 || area.content.height == 0 {
+            return placements;
+        }
+        match surface.kind() {
+            SurfaceKind::Browser => {
+                if Self::graphic_occluded(area.content, occluders) {
+                    return placements;
+                }
+                let Some(frame) = surface.browser_frame() else { return placements };
+                placements.push(GraphicPlacement::browser(
+                    self.session_generation,
+                    area.surface,
+                    area.content,
+                    frame.seq,
+                    frame.css_width,
+                    frame.css_height,
+                    frame.data_b64,
+                ));
             }
-            match surface.kind() {
-                SurfaceKind::Browser => {
-                    if Self::graphic_occluded(area.content, occluders) {
-                        continue;
-                    }
-                    let Some(frame) = surface.browser_frame() else { continue };
-                    placements.push(GraphicPlacement::browser(
-                        self.session_generation,
-                        area.surface,
-                        area.content,
-                        frame.seq,
-                        frame.css_width,
-                        frame.css_height,
-                        frame.data_b64,
-                    ));
-                }
-                SurfaceKind::Pty => {
-                    let Some(snapshot) = self.rendered_kitty_graphics.get(&area.surface) else {
-                        continue;
-                    };
-                    let pane = self
-                        .rendered_terminal_bounds
-                        .get(&area.surface)
-                        .copied()
-                        .unwrap_or(area.content);
-                    let images = snapshot
-                        .images
-                        .iter()
-                        .map(|image| {
-                            (
-                                image.id,
-                                kitty_graphic_image(self.session_generation, area.surface, image),
-                            )
-                        })
-                        .collect::<HashMap<_, _>>();
-                    placements.extend(snapshot.placements.iter().filter_map(|placement| {
-                        let image = images.get(&placement.image_id)?.clone();
-                        let placement =
-                            kitty_graphic_placement(pane, self.cell_pixels, image, placement)?;
-                        (!Self::graphic_occluded(placement.rect, occluders)).then_some(placement)
-                    }));
-                }
+            SurfaceKind::Pty => {
+                let Some(snapshot) = self.rendered_kitty_graphics.get(&area.surface) else {
+                    return placements;
+                };
+                let pane = self
+                    .rendered_terminal_bounds
+                    .get(&area.surface)
+                    .copied()
+                    .unwrap_or(area.content);
+                let images = snapshot
+                    .images
+                    .iter()
+                    .map(|image| {
+                        (
+                            image.id,
+                            kitty_graphic_image(self.session_generation, area.surface, image),
+                        )
+                    })
+                    .collect::<HashMap<_, _>>();
+                placements.extend(snapshot.placements.iter().filter_map(|placement| {
+                    let image = images.get(&placement.image_id)?.clone();
+                    let placement =
+                        kitty_graphic_placement(pane, self.cell_pixels, image, placement)?;
+                    (!Self::graphic_occluded(placement.rect, occluders)).then_some(placement)
+                }));
             }
         }
         placements
@@ -6065,6 +6207,7 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
+                self.graphics_dirty_surfaces.insert(id);
                 if self.sidebar_plugin_surface == Some(id) {
                     return Ok(RenderAction::Paint);
                 }
@@ -6116,6 +6259,38 @@ impl App {
             }
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
+            AppEvent::SurfaceAttachSettled { outcome } => {
+                match outcome {
+                    SessionMutationOutcome::Success { .. } => {}
+                    SessionMutationOutcome::SurfaceSyncFailed {
+                        surface,
+                        operation,
+                        error,
+                        reconnect_required,
+                    } => {
+                        if reconnect_required {
+                            self.deferred_input.retain(|input| input.destination != Some(surface));
+                            self.status_message = Some(format!(
+                                "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}"
+                            ));
+                        } else {
+                            self.status_message = Some(format!(
+                                "surface {surface} {operation} failed; retries are rate-limited: {error}"
+                            ));
+                        }
+                    }
+                    _ => {
+                        debug_assert!(false, "surface attach worker returned a non-attach outcome");
+                    }
+                }
+                if !self.session.has_pending_mutations()
+                    && !self.session.remote_tree_is_stale()
+                    && !self.deferred_input.is_empty()
+                {
+                    self.routing_refresh_pending = true;
+                }
+                Ok(RenderAction::Draw)
+            }
             AppEvent::SessionMutationSettled { outcome, routing } => {
                 self.session.settle_pending_mutation(routing);
                 match outcome {
@@ -10966,6 +11141,7 @@ mod tests {
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{
         ClientInfo, ClientSizeInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
+        test_remote_session_with_deferred_attach,
     };
     use crate::sidebar_files::FileBrowser;
 
@@ -13573,6 +13749,54 @@ mod tests {
     }
 
     #[test]
+    fn graphics_scene_cache_rebuilds_only_the_dirty_surface_projection() {
+        let mux = Mux::new("graphics-surface-cache-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((40, 24))).unwrap();
+        let second = mux.new_workspace(None, Some((40, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.graphics_supported = true;
+        app.pane_areas = vec![
+            PaneArea {
+                pane: 1,
+                surface: first.id,
+                rect: Rect { x: 0, y: 0, width: 42, height: 26 },
+                bar: Some(Rect { x: 0, y: 0, width: 42, height: 1 }),
+                omnibar: None,
+                content: Rect { x: 1, y: 1, width: 40, height: 24 },
+                track: None,
+            },
+            PaneArea {
+                pane: 2,
+                surface: second.id,
+                rect: Rect { x: 42, y: 0, width: 42, height: 26 },
+                bar: Some(Rect { x: 42, y: 0, width: 42, height: 1 }),
+                omnibar: None,
+                content: Rect { x: 43, y: 1, width: 40, height: 24 },
+                track: None,
+            },
+        ];
+        for area in &app.pane_areas {
+            app.rendered_terminal_bounds.insert(area.surface, area.content);
+            app.rendered_kitty_graphics.insert(
+                area.surface,
+                Arc::new(KittyGraphicsSnapshot { generation: 1, ..Default::default() }),
+            );
+        }
+        app.emit_graphics().unwrap();
+
+        app.rendered_kitty_graphics.insert(
+            first.id,
+            Arc::new(KittyGraphicsSnapshot { generation: 2, ..Default::default() }),
+        );
+        app.graphics_dirty_surfaces.insert(first.id);
+        app.emit_dirty_graphics().unwrap();
+
+        assert_eq!(app.graphics_scene_cache.projection_rebuilds.get(&first.id), Some(&2));
+        assert_eq!(app.graphics_scene_cache.projection_rebuilds.get(&second.id), Some(&1));
+        assert_eq!(app.graphics_scene_cache.rebuilds, 2);
+    }
+
+    #[test]
     fn host_resize_without_ioctl_pixels_preserves_last_queried_cell_measurement() {
         let mux = Mux::new("resize-cell-pixel-preservation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -14172,6 +14396,30 @@ mod tests {
         assert!(!app.session.has_pending_mutations());
         assert_eq!(app.deferred_input.len(), 1);
         assert!(events.try_recv().is_err());
+    }
+
+    #[test]
+    fn remote_attach_waits_outside_the_session_mutation_lane() {
+        let (session, attach_started, release_attach) = test_remote_session_with_deferred_attach();
+        let (app, events) = test_app_with_events(session);
+        app.session.attach_surface(7, Some((80, 24)));
+        attach_started.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(!app.session.has_pending_mutations());
+        let (mutation_ran_tx, mutation_ran_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("probe", true, move || {
+            mutation_ran_tx.send(()).unwrap();
+            Ok(())
+        });
+        mutation_ran_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        release_attach.send(()).unwrap();
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::Success { .. }
+            }
+        ));
     }
 
     #[test]
@@ -17278,6 +17526,7 @@ mod tests {
             graphics_supported: false,
             graphics_host_scene_reset_pending: false,
             graphics_scene_cache: GraphicsSceneCache::default(),
+            graphics_dirty_surfaces: HashSet::new(),
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),

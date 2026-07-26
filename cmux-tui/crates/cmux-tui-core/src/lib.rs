@@ -57,6 +57,10 @@ pub use workspace_registry::{
 pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
+/// Maximum serialized server-to-client message accepted by remote session
+/// transports. Render attach and VT replay responses share this budget.
+pub const REMOTE_SESSION_MESSAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
+
 pub type SurfaceId = u64;
 pub type PaneId = u64;
 pub type SplitId = u64;

@@ -355,6 +355,40 @@ describe("RenderGraphics canvas resource policy", () => {
     });
   });
 
+  it("keeps the top 512 placements from one oversized owner list", async () => {
+    const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: "AAAAAA==",
+      }],
+      placements: Array.from(
+        { length: placementCount },
+        (_, index) => placement(index + 1, 1, 1, index),
+      ),
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]"))
+        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+    });
+    const keys = [...container.querySelectorAll<HTMLElement>("[data-graphic-placement]")]
+      .map((canvas) => canvas.dataset.graphicPlacement);
+    expect(keys[0]).toBe(`1:${placementCount - RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1}:0`);
+    expect(keys.at(-1)).toBe(`1:${placementCount}:0`);
+  });
+
   it("counts duplicate placement identities as distinct canvas allocations", async () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const duplicate = placement(1, 1, 1);

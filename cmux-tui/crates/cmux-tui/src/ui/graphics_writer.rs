@@ -16,6 +16,7 @@ use super::graphics::{GraphicPlacement, GraphicsState};
 /// image uploads without ever interleaving bytes inside one protocol command.
 const MAX_LOCKED_GRAPHICS_WRITE_BYTES: usize = 64 * 1024;
 const CONTROL_STRING_CANCEL: u8 = 0x18;
+const DELETE_ALL_GRAPHICS: &[u8] = b"\x1b_Ga=d,d=A,q=2;\x1b\\";
 #[cfg(unix)]
 const OUTPUT_POLL_INTERVAL_MS: i32 = 20;
 #[cfg(unix)]
@@ -23,8 +24,9 @@ const CONTROL_STRING_ABORT_TIMEOUT: Duration = Duration::from_millis(200);
 
 trait GraphicsOutput: Send + 'static {
     /// Write one complete group of Kitty APC commands. `Ok(false)` means
-    /// cancellation won before the complete group was emitted.
-    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool>;
+    /// cancellation or snapshot supersession won before the complete group
+    /// was emitted.
+    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool>;
 }
 
 #[cfg(unix)]
@@ -105,10 +107,10 @@ impl InterruptibleStdout {
 
 #[cfg(unix)]
 impl GraphicsOutput for InterruptibleStdout {
-    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool> {
+    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
         let mut offset = 0;
         while offset < bytes.len() {
-            if control.is_cancelled() {
+            if permit.should_abort() {
                 if offset != 0 {
                     self.abort_partial_control_string()?;
                 }
@@ -136,7 +138,7 @@ impl GraphicsOutput for InterruptibleStdout {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
                     #[cfg(test)]
-                    control.report_write_attempt();
+                    permit.control.report_write_attempt();
                     let mut poll_fd =
                         libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
                     let ready = unsafe { libc::poll(&mut poll_fd, 1, OUTPUT_POLL_INTERVAL_MS) };
@@ -168,13 +170,13 @@ impl InterruptibleStdout {
 
 #[cfg(not(unix))]
 impl GraphicsOutput for InterruptibleStdout {
-    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool> {
-        if control.is_cancelled() {
+    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
+        if permit.should_abort() {
             return Ok(false);
         }
         self.0.write_all(bytes)?;
         self.0.flush()?;
-        Ok(!control.is_cancelled())
+        Ok(!permit.should_abort())
     }
 }
 
@@ -186,25 +188,45 @@ impl<W> GraphicsOutput for TestOutput<W>
 where
     W: Write + Send + 'static,
 {
-    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool> {
-        if control.is_cancelled() {
+    fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
+        if permit.should_abort() {
             return Ok(false);
         }
         self.0.write_all(bytes)?;
         self.0.flush()?;
-        Ok(!control.is_cancelled())
+        Ok(!permit.should_abort())
     }
 }
 
+pub(crate) type GraphicsScene = Vec<Arc<[GraphicPlacement]>>;
+
 #[derive(Default)]
 struct PendingGraphics {
-    placements: Option<Vec<GraphicPlacement>>,
+    scene: Option<GraphicsScene>,
     host_scene_epoch: u64,
+    revision: u64,
 }
 
 struct PendingUpdate {
-    placements: Option<Vec<GraphicPlacement>>,
+    scene: Option<GraphicsScene>,
     host_scene_epoch: u64,
+    revision: u64,
+}
+
+struct WritePermit<'a> {
+    slot: &'a Mutex<PendingGraphics>,
+    control: &'a WriterControl,
+    revision: u64,
+}
+
+impl WritePermit<'_> {
+    fn superseded(&self) -> bool {
+        self.slot.lock().unwrap().revision != self.revision
+    }
+
+    fn should_abort(&self) -> bool {
+        self.control.is_cancelled() || self.superseded()
+    }
 }
 
 #[derive(Default)]
@@ -352,12 +374,17 @@ impl GraphicsWriter {
         }
     }
 
-    pub fn submit(&self, placements: Vec<GraphicPlacement>) {
+    #[cfg(test)]
+    fn submit(&self, placements: Vec<GraphicPlacement>) {
+        self.submit_scene(vec![Arc::from(placements)]);
+    }
+
+    pub(crate) fn submit_scene(&self, scene: GraphicsScene) {
         if self.control.is_stopping() {
             return;
         }
         let Some(tx) = &self.notify else { return };
-        submit_snapshot(&self.slot, tx, placements);
+        submit_snapshot(&self.slot, tx, scene);
     }
 
     /// Mark the host terminal's Kitty scene as cleared.
@@ -370,6 +397,7 @@ impl GraphicsWriter {
         }
         let Some(tx) = &self.notify else { return };
         let mut pending = self.slot.lock().unwrap();
+        pending.revision = pending.revision.wrapping_add(1).max(1);
         pending.host_scene_epoch = pending.host_scene_epoch.wrapping_add(1);
         if pending.host_scene_epoch == 0 {
             pending.host_scene_epoch = 1;
@@ -402,12 +430,11 @@ impl Drop for GraphicsWriter {
     }
 }
 
-fn submit_snapshot(
-    slot: &Arc<Mutex<PendingGraphics>>,
-    tx: &SyncSender<()>,
-    placements: Vec<GraphicPlacement>,
-) {
-    slot.lock().unwrap().placements = Some(placements);
+fn submit_snapshot(slot: &Arc<Mutex<PendingGraphics>>, tx: &SyncSender<()>, scene: GraphicsScene) {
+    let mut pending = slot.lock().unwrap();
+    pending.revision = pending.revision.wrapping_add(1).max(1);
+    pending.scene = Some(scene);
+    drop(pending);
     notify_writer(tx);
 }
 
@@ -423,12 +450,13 @@ fn take_pending_update(
     applied_host_scene_epoch: u64,
 ) -> Option<PendingUpdate> {
     let mut pending = slot.lock().unwrap();
-    if pending.placements.is_none() && pending.host_scene_epoch == applied_host_scene_epoch {
+    if pending.scene.is_none() && pending.host_scene_epoch == applied_host_scene_epoch {
         return None;
     }
     Some(PendingUpdate {
-        placements: pending.placements.take(),
+        scene: pending.scene.take(),
         host_scene_epoch: pending.host_scene_epoch,
+        revision: pending.revision,
     })
 }
 
@@ -445,6 +473,7 @@ fn writer_loop<O>(
     let _done = DoneOnDrop(control.clone());
     let mut graphics = GraphicsState::default();
     let mut applied_host_scene_epoch = 0;
+    let mut host_reset_required = false;
     'writer: loop {
         if control.is_cancelled() {
             break;
@@ -453,21 +482,53 @@ fn writer_loop<O>(
             if update.host_scene_epoch != applied_host_scene_epoch {
                 graphics.invalidate_host_scene();
                 applied_host_scene_epoch = update.host_scene_epoch;
+                host_reset_required = false;
             }
-            let Some(placements) = update.placements else {
+            let Some(scene) = update.scene else {
                 continue;
             };
-            for batch in graphics.frame_batches(&placements) {
-                if !write_batch(
+            if host_reset_required {
+                match write_batch(
                     &mut output,
                     &stdout_lock,
                     &slot,
-                    update.host_scene_epoch,
                     &control,
+                    update.revision,
+                    DELETE_ALL_GRAPHICS,
+                ) {
+                    BatchWriteOutcome::Complete => {
+                        graphics.invalidate_host_scene();
+                        host_reset_required = false;
+                    }
+                    BatchWriteOutcome::Superseded => continue,
+                    BatchWriteOutcome::Stopped => break 'writer,
+                }
+            }
+            let placements =
+                scene.iter().flat_map(|placements| placements.iter().cloned()).collect::<Vec<_>>();
+            let mut next_graphics = graphics.clone();
+            let batches = next_graphics.frame_batches(&placements);
+            let mut completed = true;
+            for batch in batches {
+                match write_batch(
+                    &mut output,
+                    &stdout_lock,
+                    &slot,
+                    &control,
+                    update.revision,
                     &batch,
                 ) {
-                    break 'writer;
+                    BatchWriteOutcome::Complete => {}
+                    BatchWriteOutcome::Superseded => {
+                        host_reset_required = true;
+                        completed = false;
+                        break;
+                    }
+                    BatchWriteOutcome::Stopped => break 'writer,
                 }
+            }
+            if completed {
+                graphics = next_graphics;
             }
         }
         if control.stop_requested.load(Ordering::Acquire) {
@@ -478,14 +539,11 @@ fn writer_loop<O>(
         }
     }
     if !control.is_cancelled() {
+        let revision = slot.lock().unwrap().revision;
         for batch in graphics.frame_batches(&[]) {
-            if !write_batch(
-                &mut output,
-                &stdout_lock,
-                &slot,
-                applied_host_scene_epoch,
-                &control,
-                &batch,
+            if !matches!(
+                write_batch(&mut output, &stdout_lock, &slot, &control, revision, &batch,),
+                BatchWriteOutcome::Complete
             ) {
                 break;
             }
@@ -493,40 +551,54 @@ fn writer_loop<O>(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BatchWriteOutcome {
+    Complete,
+    Superseded,
+    Stopped,
+}
+
 fn write_batch<O: GraphicsOutput>(
     output: &mut O,
     stdout_lock: &Arc<Mutex<()>>,
     slot: &Arc<Mutex<PendingGraphics>>,
-    host_scene_epoch: u64,
     control: &WriterControl,
+    revision: u64,
     batch: &[u8],
-) -> bool {
+) -> BatchWriteOutcome {
+    let permit = WritePermit { slot, control, revision };
     let mut offset = 0;
     while offset < batch.len() {
         if control.is_cancelled() {
-            return false;
+            return BatchWriteOutcome::Stopped;
+        }
+        if permit.superseded() {
+            return BatchWriteOutcome::Superseded;
         }
         let Some(end) = next_graphics_write_end(batch, offset) else {
-            return false;
+            return BatchWriteOutcome::Stopped;
         };
         #[cfg(test)]
         control.report_write_attempt();
         {
             let _guard = stdout_lock.lock().unwrap();
             if control.is_cancelled() {
-                return false;
+                return BatchWriteOutcome::Stopped;
             }
-            if slot.lock().unwrap().host_scene_epoch != host_scene_epoch {
-                return true;
+            if permit.superseded() {
+                return BatchWriteOutcome::Superseded;
             }
-            match output.write_segment(&batch[offset..end], control) {
+            match output.write_segment(&batch[offset..end], &permit) {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return false,
+                Ok(false) if permit.superseded() => {
+                    return BatchWriteOutcome::Superseded;
+                }
+                Ok(false) | Err(_) => return BatchWriteOutcome::Stopped,
             }
         }
         offset = end;
     }
-    true
+    BatchWriteOutcome::Complete
 }
 
 fn next_graphics_write_end(batch: &[u8], start: usize) -> Option<usize> {
@@ -605,6 +677,25 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             let _ = self.flushed.try_send(());
             Ok(())
+        }
+    }
+
+    struct SupersedingOutput {
+        bytes: Arc<Mutex<Vec<u8>>>,
+        entered: Option<SyncSender<()>>,
+        release: Option<Receiver<()>>,
+        flushed: SyncSender<()>,
+    }
+
+    impl GraphicsOutput for SupersedingOutput {
+        fn write_segment(&mut self, bytes: &[u8], permit: &WritePermit<'_>) -> io::Result<bool> {
+            self.bytes.lock().unwrap().extend_from_slice(bytes);
+            let _ = self.flushed.try_send(());
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).unwrap();
+                self.release.take().unwrap().recv().unwrap();
+            }
+            Ok(!permit.should_abort())
         }
     }
 
@@ -741,10 +832,16 @@ mod tests {
         command.resize(256 * 1024, b'A');
         command.extend_from_slice(b"\x1b\\");
         let control = Arc::new(WriterControl::default());
+        let slot =
+            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
         let worker_control = control.clone();
+        let worker_slot = slot;
         let worker = std::thread::spawn(move || {
             let mut output = InterruptibleStdout { fd: write_fd };
-            output.write_segment(&command, &worker_control)
+            output.write_segment(
+                &command,
+                &WritePermit { slot: &worker_slot, control: &worker_control, revision: 1 },
+            )
         });
 
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -816,12 +913,18 @@ mod tests {
         command.resize(256 * 1024, b'A');
         command.extend_from_slice(b"\x1b\\");
         let control = Arc::new(WriterControl::default());
+        let slot =
+            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
         let (blocked_tx, blocked_rx) = sync_channel(1);
         control.observe_write_attempts(blocked_tx);
         let worker_control = control.clone();
+        let worker_slot = slot;
         let worker = std::thread::spawn(move || {
             let mut output = InterruptibleStdout { fd: write_fd };
-            output.write_segment(&command, &worker_control)
+            output.write_segment(
+                &command,
+                &WritePermit { slot: &worker_slot, control: &worker_control, revision: 1 },
+            )
         });
 
         blocked_rx
@@ -845,7 +948,7 @@ mod tests {
         submit_snapshot(
             &slot,
             &tx,
-            vec![GraphicPlacement::browser(
+            vec![Arc::from(vec![GraphicPlacement::browser(
                 0,
                 1,
                 Rect { x: 0, y: 0, width: 10, height: 5 },
@@ -853,12 +956,12 @@ mod tests {
                 10,
                 5,
                 "AAAA".to_string(),
-            )],
+            )])],
         );
         submit_snapshot(
             &slot,
             &tx,
-            vec![GraphicPlacement::browser(
+            vec![Arc::from(vec![GraphicPlacement::browser(
                 0,
                 1,
                 Rect { x: 1, y: 1, width: 11, height: 6 },
@@ -866,15 +969,14 @@ mod tests {
                 11,
                 6,
                 "BBBB".to_string(),
-            )],
+            )])],
         );
 
-        let latest = take_pending_update(&slot, 0)
-            .and_then(|update| update.placements)
-            .expect("latest snapshot");
+        let latest =
+            take_pending_update(&slot, 0).and_then(|update| update.scene).expect("latest snapshot");
         assert_eq!(latest.len(), 1);
-        assert_eq!(latest[0].image.generation, 2);
-        assert_eq!(latest[0].rect.x, 1);
+        assert_eq!(latest[0][0].image.generation, 2);
+        assert_eq!(latest[0][0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
 
@@ -917,10 +1019,10 @@ mod tests {
 
         let update = take_pending_update(&slot, 0).expect("pending scene update");
         assert_ne!(update.host_scene_epoch, 0);
-        let latest = update.placements.expect("latest snapshot");
+        let latest = update.scene.expect("latest snapshot");
         assert_eq!(latest.len(), 1);
-        assert_eq!(latest[0].image.generation, 2);
-        assert_eq!(latest[0].rect.x, 1);
+        assert_eq!(latest[0][0].image.generation, 2);
+        assert_eq!(latest[0][0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
     }
@@ -973,6 +1075,44 @@ mod tests {
             "stale pre-clear placement survived host-scene invalidation: {snapshot:?}"
         );
 
+        writer.shutdown(Duration::from_secs(1));
+    }
+
+    #[test]
+    fn newer_snapshot_supersedes_an_inflight_scene_and_resets_the_host() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let (flushed_tx, flushed_rx) = sync_channel(8);
+        let output = SupersedingOutput {
+            bytes: bytes.clone(),
+            entered: Some(entered_tx),
+            release: Some(release_rx),
+            flushed: flushed_tx,
+        };
+        let mut writer =
+            GraphicsWriter::spawn_with_graphics_output(Arc::new(Mutex::new(())), output).unwrap();
+        let old = rgba_placement(41, 1, 0, [255, 0, 0, 255]);
+        let latest = rgba_placement(41, 2, 0, [0, 0, 255, 255]);
+
+        writer.submit(vec![old]);
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        writer.submit(vec![latest]);
+        release_tx.send(()).unwrap();
+
+        wait_for_output(&flushed_rx, &bytes, |bytes| {
+            bytes.windows(DELETE_ALL_GRAPHICS.len()).any(|window| window == DELETE_ALL_GRAPHICS)
+                && String::from_utf8_lossy(bytes).contains("AAD//w==")
+        });
+
+        let emitted = bytes.lock().unwrap().clone();
+        let mut host = Terminal::new(8, 4, 0, Callbacks::default()).unwrap();
+        host.resize(8, 4, 1, 1).unwrap();
+        host.vt_write(&emitted);
+        let snapshot = host.kitty_graphics_snapshot().unwrap();
+        assert_eq!(snapshot.images.len(), 1);
+        assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
+        assert_eq!(snapshot.placements.len(), 1);
         writer.shutdown(Duration::from_secs(1));
     }
 

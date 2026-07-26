@@ -1485,6 +1485,13 @@ pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Ses
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_deferred_attach()
+-> (Session, std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+    let (session, started, release) = remote::test_session_with_deferred_attach();
+    (Session::Remote(session), started, release)
+}
+
+#[cfg(test)]
 mod tests {
     use cmux_tui_core::{Mux, SurfaceOptions};
 

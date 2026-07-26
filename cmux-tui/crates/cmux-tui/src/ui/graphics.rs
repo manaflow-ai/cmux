@@ -401,6 +401,7 @@ struct GraphicsOperationCounts {
     stale_image_retain_visits: usize,
 }
 
+#[derive(Clone)]
 pub struct GraphicsState {
     next_placement_id: u32,
     used_image_ids: HashSet<u32>,
