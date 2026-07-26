@@ -1217,7 +1217,7 @@ final class SystemWideHotkeyController {
     }
 
     private func refreshRegistration() {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: Self.action)
+        let shortcut = SystemWideHotkeySettings.shortcut()
         // Stand down while either recorder is armed (legacy app-target recorder or the CmuxSettingsUI
         // package recorder) so the opt-in hotkey is captured rather than fired while being rebound.
         let isShortcutRecordingActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
