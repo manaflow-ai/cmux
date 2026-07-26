@@ -2886,6 +2886,29 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_rejects_prompt_continuations_whose_prompt_row_is_in_history() {
+        let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(
+            b"\x1b]133;A\x07$ \x1b]133;B\x07active-one\r\nactive-two\r\nactive-three\r\nactive-four\r\nactive-five",
+        );
+        let history_before = terminal.history_rows();
+        let contents_before = terminal.plain_text().unwrap();
+        let cursor_y = terminal.cursor_position().unwrap().1;
+        assert!(terminal.cursor_is_at_prompt());
+        assert_eq!(terminal.active_prompt_start_row(cursor_y), None);
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Unchanged);
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), history_before);
+        assert_eq!(terminal.plain_text().unwrap(), contents_before);
+    }
+
+    #[test]
     fn clear_history_without_prompt_metadata_clears_scrollback_only() {
         let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
         for line in 0..6 {
