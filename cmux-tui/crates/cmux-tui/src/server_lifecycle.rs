@@ -220,11 +220,7 @@ impl ServerLifecycle {
         )
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
 
-        let response = match read_shutdown_response(&mut self.reader, SHUTDOWN_REQUEST_ID) {
-            Ok(response) => response,
-            Err(_error) if connection_is_gone(&self.path) => return Ok(()),
-            Err(error) => return Err(error),
-        };
+        let response = read_shutdown_response(&mut self.reader, SHUTDOWN_REQUEST_ID)?;
         if response.get("ok").and_then(Value::as_bool) == Some(true) {
             return wait_for_disconnect(&mut self.reader, &self.path);
         }

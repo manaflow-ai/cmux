@@ -90,9 +90,12 @@ impl Chrome {
         let web_socket_url = match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(url) => url,
             Err(_) => {
-                let _ = kill_child_until(&mut child, Instant::now() + Duration::from_secs(1));
-                if profile_ephemeral {
-                    let _ = std::fs::remove_dir_all(&profile_dir);
+                if kill_child_until(&mut child, Instant::now() + Duration::from_secs(1)) {
+                    if profile_ephemeral {
+                        let _ = std::fs::remove_dir_all(&profile_dir);
+                    }
+                } else {
+                    reap_child_detached(child, profile_ephemeral.then(|| profile_dir.clone()));
                 }
                 anyhow::bail!(
                     "Chrome did not publish a DevTools endpoint within 10s (binary: {})",
@@ -131,10 +134,48 @@ impl Chrome {
 
 impl Drop for Chrome {
     fn drop(&mut self) {
-        self.kill();
-        if self.profile_ephemeral {
+        if self.kill_until(Instant::now() + Duration::from_secs(1)) {
+            if self.profile_ephemeral {
+                let _ = std::fs::remove_dir_all(&self.profile_dir);
+            }
+            return;
+        }
+        let child = self.child.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some(child) = child {
+            reap_child_detached(child, self.profile_ephemeral.then(|| self.profile_dir.clone()));
+        } else if self.profile_ephemeral {
             let _ = std::fs::remove_dir_all(&self.profile_dir);
         }
+    }
+}
+
+struct ReapRequest {
+    child: Child,
+    profile_dir: Option<PathBuf>,
+}
+
+fn reap_child_detached(child: Child, profile_dir: Option<PathBuf>) {
+    let request = std::sync::Arc::new(Mutex::new(Some(ReapRequest { child, profile_dir })));
+    let worker_request = request.clone();
+    let spawned =
+        std::thread::Builder::new().name("cmux-tui-cdp-chrome-reaper".into()).spawn(move || {
+            if let Some(request) = worker_request.lock().unwrap().take() {
+                reap_child(request);
+            }
+        });
+    if spawned.is_err()
+        && let Some(request) = request.lock().unwrap().take()
+    {
+        reap_child(request);
+    }
+}
+
+fn reap_child(mut request: ReapRequest) {
+    let _ = request.child.kill();
+    if request.child.wait().is_ok()
+        && let Some(profile_dir) = request.profile_dir
+    {
+        let _ = std::fs::remove_dir_all(profile_dir);
     }
 }
 

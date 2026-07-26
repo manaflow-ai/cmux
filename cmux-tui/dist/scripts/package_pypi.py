@@ -113,7 +113,7 @@ def _launcher_command(argv0: str) -> str:
 
 def main() -> None:
     binary = pathlib.Path(__file__).resolve().parent / "bin" / "cmux-tui"
-    os.environ.setdefault("CMUX_TUI_LAUNCHER_COMMAND", _launcher_command(sys.argv[0]))
+    os.environ["CMUX_TUI_LAUNCHER_COMMAND"] = _launcher_command(sys.argv[0])
     os.execv(str(binary), ["cmux", *sys.argv[1:]])
 """
             ),

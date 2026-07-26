@@ -420,7 +420,8 @@ impl CdpClient {
     }
 
     pub fn close_target(&self, target_id: &str) -> anyhow::Result<()> {
-        self.call("Target.closeTarget", json!({ "targetId": target_id }), None).map(|_| ())
+        let result = self.call("Target.closeTarget", json!({ "targetId": target_id }), None)?;
+        require_target_close_success(&result)
     }
 
     pub fn close_target_with_timeout(
@@ -428,13 +429,13 @@ impl CdpClient {
         target_id: &str,
         timeout: Duration,
     ) -> anyhow::Result<()> {
-        self.call_with_timeout(
+        let result = self.call_with_timeout(
             "Target.closeTarget",
             json!({ "targetId": target_id }),
             None,
             timeout,
-        )
-        .map(|_| ())
+        )?;
+        require_target_close_success(&result)
     }
 
     pub fn target_exists_with_timeout(
@@ -668,6 +669,14 @@ impl CdpClient {
             .send(Outbound::Message(text))
             .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
         Ok(())
+    }
+}
+
+fn require_target_close_success(result: &Value) -> anyhow::Result<()> {
+    match result.get("success").and_then(Value::as_bool) {
+        Some(true) => Ok(()),
+        Some(false) => anyhow::bail!("Target.closeTarget reported success=false"),
+        None => anyhow::bail!("Target.closeTarget response missing success"),
     }
 }
 
