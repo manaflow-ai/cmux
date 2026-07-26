@@ -890,7 +890,7 @@ mod tests {
 
         let message = incompatible_server_message(&identity, Path::new("/tmp/test socket"));
 
-        assert!(message.contains("server: v0.1.0-old protocol 8"));
+        assert!(message.contains(&format!("server: v0.1.0-old protocol {}", PROTOCOL_VERSION - 1)));
         assert!(message.contains("client: v"));
         assert!(message.contains("reason: distribution version differs"));
         assert!(message.contains("source build differs"));
