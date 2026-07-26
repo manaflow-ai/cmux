@@ -8,6 +8,27 @@ import Foundation
 /// localized respawn strings. Split out of `TerminalController+ControlSurfaceContext`
 /// to keep the conformance readable; see that file's doc comment for the overview.
 extension TerminalController {
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings {
+        ControlSurfaceApplicationStrings(
+            splitUnsupported: String(
+                localized: "socket.application.splitUnsupported",
+                defaultValue: "Application surfaces are only supported by surface.create."
+            ),
+            invalidWindowID: String(
+                localized: "socket.application.invalidWindowID",
+                defaultValue: "window_id_native must be a positive supported native window ID."
+            ),
+            invalidProcessID: String(
+                localized: "socket.application.invalidProcessID",
+                defaultValue: "process_id must be a positive supported application process ID."
+            ),
+            invalidFrameRate: String(
+                localized: "socket.application.invalidFrameRate",
+                defaultValue: "frame_rate must be between 1 and 120."
+            )
+        )
+    }
+
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings {
         ControlSurfaceRespawnStrings(
             invalidFocus: String(

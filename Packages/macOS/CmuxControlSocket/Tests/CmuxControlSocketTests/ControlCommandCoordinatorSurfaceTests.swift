@@ -165,7 +165,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "window_id_native must be a positive UInt32",
+            message: "invalid native window ID",
             data: .object(["field": .string("window_id_native")])
         ))
         #expect(context.lastCreateInputs == nil)
@@ -185,7 +185,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "process_id must be a positive Int32",
+            message: "invalid application process ID",
             data: .object(["field": .string("process_id")])
         ))
         #expect(context.lastCreateInputs == nil)
@@ -205,8 +205,28 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "window_id_native must be a positive UInt32",
+            message: "invalid native window ID",
             data: .object(["field": .string("window_id_native")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsNonpositiveProcessID() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(42),
+                "process_id": .int(0),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid application process ID",
+            data: .object(["field": .string("process_id")])
         ))
         #expect(context.lastCreateInputs == nil)
     }
@@ -226,7 +246,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "frame_rate must be between 1 and 120",
+            message: "invalid application frame rate",
             data: .object(["field": .string("frame_rate")])
         ))
         #expect(context.lastCreateInputs == nil)
@@ -246,7 +266,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "application is only supported by surface.create",
+            message: "application split unsupported",
             data: .object(["type": .string("application")])
         ))
     }

@@ -225520,6 +225520,74 @@
         }
       }
     },
+    "socket.application.invalidFrameRate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "frame_rate must be between 1 and 120."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "frame_rate は1から120までの値にしてください。"
+          }
+        }
+      }
+    },
+    "socket.application.invalidProcessID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "process_id must be a positive supported application process ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "process_id には、対応する正のアプリケーションプロセスIDを指定してください。"
+          }
+        }
+      }
+    },
+    "socket.application.invalidWindowID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id_native must be a positive supported native window ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id_native には、対応する正のネイティブウインドウIDを指定してください。"
+          }
+        }
+      }
+    },
+    "socket.application.splitUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application surfaces are only supported by surface.create."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションサーフェスは surface.create でのみ作成できます。"
+          }
+        }
+      }
+    },
     "socket.pane.resize.invalidParameters": {
       "extractionState": "manual",
       "localizations": {

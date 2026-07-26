@@ -8,7 +8,6 @@ import ScreenCaptureKit
 
 @MainActor
 final class ApplicationCaptureView: NSView {
-    private static let targetValidationInterval: TimeInterval = 0.25
     private static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.cmux",
         category: "ApplicationCapture"
@@ -68,7 +67,6 @@ final class ApplicationCaptureView: NSView {
     private var startupToken: UUID?
     private var stream: SCStream?
     private var sourceFrame: CGRect = .zero
-    private var lastTargetValidationAt: TimeInterval = 0
     private var captureDesired = false
     private var targetUnavailable = false
     private var pendingScrollX = 0.0
@@ -170,7 +168,6 @@ final class ApplicationCaptureView: NSView {
         captureDesired = false
         captureTask?.cancel()
         sourceFrame = .zero
-        lastTargetValidationAt = 0
         pendingScrollX = 0
         pendingScrollY = 0
 
@@ -218,7 +215,6 @@ final class ApplicationCaptureView: NSView {
             }
 
             sourceFrame = sourceWindow.frame
-            lastTargetValidationAt = CFAbsoluteTimeGetCurrent()
             let filter = SCContentFilter(desktopIndependentWindow: sourceWindow)
             let configuration = SCStreamConfiguration()
             let sourceSize = sourceWindow.frame.size
@@ -451,12 +447,6 @@ final class ApplicationCaptureView: NSView {
         guard captureDesired, stream != nil, sourceFrame.width > 0, sourceFrame.height > 0 else {
             return nil
         }
-        let now = CFAbsoluteTimeGetCurrent()
-        if now - lastTargetValidationAt < Self.targetValidationInterval {
-            return sourceFrame
-        }
-        lastTargetValidationAt = now
-
         let windows = CGWindowListCopyWindowInfo(
             [.optionIncludingWindow],
             sourceWindowID
@@ -504,7 +494,6 @@ final class ApplicationCaptureView: NSView {
         captureDesired = false
         captureTask?.cancel()
         sourceFrame = .zero
-        lastTargetValidationAt = 0
         pendingScrollX = 0
         pendingScrollY = 0
         displayLayer.flushAndRemoveImage()

@@ -54,6 +54,9 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The respawn strings.
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings
 
+    /// App-bundle-resolved application-surface validation strings.
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings
+
     // MARK: - focus / split / respawn / create / close
 
     /// Focuses a surface for `surface.focus`.

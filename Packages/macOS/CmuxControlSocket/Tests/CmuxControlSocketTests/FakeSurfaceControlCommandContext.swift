@@ -52,6 +52,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         healthSnapshot
     }
 
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings {
+        ControlSurfaceApplicationStrings(
+            splitUnsupported: "application split unsupported",
+            invalidWindowID: "invalid native window ID",
+            invalidProcessID: "invalid application process ID",
+            invalidFrameRate: "invalid application frame rate"
+        )
+    }
+
     nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(
             inputQueueFull: "queue full",

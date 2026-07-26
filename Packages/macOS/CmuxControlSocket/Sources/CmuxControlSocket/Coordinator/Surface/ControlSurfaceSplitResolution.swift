@@ -18,7 +18,8 @@ public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// "agent-session is only supported by surface.create", `data: {"type": …}`).
     case agentSessionRejected(typeRawValue: String)
     /// The type token resolved to `application` (`invalid_params` /
-    /// "application is only supported by surface.create", `data: {"type": …}`).
+    /// Application surfaces are only supported by `surface.create`;
+    /// `data: {"type": …}` preserves the requested wire type.
     case applicationRejected(typeRawValue: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)

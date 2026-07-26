@@ -334,6 +334,7 @@ extension ControlCommandCoordinator {
     /// `surface.split` — split a surface into a new pane.
     func surfaceSplit(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
+        let applicationStrings = context?.controlSurfaceApplicationStrings()
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -360,7 +361,7 @@ extension ControlCommandCoordinator {
            ["application", "app"].contains(normalizedToken(typeRaw)) {
             return .err(
                 code: "invalid_params",
-                message: "application is only supported by surface.create",
+                message: applicationStrings?.splitUnsupported ?? "",
                 data: .object(["type": .string("application")])
             )
         }
@@ -406,7 +407,7 @@ extension ControlCommandCoordinator {
         case .applicationRejected(let typeRawValue):
             return .err(
                 code: "invalid_params",
-                message: "application is only supported by surface.create",
+                message: applicationStrings?.splitUnsupported ?? "",
                 data: .object(["type": .string(typeRawValue)])
             )
         case .browserDisabled(let outcome):
@@ -525,6 +526,7 @@ extension ControlCommandCoordinator {
     /// `surface.create` — create a surface in a pane.
     func surfaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
+        let applicationStrings = context?.controlSurfaceApplicationStrings()
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -542,7 +544,7 @@ extension ControlCommandCoordinator {
                   exactWindowID > 0 else {
                 return .err(
                     code: "invalid_params",
-                    message: "window_id_native must be a positive UInt32",
+                    message: applicationStrings?.invalidWindowID ?? "",
                     data: .object(["field": .string("window_id_native")])
                 )
             }
@@ -551,7 +553,7 @@ extension ControlCommandCoordinator {
                   exactProcessID > 0 else {
                 return .err(
                     code: "invalid_params",
-                    message: "process_id must be a positive Int32",
+                    message: applicationStrings?.invalidProcessID ?? "",
                     data: .object(["field": .string("process_id")])
                 )
             }
@@ -560,7 +562,7 @@ extension ControlCommandCoordinator {
                       (1...120).contains(rawFrameRate) else {
                     return .err(
                         code: "invalid_params",
-                        message: "frame_rate must be between 1 and 120",
+                        message: applicationStrings?.invalidFrameRate ?? "",
                         data: .object(["field": .string("frame_rate")])
                     )
                 }
