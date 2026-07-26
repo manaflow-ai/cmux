@@ -12,9 +12,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `22d6c589f`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/150. It adds transactional
-menu-owned key binding consumption on top of the current
+The submodule pinned by this branch is `d9311bb99`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/151. It adds transactional
+menu-owned key binding consumption and modifier-independent paired-release
+tracking on top of the current
 `manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
 https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
 https://github.com/manaflow-ai/ghostty/pull/147.
@@ -56,8 +57,8 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `22d6c589f` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-22d6c589fe0c38a20ab92631d7b34da436af8679-crashsubdir-cmux-crash-v1
+The pinned `d9311bb99` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d9311bb99b9b125674c3f108c8852a19dfb44232-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded renderer mailbox turns and continuation recovery
@@ -142,16 +143,22 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     quiescence. Embedders may not release borrowed userdata before
     `ghostty_surface_free` returns.
 
-### Transactional menu-owned key bindings
+### Transactional menu-owned key bindings and paired releases
 
-- Pull request: https://github.com/manaflow-ai/ghostty/pull/150
+- Pull requests:
+  - https://github.com/manaflow-ai/ghostty/pull/150
+  - https://github.com/manaflow-ai/ghostty/pull/151
 - Commits:
   - `1509cc596` (test: cover menu-owned binding eligibility)
   - `22d6c589f` (fix: preserve menu binding key lifecycle)
+  - `985dd1e96` (test: cover modifier-first binding release)
+  - `d9311bb99` (fix: pair binding release without modifiers)
 - Files:
   - `include/ghostty.h`
+  - `src/Surface.zig`
   - `src/apprt/embedded.zig`
   - `src/input/Binding.zig`
+  - `src/input/key.zig`
 - Summary:
   - Adds `ghostty_surface_key_consume_if_menu_action` for a native menu miss to
     atomically resolve and consume only the requested focused-surface action.
@@ -159,11 +166,19 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     while no key sequence or key table is active.
   - Records the trigger in Ghostty so a reported paired key release is consumed
     without encoding terminal input.
+  - Pairs the release by physical key and unshifted codepoint instead of live
+    modifiers, so releasing Command before C does not leak C's key-up event.
+  - Clears prior release ownership when a later press or repeat starts a new
+    same-key transaction, then records it again only if Ghostty consumes that
+    event. Duplicate releases remain consumed without swallowing a later
+    forwarded key lifecycle.
   - Leaves unconsumed, app-wide, all-surface, chained, sequence, key-table, and
     custom action bindings to normal Ghostty key processing.
   - Conflict note: menu routing must use this transaction instead of querying
     binding identity in one call and submitting the key in another. The
-    eligibility decision and paired release state must remain atomic.
+    eligibility decision and paired release state must remain atomic. Release
+    ownership must stay modifier-independent and expire before a new same-key
+    press or repeat is resolved.
 
 ### Nonblocking renderer lifecycle state
 
