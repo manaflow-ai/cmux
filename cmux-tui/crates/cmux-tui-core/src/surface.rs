@@ -3925,6 +3925,31 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_fallback_accepts_maximum_protocol_text_in_associated_text_mode() {
+        let mux =
+            Mux::new_for_test("clear-history-associated-text-limit", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        replace_local_writer(&surface, Box::new(writer.clone()));
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>29u"));
+        let input = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_K,
+            utf8: "x".repeat(4 * 1024),
+            unshifted_codepoint: 'k' as u32,
+            action: Some(ghostty_vt::KeyAction::Press),
+            ..Default::default()
+        };
+
+        surface.clear_history_or_encode_key(Some(&input)).unwrap();
+
+        assert!(
+            writer.0.lock().unwrap().len() > 8 * 1024,
+            "associated text did not exercise the encoded fallback bound"
+        );
+    }
+
+    #[test]
     fn clear_history_reports_unencodable_alternate_screen_fallback() {
         let mux = Mux::new_for_test("clear-history-unencodable-key", SurfaceOptions::default());
         let surface =

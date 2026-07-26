@@ -1291,6 +1291,70 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_surface_operation_quarantines_only_its_surface() {
+        let queue = Arc::new(SharedQueue::default());
+        {
+            let mut state = queue.state.lock().unwrap();
+            state.events.push_back(event(41, 1, PtyInputKind::Ordered));
+            state.events.push_back(event(42, 2, PtyInputKind::Ordered));
+            state.queued_bytes = 2;
+            state.in_flight_surface_operations.insert(41, 0);
+        }
+        let failures = Arc::new(Mutex::new(Vec::new()));
+        let captured_failures = failures.clone();
+        let on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync> =
+            Arc::new(move |failure| captured_failures.lock().unwrap().push(failure));
+        let operation = PtyInputEvent::mutation_for_surface(
+            "clear terminal history",
+            PtyMutationIdentity {
+                failure_surface_id: Some(41),
+                concurrent_surface_operation: true,
+                ..Default::default()
+            },
+            false,
+            None,
+            None,
+            || Err(anyhow::anyhow!("partial fallback write")),
+        );
+
+        process_event(queue.clone(), on_failure.clone(), operation);
+
+        {
+            let state = queue.state.lock().unwrap();
+            assert_eq!(
+                state.events.iter().map(PtyInputEvent::ordering_surface_id).collect::<Vec<_>>(),
+                vec![Some(42)],
+                "same-surface input survived an ambiguous surface operation"
+            );
+            assert!(!state.in_flight_surface_operations.contains_key(&41));
+        }
+        let sender = PtyInputSender { queue, on_failure };
+        assert_eq!(
+            sender.enqueue(event(41, 3, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Failed,
+            "new same-surface input entered an ambiguous lane"
+        );
+        assert_eq!(
+            sender.enqueue(event(42, 4, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Accepted,
+            "an unrelated surface was quarantined"
+        );
+
+        let failures = failures.lock().unwrap();
+        assert!(failures.iter().any(|failure| {
+            failure.surface_id == Some(41)
+                && failure.label == "clear terminal history"
+                && failure.delivery == PtyOperationDelivery::Ambiguous
+                && failure.lane_failed
+        }));
+        assert!(failures.iter().any(|failure| {
+            failure.surface_id == Some(41)
+                && failure.delivery == PtyOperationDelivery::KnownNotDelivered
+                && failure.lane_failed
+        }));
+    }
+
+    #[test]
     fn blocking_surface_operation_is_a_per_surface_barrier() {
         let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let sender = dispatcher.sender();
