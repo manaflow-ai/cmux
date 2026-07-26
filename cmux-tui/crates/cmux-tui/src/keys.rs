@@ -568,6 +568,26 @@ mod tests {
     }
 
     #[test]
+    fn nested_kitty_forwarding_preserves_duplicate_base_layout_identity() {
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            shifted_key: Some('1'),
+            base_layout_key: Some('1'),
+            text: "1".to_string(),
+        };
+        let input = key_input_from_enhanced(&event).unwrap();
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[>29u");
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut encoded = Vec::new();
+
+        encoder.encode(&input, &mut encoded).unwrap();
+
+        assert_eq!(encoded, b"\x1b[38:49:49;4;49u");
+    }
+
+    #[test]
     fn shifted_punctuation_does_not_invent_a_us_layout_identity() {
         let event = KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT);
         let input = key_input_from(&event).unwrap();

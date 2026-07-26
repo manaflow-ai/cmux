@@ -11352,19 +11352,19 @@ mod tests {
     }
 
     #[test]
-    fn empty_option_dead_key_does_not_match_alt_modeless_bindings() {
+    fn alt_binding_without_associated_text_remains_active() {
         let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
-            key_event: KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT),
-            shifted_key: Some('N'),
-            base_layout_key: Some('n'),
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
             text: String::new(),
         });
         let (key, fallback) = input.shortcut_keys();
 
-        assert!(input.suppresses_alt_shortcut());
+        assert!(!input.suppresses_alt_shortcut());
         assert_eq!(
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
-            None
+            Some(Action::FocusDown)
         );
     }
 
@@ -18039,23 +18039,64 @@ mod tests {
 
         let mux = Mux::new("clear-history-failure-locale", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        app.apply_pty_operation_failure(PtyOperationFailure {
-            surface_id: Some(1),
-            kind: None,
-            reservation_id: None,
-            label: "clear terminal history",
-            error: "remote server does not support clear-history; restart the cmux-tui server"
-                .into(),
-            lane_failed: false,
-            delivery: PtyOperationDelivery::KnownNotDelivered,
-        });
+        let cases = [
+            (
+                "remote server does not support clear-history; restart the cmux-tui server",
+                "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
+            ),
+            (
+                "terminal keyboard mode cannot encode clear-history fallback key",
+                "現在のターミナルキーボードモードでは代替キーを送信できません",
+            ),
+            (
+                "terminal host does not support clear-history",
+                "ターミナルホストが clear-history に対応していません。セッションを再接続してください",
+            ),
+            (
+                "terminal host has exited",
+                "ターミナルホストが終了しました。セッションを再接続してください",
+            ),
+            (
+                "terminal host failed to apply clear-history",
+                "ターミナルホストで履歴の消去に失敗しました",
+            ),
+            (
+                "terminal host returned a malformed clear-history response",
+                "ターミナルホストから無効な応答が返されました。セッションを再接続してください",
+            ),
+            (
+                "terminal host did not acknowledge ClearHistory: timed out waiting on channel",
+                "ターミナルホストから clear-history の応答がありませんでした。セッションを再接続してください",
+            ),
+            ("remote session did not respond", "リモートセッションから応答がありませんでした"),
+            (
+                "remote transport write failed: socket closed",
+                "リモートセッションとの接続が切れました。再接続してください",
+            ),
+            (
+                "remote command rejected: unknown surface",
+                "リモートサーバーが clear-history を拒否しました",
+            ),
+            ("unexpected implementation detail", "予期しないターミナルエラーが発生しました"),
+        ];
 
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some(
-                "ターミナル履歴を消去できませんでした: このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
-            )
-        );
+        for (error, detail) in cases {
+            app.apply_pty_operation_failure(PtyOperationFailure {
+                surface_id: Some(1),
+                kind: None,
+                reservation_id: None,
+                label: "clear terminal history",
+                error: error.into(),
+                lane_failed: false,
+                delivery: PtyOperationDelivery::KnownNotDelivered,
+            });
+
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some(format!("ターミナル履歴を消去できませんでした: {detail}").as_str()),
+                "unlocalized clear-history failure: {error}"
+            );
+        }
     }
 
     #[test]
