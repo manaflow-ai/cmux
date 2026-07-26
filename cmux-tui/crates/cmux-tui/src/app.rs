@@ -19484,8 +19484,11 @@ mod tests {
     fn durable_notice_dismissal_preserves_text_and_mouse_input() {
         let mux = Mux::new("durable-notice-input", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        app.prompt =
-            Some(super::Prompt::new("Rename", String::new(), PromptTarget::ConnectMachine));
+        app.prompt = Some(super::Prompt::new(
+            "Rename",
+            String::new(),
+            PromptTarget::ConnectMachine(MachineConnectRoute::Local),
+        ));
 
         let keyboard = durable_notice("keyboard", 12, "keyboard");
         app.accept_durable_notice(keyboard.clone());
