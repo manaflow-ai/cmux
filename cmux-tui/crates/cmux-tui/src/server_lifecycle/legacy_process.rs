@@ -424,6 +424,22 @@ mod tests {
         child.wait().unwrap();
     }
 
+    #[test]
+    fn termination_accepts_a_verified_process_that_already_exited() {
+        let mut child = Command::new("sleep")
+            .arg("60")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let process =
+            ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+
+        terminate_process_tree(process).unwrap();
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_child_enumeration_includes_children_spawned_by_worker_threads() {
