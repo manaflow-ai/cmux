@@ -600,7 +600,7 @@ impl WriteDeadline {
         Ok(Self { commands })
     }
 
-    fn write(&self, writer: &mut dyn Write, envelope: &Envelope) -> io::Result<()> {
+    fn write<W: Write>(&self, writer: &mut W, envelope: &Envelope) -> io::Result<()> {
         self.commands
             .send(WriteDeadlineCommand::Arm)
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "write watchdog stopped"))?;
