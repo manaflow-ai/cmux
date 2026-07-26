@@ -3186,6 +3186,232 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testGhosttyAppConfigUpdateWaitsForFontBarrier() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            arbiter: appDelegate.workspaceTerminalFontSizeArbiter,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                applyAttemptCount += 1
+                guard applyAttemptCount > 2 else { return .failed }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+        XCTAssertEqual(applyAttemptCount, 2)
+
+        var didUpdateGhosttyAppConfig = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyConfigDidReload,
+            object: nil,
+            queue: .main
+        ) { _ in
+            didUpdateGhosttyAppConfig = true
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        GhosttyApp.shared.reloadConfiguration(
+            soft: true,
+            source: "test.fontBarrier",
+            reloadSettingsFromFile: false
+        )
+        XCTAssertFalse(
+            didUpdateGhosttyAppConfig,
+            "The app config update itself must wait behind font work"
+        )
+        XCTAssertGreaterThan(scheduler.delays.count, 2)
+        if scheduler.delays.count > 2 {
+            scheduler.fire(at: 2)
+        }
+        XCTAssertEqual(applyAttemptCount, 3)
+        XCTAssertTrue(didUpdateGhosttyAppConfig)
+    }
+
+    func testConfigurationBarrierSettlesPersistentNativeFailure() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            arbiter: arbiter,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, candidate, _ in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                applyAttemptCount += 1
+                return .failed
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+        XCTAssertEqual(applyAttemptCount, 2)
+
+        var didRunConfigurationBarrier = false
+        arbiter.performWhenFontSizeWorkIsIdle {
+            didRunConfigurationBarrier = true
+        }
+        var nextScheduledDrain = 2
+        while !didRunConfigurationBarrier,
+              nextScheduledDrain < scheduler.delays.count,
+              nextScheduledDrain < 10 {
+            scheduler.fire(at: nextScheduledDrain)
+            nextScheduledDrain += 1
+        }
+
+        XCTAssertTrue(
+            didRunConfigurationBarrier,
+            "A permanent native failure must not hold config forever"
+        )
+        XCTAssertLessThan(nextScheduledDrain, 10)
+#if DEBUG
+        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+#endif
+    }
+
+    func testFontRequestSnapshotsMagnificationAcrossDrainTurns() {
+        let defaults = UserDefaults.standard
+        let originalPercent = defaults.object(
+            forKey: GlobalFontMagnification.percentKey
+        )
+        defaults.set(
+            GlobalFontMagnification.defaultPercent,
+            forKey: GlobalFontMagnification.percentKey
+        )
+        GhosttyConfig.invalidateLoadCache()
+        defer {
+            if let originalPercent {
+                defaults.set(
+                    originalPercent,
+                    forKey: GlobalFontMagnification.percentKey
+                )
+            } else {
+                defaults.removeObject(
+                    forKey: GlobalFontMagnification.percentKey
+                )
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        var panels = workspace.panels.values.compactMap {
+            $0 as? TerminalPanel
+        }
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+            panels.append(panel)
+        }
+        for panel in panels {
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+        }
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+        XCTAssertGreaterThan(coordinator.debugPendingRequestCount, 0)
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        defaults.set(
+            GlobalFontMagnification.maximumPercent,
+            forKey: GlobalFontMagnification.percentKey
+        )
+        GhosttyConfig.invalidateLoadCache()
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+
+        XCTAssertTrue(
+            panels.allSatisfy {
+                guard let points =
+                        $0.surface.fontSizeLineageSnapshot()?.basePoints else {
+                    return false
+                }
+                return abs(points - 19) < 0.000_1
+            },
+            "Every drain turn must use the request's magnification snapshot"
+        )
+    }
+
     func testHibernatedFontFollowerPredictsFromConfiguredBaseline() {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: false)
