@@ -687,15 +687,20 @@ impl Session {
         }
     }
 
-    pub fn zoom_pane(&self, pane: Option<PaneId>) -> anyhow::Result<()> {
+    pub fn zoom_pane(&self, pane: Option<PaneId>, mode: ZoomMode) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                let _ = mux.zoom_pane(pane, ZoomMode::Toggle);
+                let _ = mux.zoom_pane(pane, mode);
                 Ok(())
             }
-            Session::Remote(remote) => remote
-                .request(json!({"cmd": "zoom-pane", "pane": pane, "mode": "toggle"}))
-                .map(|_| ()),
+            Session::Remote(remote) => {
+                let mode = match mode {
+                    ZoomMode::Toggle => "toggle",
+                    ZoomMode::On => "on",
+                    ZoomMode::Off => "off",
+                };
+                remote.request(json!({"cmd": "zoom-pane", "pane": pane, "mode": mode})).map(|_| ())
+            }
         }
     }
 

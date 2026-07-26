@@ -9,7 +9,11 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
+use parking_lot::ReentrantMutex;
+
 use super::graphics::{GraphicPlacement, GraphicsState};
+
+pub type StdoutLock = ReentrantMutex<()>;
 
 /// Bound one stdout-lock hold while preserving complete Kitty APC commands.
 /// This lets ordinary terminal draws make progress during multi-megabyte
@@ -340,19 +344,19 @@ pub struct GraphicsWriter {
 }
 
 impl GraphicsWriter {
-    pub fn spawn(stdout_lock: Arc<Mutex<()>>) -> io::Result<Self> {
+    pub fn spawn(stdout_lock: Arc<StdoutLock>) -> io::Result<Self> {
         Self::spawn_with_graphics_output(stdout_lock, InterruptibleStdout::open()?)
     }
 
     #[cfg(test)]
-    fn spawn_with_output<W>(stdout_lock: Arc<Mutex<()>>, output: W) -> io::Result<Self>
+    fn spawn_with_output<W>(stdout_lock: Arc<StdoutLock>, output: W) -> io::Result<Self>
     where
         W: Write + Send + 'static,
     {
         Self::spawn_with_graphics_output(stdout_lock, TestOutput(output))
     }
 
-    fn spawn_with_graphics_output<O>(stdout_lock: Arc<Mutex<()>>, output: O) -> io::Result<Self>
+    fn spawn_with_graphics_output<O>(stdout_lock: Arc<StdoutLock>, output: O) -> io::Result<Self>
     where
         O: GraphicsOutput,
     {
@@ -463,7 +467,7 @@ fn take_pending_update(
 fn writer_loop<O>(
     slot: Arc<Mutex<PendingGraphics>>,
     rx: Receiver<()>,
-    stdout_lock: Arc<Mutex<()>>,
+    stdout_lock: Arc<StdoutLock>,
     mut output: O,
     control: Arc<WriterControl>,
 ) where
@@ -560,7 +564,7 @@ enum BatchWriteOutcome {
 
 fn write_batch<O: GraphicsOutput>(
     output: &mut O,
-    stdout_lock: &Arc<Mutex<()>>,
+    stdout_lock: &Arc<StdoutLock>,
     slot: &Arc<Mutex<PendingGraphics>>,
     control: &WriterControl,
     revision: u64,
@@ -581,7 +585,7 @@ fn write_batch<O: GraphicsOutput>(
         #[cfg(test)]
         control.report_write_attempt();
         {
-            let _guard = stdout_lock.lock().unwrap();
+            let _guard = stdout_lock.lock();
             if control.is_cancelled() {
                 return BatchWriteOutcome::Stopped;
             }
@@ -788,7 +792,7 @@ mod tests {
         }
 
         let mut writer = GraphicsWriter::spawn_with_graphics_output(
-            Arc::new(Mutex::new(())),
+            Arc::new(StdoutLock::new(())),
             InterruptibleStdout { fd: write_fd },
         )
         .unwrap();
@@ -980,7 +984,7 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
 
-        let lock = Arc::new(Mutex::new(()));
+        let lock = Arc::new(StdoutLock::new(()));
         let mut writer = GraphicsWriter::spawn_with_output(lock, io::sink()).unwrap();
         writer.shutdown(Duration::from_secs(1));
         assert!(writer.handle.as_ref().is_none_or(|handle| handle.is_finished()));
@@ -1029,7 +1033,7 @@ mod tests {
 
     #[test]
     fn host_scene_invalidation_discards_a_pre_clear_write_waiting_on_stdout() {
-        let stdout_lock = Arc::new(Mutex::new(()));
+        let stdout_lock = Arc::new(StdoutLock::new(()));
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let (flushed_tx, flushed_rx) = sync_channel(8);
         let output = ObservedOutput { bytes: bytes.clone(), flushed: flushed_tx };
@@ -1043,7 +1047,7 @@ mod tests {
         });
         bytes.lock().unwrap().clear();
 
-        let draw_guard = stdout_lock.lock().unwrap();
+        let draw_guard = stdout_lock.lock();
         let (attempt_tx, attempt_rx) = sync_channel(1);
         writer.control.observe_write_attempts(attempt_tx);
         let changed_second = rgba_placement(42, 2, 1, [0, 0, 255, 255]);
@@ -1091,7 +1095,8 @@ mod tests {
             flushed: flushed_tx,
         };
         let mut writer =
-            GraphicsWriter::spawn_with_graphics_output(Arc::new(Mutex::new(())), output).unwrap();
+            GraphicsWriter::spawn_with_graphics_output(Arc::new(StdoutLock::new(())), output)
+                .unwrap();
         let old = rgba_placement(41, 1, 0, [255, 0, 0, 255]);
         let latest = rgba_placement(41, 2, 0, [0, 0, 255, 255]);
 
@@ -1129,7 +1134,7 @@ mod tests {
             writes_after_restore: writes_after_restore.clone(),
         };
         let mut writer =
-            GraphicsWriter::spawn_with_output(Arc::new(Mutex::new(())), output).unwrap();
+            GraphicsWriter::spawn_with_output(Arc::new(StdoutLock::new(())), output).unwrap();
         let shutdown = writer.shutdown_control();
         writer.submit(vec![GraphicPlacement::browser(
             0,
@@ -1173,7 +1178,8 @@ mod tests {
             restored: restored.clone(),
             writes_after_restore: writes_after_restore.clone(),
         };
-        let writer = GraphicsWriter::spawn_with_output(Arc::new(Mutex::new(())), output).unwrap();
+        let writer =
+            GraphicsWriter::spawn_with_output(Arc::new(StdoutLock::new(())), output).unwrap();
         let shutdown = writer.shutdown_control();
         writer.submit(vec![GraphicPlacement::browser(
             0,
