@@ -533,7 +533,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"list-workspaces"}
-{"id":2,"ok":true,"data":{"registry_id":"registry-uuid","generation":"boot-uuid","workspace_revision":1,"terminal_revision":0,"pane_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","short_id":"ws0004","name":"1","active":true,"screens":[{"id":3,"short_id":"sc0003","name":null,"active":true,"active_pane":2,"zoomed_pane":null,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"short_id":"pn0002","name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"terminal_id":null,"terminal_incarnation":null,"short_id":"sf0001","kind":"pty","browser_source":null,"browser_status":null,"browser_error":null,"browser_frames_stalled":null,"notification":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
+{"id":2,"ok":true,"data":{"registry_id":"registry-uuid","generation":"boot-uuid","workspace_revision":1,"terminal_revision":0,"pane_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","short_id":"000004","name":"1","active":true,"screens":[{"id":3,"short_id":"000003","name":null,"active":true,"active_pane":2,"zoomed_pane":null,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"short_id":"000002","name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"terminal_id":null,"terminal_incarnation":null,"short_id":"000001","kind":"pty","browser_source":null,"browser_status":null,"browser_error":null,"browser_frames_stalled":null,"notification":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
 ### get-frontend-projection / put-frontend-projection
