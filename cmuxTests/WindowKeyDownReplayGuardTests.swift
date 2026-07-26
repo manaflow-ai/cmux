@@ -175,19 +175,12 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
-    private func installUnavailableCopyMenu(target: GhosttyNSView) -> NSMenu? {
+    private func installMenuWithoutCopy() -> NSMenu? {
         let previousMenu = NSApp.mainMenu
-        let menu = NSMenu(title: "Main")
-        let copyItem = NSMenuItem(
-            title: "Copy",
-            action: #selector(GhosttyNSView.copy(_:)),
-            keyEquivalent: "c"
-        )
-        copyItem.keyEquivalentModifierMask = [.command]
-        copyItem.target = target
-        copyItem.isEnabled = false
-        menu.addItem(copyItem)
-        NSApp.mainMenu = menu
+        // A disabled synthetic key equivalent is still reported as handled by
+        // NSMenu in the headless test host. An absent item reliably models the
+        // menu miss that this window-routing branch receives in production.
+        NSApp.mainMenu = NSMenu(title: "Main")
         return previousMenu
     }
 
@@ -328,7 +321,7 @@ struct WindowKeyDownReplayGuardTests {
 
         let (window, terminal) = makeWindowWithTerminalResponder()
         terminal.consumeUnavailableCopyResult = true
-        let previousMenu = installUnavailableCopyMenu(target: terminal)
+        let previousMenu = installMenuWithoutCopy()
         defer {
             NSApp.mainMenu = previousMenu
             window.orderOut(nil)
@@ -355,7 +348,7 @@ struct WindowKeyDownReplayGuardTests {
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
         let (window, terminal) = makeWindowWithTerminalResponder()
-        let previousMenu = installUnavailableCopyMenu(target: terminal)
+        let previousMenu = installMenuWithoutCopy()
         defer {
             NSApp.mainMenu = previousMenu
             window.orderOut(nil)
