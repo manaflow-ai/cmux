@@ -1675,7 +1675,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         destinationDock.panels[destinationDockPanel.id] =
             destinationDockPanel
 
-        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter(
+            maximumDeferredCoordinatorJoinCount: 4
+        )
         let sourceScheduler = ManualWorkspaceFontSizeDrainScheduler()
         let destinationScheduler =
             ManualWorkspaceFontSizeDrainScheduler()
@@ -1733,10 +1735,12 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         let sourceScheduleCount = sourceScheduler.delays.count
         let destinationScheduleCount =
             destinationScheduler.delays.count
-        destinationCoordinator.enqueue(
-            .relative([-1]),
-            workspaceId: movedWorkspace.id,
-            deferFlush: true
+        XCTAssertTrue(
+            destinationCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: movedWorkspace.id,
+                deferFlush: true
+            )
         )
 
         XCTAssertGreaterThan(
@@ -1750,18 +1754,23 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "A deferred join must schedule its parked Dock owner"
         )
 
-        for index in 0..<600 {
+        var enqueueResults: [Bool] = []
+        for index in 0..<12 {
             if index.isMultiple(of: 2) {
-                destinationCoordinator.enqueue(
-                    .relative([-1]),
-                    workspaceId: movedWorkspace.id,
-                    deferFlush: true
+                enqueueResults.append(
+                    destinationCoordinator.enqueue(
+                        .relative([-1]),
+                        workspaceId: movedWorkspace.id,
+                        deferFlush: true
+                    )
                 )
             } else {
-                sourceCoordinator.enqueue(
-                    .relative([1]),
-                    workspaceId: destinationWorkspace.id,
-                    deferFlush: true
+                enqueueResults.append(
+                    sourceCoordinator.enqueue(
+                        .relative([1]),
+                        workspaceId: destinationWorkspace.id,
+                        deferFlush: true
+                    )
                 )
             }
         }
@@ -1775,9 +1784,100 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
         XCTAssertLessThanOrEqual(
             deferredJoinCount,
-            256,
+            4,
             "Backpressure must bound retained deferred join storage"
         )
+        XCTAssertTrue(enqueueResults.contains(true))
+        XCTAssertTrue(
+            enqueueResults.contains(false),
+            "The caller must observe deferred-join backpressure"
+        )
+    }
+
+    func testParkedCoordinatorBackpressuresBoundedRequestLedger() {
+        let manager = TabManager()
+        guard let firstWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        let secondWorkspace = manager.addTab(select: false)
+        let thirdWorkspace = manager.addTab(select: false)
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        let dockPanel = TerminalPanel(
+            workspaceId: windowDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        windowDock.panels[dockPanel.id] = dockPanel
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var dockApplyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            maximumOutstandingRequestCount: 4,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, candidate, _ in
+                guard candidate === dockPanel else {
+                    return .alreadySatisfied
+                }
+                dockApplyAttemptCount += 1
+                return .failed
+            }
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: firstWorkspace.id,
+                deferFlush: true
+            )
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+        XCTAssertEqual(dockApplyAttemptCount, 2)
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: secondWorkspace.id,
+                deferFlush: true
+            )
+        )
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([1]),
+                workspaceId: secondWorkspace.id,
+                deferFlush: true
+            ),
+            "An event that adds no retained request may still coalesce at capacity"
+        )
+        let transferMarker = TerminalPanel(
+            workspaceId: secondWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        coordinator.terminalWillLeaveWorkspace(
+            transferMarker,
+            workspace: secondWorkspace
+        )
+        XCTAssertFalse(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: thirdWorkspace.id,
+                deferFlush: true
+            ),
+            "The caller must observe sealed-ledger backpressure"
+        )
+#if DEBUG
+        XCTAssertEqual(coordinator.debugOutstandingRequestCount, 4)
+#endif
     }
 
     func testTransferredDescendantPreservesEveryReconciledRequestToken() {
@@ -2540,6 +2640,147 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             2,
             "A persistent failure must park until an external retry signal"
         )
+    }
+
+    func testClosingFailedWorkspacePanelWakesParkedRequest() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        let follower = TerminalPanel(
+            workspaceId: workspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        workspace.panels[follower.id] = follower
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var failedPanel: TerminalPanel?
+        var failedAttemptCount = 0
+        var successfulPanelIds: Set<UUID> = []
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, candidate, _ in
+                if failedPanel == nil {
+                    failedPanel = candidate
+                }
+                if candidate === failedPanel {
+                    failedAttemptCount += 1
+                    return .failed
+                }
+                successfulPanelIds.insert(candidate.id)
+                return .alreadySatisfied
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+        XCTAssertEqual(failedAttemptCount, 2)
+        XCTAssertEqual(scheduler.delays.count, 2)
+
+        guard let failedPanel else {
+            XCTFail("Expected a failed terminal candidate")
+            return
+        }
+        workspace.discardClosedPanelLifecycleState(
+            panelId: failedPanel.id,
+            paneId: nil,
+            panel: failedPanel,
+            origin: "font_size_retry_test",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false
+        )
+
+        XCTAssertGreaterThan(
+            scheduler.delays.count,
+            2,
+            "Removing the failed panel must wake the parked request"
+        )
+        if scheduler.delays.count > 2 {
+            scheduler.fire(at: 2)
+        }
+        XCTAssertFalse(successfulPanelIds.isEmpty)
+#if DEBUG
+        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+#endif
+    }
+
+    func testRemovingAllFailedDockPanelsWakesParkedRequest() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let workspacePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        let dockPanel = TerminalPanel(
+            workspaceId: windowDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        windowDock.panels[dockPanel.id] = dockPanel
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var dockApplyAttemptCount = 0
+        var successfulPanelIds: Set<UUID> = []
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, candidate, _ in
+                if candidate === dockPanel {
+                    dockApplyAttemptCount += 1
+                    return .failed
+                }
+                successfulPanelIds.insert(candidate.id)
+                return .alreadySatisfied
+            }
+        )
+        coordinator.attachWindowDock(windowDock)
+        defer {
+            coordinator.cancelAll()
+            windowDock.closeAllPanels()
+        }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+        XCTAssertEqual(dockApplyAttemptCount, 2)
+        XCTAssertEqual(scheduler.delays.count, 2)
+
+        windowDock.closeAllPanels()
+
+        XCTAssertGreaterThan(
+            scheduler.delays.count,
+            2,
+            "Dock teardown must wake a request parked on a removed terminal"
+        )
+        if scheduler.delays.count > 2 {
+            scheduler.fire(at: 2)
+        }
+        XCTAssertTrue(successfulPanelIds.contains(workspacePanelId))
+#if DEBUG
+        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+#endif
     }
 
     func testHibernatedFontFollowerPredictsFromConfiguredBaseline() {
