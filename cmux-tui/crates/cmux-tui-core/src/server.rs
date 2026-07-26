@@ -1977,6 +1977,23 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    if record.capabilities.contains(GUARDED_BROWSER_POINTER_CAPABILITY) {
+        // Pointer commands do not require a frame-stream attachment, so any
+        // browser worker may own this negotiated client. Disconnects are rare;
+        // wake all browser workers after registry removal instead of polling
+        // every idle worker forever.
+        let surfaces = mux.with_state(|state| {
+            state
+                .surfaces
+                .values()
+                .filter(|surface| surface.kind() == SurfaceKind::Browser)
+                .cloned()
+                .collect::<Vec<_>>()
+        });
+        for surface in surfaces {
+            surface.wake_browser_pointer_cleanup();
+        }
+    }
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
         for (surface, attached) in &record.attached {

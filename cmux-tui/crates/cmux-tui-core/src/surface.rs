@@ -2444,6 +2444,12 @@ impl Surface {
         browser.mouse_event_for_frame_from(dispatch)
     }
 
+    pub(crate) fn wake_browser_pointer_cleanup(&self) {
+        if let Some(browser) = self.as_browser() {
+            browser.wake_pointer_cleanup();
+        }
+    }
+
     pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         let Some(browser) = self.as_browser() else {
             anyhow::bail!("PTY surface is not a browser surface");

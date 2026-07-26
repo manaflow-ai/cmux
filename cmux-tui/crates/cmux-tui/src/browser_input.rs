@@ -310,6 +310,9 @@ impl BrowserInputDispatcher {
             let Some(release) = release else {
                 return false;
             };
+            // This set governs producer admission only. The core browser
+            // worker retains the runtime capture until CDP confirms release,
+            // and schedules one bounded retry after an ambiguous timeout.
             if !order.accepted_pointer_presses.remove(&release) {
                 return false;
             }

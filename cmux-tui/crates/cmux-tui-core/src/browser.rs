@@ -373,6 +373,7 @@ struct ActivePointerPress {
     last_y: f64,
     click_count: Option<u32>,
     legacy_expires_at: Option<Instant>,
+    release_retry_at: Option<Instant>,
 }
 
 impl ActivePointerPress {
@@ -391,6 +392,7 @@ impl ActivePointerPress {
             click_count,
             legacy_expires_at: (input_owner == BrowserPointerOwner::Legacy)
                 .then(|| Instant::now() + LEGACY_POINTER_PRESS_LEASE),
+            release_retry_at: None,
         }
     }
 
@@ -560,7 +562,6 @@ const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
-const BROWSER_WORKER_IDLE_TICK: Duration = Duration::from_millis(100);
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(5);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
@@ -1239,19 +1240,27 @@ fn start_browser_worker(
         std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
             let mut failures = BrowserWorkerErrorState::default();
             loop {
-                let first = match rx.recv_timeout(BROWSER_WORKER_IDLE_TICK) {
-                    Ok(first) => first,
-                    Err(RecvTimeoutError::Timeout) => {
-                        release_abandoned_pointer_presses(
-                            &surface,
-                            &mux,
-                            id,
-                            &mut failures,
-                            Instant::now(),
-                        );
-                        continue;
+                let first = match next_pointer_lifecycle_deadline(&failures) {
+                    Some(deadline) => {
+                        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                            Ok(first) => first,
+                            Err(RecvTimeoutError::Timeout) => {
+                                release_abandoned_pointer_presses(
+                                    &surface,
+                                    &mux,
+                                    id,
+                                    &mut failures,
+                                    Instant::now(),
+                                );
+                                continue;
+                            }
+                            Err(RecvTimeoutError::Disconnected) => break,
+                        }
                     }
-                    Err(RecvTimeoutError::Disconnected) => break,
+                    None => match rx.recv() {
+                        Ok(first) => first,
+                        Err(_) => break,
+                    },
                 };
                 let mut batch = vec![first];
                 let mut order = command_order.lock().unwrap();
@@ -1267,6 +1276,13 @@ fn start_browser_worker(
                 }
                 drop(order);
                 batch.sort_unstable_by_key(|queued| queued.sequence);
+                release_abandoned_pointer_presses(
+                    &surface,
+                    &mux,
+                    id,
+                    &mut failures,
+                    Instant::now(),
+                );
                 batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
                 coalesce_worker_mouse_moves(&mut batch);
                 for queued in batch {
@@ -1286,6 +1302,19 @@ fn start_browser_worker(
         });
 }
 
+fn next_pointer_lifecycle_deadline(failures: &BrowserWorkerErrorState) -> Option<Instant> {
+    failures
+        .active_pointer_presses
+        .values()
+        .filter_map(|press| match (press.legacy_expires_at, press.release_retry_at) {
+            (Some(lease), Some(retry)) => Some(lease.min(retry)),
+            (Some(lease), None) => Some(lease),
+            (None, Some(retry)) => Some(retry),
+            (None, None) => None,
+        })
+        .min()
+}
+
 fn release_abandoned_pointer_presses(
     surface: &Surface,
     mux: &Weak<Mux>,
@@ -1297,13 +1326,19 @@ fn release_abandoned_pointer_presses(
     let expired = failures
         .active_pointer_presses
         .iter()
-        .filter(|(_, press)| match press.input_owner {
-            BrowserPointerOwner::Local => false,
-            BrowserPointerOwner::Legacy => {
-                press.legacy_expires_at.is_some_and(|deadline| deadline <= now)
-            }
-            BrowserPointerOwner::Client(client) => {
-                active_clients.as_ref().is_none_or(|mux| !mux.control_clients.contains(client))
+        .filter(|(_, press)| {
+            let retry_due = press.release_retry_at.is_some_and(|deadline| deadline <= now);
+            match press.input_owner {
+                BrowserPointerOwner::Local => retry_due,
+                BrowserPointerOwner::Legacy => {
+                    retry_due || press.legacy_expires_at.is_some_and(|deadline| deadline <= now)
+                }
+                BrowserPointerOwner::Client(client) => {
+                    retry_due
+                        || active_clients
+                            .as_ref()
+                            .is_none_or(|mux| !mux.control_clients.contains(client))
+                }
             }
         })
         .map(|(button, _)| button.clone())
@@ -2835,6 +2870,13 @@ impl BrowserSurface {
         }
     }
 
+    pub(crate) fn wake_pointer_cleanup(&self) {
+        let Ok(tx) = self.command_sender() else { return };
+        let mut order = self.command_order.lock().unwrap();
+        let wake = order.sequence(BrowserCommand::WakeLatest);
+        let _ = tx.try_send(wake);
+    }
+
     fn command_sender(&self) -> anyhow::Result<SyncSender<SequencedBrowserCommand>> {
         self.command_tx
             .lock()
@@ -3011,7 +3053,19 @@ impl BrowserSurface {
             dispatch.click_count,
         );
         if let Err(error) = result {
-            if !is_cdp_timeout_error(&error.to_string()) {
+            if is_cdp_timeout_error(&error.to_string()) {
+                if captured_release && let Some(press) = active_pointer_presses.get_mut(button) {
+                    press.last_x = dispatch.x;
+                    press.last_y = dispatch.y;
+                    if dispatch.click_count.is_some() {
+                        press.click_count = dispatch.click_count;
+                    }
+                    // The first call may have reached Chrome. Retain its exact
+                    // capture and schedule one balancing retry before any later
+                    // pointer command can replace that ownership.
+                    press.release_retry_at = Some(Instant::now());
+                }
+            } else {
                 match replaced_press {
                     Some(Some(previous)) => {
                         active_pointer_presses.insert(button.to_string(), previous);
@@ -6175,8 +6229,8 @@ mod tests {
         );
         server.join().unwrap();
 
-        let mut failures = super::BrowserWorkerErrorState::default();
-        failures.active_pointer_presses = active_pointer_presses;
+        let mut failures =
+            super::BrowserWorkerErrorState { active_pointer_presses, ..Default::default() };
         super::release_abandoned_pointer_presses(
             &surface,
             &Weak::new(),
