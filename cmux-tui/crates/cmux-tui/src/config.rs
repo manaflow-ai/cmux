@@ -2682,7 +2682,7 @@ mod tests {
         );
         assert_eq!(
             keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
-            Some(Action::ClearHistory)
+            None
         );
 
         keys.apply(&HashMap::from([(
