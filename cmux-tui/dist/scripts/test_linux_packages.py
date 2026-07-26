@@ -33,10 +33,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Exercise generated npm and PyPI cmux packages in Linux containers."
     )
-    parser.add_argument("--npm-packages", required=True, type=pathlib.Path)
-    parser.add_argument("--pypi-wheels", required=True, type=pathlib.Path)
+    parser.add_argument("--npm-packages", type=pathlib.Path)
+    parser.add_argument("--pypi-wheels", type=pathlib.Path)
     parser.add_argument("--version", required=True)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.npm_packages is None and args.pypi_wheels is None:
+        parser.error("at least one of --npm-packages or --pypi-wheels is required")
+    return args
 
 
 def run(label: str, command: list[str]) -> None:
@@ -171,9 +174,12 @@ def main() -> None:
     args = parse_args()
     if shutil.which("docker") is None:
         raise SystemExit("docker is required")
-    test_npm(args.npm_packages.resolve())
-    test_uvx(args.pypi_wheels.resolve(), args.version)
-    test_native_binary(args.npm_packages.resolve())
+    if args.npm_packages is not None:
+        npm_packages = args.npm_packages.resolve()
+        test_npm(npm_packages)
+        test_native_binary(npm_packages)
+    if args.pypi_wheels is not None:
+        test_uvx(args.pypi_wheels.resolve(), args.version)
 
 
 if __name__ == "__main__":

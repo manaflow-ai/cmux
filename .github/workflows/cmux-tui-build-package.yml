@@ -372,7 +372,7 @@ jobs:
   verify-linux-packages:
     name: verify Linux package entrypoints
     needs: package
-    if: ${{ inputs.package_npm && inputs.package_pypi }}
+    if: ${{ inputs.package_npm || inputs.package_pypi }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -394,26 +394,37 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
 
       - name: Download npm package archive
+        if: inputs.package_npm
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: npm-packages
           path: dist
 
       - name: Restore npm package directories
+        if: inputs.package_npm
         run: |
           python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
             --archive dist/npm-packages.tar.gz \
             --out dist
 
       - name: Download PyPI wheels
+        if: inputs.package_pypi
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: pypi-wheels
           path: dist/pypi-wheels
 
       - name: Test Linux distributions
+        env:
+          PACKAGE_NPM: ${{ inputs.package_npm }}
+          PACKAGE_PYPI: ${{ inputs.package_pypi }}
         run: |
-          python3 cmux-tui/dist/scripts/test_linux_packages.py \
-            --npm-packages dist/npm-packages \
-            --pypi-wheels dist/pypi-wheels \
-            --version "$PYPI_VERSION"
+          set -euo pipefail
+          args=(--version "$PYPI_VERSION")
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            args+=(--npm-packages dist/npm-packages)
+          fi
+          if [[ "$PACKAGE_PYPI" == "true" ]]; then
+            args+=(--pypi-wheels dist/pypi-wheels)
+          fi
+          python3 cmux-tui/dist/scripts/test_linux_packages.py "${args[@]}"
