@@ -309,6 +309,28 @@ fn legacy_server_process_helper() {
         )
         .unwrap();
         drop(descendant);
+    } else if scenario == "zombie-child" {
+        let descendant =
+            Command::new("true").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let descendant_pid = descendant.id();
+        fs::write(
+            std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
+            descendant_pid.to_string(),
+        )
+        .unwrap();
+        drop(descendant);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let status = Command::new("ps")
+                .args(["-o", "stat=", "-p", &descendant_pid.to_string()])
+                .output()
+                .unwrap();
+            if String::from_utf8_lossy(&status.stdout).trim_start().starts_with('Z') {
+                break;
+            }
+            assert!(Instant::now() < deadline, "descendant did not become a zombie");
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
     let listener = transport::listen(&socket).unwrap();
     let serve_identify = |stream: &mut Box<dyn transport::Stream>| {
@@ -420,8 +442,10 @@ fn legacy_server_process_helper() {
                 | "applied-close-error"
                 | "applied-close-disconnect"
                 | "persistent-close-error"
+                | "zombie-child"
         ));
         let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
+            ("zombie-child", _) => &[],
             ("persistent-close-error", _) | (_, 0) => &[41],
             ("success" | "kill-caller", 1) => &[42],
             _ => &[],
@@ -1192,6 +1216,29 @@ fn server_stop_drains_many_hosted_panes_before_acknowledging() {
 #[test]
 fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
     let mut server = LegacyServerProcess::start("legacy-server-stop", "success", None);
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn server_stop_handles_an_exited_unreaped_legacy_descendant() {
+    let mut server = LegacyServerProcess::start("legacy-server-zombie-child", "zombie-child", None);
     let descendant_pid = server.descendant_pid().unwrap();
 
     let output = Command::new(bin())
