@@ -2486,11 +2486,7 @@ mod tests {
             generation: 6,
             token: MigrationToken::new("overlapping-migration-1234").unwrap(),
         }));
-        third_server
-            .reader
-            .get_ref()
-            .set_read_timeout(Some(Duration::from_millis(250)))
-            .unwrap();
+        third_server.reader.get_ref().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
         assert!(
             matches!(
                 protocol_io::read_frame(&mut third_server.reader),
