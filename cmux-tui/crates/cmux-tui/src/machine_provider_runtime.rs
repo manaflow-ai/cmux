@@ -708,7 +708,9 @@ impl ProviderMachineRuntime {
                     .is_some_and(|pending| pending.specifier == candidate)
             });
         if self.pending_external_connect.is_some() && !matches_pending {
-            self.pending_external_connect = None;
+            anyhow::bail!(
+                localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+            );
         }
         match self.client.supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY) {
             Ok(true) => {}
@@ -3352,6 +3354,16 @@ mod tests {
             panic!("invalid provider response unexpectedly completed external connect");
         };
         assert!(first_error.to_string().contains("protocol error"));
+        for unrelated in ["PAIR 9ZZZ", "not a valid local machine"] {
+            let Err(error) = controller.perform_request(MachineRequest::Connect(unrelated.into()))
+            else {
+                panic!("unrelated input discarded an ambiguous external connect");
+            };
+            assert_eq!(
+                error.to_string(),
+                localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+            );
+        }
         let Err(retry_while_disconnected) =
             controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
         else {
