@@ -2932,6 +2932,28 @@ fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u
     }
 }
 
+fn advertised_capabilities() -> Vec<&'static str> {
+    // Atomic shutdown is advertised only where PTY session descendants can
+    // be enumerated and confirmed dead.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        vec![
+            ATTACH_INITIAL_SIZE_CAPABILITY,
+            WORKSPACE_REGISTRY_CAPABILITY,
+            PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            SERVER_SHUTDOWN_CAPABILITY,
+        ]
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        vec![
+            ATTACH_INITIAL_SIZE_CAPABILITY,
+            WORKSPACE_REGISTRY_CAPABILITY,
+            PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+        ]
+    }
+}
+
 fn handle_command(
     mux: &Arc<Mux>,
     client: u64,
@@ -2948,12 +2970,7 @@ fn handle_command(
                 "build_commit": release.build_commit,
                 "ghostty_commit": release.ghostty_commit,
                 "protocol": release.protocol,
-                "capabilities": [
-                    ATTACH_INITIAL_SIZE_CAPABILITY,
-                    WORKSPACE_REGISTRY_CAPABILITY,
-                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-                    SERVER_SHUTDOWN_CAPABILITY
-                ],
+                "capabilities": advertised_capabilities(),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "registry_id": registry_id,
@@ -6498,10 +6515,17 @@ mod tests {
             "attach-initial-size",
             "workspace-registry-v1",
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-            SERVER_SHUTDOWN_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        assert!(
+            capabilities.iter().any(|value| value.as_str() == Some(SERVER_SHUTDOWN_CAPABILITY))
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        assert!(
+            capabilities.iter().all(|value| value.as_str() != Some(SERVER_SHUTDOWN_CAPABILITY))
+        );
     }
 
     #[test]

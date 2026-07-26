@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
@@ -558,6 +558,9 @@ pub struct PtySurface {
     term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     runtime: Mutex<PtyRuntime>,
+    /// Local process ownership is separate from PTY writes so shutdown never
+    /// waits behind a blocked writer.
+    local_process: Option<Mutex<LocalProcess>>,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
     pid: Option<u32>,
     command: Vec<String>,
@@ -603,7 +606,6 @@ enum PtyRuntime {
     Local {
         writer: Box<dyn Write + Send>,
         master: Box<dyn MasterPty + Send>,
-        process: LocalProcess,
     },
     #[cfg(unix)]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
@@ -1038,11 +1040,8 @@ impl Surface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
-            runtime: Mutex::new(PtyRuntime::Local {
-                writer,
-                master: pty.master,
-                process: LocalProcess::Owned(process.clone()),
-            }),
+            runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master }),
+            local_process: Some(Mutex::new(LocalProcess::Owned(process.clone()))),
             host_identity: None,
             pid,
             command: argv,
@@ -1211,6 +1210,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
+            local_process: None,
             host_identity: Some(host_identity),
             pid: snapshot.pid,
             command: snapshot.command,
@@ -1702,6 +1702,7 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::ExitedHosted),
+            local_process: None,
             host_identity: Some(identity),
             pid: None,
             command,
@@ -1776,8 +1777,8 @@ impl Surface {
                         pixel_height: 0,
                     }),
                 }),
-                process: LocalProcess::Untracked(Box::new(TestChildKiller)),
             }),
+            local_process: Some(Mutex::new(LocalProcess::Untracked(Box::new(TestChildKiller)))),
             host_identity: None,
             pid: Some(id as u32),
             command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
@@ -1808,8 +1809,8 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn set_server_shutdown_failure_for_test(&self, fail: bool) {
         let Self::Pty(pty) = self else { return };
-        let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { process, .. } = &mut *runtime else { return };
+        let Some(process) = &pty.local_process else { return };
+        let mut process = process.lock().unwrap();
         *process = LocalProcess::Untracked(if fail {
             Box::new(TestFailingChildKiller)
         } else {
@@ -2357,9 +2358,14 @@ impl Surface {
     fn terminate_runtime(&self) -> bool {
         match self {
             Surface::Pty(pty) => {
+                if let Some(process) = &pty.local_process {
+                    return process.lock().unwrap().request_hangup();
+                }
                 let mut runtime = pty.runtime.lock().unwrap();
                 match &mut *runtime {
-                    PtyRuntime::Local { process, .. } => process.request_hangup(),
+                    PtyRuntime::Local { .. } => {
+                        unreachable!("local PTY runtime is missing process ownership")
+                    }
                     #[cfg(unix)]
                     PtyRuntime::Hosted(host) => {
                         // The host owns record cleanup and removes it only
@@ -2384,7 +2390,15 @@ impl Surface {
     pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
         match self {
             Surface::Pty(pty) => {
-                let mut runtime = pty.runtime.lock().unwrap();
+                if let Some(process) = &pty.local_process {
+                    let Some(mut process) = lock_mutex_until(process, deadline) else {
+                        return false;
+                    };
+                    return process.terminate_and_wait(deadline);
+                }
+                let Some(mut runtime) = lock_mutex_until(&pty.runtime, deadline) else {
+                    return false;
+                };
                 match &mut *runtime {
                     #[cfg(unix)]
                     PtyRuntime::Hosted(host) => {
@@ -2394,7 +2408,9 @@ impl Surface {
                         let _ = host.terminate_with_timeout(timeout);
                         true
                     }
-                    PtyRuntime::Local { process, .. } => process.terminate_and_wait(deadline),
+                    PtyRuntime::Local { .. } => {
+                        unreachable!("local PTY runtime is missing process ownership")
+                    }
                     #[cfg(unix)]
                     PtyRuntime::ExitedHosted => true,
                 }
@@ -2536,6 +2552,18 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.activate()
+    }
+}
+
+fn lock_mutex_until<T>(mutex: &Mutex<T>, deadline: Instant) -> Option<MutexGuard<'_, T>> {
+    loop {
+        match mutex.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(TryLockError::Poisoned(error)) => return Some(error.into_inner()),
+            Err(TryLockError::WouldBlock) => {}
+        }
+        let remaining = deadline.checked_duration_since(Instant::now())?;
+        std::thread::sleep(remaining.min(Duration::from_millis(1)));
     }
 }
 

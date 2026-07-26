@@ -1346,6 +1346,44 @@ mod unix {
         Ok(records)
     }
 
+    /// Load every discovery record without omission. Adoption tolerates
+    /// transient or stale files, but an atomic server shutdown must account
+    /// for every record before it discards topology.
+    pub fn load_terminal_host_records_strict(
+        root: &Path,
+    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        let mut records = Vec::new();
+        let mut identities = HashSet::new();
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
+            Err(error) => return Err(error.into()),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let bytes = fs::read(&path)
+                .with_context(|| format!("read terminal-host record {}", path.display()))?;
+            let record = serde_json::from_slice::<TerminalHostRecord>(&bytes)
+                .with_context(|| format!("decode terminal-host record {}", path.display()))?;
+            validate_terminal_host_record(&path, &record)
+                .with_context(|| format!("validate terminal-host record {}", path.display()))?;
+            if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
+                anyhow::bail!(
+                    "duplicate terminal-host identity {}:{}",
+                    record.terminal_id,
+                    record.incarnation
+                );
+            }
+            records.push((path, record));
+        }
+        records.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(records)
+    }
+
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
@@ -3621,8 +3659,9 @@ mod unix {
 pub use unix::{
     HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,
     launch_terminal_host_with_identity, load_terminal_host_records,
-    remove_stale_terminal_host_record, serve_terminal_host_stdio, terminal_host_record_liveness,
-    terminal_host_root, validate_terminal_host_record,
+    load_terminal_host_records_strict, remove_stale_terminal_host_record,
+    serve_terminal_host_stdio, terminal_host_record_liveness, terminal_host_root,
+    validate_terminal_host_record,
 };
 #[cfg(unix)]
 pub(crate) use unix::{

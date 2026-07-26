@@ -3474,7 +3474,7 @@ impl Mux {
         };
         if let Some(surface) = removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
+            self.retire_surface_runtime(surface);
             if let Some(delta) = delta {
                 self.emit_tree_delta(delta, selection_resync);
             } else {
@@ -3723,6 +3723,20 @@ impl Mux {
         self.reconcile_latest_client_size(&sizing, &attached_clients);
     }
 
+    /// Finish removed runtimes outside the topology lock. If the bounded
+    /// attempt cannot prove process death, retain the complete surface as
+    /// ownership escrow for the atomic server-shutdown retry.
+    fn retire_surface_runtime(&self, surface: Arc<Surface>) {
+        let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
+        if surface.terminate_for_server_shutdown(deadline) {
+            return;
+        }
+        let mut retained = self.shutdown_surfaces.lock().unwrap();
+        if !retained.iter().any(|candidate| candidate.id == surface.id) {
+            retained.push(surface);
+        }
+    }
+
     pub fn list_agents(
         &self,
         surface: Option<SurfaceId>,
@@ -3781,10 +3795,44 @@ impl Mux {
         #[cfg(unix)]
         let terminal_host_records = {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            let required = self
+                .state
+                .lock()
+                .unwrap()
+                .surfaces
+                .values()
+                .filter(|surface| !surface.is_dead())
+                .filter_map(|surface| surface.terminal_host_identity())
+                .collect::<Vec<_>>();
             match root {
-                Some(root) => crate::terminal_host_runtime::load_terminal_host_records(&root)
-                    .context("load terminal hosts for server shutdown")?,
-                None => Vec::new(),
+                Some(root) => {
+                    let records =
+                        crate::terminal_host_runtime::load_terminal_host_records_strict(&root)
+                            .context("load terminal hosts for server shutdown")?;
+                    let available = records
+                        .iter()
+                        .map(|(_, record)| {
+                            (record.terminal_id.as_str(), record.incarnation.as_str())
+                        })
+                        .collect::<HashSet<_>>();
+                    for identity in required {
+                        if !available.contains(&(
+                            identity.terminal_id.as_str(),
+                            identity.incarnation.as_str(),
+                        )) {
+                            anyhow::bail!(
+                                "load terminal hosts for server shutdown: missing record for {}:{}",
+                                identity.terminal_id,
+                                identity.incarnation
+                            );
+                        }
+                    }
+                    records
+                }
+                None if required.is_empty() => Vec::new(),
+                None => anyhow::bail!(
+                    "load terminal hosts for server shutdown: terminal-host root is unavailable"
+                ),
             }
         };
 
@@ -3841,13 +3889,15 @@ impl Mux {
         }
 
         let failed_surfaces = Mutex::new(Vec::<Arc<Surface>>::new());
-        bounded_shutdown_fanout(&surfaces, deadline, |surface, deadline| {
+        let started_surfaces = bounded_shutdown_fanout(&surfaces, deadline, |surface, deadline| {
             if !surface.terminate_for_server_shutdown(deadline) {
                 failed_surfaces.lock().unwrap().push(surface.clone());
             }
         });
         let mut failed_surfaces = failed_surfaces.into_inner().unwrap();
+        failed_surfaces.extend(surfaces[started_surfaces..].iter().cloned());
         failed_surfaces.sort_by_key(|surface| surface.id);
+        failed_surfaces.dedup_by_key(|surface| surface.id);
         let browser_surface_failed =
             failed_surfaces.iter().any(|surface| surface.as_browser().is_some());
         let failed_surface_ids =
@@ -3871,7 +3921,7 @@ impl Mux {
         #[cfg(unix)]
         let failed_hosts = {
             let failed = Mutex::new(Vec::new());
-            bounded_shutdown_fanout(
+            let started_hosts = bounded_shutdown_fanout(
                 &terminal_host_records,
                 deadline,
                 |(path, record), deadline| {
@@ -3881,7 +3931,13 @@ impl Mux {
                 },
             );
             let mut failed = failed.into_inner().unwrap();
+            failed.extend(
+                terminal_host_records[started_hosts..]
+                    .iter()
+                    .map(|(_, record)| record.terminal_id.clone()),
+            );
             failed.sort();
+            failed.dedup();
             failed
         };
 
@@ -3985,7 +4041,7 @@ impl Mux {
         if let Some(surface) =
             old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
         {
-            surface.kill();
+            self.retire_surface_runtime(surface.clone());
             self.emit(MuxEvent::SurfaceExited(surface.id));
         }
     }
@@ -5658,7 +5714,7 @@ impl Mux {
         };
         if let Some(surface) = &removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
+            self.retire_surface_runtime(surface.clone());
         }
         if let Some(delta) = delta {
             self.emit_tree_delta(delta, selection_resync);
@@ -5792,7 +5848,7 @@ impl Mux {
         };
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
+            self.retire_surface_runtime(surface);
         }
         if tree_removed {
             self.emit_tree_delta(delta, selection_resync);
@@ -6078,7 +6134,7 @@ impl Mux {
         drop(registry);
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
+            self.retire_surface_runtime(surface);
         }
         self.terminate_tombstoned_workspace_hosts(&closed_workspace_key);
         self.emit_tree_delta(delta, selection_resync);
@@ -7757,9 +7813,9 @@ fn bounded_shutdown_fanout<T: Sync>(
     items: &[T],
     deadline: Instant,
     operation: impl Fn(&T, Instant) + Sync,
-) {
+) -> usize {
     if items.is_empty() {
-        return;
+        return 0;
     }
     let next = AtomicUsize::new(0);
     let workers = items.len().min(SHUTDOWN_FANOUT_WORKERS);
@@ -7769,6 +7825,9 @@ fn bounded_shutdown_fanout<T: Sync>(
             let operation = &operation;
             scope.spawn(move || {
                 loop {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
                     let index = next.fetch_add(1, Ordering::Relaxed);
                     let Some(item) = items.get(index) else { break };
                     operation(item, deadline);
@@ -7776,6 +7835,7 @@ fn bounded_shutdown_fanout<T: Sync>(
             });
         }
     });
+    next.load(Ordering::Relaxed).min(items.len())
 }
 
 fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
