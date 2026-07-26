@@ -3352,6 +3352,42 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_waits_for_a_partial_vt_sequence_to_finish() {
+        let mux = Mux::new_for_test("clear-history-partial-vt", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> ");
+            term.vt_write(b"\x1b[31");
+        });
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_surface = surface.clone();
+        std::thread::spawn(move || {
+            let _ = finished_tx.send(clear_surface.clear_history());
+        });
+
+        assert!(
+            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            "clear-history acknowledged before the partial CSI reached a safe boundary"
+        );
+        surface.with_terminal(|term| term.vt_write(b"m"));
+        finished_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("clear-history did not resume after the CSI completed")
+            .unwrap();
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            let viewport = term.viewport_text().unwrap();
+            assert!(viewport.contains("prompt>"));
+            assert!(!viewport.contains("history-"));
+        });
+    }
+
+    #[test]
     fn clear_history_encodes_fallback_from_authoritative_keyboard_modes() {
         let mux = Mux::new_for_test("clear-history-key-mode", SurfaceOptions::default());
         let surface =
