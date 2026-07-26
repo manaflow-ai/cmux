@@ -5336,7 +5336,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_browser_pointer_commands_cannot_bypass_frame_authority() {
+    fn legacy_browser_pointer_schema_remains_compatible() {
         for cmd in ["browser-mouse", "browser-wheel"] {
             let mut request = json!({
                 "id": 1,
@@ -5351,16 +5351,70 @@ mod tests {
                 request["delta_y_px"] = json!(3.0);
             }
             assert!(
-                serde_json::from_value::<Request>(request.clone()).is_err(),
-                "{cmd} must reject a missing frame guard"
+                serde_json::from_value::<Request>(request.clone()).is_ok(),
+                "{cmd} must keep accepting the protocol-10 legacy schema"
             );
 
             request["frame_seq"] = Value::Null;
             assert!(
-                serde_json::from_value::<Request>(request).is_err(),
-                "{cmd} must reject a null frame guard"
+                serde_json::from_value::<Request>(request).is_ok(),
+                "{cmd} must keep accepting a legacy null frame guard"
             );
         }
+    }
+
+    #[test]
+    fn parsed_legacy_browser_pointer_still_requires_frame_authority() {
+        for cmd in ["browser-mouse", "browser-wheel"] {
+            let mut request = json!({
+                "id": 1,
+                "cmd": cmd,
+                "surface": 7,
+                "x_px": 1.0,
+                "y_px": 2.0,
+            });
+            if cmd == "browser-mouse" {
+                request["kind"] = json!("down");
+            } else {
+                request["delta_y_px"] = json!(3.0);
+            }
+            let request =
+                serde_json::from_value::<Request>(request).expect("legacy schema must parse");
+            let error =
+                handle_command(&test_mux(), 0, request.cmd, &test_writer()).unwrap_err().to_string();
+            assert!(
+                error.contains("requires a frame guard"),
+                "{cmd} must fail closed before surface lookup: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn guarded_browser_attach_requires_bilateral_client_capability() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        assert!(
+            !mux.control_clients
+                .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+        );
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 1,
+                "cmd": "set-client-info",
+                "kind": "tui",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(
+            mux.control_clients
+                .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+        );
     }
 
     #[test]

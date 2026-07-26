@@ -2153,6 +2153,16 @@ mod tests {
                 .get("cmd")
                 .and_then(Value::as_str)
                 .ok_or_else(|| io::Error::other("remote request omitted its command"))?;
+            if command == "set-client-info" {
+                assert!(
+                    request["capabilities"].as_array().is_some_and(|capabilities| {
+                        capabilities.iter().any(|capability| {
+                            capability.as_str() == Some(GUARDED_BROWSER_POINTER_CAPABILITY)
+                        })
+                    }),
+                    "a client using guarded browser commands must advertise that capability"
+                );
+            }
             let response = match (self.failure, command) {
                 (InitializationFailure::IdentifyRejected, "identify") => {
                     json!({"id": id, "ok": false, "error": "identify rejected"})
