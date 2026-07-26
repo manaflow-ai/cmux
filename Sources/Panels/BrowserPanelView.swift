@@ -7500,7 +7500,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView: webView,
                 to: portalAnchorView,
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
-                zPriority: coordinator.desiredPortalZPriority
+                zPriority: coordinator.desiredPortalZPriority,
+                forcePresentationRefresh: true
             )
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
@@ -7533,7 +7534,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView: webView,
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    forcePresentationRefresh: true
                 )
                 BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                     for: webView,
@@ -7574,7 +7576,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView: webView,
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    forcePresentationRefresh: true
                 )
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
