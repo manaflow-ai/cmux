@@ -557,6 +557,28 @@ mod tests {
     }
 
     #[test]
+    fn late_canceled_processing_fence_reply_is_consumed() {
+        let (waiter, notifier) = graphics_fence_channel();
+        let mut filter = GraphicsResponseFilter::new(notifier);
+        let id = processing_fence_id(13);
+        waiter.prepare(id);
+        waiter.cancel(id);
+        let response = format!("Gi={id};OK");
+        let replayed = std::iter::once(key('_', KeyModifiers::ALT))
+            .chain(response.chars().map(|ch| {
+                key(ch, if ch.is_uppercase() { KeyModifiers::SHIFT } else { KeyModifiers::NONE })
+            }))
+            .chain(std::iter::once(key('\\', KeyModifiers::ALT)))
+            .flat_map(|event| filter.filter(event))
+            .collect::<Vec<_>>();
+
+        assert!(
+            replayed.is_empty(),
+            "a late terminal response for a canceled fence must not become user input"
+        );
+    }
+
+    #[test]
     fn kitty_query_acknowledges_processing_not_presentation() {
         let production = |source: &'static str| {
             source.split("\n#[cfg(test)]\nmod tests {").next().expect("production graphics source")
@@ -690,6 +712,105 @@ mod tests {
             }))
         );
         writer.shutdown(Duration::from_secs(1));
+    }
+
+    #[test]
+    fn transient_processing_timeout_retries_without_stopping_writer() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            lock,
+            Vec::new(),
+            {
+                let attempts = attempts.clone();
+                move || {
+                    if attempts.fetch_add(1, Ordering::AcqRel) == 0 {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "injected transient fence timeout",
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            move || {
+                ready_tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        let placement = |seq| GraphicPlacement {
+            surface: 11,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq,
+            pointer_frame_seq: Some(seq),
+            data_b64: "AAAA".to_string(),
+        };
+
+        assert!(writer.submit(9, 1, vec![placement(15)]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let first_processed = matches!(
+            writer.take_completion(),
+            Some(GraphicsCompletion::Processed(GraphicsProcessing { id: 9, .. }))
+        );
+        let second_accepted = writer.submit(10, 1, vec![placement(16)]);
+        let second_processed = if second_accepted {
+            ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            matches!(
+                writer.take_completion(),
+                Some(GraphicsCompletion::Processed(GraphicsProcessing { id: 10, .. }))
+            )
+        } else {
+            false
+        };
+        writer.shutdown(Duration::from_secs(1));
+
+        assert!(first_processed, "one fence timeout must retry the accepted submission");
+        assert!(second_accepted, "a transient timeout must not stop the graphics writer");
+        assert!(second_processed, "the writer must process later graphics after recovery");
+    }
+
+    #[test]
+    fn exhausted_processing_timeout_remains_recoverable() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            lock,
+            Vec::new(),
+            || {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "injected persistent fence timeout",
+                ))
+            },
+            move || {
+                ready_tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        let placement = |seq| GraphicPlacement {
+            surface: 11,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq,
+            pointer_frame_seq: Some(seq),
+            data_b64: "AAAA".to_string(),
+        };
+
+        assert!(writer.submit(11, 1, vec![placement(17)]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let completion = writer.take_completion();
+        let later_accepted = writer.submit(12, 1, vec![placement(18)]);
+        if later_accepted {
+            ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        writer.shutdown(Duration::from_secs(1));
+
+        assert!(
+            completion.is_some() && !matches!(completion, Some(GraphicsCompletion::Failed)),
+            "an exhausted fence timeout must request recovery without disabling graphics"
+        );
+        assert!(later_accepted, "the writer must remain available for a later re-probe");
     }
 
     #[test]

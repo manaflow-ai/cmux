@@ -6705,7 +6705,11 @@ mod tests {
                 &mut ws,
                 json!({
                     "id": navigate["id"],
-                    "result": {"frameId": "main-frame", "isDownload": true}
+                    "result": {
+                        "frameId": "main-frame",
+                        "isDownload": true,
+                        "errorText": "net::ERR_ABORTED"
+                    }
                 }),
             );
         });
