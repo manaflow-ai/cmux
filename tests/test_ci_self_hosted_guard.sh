@@ -1027,6 +1027,22 @@ EOF
 
   mkdir -p "$fixture_dir/empty/scripts"
   cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \
+    --pass-with-no-tests; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner must honor --pass-with-no-tests"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--pass-with-no-tests'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: --pass-with-no-tests must retain Bun-owned empty discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
   if PATH="$fixture_dir/bin:/usr/bin:/bin" \
     CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
     /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \

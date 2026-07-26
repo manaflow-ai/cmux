@@ -49,7 +49,7 @@ test("shared web test runner isolates module mocks across files", () => {
   expect(result.output).toContain("0 fail");
 });
 
-test("shared web test runner preserves sorted recursive discovery", () => {
+test("shared web test runner preserves recursive discovery", () => {
   const fixtureRoot = createRunnerFixture();
   try {
     mkdirSync(join(fixtureRoot, ".hidden"));
@@ -98,7 +98,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
     ];
-    expectHeadingsInOrder(result.output, expectedHeadings);
+    expectHeadings(result.output, expectedHeadings);
     expect(result.output).not.toContain("ignored.test.ts:");
 
     const optionedResult = runChild(
@@ -111,7 +111,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
         `option-only web test run lost discovery:\n${optionedResult.output}`,
       );
     }
-    expectHeadingsInOrder(optionedResult.output, expectedHeadings);
+    expectHeadings(optionedResult.output, expectedHeadings);
     expect(optionedResult.output).not.toContain("ignored.test.ts:");
 
     const scopedResult = runChild(
@@ -142,7 +142,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
         `default Bun test root was not preserved:\n${rootedResult.output}`,
       );
     }
-    expectHeadingsInOrder(rootedResult.output, [
+    expectHeadings(rootedResult.output, [
       "tests/beta.test.ts:",
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
@@ -164,7 +164,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
         `alternate Bun test root was not preserved:\n${configuredResult.output}`,
       );
     }
-    expectHeadingsInOrder(configuredResult.output, [
+    expectHeadings(configuredResult.output, [
       "tests/beta.test.ts:",
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
@@ -179,6 +179,17 @@ test("shared web test runner fails when default discovery finds no tests", () =>
   const fixtureRoot = createRunnerFixture();
   try {
     mkdirSync(join(fixtureRoot, "tests"));
+    const allowedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "--pass-with-no-tests"],
+      fixtureRoot,
+    );
+    if (allowedResult.status !== 0) {
+      throw new Error(
+        `--pass-with-no-tests did not preserve Bun discovery:\n${allowedResult.output}`,
+      );
+    }
+
     const result = runChild(
       "/bin/bash",
       ["scripts/run-tests.sh"],
@@ -229,11 +240,11 @@ function runChild(
   return { status: result.status, output };
 }
 
-function expectHeadingsInOrder(output: string, headings: string[]): void {
-  let previousIndex = -1;
+function expectHeadings(output: string, headings: string[]): void {
+  // Bun can execute files concurrently and report their headings in completion
+  // order. The shell guard asserts the runner passes files to Bun in sorted
+  // order; this integration test asserts every discovered file actually runs.
   for (const heading of headings) {
-    const index = output.indexOf(heading);
-    expect(index).toBeGreaterThan(previousIndex);
-    previousIndex = index;
+    expect(output).toContain(heading);
   }
 }

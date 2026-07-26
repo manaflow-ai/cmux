@@ -25,7 +25,7 @@ arguments_require_bun_discovery() {
       --)
         positional_only=1
         ;;
-      --watch|--hot|--config|--config=*|-c|-c=*|--path-ignore-patterns|--path-ignore-patterns=*|--changed|--changed=*)
+      --watch|--hot|--config|--config=*|-c|-c=*|--path-ignore-patterns|--path-ignore-patterns=*|--changed|--changed=*|--pass-with-no-tests)
         return 0
         ;;
       -t|--test-name-pattern|--timeout|--rerun-each|--retry|--seed)
@@ -43,7 +43,7 @@ arguments_require_bun_discovery() {
         ;;
       --max-concurrency=*|--parallel-delay=*|--shard=*)
         ;;
-      -u|--update-snapshots|--todo|--only|--pass-with-no-tests|--concurrent)
+      -u|--update-snapshots|--todo|--only|--concurrent)
         ;;
       --randomize|--coverage|--dots|--only-failures|--no-orphans|--isolate)
         ;;
