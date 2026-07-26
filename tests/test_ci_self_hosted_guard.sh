@@ -839,6 +839,68 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
+check_web_test_runner_wiring() {
+  local runner="$ROOT_DIR/web/scripts/run-tests.sh"
+  if [[ ! -f "$runner" ]]; then
+    echo "FAIL: shared web test runner is missing"
+    exit 1
+  fi
+
+  if ! grep -Fq '"test": "bash scripts/run-tests.sh"' "$ROOT_DIR/web/package.json"; then
+    echo "FAIL: web/package.json must expose the shared web test runner"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  web-typecheck:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /- name: Web tests/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /^[[:space:]]*run:[[:space:]]*bun run test([[:space:]]|$)/ { saw_shared_runner=1 }
+    END { exit !saw_shared_runner }
+  ' "$CI_FILE"; then
+    echo "FAIL: web-typecheck must use the shared local web test runner"
+    exit 1
+  fi
+
+  echo "PASS: CI and local web tests use the shared runner"
+}
+
+check_web_test_runner_behavior() {
+  local fixture_dir fixture_runner args_log expected_args
+  fixture_dir="$(mktemp -d)"
+  fixture_runner="$fixture_dir/web/scripts/run-tests.sh"
+  args_log="$fixture_dir/bun-args.log"
+  mkdir -p "$fixture_dir/web/scripts" "$fixture_dir/bin"
+  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_runner"
+
+  cat > "$fixture_dir/bin/bun" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$CMUX_WEB_TEST_RUNNER_ARGS_LOG"
+EOF
+  chmod +x "$fixture_dir/bin/bun"
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner default discovery should execute"
+    exit 1
+  fi
+
+  expected_args=$'test\n--isolate'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: shared web test runner must preserve Bun's default discovery with isolation"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  rm -rf "$fixture_dir"
+  echo "PASS: shared web test runner delegates default discovery to Bun with isolation"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -1027,4 +1089,6 @@ check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
+check_web_test_runner_wiring
+check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
