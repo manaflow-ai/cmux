@@ -715,11 +715,33 @@ mod tests {
             BrowserInputKind::Mouse { event_type: "mouseReleased", .. }
         ));
         assert!(
-            !dispatcher.enqueue(click_event(1)),
-            "a new press must wait until the paired release is dispatched"
+            dispatcher.enqueue(click_event(1)),
+            "a new press may queue once the fallback release is owned by the earlier ordered batch"
         );
+        assert!(matches!(
+            blocked._rx.recv().unwrap().event.kind,
+            BrowserInputKind::Mouse { event_type: "mousePressed", .. }
+        ));
         drop(batch);
-        assert!(dispatcher.enqueue(click_event(1)));
+    }
+
+    #[test]
+    fn queued_mouse_release_does_not_reject_a_following_press() {
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(2);
+
+        assert!(dispatcher.enqueue(release_event(1)));
+        assert!(
+            dispatcher.enqueue(click_event(1)),
+            "a release in the FIFO must not reject a following press while capacity remains"
+        );
+        assert!(matches!(
+            blocked._rx.recv().unwrap().event.kind,
+            BrowserInputKind::Mouse { event_type: "mouseReleased", .. }
+        ));
+        assert!(matches!(
+            blocked._rx.recv().unwrap().event.kind,
+            BrowserInputKind::Mouse { event_type: "mousePressed", .. }
+        ));
     }
 
     #[test]

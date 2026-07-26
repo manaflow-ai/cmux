@@ -2888,6 +2888,59 @@ mod tests {
     }
 
     #[test]
+    fn full_command_queue_waits_for_mouse_release_capacity() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        browser
+            .command_sender()
+            .unwrap()
+            .send(BrowserCommand::Hold { entered, release: held })
+            .unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        let sender = browser.command_sender().unwrap();
+        for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+            sender.try_send(BrowserCommand::Activate).unwrap();
+        }
+
+        let (attempting_tx, attempting_rx) = mpsc::channel();
+        let (enqueued_tx, enqueued_rx) = mpsc::channel();
+        let release_surface = surface.clone();
+        let enqueue = thread::spawn(move || {
+            attempting_tx.send(()).unwrap();
+            let result = release_surface.browser_mouse_event(
+                "mouseReleased",
+                1.0,
+                1.0,
+                Some("left"),
+                Some(1),
+            );
+            enqueued_tx.send(result).unwrap();
+        });
+        attempting_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            matches!(
+                enqueued_rx.recv_timeout(Duration::from_millis(100)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "a full command queue must not report a mouse release as accepted before retaining it"
+        );
+
+        release.send(()).unwrap();
+        enqueued_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("mouse release did not enqueue after capacity opened")
+            .unwrap();
+        enqueue.join().unwrap();
+        drop(sender);
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1))
+            .expect("browser worker exited after reliable release");
+    }
+
+    #[test]
     fn timeout_failed_status_notice_is_emitted_once_per_stall_episode() {
         let surface = test_surface();
         let mux = Mux::new("timeout-latch-test", SurfaceOptions::default());

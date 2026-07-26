@@ -1205,6 +1205,15 @@ fn initial_provider_connection_notice(
     format!("{}: {error}", messages.initial_machine_connection_failed)
 }
 
+fn publish_session_default_colors(
+    session: &Session,
+    colors: cmux_tui_core::DefaultColors,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
+) -> anyhow::Result<()> {
+    let _ = surface_only;
+    session.set_default_colors(colors)
+}
+
 fn run_tui_once(
     session: Session,
     session_label: String,
@@ -1222,7 +1231,7 @@ fn run_tui_once(
     if host_colors.bg.is_some() {
         colors.bg = host_colors.bg;
     }
-    let color_result = session.set_default_colors(colors);
+    let color_result = publish_session_default_colors(&session, colors, surface_only);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {
         eprintln!("cmux-tui: failed to set default colors: {err}");
@@ -1268,6 +1277,31 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn surface_only_attach_does_not_publish_session_default_colors() {
+        let mux = Mux::new("surface-only-color-test", SurfaceOptions::default());
+        let original = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 1, g: 2, b: 3 }),
+            ..Default::default()
+        };
+        let client = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 4, g: 5, b: 6 }),
+            ..Default::default()
+        };
+        mux.set_default_colors(original);
+        let session = Session::Local(mux.clone());
+
+        publish_session_default_colors(&session, client, Some(7)).unwrap();
+        assert_eq!(
+            mux.default_colors(),
+            original,
+            "single-surface attach must retain the session and sibling surfaces' colors"
+        );
+
+        publish_session_default_colors(&session, client, None).unwrap();
+        assert_eq!(mux.default_colors(), client, "full-session clients still publish their colors");
     }
 
     #[test]
