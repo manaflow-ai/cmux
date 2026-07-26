@@ -292,7 +292,14 @@ fn legacy_server_process_helper() {
         .ok()
         .map(|value| value.parse::<u32>().unwrap())
         .unwrap_or_else(std::process::id);
-    if matches!(scenario.as_str(), "success" | "kill-caller" | "cleanup-failure") {
+    if matches!(
+        scenario.as_str(),
+        "success"
+            | "kill-caller"
+            | "cleanup-failure"
+            | "applied-close-error"
+            | "persistent-close-error"
+    ) {
         let descendant =
             Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
         fs::write(
@@ -383,7 +390,11 @@ fn legacy_server_process_helper() {
     let mut snapshot_index = 0;
     loop {
         request.clear();
-        reader.read_line(&mut request).unwrap();
+        if reader.read_line(&mut request).unwrap() == 0 {
+            loop {
+                std::thread::park();
+            }
+        }
         let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
         assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
         if scenario == "cleanup-failure" {
@@ -401,10 +412,13 @@ fn legacy_server_process_helper() {
                 std::thread::park();
             }
         }
-        assert!(matches!(scenario.as_str(), "success" | "kill-caller"));
-        let surfaces: &[u64] = match snapshot_index {
-            0 => &[41],
-            1 => &[42],
+        assert!(matches!(
+            scenario.as_str(),
+            "success" | "kill-caller" | "applied-close-error" | "persistent-close-error"
+        ));
+        let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
+            ("persistent-close-error", _) | (_, 0) => &[41],
+            ("success" | "kill-caller", 1) => &[42],
             _ => &[],
         };
         let tabs = surfaces
@@ -435,16 +449,21 @@ fn legacy_server_process_helper() {
             let close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
             assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
             assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
-            writeln!(
-                stream,
-                "{}",
-                serde_json::json!({
-                    "id": close_request["id"],
-                    "ok": true,
-                    "data": {},
-                })
-            )
-            .unwrap();
+            let response =
+                if matches!(scenario.as_str(), "applied-close-error" | "persistent-close-error") {
+                    serde_json::json!({
+                        "id": close_request["id"],
+                        "ok": false,
+                        "error": "surface cleanup reported an error",
+                    })
+                } else {
+                    serde_json::json!({
+                        "id": close_request["id"],
+                        "ok": true,
+                        "data": {},
+                    })
+                };
+            writeln!(stream, "{response}").unwrap();
             if scenario == "kill-caller" && expected_surface == 41 {
                 let caller_pid = libc::pid_t::try_from(caller_pid).unwrap();
                 assert_eq!(unsafe { libc::kill(caller_pid, libc::SIGKILL) }, 0);
@@ -1176,6 +1195,59 @@ fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_reconciles_an_applied_legacy_close_that_returned_an_error() {
+    let mut server = LegacyServerProcess::start(
+        "legacy-server-applied-close-error",
+        "applied-close-error",
+        None,
+    );
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_refuses_when_a_legacy_close_error_leaves_the_surface_present() {
+    let mut server = LegacyServerProcess::start(
+        "legacy-server-persistent-close-error",
+        "persistent-close-error",
+        None,
+    );
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(server.child.try_wait().unwrap().is_none());
+    assert!(process_exists(descendant_pid));
 }
 
 #[cfg(unix)]
