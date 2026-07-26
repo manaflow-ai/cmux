@@ -2657,7 +2657,7 @@ impl BrowserSurface {
         self.dirty.store(true, Ordering::Release);
     }
 
-    fn release_failed_same_document_authority(&self) {
+    fn fail_same_document_authority(&self, error: &anyhow::Error) {
         let mut state = self.state.lock().unwrap();
         if state.pending_document_epoch.is_some() || !state.pending_same_document_navigation {
             return;
@@ -2667,7 +2667,12 @@ impl BrowserSurface {
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
+        Self::mark_failed_locked(
+            &mut state,
+            &format!("could not verify updated page pixels: {error}; reload to retry"),
+        );
         Self::mark_state_dirty_locked(&mut state);
+        self.dirty.store(true, Ordering::Release);
     }
 
     fn restore_pointer_frame_after_failed_command(&self, invalidation: PointerFrameInvalidation) {
@@ -3351,8 +3356,9 @@ impl BrowserSurface {
                 }
             }
         }
-        self.release_failed_same_document_authority();
-        Err(last_error.expect("authority capture attempts must record an error"))
+        let error = last_error.expect("authority capture attempts must record an error");
+        self.fail_same_document_authority(&error);
+        Err(error)
     }
 
     fn authorize_screencast_capture_blocking(
@@ -5538,7 +5544,7 @@ mod tests {
         .expect("same-document URL");
         let failed_capture_epoch = browser.frame_epoch.advance();
 
-        browser.release_failed_same_document_authority();
+        browser.fail_same_document_authority(&anyhow::anyhow!("injected capture failure"));
 
         assert!(
             matches!(
