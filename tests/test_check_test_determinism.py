@@ -600,6 +600,20 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    }\n"
                     "}\n"
                 ),
+                "typed-closure-parameter-shadow.swift": (
+                    "let clock = ContinuousClock()\n"
+                    "run { (clock: TestRelayClock) in\n"
+                    "    try await clock.sleep(until: deadline)\n"
+                    "    #expect(await completed)\n"
+                    "}\n"
+                ),
+                "closure-capture-shadow.swift": (
+                    "let clock = ContinuousClock()\n"
+                    "run { [clock = fakeClock] in\n"
+                    "    try await clock.sleep(until: deadline)\n"
+                    "    #expect(await completed)\n"
+                    "}\n"
+                ),
                 "virtual.py": (
                     "fake_clock.sleep(1)\n"
                     "assert completed\n"
@@ -1055,6 +1069,35 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "        clock = fake_clock\n"
                     "        inner()\n"
                     "    middle()\n"
+                ),
+                "walrus-condition-direct-call.py": (
+                    "import time\n"
+                    "def check():\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "if (time := fake_clock):\n"
+                    "    check()\n"
+                ),
+                "handler-after-rebind.py": (
+                    "import time\n"
+                    "def check():\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "try:\n"
+                    "    time = fake_clock\n"
+                    "    raise Failure\n"
+                    "except Failure:\n"
+                    "    check()\n"
+                ),
+                "finally-after-rebind.py": (
+                    "import time\n"
+                    "def check():\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "try:\n"
+                    "    time = fake_clock\n"
+                    "finally:\n"
+                    "    check()\n"
                 ),
             }
         )
