@@ -32,8 +32,8 @@ package actor SimulatorProcessGroupProcess {
         processGroup = SimulatorWorkerProcessGroup()
         do {
             processIdentifier = try launcher.launch(
-                executableURL: SimulatorParentLifetimeSupervisor.executableURL,
-                arguments: SimulatorParentLifetimeSupervisor.arguments(
+                executableURL: simulatorParentLifetimeSupervisorExecutableURL,
+                arguments: simulatorParentLifetimeSupervisorArguments(
                     executableURL: executableURL,
                     arguments: arguments
                 ),

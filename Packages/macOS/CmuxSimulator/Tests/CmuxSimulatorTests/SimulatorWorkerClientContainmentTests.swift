@@ -388,7 +388,7 @@ extension SimulatorWorkerClientTests {
 
     @Test("Process worker drops ambient credentials and keeps required launch values")
     func processWorkerEnvironmentIsAllowlisted() {
-        let environment = SimulatorProcessWorkerLauncher.workerEnvironment(
+        let environment = simulatorWorkerEnvironment(
             inherited: [
                 "HOME": "/Users/test",
                 "PATH": "/usr/bin",

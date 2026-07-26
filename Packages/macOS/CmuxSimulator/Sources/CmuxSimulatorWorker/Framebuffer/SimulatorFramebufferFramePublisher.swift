@@ -28,6 +28,9 @@ final class SimulatorFramebufferFramePublisher {
         initialGeometry: SimulatorSurfaceGeometry? = nil,
         minimumFrameInterval: Duration = .milliseconds(30),
         interactiveFrameInterval: Duration = .milliseconds(16),
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        },
         beforeFrameTransportChange: @escaping @Sendable () async -> Void = {},
         afterFrameTransportChange: @escaping @Sendable () async -> Void = {},
         onPublicationFailure: @escaping @MainActor @Sendable (SimulatorFailure) -> Void = { _ in },
@@ -106,7 +109,7 @@ final class SimulatorFramebufferFramePublisher {
                         break
                     }
                     do {
-                        try await Task.sleep(for: retryDelay)
+                        try await retrySleep(retryDelay)
                     } catch {
                         break
                     }

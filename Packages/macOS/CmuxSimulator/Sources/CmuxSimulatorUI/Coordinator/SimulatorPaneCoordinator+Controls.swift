@@ -7,7 +7,9 @@ private let simulatorDroppedMediaExtensions = Set([
     "bmp", "mov", "mp4", "m4v", "hevc", "vcf",
 ])
 
-private enum SimulatorControlActionTaskContext {
+// `@TaskLocal` storage is necessarily type-scoped; the struct carries no
+// domain behavior and exists only to bind the task-local key.
+private struct SimulatorControlActionTaskContext {
     @TaskLocal static var token: UUID?
 }
 

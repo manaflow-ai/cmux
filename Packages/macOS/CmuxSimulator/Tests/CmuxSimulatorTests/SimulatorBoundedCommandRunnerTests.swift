@@ -232,48 +232,6 @@ struct SimulatorBoundedCommandRunnerTests {
     }
 }
 
-private struct SimulatorBoundedCommandRequest: Sendable, Equatable {
-    let directory: String
-    let executable: String
-    let arguments: [String]
-    let environment: [String: String]
-    let timeout: TimeInterval?
-    let standardOutputLimit: Int
-    let standardErrorLimit: Int
-}
-
-private actor RecordingSimulatorBoundedCommandRunner:
-    SimulatorBoundedCommandRunning
-{
-    let result: SimulatorBoundedCommandResult
-    private(set) var request: SimulatorBoundedCommandRequest?
-
-    init(result: SimulatorBoundedCommandResult) {
-        self.result = result
-    }
-
-    func runBounded(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        environment: [String: String],
-        timeout: TimeInterval?,
-        standardOutputLimit: Int,
-        standardErrorLimit: Int
-    ) async -> SimulatorBoundedCommandResult {
-        request = SimulatorBoundedCommandRequest(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            environment: environment,
-            timeout: timeout,
-            standardOutputLimit: standardOutputLimit,
-            standardErrorLimit: standardErrorLimit
-        )
-        return result
-    }
-}
-
 private func requireMarkerPID(_ marker: URL) async throws -> Int32 {
     for _ in 0..<2_000 {
         if let value = try? String(contentsOf: marker, encoding: .utf8),

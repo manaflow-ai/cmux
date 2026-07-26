@@ -60,7 +60,7 @@ struct SimulatorCameraPlayback: Sendable {
         let loopDelayMilliseconds: Int64?
         if loops {
             guard let duration = try? await asset.load(.duration),
-                  let delay = Self.loopDelayMilliseconds(
+                  let delay = simulatorCameraLoopDelayMilliseconds(
                       assetDurationSeconds: CMTimeGetSeconds(duration)
                   ) else { return }
             loopDelayMilliseconds = delay
@@ -79,7 +79,7 @@ struct SimulatorCameraPlayback: Sendable {
                 )
                 if presentationTime.isFinite {
                     if firstPresentationTime == nil { firstPresentationTime = presentationTime }
-                    guard let delayMilliseconds = Self.delayMilliseconds(
+                    guard let delayMilliseconds = simulatorCameraFrameDelayMilliseconds(
                         firstPresentationTime: firstPresentationTime ?? presentationTime,
                         presentationTime: presentationTime
                     ) else {
@@ -118,28 +118,6 @@ struct SimulatorCameraPlayback: Sendable {
         } while loops && !Task.isCancelled
     }
 
-    static func delayMilliseconds(
-        firstPresentationTime: Double,
-        presentationTime: Double
-    ) -> Int64? {
-        guard firstPresentationTime.isFinite, presentationTime.isFinite else { return nil }
-        let elapsed = max(0, presentationTime - firstPresentationTime)
-        let milliseconds = (elapsed * 1_000).rounded()
-        guard milliseconds.isFinite,
-              milliseconds >= 0,
-              milliseconds < Double(Int64.max) else { return nil }
-        return Int64(milliseconds)
-    }
-
-    static func loopDelayMilliseconds(assetDurationSeconds: Double) -> Int64? {
-        guard assetDurationSeconds.isFinite, assetDurationSeconds > 0 else { return nil }
-        let milliseconds = ceil(assetDurationSeconds * 1_000)
-        guard milliseconds.isFinite,
-              milliseconds >= 1,
-              milliseconds < Double(Int64.max) else { return nil }
-        return Int64(milliseconds)
-    }
-
     private func makeReader(
         asset: AVAsset,
         track: AVAssetTrack
@@ -166,4 +144,26 @@ struct SimulatorCameraPlayback: Sendable {
         }
         return (reader, output)
     }
+}
+
+func simulatorCameraFrameDelayMilliseconds(
+    firstPresentationTime: Double,
+    presentationTime: Double
+) -> Int64? {
+    guard firstPresentationTime.isFinite, presentationTime.isFinite else { return nil }
+    let elapsed = max(0, presentationTime - firstPresentationTime)
+    let milliseconds = (elapsed * 1_000).rounded()
+    guard milliseconds.isFinite,
+          milliseconds >= 0,
+          milliseconds < Double(Int64.max) else { return nil }
+    return Int64(milliseconds)
+}
+
+func simulatorCameraLoopDelayMilliseconds(assetDurationSeconds: Double) -> Int64? {
+    guard assetDurationSeconds.isFinite, assetDurationSeconds > 0 else { return nil }
+    let milliseconds = ceil(assetDurationSeconds * 1_000)
+    guard milliseconds.isFinite,
+          milliseconds >= 1,
+          milliseconds < Double(Int64.max) else { return nil }
+    return Int64(milliseconds)
 }

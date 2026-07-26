@@ -1,40 +1,13 @@
 import Foundation
 
-/// Result of a subprocess launched in a dedicated, parent-supervised process group.
-public struct SimulatorOwnedCommandResult: Sendable, Equatable {
-    public let status: Int32
-    public let standardError: String
-    public let timedOut: Bool
-
-    public init(
-        status: Int32,
-        standardError: String,
-        timedOut: Bool
-    ) {
-        self.status = status
-        self.standardError = standardError
-        self.timedOut = timedOut
-    }
-}
-
-/// An injectable asynchronous command seam for callers that need the Simulator
-/// package's descendant-safe process ownership and bounded pipe draining.
-public protocol SimulatorOwnedCommandRunning: Sendable {
-    func run(
-        executable: String,
-        arguments: [String],
-        currentDirectory: String,
-        timeout: TimeInterval,
-        outputLimit: Int
-    ) async -> SimulatorOwnedCommandResult
-}
-
+/// Runs subprocesses with descendant-safe ownership and bounded output.
 public struct SimulatorOwnedCommandRunner:
     SimulatorOwnedCommandRunning,
     Sendable
 {
     private let boundedCommands: any SimulatorBoundedCommandRunning
 
+    /// Creates a runner backed by the package's descendant-safe command runner.
     public init() {
         boundedCommands = SimulatorBoundedCommandRunner()
     }
@@ -43,6 +16,7 @@ public struct SimulatorOwnedCommandRunner:
         self.boundedCommands = boundedCommands
     }
 
+    /// Runs one executable in an owned process group with bounded output.
     public func run(
         executable: String,
         arguments: [String],

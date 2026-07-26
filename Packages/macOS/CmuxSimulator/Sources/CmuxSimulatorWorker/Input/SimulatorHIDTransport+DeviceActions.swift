@@ -7,7 +7,7 @@ extension SimulatorHIDTransport {
     @discardableResult
     func rotate(_ orientation: SimulatorOrientation) -> Bool {
         guard let device else { return false }
-        let value = SimulatorNativeOrientationCodec.purpleWorkspaceRawValue(for: orientation)
+        let value = simulatorPurpleWorkspaceOrientationRawValue(for: orientation)
         return sendOrientation(value, to: device)
     }
 

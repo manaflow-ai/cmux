@@ -83,37 +83,6 @@ package struct SimulatorMutationGate: Sendable {
 
 }
 
-/// Owns cross-process mutation locks for a caller-defined lifetime.
-package final class SimulatorMutationLease: @unchecked Sendable {
-    private let lock = NSLock()
-    private let fileSystem: any SimulatorMutationLockFileSystem
-    private var descriptors: [Int32]
-
-    fileprivate init(
-        fileSystem: any SimulatorMutationLockFileSystem,
-        descriptors: [Int32]
-    ) {
-        self.fileSystem = fileSystem
-        self.descriptors = descriptors
-    }
-
-    deinit {
-        release()
-    }
-
-    /// Releases every held lock. Repeated calls are harmless.
-    package func release() {
-        lock.lock()
-        let descriptors = self.descriptors
-        self.descriptors.removeAll()
-        lock.unlock()
-        for descriptor in descriptors.reversed() {
-            fileSystem.unlock(descriptor)
-            fileSystem.close(descriptor)
-        }
-    }
-}
-
 private func simulatorMutationLockFileName(for key: SimulatorMutationKey) -> String {
     var first: UInt64 = 0xcbf29ce484222325
     var second: UInt64 = 0x9e3779b97f4a7c15

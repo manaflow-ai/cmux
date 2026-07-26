@@ -95,6 +95,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored let preferredDeviceID: String?
     @ObservationIgnored let preferredRuntimeIdentifier: String?
     @ObservationIgnored let preferredDeviceTypeIdentifier: String?
+    /// Whether the user must choose a device before the coordinator starts.
     @ObservationIgnored public internal(set) var requiresExplicitDeviceSelection: Bool
     @ObservationIgnored var outgoingStream: AsyncStream<SimulatorWorkerInbound>
     @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorWorkerInbound>.Continuation

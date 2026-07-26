@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+// SAFETY: descriptors are immutable after initialization. `cancel()` only
+// writes to the pipe, while the single owned reader thread closes read ends.
 final class SimulatorProcessOutputReader: @unchecked Sendable {
     private let descriptor: Int32
     private let cancellationReadDescriptor: Int32

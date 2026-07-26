@@ -1,21 +1,12 @@
 import Foundation
 
-enum SimulatorCameraCleanupResult: Equatable, Sendable {
-    case completed
-    case failed(SimulatorFailure)
-}
-
 /// Serializes camera cleanup per Simulator application across worker-client
 /// replacement without blocking unrelated devices or bundle identifiers.
 actor SimulatorCameraCleanupCoordinator {
-    private struct Target: Hashable {
-        let deviceIdentifier: String
-        let bundleIdentifier: String
-    }
-
-    private var tailByTarget: [Target: Task<SimulatorCameraCleanupResult, Never>] = [:]
-    private var revisionByTarget: [Target: UInt64] = [:]
-    private var ownerByTarget: [Target: UUID] = [:]
+    private var tailByTarget:
+        [SimulatorCameraCleanupTarget: Task<SimulatorCameraCleanupResult, Never>] = [:]
+    private var revisionByTarget: [SimulatorCameraCleanupTarget: UInt64] = [:]
+    private var ownerByTarget: [SimulatorCameraCleanupTarget: UUID] = [:]
     private let ownershipStore: SimulatorCrossProcessOwnershipStore
 
     var trackedTargetCount: Int {
@@ -38,7 +29,7 @@ actor SimulatorCameraCleanupCoordinator {
         timeout: Duration = .seconds(3),
         sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
     ) async throws -> UUID {
-        let target = Target(
+        let target = SimulatorCameraCleanupTarget(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
@@ -84,7 +75,7 @@ actor SimulatorCameraCleanupCoordinator {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) -> Bool {
-        ownerByTarget[Target(
+        ownerByTarget[SimulatorCameraCleanupTarget(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )] == owner && ownershipStore.isCurrent(
@@ -100,7 +91,10 @@ actor SimulatorCameraCleanupCoordinator {
         _ operation: @escaping @Sendable () async -> SimulatorCameraCleanupResult
     ) -> Task<SimulatorCameraCleanupResult, Never> {
         let targets = Set(bundleIdentifiers.filter { !$0.isEmpty }.map {
-            Target(deviceIdentifier: deviceIdentifier, bundleIdentifier: $0)
+            SimulatorCameraCleanupTarget(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: $0
+            )
         })
         let previous = targets.compactMap { tailByTarget[$0] }
         let owners = Dictionary(uniqueKeysWithValues: targets.compactMap { target in
@@ -115,7 +109,7 @@ actor SimulatorCameraCleanupCoordinator {
             }
             return await operation()
         }
-        var revisions: [Target: UInt64] = [:]
+        var revisions: [SimulatorCameraCleanupTarget: UInt64] = [:]
         for target in targets {
             let revision = (revisionByTarget[target] ?? 0) &+ 1
             revisionByTarget[target] = revision
@@ -130,8 +124,8 @@ actor SimulatorCameraCleanupCoordinator {
     }
 
     private func finish(
-        revisions: [Target: UInt64],
-        owners: [Target: UUID],
+        revisions: [SimulatorCameraCleanupTarget: UInt64],
+        owners: [SimulatorCameraCleanupTarget: UUID],
         result: SimulatorCameraCleanupResult
     ) {
         guard result == .completed else { return }
@@ -146,7 +140,7 @@ actor SimulatorCameraCleanupCoordinator {
     }
 
     private func waitForCurrentCleanup(
-        of target: Target
+        of target: SimulatorCameraCleanupTarget
     ) async -> SimulatorCameraCleanupResult {
         while !Task.isCancelled,
               let pendingCleanup = tailByTarget[target] {

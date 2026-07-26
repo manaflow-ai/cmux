@@ -143,8 +143,8 @@ final class SimulatorHIDTransport {
 
     @discardableResult
     func send(_ event: SimulatorPointerEvent) -> Bool {
-        guard Self.isNormalized(event.primary),
-              event.secondary.map(Self.isNormalized) ?? true else { return false }
+        guard simulatorPointIsNormalized(event.primary),
+              event.secondary.map(simulatorPointIsNormalized) ?? true else { return false }
         if let pointerSenderOverride {
             let result = pointerSenderOverride(event)
             if result {
@@ -200,11 +200,6 @@ final class SimulatorHIDTransport {
         return true
     }
 
-    private static func isNormalized(_ point: SimulatorPoint) -> Bool {
-        point.x.isFinite && point.y.isFinite
-            && (0...1).contains(point.x) && (0...1).contains(point.y)
-    }
-
     @discardableResult
     func send(_ event: SimulatorKeyEvent) -> Bool {
         let sent: Bool
@@ -247,8 +242,13 @@ final class SimulatorHIDTransport {
     func releaseHeldKeysAndWait() async {
         for usage in heldKeys.sorted() {
             _ = await sendAndWait(SimulatorKeyEvent(usage: usage, phase: .up))
-        }
     }
+}
+
+private func simulatorPointIsNormalized(_ point: SimulatorPoint) -> Bool {
+    point.x.isFinite && point.y.isFinite
+        && (0...1).contains(point.x) && (0...1).contains(point.y)
+}
 
     private func updateKeyState(after event: SimulatorKeyEvent) {
         switch event.phase {

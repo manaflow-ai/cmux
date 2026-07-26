@@ -189,8 +189,8 @@ struct SimulatorSubprocessTests {
             marker.path,
         ]
         let processIdentifier = try SimulatorPOSIXProcessLauncher().launch(
-            executableURL: SimulatorParentLifetimeSupervisor.executableURL,
-            arguments: SimulatorParentLifetimeSupervisor.arguments(
+            executableURL: simulatorParentLifetimeSupervisorExecutableURL,
+            arguments: simulatorParentLifetimeSupervisorArguments(
                 executableURL: target,
                 arguments: targetArguments
             ),

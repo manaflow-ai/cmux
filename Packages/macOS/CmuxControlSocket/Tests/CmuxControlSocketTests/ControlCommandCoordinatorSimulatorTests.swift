@@ -712,16 +712,3 @@ struct ControlCommandCoordinatorSimulatorTests {
         ControlRequest(id: .int(1), method: method, params: params)
     }
 }
-
-private final class SimulatorCancellationProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var marked = false
-
-    var isMarked: Bool {
-        lock.withLock { marked }
-    }
-
-    func mark() {
-        lock.withLock { marked = true }
-    }
-}

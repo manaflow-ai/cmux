@@ -44,7 +44,9 @@ public protocol SimulatorPaneClient: Sendable {
     func stop() async
 }
 
+/// Default behavior for optional host acknowledgements.
 public extension SimulatorPaneClient {
+    /// Accepts frame adoption when a client has no obsolete transport to retire.
     func acknowledgeFrameTransportAdoption(
         _ descriptor: SimulatorFrameTransportDescriptor
     ) async {

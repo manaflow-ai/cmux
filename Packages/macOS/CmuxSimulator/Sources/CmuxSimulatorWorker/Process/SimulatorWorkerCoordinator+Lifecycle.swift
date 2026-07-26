@@ -195,7 +195,7 @@ extension SimulatorWorkerCoordinator {
         cancelCapabilityHydration()
         let generation = UUID()
         capabilityHydrationGeneration = generation
-        capabilityHydrationTask = SimulatorAttachmentReadiness.begin(
+        capabilityHydrationTask = beginSimulatorAttachmentReadiness(
             baselineCapabilities: baselineCapabilities,
             send: { [weak self] message in self?.send(message) },
             hydrate: { [weak self, weak device] in

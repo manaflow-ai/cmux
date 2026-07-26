@@ -310,16 +310,16 @@ struct SimulatorRemoteSurfaceLifecycleTests {
 
     @Test("Frame polling follows the host display cadence")
     func framePollingFollowsDisplayCadence() {
-        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+        #expect(simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: nil
         ) == 16_666_667)
-        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+        #expect(simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: 60
         ) == 16_666_667)
-        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+        #expect(simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: 120
         ) == 8_333_333)
-        #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
+        #expect(simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: 240
         ) == 8_333_333)
     }
@@ -587,177 +587,5 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             try await clock.sleep(for: .milliseconds(1))
         }
         Issue.record("Condition did not become true before the deadline")
-    }
-}
-
-private final class SequencedSimulatorFrameSurfaceSource:
-    SimulatorFrameSurfaceReading,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var snapshot: SimulatorFrameSnapshot
-    private var copies = 0
-
-    init(snapshot: SimulatorFrameSnapshot) {
-        self.snapshot = snapshot
-    }
-
-    var copyCount: Int {
-        lock.withLock { copies }
-    }
-
-    func publish(_ snapshot: SimulatorFrameSnapshot) {
-        lock.withLock { self.snapshot = snapshot }
-    }
-
-    func hasPublishedFrame(after sequence: UInt64?) -> Bool {
-        lock.withLock {
-            sequence.map { snapshot.sequence > $0 } ?? true
-        }
-    }
-
-    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
-        lock.withLock {
-            guard sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
-            copies += 1
-            return snapshot
-        }
-    }
-}
-
-private final class SignaledSimulatorFrameSurfaceSource:
-    SimulatorFrameSurfaceReading,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var snapshot: SimulatorFrameSnapshot
-    private var publicationHandler: (@Sendable () -> Void)?
-    private var availabilityChecks = 0
-
-    init(snapshot: SimulatorFrameSnapshot) {
-        self.snapshot = snapshot
-    }
-
-    var availabilityCheckCount: Int {
-        lock.withLock { availabilityChecks }
-    }
-
-    @discardableResult
-    func setFramePublicationHandler(
-        _ handler: (@Sendable () -> Void)?
-    ) -> Bool {
-        lock.withLock { publicationHandler = handler }
-        return true
-    }
-
-    func publish(_ snapshot: SimulatorFrameSnapshot) {
-        let handler = lock.withLock {
-            self.snapshot = snapshot
-            return publicationHandler
-        }
-        handler?()
-    }
-
-    func signalPublicationBurst(count: Int) {
-        let handler = lock.withLock { publicationHandler }
-        for _ in 0..<count {
-            handler?()
-        }
-    }
-
-    func hasPublishedFrame(after sequence: UInt64?) -> Bool {
-        lock.withLock {
-            availabilityChecks += 1
-            return sequence.map { snapshot.sequence > $0 } ?? true
-        }
-    }
-
-    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
-        lock.withLock {
-            guard sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
-            return snapshot
-        }
-    }
-}
-
-private final class InvalidatingSignaledSimulatorFrameSurfaceSource:
-    SimulatorFrameSurfaceReading,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var snapshot: SimulatorFrameSnapshot
-    private var publicationHandler: (@Sendable () -> Void)?
-    private var copies = 0
-    private var copyStarted = false
-    private var copyIsBlocked = true
-    private var copyWaiters: [CheckedContinuation<Void, Never>] = []
-
-    init(snapshot: SimulatorFrameSnapshot) {
-        self.snapshot = snapshot
-    }
-
-    var copyCount: Int {
-        lock.withLock { copies }
-    }
-
-    var hasStartedCopy: Bool {
-        lock.withLock { copyStarted }
-    }
-
-    @discardableResult
-    func setFramePublicationHandler(
-        _ handler: (@Sendable () -> Void)?
-    ) -> Bool {
-        lock.withLock { publicationHandler = handler }
-        return true
-    }
-
-    func publish(_ snapshot: SimulatorFrameSnapshot) {
-        let handler = lock.withLock {
-            self.snapshot = snapshot
-            return publicationHandler
-        }
-        handler?()
-    }
-
-    func releaseCopy() {
-        let waiters = lock.withLock {
-            copyIsBlocked = false
-            let waiters = copyWaiters
-            copyWaiters.removeAll()
-            return waiters
-        }
-        waiters.forEach { $0.resume() }
-    }
-
-    func hasPublishedFrame(after sequence: UInt64?) -> Bool {
-        lock.withLock {
-            sequence.map { snapshot.sequence > $0 } ?? true
-        }
-    }
-
-    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
-        let copiedSequence = lock.withLock {
-            copies += 1
-            copyStarted = true
-            return snapshot.sequence
-        }
-        await withCheckedContinuation { continuation in
-            let shouldResume = lock.withLock {
-                guard copyIsBlocked else { return true }
-                copyWaiters.append(continuation)
-                return false
-            }
-            if shouldResume {
-                continuation.resume()
-            }
-        }
-        return lock.withLock {
-            guard snapshot.sequence == copiedSequence,
-                  sequence.map({ copiedSequence > $0 }) ?? true else {
-                return nil
-            }
-            return snapshot
-        }
     }
 }

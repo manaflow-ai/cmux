@@ -2138,13 +2138,6 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
-    private struct SurfaceTabBarButtonConfiguration {
-        let buttons: [CmuxSurfaceTabBarButton]
-        let sourcePath: String?
-        let globalConfigPath: String
-        let terminalCommandSourcePaths: [String: String]
-        let workspaceCommands: [String: CmuxResolvedCommand]
-    }
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
     private var featureFlagsObserver: NSObjectProtocol?
 

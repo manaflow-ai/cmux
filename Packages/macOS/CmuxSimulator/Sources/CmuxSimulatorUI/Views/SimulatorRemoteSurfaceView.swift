@@ -31,7 +31,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     private var mouseTrackingArea: NSTrackingArea?
     var pendingPointerEntry: SimulatorPendingPointerEntry?
     var pendingInputMotion: SimulatorWorkerInbound?
-    private var pendingInputFlushTask: Task<Void, Never>?
+    private var pendingInputFlushTimer: DispatchSourceTimer?
     var stageHaloPointerActive = false
     var stagePointerMonitor: Any?
     private(set) var isPointerInputEnabled = false
@@ -394,7 +394,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         if framePipeline.setFramePublicationNotificationsEnabled(true) {
             return
         }
-        let interval = Self.presentationTimerIntervalNanoseconds(
+        let interval = simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: window.screen?.maximumFramesPerSecond
         )
         let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
@@ -408,13 +408,6 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         }
         presentationTimer = timer
         timer.activate()
-    }
-
-    static func presentationTimerIntervalNanoseconds(
-        maximumFramesPerSecond: Int?
-    ) -> Int {
-        let framesPerSecond = min(max(maximumFramesPerSecond ?? 60, 1), 120)
-        return Int((1_000_000_000 / Double(framesPerSecond)).rounded())
     }
 
     private func stopPresentationTimer() {
@@ -497,8 +490,9 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func flushPendingInputMotion() {
-        pendingInputFlushTask?.cancel()
-        pendingInputFlushTask = nil
+        pendingInputFlushTimer?.setEventHandler(handler: nil)
+        pendingInputFlushTimer?.cancel()
+        pendingInputFlushTimer = nil
         guard let pendingInputMotion else { return }
         self.pendingInputMotion = nil
         if case let .scrollWheel(event) = pendingInputMotion,
@@ -507,25 +501,27 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     private func schedulePendingInputFlush() {
-        guard pendingInputFlushTask == nil, pendingInputMotion != nil else { return }
-        let interval = Self.presentationTimerIntervalNanoseconds(
+        guard pendingInputFlushTimer == nil, pendingInputMotion != nil else { return }
+        let interval = simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
         )
-        pendingInputFlushTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .nanoseconds(Int64(interval)))
-            } catch {
-                return
-            }
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+        timer.schedule(
+            deadline: .now() + .nanoseconds(interval),
+            leeway: .milliseconds(1)
+        )
+        timer.setEventHandler { [weak self] in
             guard let self else { return }
-            pendingInputFlushTask = nil
             flushPendingInputMotion()
         }
+        pendingInputFlushTimer = timer
+        timer.activate()
     }
 
     private func cancelInputs() {
-        pendingInputFlushTask?.cancel()
-        pendingInputFlushTask = nil
+        pendingInputFlushTimer?.setEventHandler(handler: nil)
+        pendingInputFlushTimer?.cancel()
+        pendingInputFlushTimer = nil
         pendingInputMotion = nil
         pendingPointerEntry = nil
         stageHaloPointerActive = false

@@ -66,11 +66,6 @@ struct SimulatorApplicationTools: View {
     }
 }
 
-struct SimulatorApplicationPickerRow: Equatable, Identifiable {
-    let id: String
-    let displayName: String
-}
-
 func simulatorApplicationPickerRows(
     _ applications: [SimulatorInstalledApplication]
 ) -> [SimulatorApplicationPickerRow] {

@@ -62,7 +62,11 @@ extension TerminalController: ControlSimulatorContext {
                 }
             }
             pending.setTask(task)
-            receipt.installCancellation { pending.cancel() }
+            receipt.installCancellation { [weak pending] in
+                Task { @MainActor in
+                    pending?.cancel()
+                }
+            }
             return .started(
                 surfaceID: panel.id,
                 characterCount: sequence.characterCount,
@@ -167,58 +171,4 @@ extension TerminalController: ControlSimulatorContext {
         panel.isFeatureReady ? .panel(panel) : .unavailable
     }
 
-}
-
-private final class ControlSimulatorPendingTextInput: @unchecked Sendable {
-    private let lock = NSLock()
-    private weak var coordinator: SimulatorPaneCoordinator?
-    private var task: Task<Void, Never>?
-    private var requestIdentifier: UUID?
-    private var isCancelled = false
-    private var taskFinished = false
-
-    @MainActor
-    init(coordinator: SimulatorPaneCoordinator) {
-        self.coordinator = coordinator
-    }
-
-    func setTask(_ task: Task<Void, Never>) {
-        lock.withLock {
-            if isCancelled {
-                task.cancel()
-            } else if !taskFinished {
-                self.task = task
-            }
-        }
-    }
-
-    func finishTask() {
-        lock.withLock {
-            taskFinished = true
-            task = nil
-        }
-    }
-
-    @MainActor
-    func setRequestIdentifier(_ requestIdentifier: UUID) {
-        let shouldCancel = lock.withLock {
-            self.requestIdentifier = requestIdentifier
-            return isCancelled
-        }
-        if shouldCancel {
-            coordinator?.cancelTextInput(requestID: requestIdentifier)
-        }
-    }
-
-    func cancel() {
-        let state = lock.withLock { () -> (Task<Void, Never>?, UUID?) in
-            isCancelled = true
-            return (task, requestIdentifier)
-        }
-        state.0?.cancel()
-        guard let requestIdentifier = state.1 else { return }
-        Task { @MainActor [weak coordinator] in
-            coordinator?.cancelTextInput(requestID: requestIdentifier)
-        }
-    }
 }

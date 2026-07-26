@@ -1,32 +1,13 @@
 import CmuxSimulator
 import SwiftUI
 
-enum SimulatorDeviceQuickControl: CaseIterable, Equatable {
-  case home
-  case screenshot
-  case rotate
-  case pointerCapture
-  case keyboardCapture
-
-  static func available(for family: SimulatorDeviceFamily?) -> [Self] {
-    switch family {
-    case .iPad:
-      [.home, .screenshot, .rotate, .pointerCapture, .keyboardCapture]
-    case .iPhone:
-      [.home, .screenshot, .rotate]
-    default:
-      []
-    }
-  }
-}
-
 struct SimulatorDeviceQuickControls: View {
   let coordinator: SimulatorPaneCoordinator
   let family: SimulatorDeviceFamily?
 
   var body: some View {
     HStack(spacing: 2) {
-      ForEach(SimulatorDeviceQuickControl.available(for: family), id: \.self) { control in
+      ForEach(simulatorAvailableDeviceQuickControls(for: family), id: \.self) { control in
         button(for: control)
       }
     }

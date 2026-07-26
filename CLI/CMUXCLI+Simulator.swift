@@ -732,16 +732,3 @@ extension CMUXCLI {
     }
 
 }
-
-private final class IOSScreenshotCommandResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var result: SimulatorOwnedCommandResult?
-
-    func set(_ result: SimulatorOwnedCommandResult) {
-        lock.withLock { self.result = result }
-    }
-
-    func get() -> SimulatorOwnedCommandResult? {
-        lock.withLock { result }
-    }
-}

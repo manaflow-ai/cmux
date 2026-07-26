@@ -334,6 +334,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         }
     }
 
+    /// Retires shared-memory transports after the host adopts the replacement.
     public func acknowledgeFrameTransportAdoption(
         _ descriptor: SimulatorFrameTransportDescriptor
     ) async {

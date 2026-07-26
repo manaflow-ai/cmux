@@ -26,7 +26,7 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
-        process.environment = Self.workerEnvironment(
+        process.environment = simulatorWorkerEnvironment(
             inherited: ProcessInfo.processInfo.environment,
             additional: environment
         )
@@ -112,17 +112,18 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
         )
     }
 
-    static func workerEnvironment(
-        inherited: [String: String],
-        additional: [String: String]
-    ) -> [String: String] {
-        let allowedKeys = [
-            "DEVELOPER_DIR", "DYLD_FRAMEWORK_PATH", "HOME", "LANG", "LC_ALL",
-            "LC_CTYPE", "PATH", "SDKROOT", "TMPDIR", "XCODE_DEVELOPER_DIR_PATH",
-        ]
-        let workerEnvironment = Dictionary(uniqueKeysWithValues: allowedKeys.compactMap { key in
-            inherited[key].map { (key, $0) }
-        })
-        return workerEnvironment.merging(additional) { _, replacement in replacement }
-    }
+}
+
+func simulatorWorkerEnvironment(
+    inherited: [String: String],
+    additional: [String: String]
+) -> [String: String] {
+    let allowedKeys = [
+        "DEVELOPER_DIR", "DYLD_FRAMEWORK_PATH", "HOME", "LANG", "LC_ALL",
+        "LC_CTYPE", "PATH", "SDKROOT", "TMPDIR", "XCODE_DEVELOPER_DIR_PATH",
+    ]
+    let workerEnvironment = Dictionary(uniqueKeysWithValues: allowedKeys.compactMap { key in
+        inherited[key].map { (key, $0) }
+    })
+    return workerEnvironment.merging(additional) { _, replacement in replacement }
 }

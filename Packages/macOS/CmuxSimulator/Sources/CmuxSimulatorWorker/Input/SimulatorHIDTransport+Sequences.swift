@@ -40,7 +40,7 @@ extension SimulatorHIDTransport {
 
     func sendGestureSequence(_ events: [SimulatorPointerEvent]) async -> Bool {
         guard !events.isEmpty, events.count <= 256 else { return false }
-        let interEventDelay: Duration = Self.isTapSequence(events)
+        let interEventDelay: Duration = simulatorIsTapSequence(events)
             ? .milliseconds(50)
             : .milliseconds(4)
         for (index, event) in events.enumerated() {
@@ -59,14 +59,15 @@ extension SimulatorHIDTransport {
         return lastPointerEvent == nil
     }
 
-    private static func isTapSequence(_ events: [SimulatorPointerEvent]) -> Bool {
-        guard events.count == 2 else { return false }
-        let down = events[0]
-        let up = events[1]
-        return down.phase == .began
-            && up.phase == .ended
-            && down.primary == up.primary
-            && down.secondary == up.secondary
-            && down.edge == up.edge
-    }
+}
+
+private func simulatorIsTapSequence(_ events: [SimulatorPointerEvent]) -> Bool {
+    guard events.count == 2 else { return false }
+    let down = events[0]
+    let up = events[1]
+    return down.phase == .began
+        && up.phase == .ended
+        && down.primary == up.primary
+        && down.secondary == up.secondary
+        && down.edge == up.edge
 }

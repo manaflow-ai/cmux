@@ -1,6 +1,9 @@
 import Foundation
 
 /// Bounds long-lived synchronous Simulator RPC waits on connection threads.
+///
+/// SAFETY: `lock` protects the complete admission count, and every successful
+/// acquire has one synchronous release on the same socket-operation lifetime.
 final class ControlSimulatorOperationAdmissionGate: @unchecked Sendable {
     private let lock = NSLock()
     private let maximumConcurrentOperations: Int

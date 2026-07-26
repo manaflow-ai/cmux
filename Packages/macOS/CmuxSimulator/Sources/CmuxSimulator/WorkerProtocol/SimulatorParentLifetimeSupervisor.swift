@@ -1,13 +1,6 @@
 import Foundation
 
-/// Wraps one command in a dedicated process-group leader whose stdin stays
-/// connected to its parent. EOF means the parent died, so the watchdog kills
-/// the complete group. Normal command exit preserves the command status and
-/// lets `SimulatorProcessGroupProcess` reap any remaining descendants.
-package enum SimulatorParentLifetimeSupervisor {
-    package static let executableURL = URL(fileURLWithPath: "/bin/sh")
-
-    package static let script = #"""
+private let simulatorParentLifetimeSupervisorScript = #"""
     exec 3<&0
     (IFS= read -r _ <&3 || kill -KILL 0) &
     watchdog=$!
@@ -19,15 +12,20 @@ package enum SimulatorParentLifetimeSupervisor {
     exit "$status"
     """#
 
-    package static func arguments(
-        executableURL: URL,
-        arguments: [String]
-    ) -> [String] {
-        [
-            "-c",
-            script,
-            "cmux-simulator-command-supervisor",
-            executableURL.path,
-        ] + arguments
-    }
+/// The shell executable used to host the parent-lifetime supervisor.
+package let simulatorParentLifetimeSupervisorExecutableURL =
+    URL(fileURLWithPath: "/bin/sh")
+
+/// Wraps one command in a dedicated process-group leader whose stdin stays
+/// connected to its parent. EOF kills the complete process group.
+package func simulatorParentLifetimeSupervisorArguments(
+    executableURL: URL,
+    arguments: [String]
+) -> [String] {
+    [
+        "-c",
+        simulatorParentLifetimeSupervisorScript,
+        "cmux-simulator-command-supervisor",
+        executableURL.path,
+    ] + arguments
 }

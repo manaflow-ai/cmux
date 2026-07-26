@@ -6,6 +6,7 @@ private struct SimulatorCameraConfigurationConfirmation: Sendable {
 }
 
 extension SimulatorWorkerClient {
+    /// Rotates the worker and returns its confirmed display metadata.
     public func synchronizeOrientation(
         _ orientation: SimulatorOrientation
     ) async throws -> SimulatorDisplayMetadata? {
