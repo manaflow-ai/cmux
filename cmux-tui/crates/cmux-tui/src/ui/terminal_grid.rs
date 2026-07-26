@@ -580,6 +580,20 @@ mod tests {
     }
 
     #[test]
+    fn terminal_control_cells_render_as_blanks() {
+        let colors = [Rgb::default(); 256];
+        let overridden = [false; 256];
+        let resolver = resolver(&colors, &overridden);
+
+        for text in ["\0", "\t", "\r"] {
+            let cell = VtCell { text: text.to_string(), ..VtCell::default() };
+            let mut target = ratatui::buffer::Cell::default();
+            apply_cell(&mut target, &cell, &resolver, None);
+            assert_eq!(target.symbol(), " ");
+        }
+    }
+
+    #[test]
     fn frame_default_order_and_live_blank_cells_follow_canonical_roles() {
         let foreground = Rgb { r: 0x11, g: 0x22, b: 0x33 };
         let background = Rgb { r: 0x44, g: 0x55, b: 0x66 };

@@ -119175,6 +119175,23 @@
         }
       }
     },
+    "menu.history.reopenClosedWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen Closed Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じたワークスペースを再度開く"
+          }
+        }
+      }
+    },
     "menu.history.reopenLastClosed": {
       "extractionState": "manual",
       "localizations": {

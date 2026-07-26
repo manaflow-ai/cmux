@@ -3,6 +3,8 @@ use std::sync::OnceLock;
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::config::Action;
+
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -20,10 +22,91 @@ pub(crate) struct ForeignViewportMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MachineAgentMessages {
+    pub help: &'static str,
+    pub usage: &'static str,
+    pub pairing_code: &'static str,
+    pub registered: &'static str,
+    pub retrying: &'static str,
+    pub migration_failed: &'static str,
+    pub pairing_code_unavailable: &'static str,
+    pub runtime_failed: &'static str,
+    pub invalid_session: &'static str,
+    pub identity_unavailable: &'static str,
+    pub registration_already_running: &'static str,
+    pub cloud_configuration_invalid: &'static str,
+    pub argument_needs_value: &'static str,
+    pub invalid_cloud_port: &'static str,
+    pub cloud_port_cannot_be_zero: &'static str,
+    pub unknown_argument: &'static str,
+}
+
+impl MachineAgentMessages {
+    pub(crate) fn retrying_message(&self, milliseconds: u128) -> String {
+        self.retrying.replace("{milliseconds}", &milliseconds.to_string())
+    }
+
+    pub(crate) fn argument_needs_value_message(&self, argument: &str) -> String {
+        self.argument_needs_value.replace("{argument}", argument)
+    }
+
+    pub(crate) fn invalid_cloud_port_message(&self, value: &str) -> String {
+        self.invalid_cloud_port.replace("{value}", value)
+    }
+
+    pub(crate) fn unknown_argument_message(&self, argument: &str) -> String {
+        self.unknown_argument.replace("{argument}", argument)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MenuMessages {
+    pub maximize_pane: &'static str,
+    pub restore_pane_layout: &'static str,
+    pub show_sidebar: &'static str,
+    pub hide_sidebar: &'static str,
+    pub compact_sidebar: &'static str,
+    pub full_sidebar: &'static str,
+    pub focus_sidebar: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ShortcutMessages {
+    pub title: &'static str,
+    pub close_button: &'static str,
+    pub footer: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AttachMessages {
+    pub filtered_subscription_unavailable: &'static str,
+    unknown_terminal_prefix: &'static str,
+    unknown_terminal_suffix: &'static str,
+    ambiguous_terminal_prefix: &'static str,
+    ambiguous_terminal_suffix: &'static str,
+    browser_terminal_prefix: &'static str,
+    browser_terminal_suffix: &'static str,
+}
+
+impl AttachMessages {
+    pub fn unknown_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
+    }
+
+    pub fn ambiguous_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
+    }
+
+    pub fn browser_not_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
-    pub new_vm: &'static str,
+    pub new_machine: &'static str,
     pub connect_machine: &'static str,
     pub no_machines: &'static str,
     pub recoverable_machine: &'static str,
@@ -53,6 +136,7 @@ pub(crate) struct SidebarMessages {
     pub stopped: &'static str,
     pub unavailable: &'static str,
     pub connect_prompt: &'static str,
+    pub connect_host_prompt: &'static str,
     pub personal_scope: &'static str,
     pub team_scope: &'static str,
     pub scope: &'static str,
@@ -79,6 +163,7 @@ pub(crate) struct SidebarMessages {
     pub machine_reconnect_failed: &'static str,
     pub machine_terminal_colors_failed: &'static str,
     pub machine_provider_external_connect_unsupported: &'static str,
+    pub machine_provider_external_connect_ambiguous: &'static str,
     pub machine_not_ready_to_connect: &'static str,
     pub machine_managed_authority_unsupported: &'static str,
     pub machine_managed_authority_invalid: &'static str,
@@ -133,12 +218,25 @@ const fn decimal_width(mut value: u16) -> usize {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
+    japanese: bool,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub machine_agent: MachineAgentMessages,
+    pub menu: MenuMessages,
+    pub shortcuts: ShortcutMessages,
+    pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
 }
 
+impl Catalog {
+    pub fn action_label(&self, action: Action) -> &'static str {
+        let definition = action.definition();
+        if self.japanese { definition.label_ja } else { definition.label_en }
+    }
+}
+
 static ENGLISH: Catalog = Catalog {
+    japanese: false,
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -147,10 +245,69 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    machine_agent: MachineAgentMessages {
+        help: "\
+cmux machine-agent - share one local cmux session through a remote service
+
+USAGE:
+  cmux machine-agent [OPTIONS]
+
+OPTIONS:
+  --session <name>         Local cmux session (default: main)
+  --socket <path>          Explicit local cmux control socket
+  --state <path>           Private machine identity file
+  --cloud-host <host>      SSH registration host (default: cmux.cloud)
+  --cloud-user <user>      SSH user
+  --cloud-port <port>      SSH port
+  --cloud-identity <path>  SSH identity file
+  -h, --help               Show this help
+
+The agent opens one outbound connection. It never opens a public listener or
+edits shell files. Authenticate with the configured host before retrying.
+",
+        usage: "cmux machine-agent           Share one local session through the configured host",
+        pairing_code: "Pairing code",
+        registered: "Sharing local cmux session",
+        retrying: "Cloud connection lost; retrying in {milliseconds} ms",
+        migration_failed: "Could not reconnect the machine; please try again",
+        pairing_code_unavailable: "Pairing code could not be displayed securely. Run this command from an interactive terminal and retry",
+        runtime_failed: "The machine agent could not start or continue; check its configuration",
+        invalid_session: "The session name is invalid; use a short name without spaces or control characters",
+        identity_unavailable: "The private machine identity is unavailable; check that --state points to a private writable file",
+        registration_already_running: "A machine agent is already sharing this session; stop it before starting another",
+        cloud_configuration_invalid: "The cloud connection settings are invalid; check the host, user, port, and identity file",
+        argument_needs_value: "Option {argument} needs a value",
+        invalid_cloud_port: "Invalid --cloud-port value: {value}",
+        cloud_port_cannot_be_zero: "--cloud-port cannot be zero",
+        unknown_argument: "Unknown machine-agent argument: {argument}",
+    },
+    menu: MenuMessages {
+        maximize_pane: "Maximize pane",
+        restore_pane_layout: "Restore pane layout",
+        show_sidebar: "Show sidebar",
+        hide_sidebar: "Hide sidebar",
+        compact_sidebar: "Use compact sidebar",
+        full_sidebar: "Use full sidebar",
+        focus_sidebar: "Focus sidebar",
+    },
+    shortcuts: ShortcutMessages {
+        title: "Keyboard shortcuts",
+        close_button: "Esc close",
+        footer: "↑/↓ or wheel scroll · Esc or ? close",
+    },
+    attach: AttachMessages {
+        filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
+        unknown_terminal_prefix: "unknown terminal ",
+        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        ambiguous_terminal_prefix: "ambiguous terminal reference ",
+        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        browser_terminal_prefix: "surface ",
+        browser_terminal_suffix: " is a browser, not a terminal",
+    },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
-        new_vm: "new VM",
+        new_machine: "new machine",
         connect_machine: "connect machine",
         no_machines: "no machines",
         recoverable_machine: "recoverable",
@@ -179,7 +336,8 @@ static ENGLISH: Catalog = Catalog {
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
-        connect_prompt: "Connect user@host",
+        connect_prompt: "Host address or pairing code",
+        connect_host_prompt: "Host address",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -206,10 +364,11 @@ static ENGLISH: Catalog = Catalog {
         machine_reconnect_failed: "Could not reconnect machine",
         machine_terminal_colors_failed: "Could not apply terminal colors",
         machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
+        machine_provider_external_connect_ambiguous: "The previous connection attempt may have succeeded; reconnect the provider and retry with the same pairing code",
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
         machine_managed_authority_unsupported: "This provider cannot authorize managed workspace mirrors; upgrade the machine provider",
         machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
-        machine_catalog_create_unsupported: "This machine catalog cannot create VMs",
+        machine_catalog_create_unsupported: "This machine catalog cannot create machines",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
         machine_catalog_updates_failed: "Machine catalog updates could not start",
         machine_catalog_restart_failed: "Machine switched without live catalog updates",
@@ -222,6 +381,7 @@ static ENGLISH: Catalog = Catalog {
 };
 
 static JAPANESE: Catalog = Catalog {
+    japanese: true,
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",
@@ -230,10 +390,69 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    machine_agent: MachineAgentMessages {
+        help: "\
+cmux machine-agent - ローカルの cmux セッションをリモートサービス経由で共有
+
+使用方法:
+  cmux machine-agent [オプション]
+
+オプション:
+  --session <name>         ローカル cmux セッション（既定: main）
+  --socket <path>          ローカル cmux 制御ソケットを指定
+  --state <path>           非公開のマシン ID ファイル
+  --cloud-host <host>      SSH 登録ホスト（既定: cmux.cloud）
+  --cloud-user <user>      SSH ユーザー
+  --cloud-port <port>      SSH ポート
+  --cloud-identity <path>  SSH ID ファイル
+  -h, --help               このヘルプを表示
+
+エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
+を編集したりしません。再試行する前に、設定したホストで認証してください。
+",
+        usage: "cmux machine-agent           設定したホスト経由でローカルセッションを共有",
+        pairing_code: "ペアリングコード",
+        registered: "ローカル cmux セッションを共有中",
+        retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
+        migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
+        pairing_code_unavailable: "ペアリングコードを安全に表示できませんでした。対話型端末でこのコマンドを実行して再試行してください",
+        runtime_failed: "machine-agent を開始または続行できませんでした。設定を確認してください",
+        invalid_session: "セッション名が無効です。空白や制御文字を含まない短い名前を使用してください",
+        identity_unavailable: "非公開のマシン ID を使用できません。--state が非公開で書き込み可能なファイルを指していることを確認してください",
+        registration_already_running: "このセッションは別の machine-agent が共有中です。停止してからもう一度開始してください",
+        cloud_configuration_invalid: "クラウド接続設定が無効です。ホスト、ユーザー、ポート、ID ファイルを確認してください",
+        argument_needs_value: "オプション {argument} には値が必要です",
+        invalid_cloud_port: "--cloud-port の値が無効です: {value}",
+        cloud_port_cannot_be_zero: "--cloud-port に 0 は指定できません",
+        unknown_argument: "不明な machine-agent 引数です: {argument}",
+    },
+    menu: MenuMessages {
+        maximize_pane: "ペインを最大化",
+        restore_pane_layout: "ペイン配置を復元",
+        show_sidebar: "サイドバーを表示",
+        hide_sidebar: "サイドバーを隠す",
+        compact_sidebar: "サイドバーをコンパクト表示",
+        full_sidebar: "サイドバーを通常表示",
+        focus_sidebar: "サイドバーにフォーカス",
+    },
+    shortcuts: ShortcutMessages {
+        title: "キーボードショートカット",
+        close_button: "Esc 閉じる",
+        footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
+    },
+    attach: AttachMessages {
+        filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
+        unknown_terminal_prefix: "ターミナル ",
+        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        ambiguous_terminal_prefix: "ターミナル参照 ",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        browser_terminal_prefix: "サーフェス ",
+        browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
+    },
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
-        new_vm: "新規 VM",
+        new_machine: "新規マシン",
         connect_machine: "マシンを接続",
         no_machines: "マシンがありません",
         recoverable_machine: "復元可能",
@@ -262,7 +481,8 @@ static JAPANESE: Catalog = Catalog {
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
-        connect_prompt: "user@host に接続",
+        connect_prompt: "ホストアドレスまたはペアリングコード",
+        connect_host_prompt: "ホストアドレス",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -289,10 +509,11 @@ static JAPANESE: Catalog = Catalog {
         machine_reconnect_failed: "マシンに再接続できませんでした",
         machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
         machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
+        machine_provider_external_connect_ambiguous: "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください",
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
         machine_managed_authority_unsupported: "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください",
         machine_managed_authority_invalid: "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました",
-        machine_catalog_create_unsupported: "このマシンカタログでは仮想マシンを作成できません",
+        machine_catalog_create_unsupported: "このマシンカタログではマシンを作成できません",
         machine_catalog_provider_actions_unsupported: "このマシンカタログにはプロバイダーアクションがありません",
         machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",
         machine_catalog_restart_failed: "マシンは切り替わりましたが、カタログのライブ更新を再開できませんでした",
@@ -329,17 +550,112 @@ mod tests {
         assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
         assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);
         assert_eq!(catalog_for_locale("C"), &ENGLISH);
+        assert_eq!(ENGLISH.menu.maximize_pane, "Maximize pane");
+        assert_eq!(JAPANESE.menu.maximize_pane, "ペインを最大化");
+        assert_eq!(ENGLISH.action_label(Action::NewPaneSmart), "New pane");
+        assert_eq!(JAPANESE.action_label(Action::NewPaneSmart), "新しいペイン");
+        assert_eq!(ENGLISH.shortcuts.title, "Keyboard shortcuts");
+        assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
+        assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
+        assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
+        assert_eq!(
+            JAPANESE.attach.filtered_subscription_unavailable,
+            "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
+        );
+        assert_eq!(
+            ENGLISH.attach.unknown_terminal("missing"),
+            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+        );
+        assert_eq!(
+            JAPANESE.attach.ambiguous_terminal("000010"),
+            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+        );
+        assert_eq!(
+            JAPANESE.attach.browser_not_terminal("browser"),
+            "サーフェス \"browser\" はブラウザであり、ターミナルではありません"
+        );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"
+        );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").machine_agent.pairing_code, "Pairing code");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").machine_agent.retrying_message(250),
+            "Cloud connection lost; retrying in 250 ms"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.pairing_code,
+            "ペアリングコード"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.retrying_message(250),
+            "クラウド接続が切断されました。250 ミリ秒後に再接続します"
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").machine_agent.migration_failed,
+            "Could not reconnect the machine; please try again"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.migration_failed,
+            "マシンを再接続できませんでした。もう一度お試しください"
+        );
+        assert!(
+            catalog_for_locale("en_US.UTF-8")
+                .machine_agent
+                .help
+                .contains("share one local cmux session through a remote service")
+        );
+        assert!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .machine_agent
+                .help
+                .contains("ローカルの cmux セッションをリモートサービス経由で共有")
+        );
+        assert!(!catalog_for_locale("en_US.UTF-8").machine_agent.help.contains("BatchMode"));
+        assert!(!catalog_for_locale("ja_JP.UTF-8").machine_agent.help.contains("BatchMode"));
+        assert!(
+            catalog_for_locale("en_US.UTF-8")
+                .machine_agent
+                .pairing_code_unavailable
+                .contains("interactive terminal")
+        );
+        assert!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .machine_agent
+                .pairing_code_unavailable
+                .contains("対話型端末")
+        );
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").machine_agent.invalid_cloud_port_message("invalid"),
+            "Invalid --cloud-port value: invalid"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.invalid_cloud_port_message("invalid"),
+            "--cloud-port の値が無効です: invalid"
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,
             "Machine action failed"
         );
         assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
+            "Host address or pairing code"
+        );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new machine");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規マシン");
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
+            "ホストアドレスまたはペアリングコード"
+        );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt, "Host address");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt, "ホストアドレス");
+        assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
+            "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_replacement_stale,
