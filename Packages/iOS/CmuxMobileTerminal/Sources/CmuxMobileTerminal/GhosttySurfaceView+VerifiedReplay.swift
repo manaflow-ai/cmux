@@ -72,7 +72,7 @@ extension GhosttySurfaceView {
     private func makeVerifiedReplayFrozenPresentationForFreeze(
         transactionID: UInt64
     ) async -> VerifiedReplayFrozenPresentation? {
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let renderer = (rendererHostLayer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let presentedContents = renderer?.presentation()?.contents ?? renderer?.contents
         let requiresPresentedDrain = Self.requiresVerifiedReplayPresentedDrain(
             hasPresentedContents: presentedContents != nil
@@ -99,19 +99,19 @@ extension GhosttySurfaceView {
               let fence = verifiedReplayReadyFence else {
             return false
         }
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let renderer = (rendererHostLayer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         let presentationIdentity = verifiedReplayRendererIdentity(
             from: renderer?.presentation()?.contents
         )
         let modelGeometry = verifiedReplayPresentationGeometry(
             renderer: renderer,
-            host: layer,
+            host: rendererHostLayer,
             viewportRect: terminalViewportRect
         )
         let presentationGeometry = verifiedReplayPresentationGeometry(
             renderer: renderer?.presentation(),
-            host: layer.presentation() ?? layer,
+            host: rendererHostLayer.presentation() ?? rendererHostLayer,
             viewportRect: terminalViewportRect
         )
         guard fence.isSatisfied(
@@ -194,11 +194,11 @@ extension GhosttySurfaceView {
     func handleVerifiedReplayRenderPresented(token: UInt64) {
         guard var pending = pendingVerifiedReplayPresentation else { return }
         guard token == pending.fence.expectedToken else { return }
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let renderer = (rendererHostLayer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         let modelGeometry = verifiedReplayPresentationGeometry(
             renderer: renderer,
-            host: layer,
+            host: rendererHostLayer,
             viewportRect: terminalViewportRect
         )
         if let failureReason = pending.fence.acknowledgementFailureReason(
@@ -238,10 +238,10 @@ extension GhosttySurfaceView {
               !isRenderingSuspendedForVerifiedReplay else {
             return
         }
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let renderer = (rendererHostLayer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         guard let geometry = verifiedReplayPresentationGeometry(
             renderer: renderer,
-            host: layer,
+            host: rendererHostLayer,
             viewportRect: terminalViewportRect
         ) else {
             return
@@ -271,19 +271,19 @@ extension GhosttySurfaceView {
     /// Core Animation's presentation tree.
     func completePendingVerifiedReplayPresentationIfPresented() {
         guard let pending = pendingVerifiedReplayPresentation else { return }
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let renderer = (rendererHostLayer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         let presentationIdentity = verifiedReplayRendererIdentity(
             from: renderer?.presentation()?.contents
         )
         let modelGeometry = verifiedReplayPresentationGeometry(
             renderer: renderer,
-            host: layer,
+            host: rendererHostLayer,
             viewportRect: terminalViewportRect
         )
         let presentationGeometry = verifiedReplayPresentationGeometry(
             renderer: renderer?.presentation(),
-            host: layer.presentation() ?? layer,
+            host: rendererHostLayer.presentation() ?? rendererHostLayer,
             viewportRect: terminalViewportRect
         )
         guard pending.fence.isSatisfied(
@@ -310,7 +310,7 @@ extension GhosttySurfaceView {
 
     func verifiedReplayPendingFenceFailureReason() -> String? {
         guard let pending = pendingVerifiedReplayPresentation else { return nil }
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let renderer = (rendererHostLayer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         return pending.fence.unsatisfiedReason(
             modelIdentity: verifiedReplayRendererIdentity(from: renderer?.contents),
             presentationIdentity: verifiedReplayRendererIdentity(
@@ -319,12 +319,12 @@ extension GhosttySurfaceView {
             geometryRevision: verifiedReplayGeometryRevision,
             modelGeometry: verifiedReplayPresentationGeometry(
                 renderer: renderer,
-                host: layer,
+                host: rendererHostLayer,
                 viewportRect: terminalViewportRect
             ),
             presentationGeometry: verifiedReplayPresentationGeometry(
                 renderer: renderer?.presentation(),
-                host: layer.presentation() ?? layer,
+                host: rendererHostLayer.presentation() ?? rendererHostLayer,
                 viewportRect: terminalViewportRect
             )
         )

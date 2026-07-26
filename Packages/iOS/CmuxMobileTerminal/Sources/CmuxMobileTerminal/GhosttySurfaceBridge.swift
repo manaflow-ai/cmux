@@ -4,40 +4,68 @@ import UIKit
 
 /// Bridges libghostty C callbacks (which run on the IO read thread or
 /// other Ghostty-internal threads) onto the main actor where the
-/// `GhosttySurfaceView` lives. The single mutable property is the
-/// `weak var surfaceView`; we serialise reads/writes through the main
-/// actor, which lets us conform to `Sendable` for the `Task { @MainActor }`
-/// hops below.
+/// `GhosttySurfaceView` lives. A lock protects callback delivery and the
+/// minimal renderer host that keeps libghostty's borrowed UIView pointer valid
+/// through synchronous surface destruction.
+// Safety: `lock` guards every mutable field, and callbacks dereference UIKit
+// objects only after hopping to MainActor.
 final class GhosttySurfaceBridge: @unchecked Sendable {
-    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
+    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding callback delivery and the renderer host on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
-    // Deliberately STRONG: libghostty holds the raw view pointer
-    // (`ghostty_platform_ios_s.uiview`, passUnretained in `makeSurface`), so
-    // the view must outlive queued surface operations. Surface creation gives
-    // libghostty an owned bridge retain; dismantle detaches this reference to
-    // break the view<->bridge cycle, and final C-surface destruction releases
-    // the bridge only after internal callbacks and app-action leases stop.
-    private var _surfaceView: GhosttySurfaceView?
+    // Callback delivery never owns the terminal view. libghostty stores a raw
+    // pointer only to the small renderer host UIView, so that host alone stays
+    // alive if a queued free stalls after the terminal has been dismantled.
+    private weak var _surfaceView: GhosttySurfaceView?
+    private var _rendererHostView: UIView?
+    private var deliversCallbacks = false
 
     var surfaceView: GhosttySurfaceView? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _surfaceView
-        }
-        set {
-            lock.lock()
-            _surfaceView = newValue
-            lock.unlock()
-        }
+        lock.lock()
+        defer { lock.unlock() }
+        return deliversCallbacks ? _surfaceView : nil
     }
 
-    func attach(to surfaceView: GhosttySurfaceView) {
-        self.surfaceView = surfaceView
+    func attach(to surfaceView: GhosttySurfaceView, rendererHostView: UIView) {
+        lock.lock()
+        _surfaceView = surfaceView
+        _rendererHostView = rendererHostView
+        deliversCallbacks = true
+        lock.unlock()
     }
 
     func detach() {
-        surfaceView = nil
+        lock.lock()
+        deliversCallbacks = false
+        _surfaceView = nil
+        lock.unlock()
+    }
+
+    func releaseRendererHostAfterFree() {
+        lock.lock()
+        deliversCallbacks = false
+        _surfaceView = nil
+        _rendererHostView = nil
+        lock.unlock()
+    }
+
+    /// Captures this bridge before hopping to the main actor, then re-checks
+    /// attachment when the renderer continuation is delivered.
+    @discardableResult
+    func scheduleRenderWakeup() -> Task<Bool, Never> {
+        Task { @MainActor [self] in
+            requestRenderWakeup()
+        }
+    }
+
+    /// Delivers one renderer continuation only while the terminal is attached.
+    /// The explicit result distinguishes a dropped detached continuation from
+    /// one handed to the terminal without adding per-frame bookkeeping.
+    @MainActor
+    @discardableResult
+    func requestRenderWakeup() -> Bool {
+        guard let surfaceView else { return false }
+        surfaceView.drawForWakeup()
+        return true
     }
 
     func handleWrite(_ bytes: Data) {
@@ -67,11 +95,6 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-    }
-
-    static func releaseRetainedOpaque(_ userdata: UnsafeMutableRawPointer?) {
-        guard let userdata else { return }
-        Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).release()
     }
 }
 

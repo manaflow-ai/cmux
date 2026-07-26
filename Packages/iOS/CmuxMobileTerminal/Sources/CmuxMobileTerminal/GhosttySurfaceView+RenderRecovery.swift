@@ -207,6 +207,7 @@ extension GhosttySurfaceView {
             pendingSurfaceFreeCount += 1
             enqueueSurfaceFree(
                 oldSurface,
+                bridge: oldBridge,
                 generation: surfaceGeneration,
                 on: oldQueue
             ) { [weak self] in
@@ -238,7 +239,7 @@ extension GhosttySurfaceView {
         outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
         scrollToBottomInFlight = false
         bridge = GhosttySurfaceBridge()
-        bridge.attach(to: self)
+        bridge.attach(to: self, rendererHostView: rendererHostView)
 
         initializeSurface()
         if replay == .delegateWhenNoCaller && !completedFailedOperation {

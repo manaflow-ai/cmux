@@ -12,10 +12,22 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `f11159ff4`, the merge (landing
-through https://github.com/manaflow-ai/ghostty/pull/147) of the
-screen-anchored render-grid export line with the then-current
-`manaflow-ai/ghostty` `main` (`50ad1963d`).
+The submodule pinned by this branch is
+`cfd39f39aaefa339a6620f124ab39ca0c478be11`, the current
+`manaflow-ai/ghostty` `main`. PR 147 merges both sides needed by cmux:
+the screen-anchored render-grid export from `f11159ff4` and the Issue 8808
+teardown correction from `518ac28d5`.
+
+The pin retains the bounded renderer work from
+https://github.com/manaflow-ai/ghostty/pull/135,
+https://github.com/manaflow-ai/ghostty/pull/136, and
+https://github.com/manaflow-ai/ghostty/pull/139; adds the frame-slot rotation
+from https://github.com/manaflow-ai/ghostty/pull/145; and restores synchronous,
+borrowed callback userdata through
+https://github.com/manaflow-ai/ghostty/pull/146. It also includes the PTY
+cleanup fix from https://github.com/manaflow-ai/ghostty/pull/143, the wrapped
+link fix from https://github.com/manaflow-ai/ghostty/pull/134, and bounded
+Kitty graphics state from https://github.com/manaflow-ai/ghostty/pull/137.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
 local-scrollback scroll work: `buildRenderGridJson` gains an active-area
@@ -29,37 +41,45 @@ independently landed on `main` as the byte-identical serial frame-lease
 rotation (https://github.com/manaflow-ai/ghostty/pull/145); the merge keeps
 `main`'s version.
 
-On the `main` side: the complete renderer scheduling hardening landed
-through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
-bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
-external redraw delivery and surface lifetime retention landed through
-https://github.com/manaflow-ai/ghostty/pull/139. Embedder userdata ownership
-and callback lifetime hardening landed through
-https://github.com/manaflow-ai/ghostty/pull/140. Serial frame-lease rotation
-landed through https://github.com/manaflow-ai/ghostty/pull/145. Dead PTY reader
-and child cleanup landed through
-https://github.com/manaflow-ai/ghostty/pull/143. The cumulative external
-frontend integration landed through
-https://github.com/manaflow-ai/ghostty/pull/128, and the earlier stacked PRs
-https://github.com/manaflow-ai/ghostty/pull/127,
-https://github.com/manaflow-ai/ghostty/pull/123, and
-https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
-The nonblocking renderer lifecycle fix landed through
-https://github.com/manaflow-ai/ghostty/pull/132 before that cumulative merge.
-The resulting main line supplies the external-frontend renderer contract used
-by cmux Browser, exact cursor state for process-separated terminal mirrors,
-mutable-default color reset semantics, nonblocking embedded lifecycle updates,
-and the product-main renderer/link fixes described below. It also bounds each
-renderer mailbox drain turn so continuous producers cannot starve lifecycle
-processing or rendering.
+Its universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cfd39f39aaefa339a6620f124ab39ca0c478be11-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
-Fork `main`'s (`50ad1963d`) universal ReleaseFast GhosttyKit archive is
-published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-50ad1963d9c73ee957932ccb4d26bf6d15575ee7-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The merged
-pin `f11159ff4`'s archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f11159ff48e6e47bd1879655fef8b7157a963855-crashsubdir-cmux-crash-v1
-and pinned in the same checksums file.
+### Issue 8808 typing-lag correction
+
+- Commits:
+  - `3a43d5edc` (test: require serial frame slot rotation)
+  - `fcafac572` (fix: rotate serial frame leases)
+  - `7541eb3db` (revert the owned-userdata rewrite)
+  - `f4b337d1d` (test: require synchronous teardown during redraw action)
+  - `b47e5cac2` (fix: complete surface teardown before free returns)
+  - `1336910cc` (test: cover cross-thread free during redraw action)
+  - `ff36ae8ac` (fix: serialize teardown with cross-thread actions)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/frame_lease.zig`
+- Summary:
+  - https://github.com/manaflow-ai/cmux/issues/8808 was bisected to the cmux
+    Ghostty bump at `ea51d55aa8`. The lag was specific to cmux's fork-only
+    external renderer: serial frame production repeatedly reused IOSurface slot
+    zero, allowing Core Animation to delay visible recomposition of what looked
+    like the same surface object. Upstream Ghostty does not use this external
+    frame-lease path.
+  - Rotates the exact-slot lease scan after every successful acquisition, so
+    slow or serial input presents successive IOSurface identities.
+  - Reverts the broad owned-userdata API introduced while diagnosing the lag.
+    Callback userdata is borrowed again, surface teardown completes before
+    `ghostty_surface_free` returns, and a small action-lifetime guard prevents a
+    cross-thread redraw callback from racing teardown.
+  - Retains bounded renderer mailbox drains, redraw delivery tickets, and
+    surface action retention. Reverting those would restore the starvation and
+    teardown bugs covered by PRs 135, 136, and 139.
+  - This correction preserves PR 8848's renderer, iOS continuation, and
+    terminal-input fixes while replacing only its superseded ownership API.
+    It does not change the upstream Ghostty base or Zig version; the next clean
+    update performs that upgrade together.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
@@ -117,35 +137,6 @@ and pinned in the same checksums file.
     ownership, generation checks, enqueue-failure retry ownership, and the app
     action lifetime lease. A raw surface pointer is not a sufficient delivery
     identity across asynchronous dispatch.
-
-### Embedder userdata ownership and callback lifetime
-
-- Commits:
-  - `289097387` (fix: bind embedder userdata to surface lifetime)
-  - `76c8b03d8` (fix: retain userdata across every host callback)
-  - `365fe1d2c` (fix: lease setter-installed PTY tee callbacks)
-  - `98288feb2` (merge the owned-userdata lifetime fix)
-- Files:
-  - `include/ghostty.h`
-  - `src/apprt/embedded.zig`
-- Summary:
-  - Adds `ghostty_surface_new_with_owned_userdata` without changing
-    `ghostty_surface_config_s`, preserving the existing C ABI for borrowed
-    callers.
-  - Tracks embedder userdata through explicit borrowed, owned, and released
-    states. A successful owned construction transfers the host reference to
-    Ghostty; failed construction leaves ownership with the caller.
-  - Leases owned userdata across surface-targeted app actions and every host
-    callback, including PTY tee callbacks installed both during and after
-    construction.
-  - Defers the exactly-once final release until surface teardown and all
-    in-flight callbacks have quiesced, preventing host bridge destruction while
-    Ghostty can still call through its userdata.
-  - Conflict note: future embedder callback or teardown changes must acquire a
-    userdata lease before leaving Ghostty-owned synchronization, and must retain
-    the failed-creation ownership contract. Do not restore split host/Ghostty
-    release ownership or release the owned userdata directly from surface-free
-    call sites.
 
 ### Nonblocking renderer lifecycle state
 

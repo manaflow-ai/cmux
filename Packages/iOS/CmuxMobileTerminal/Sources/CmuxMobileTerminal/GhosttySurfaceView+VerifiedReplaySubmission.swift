@@ -21,10 +21,10 @@ extension GhosttySurfaceView {
             surface: surface,
             token: makeSurfaceOperationID()
         )
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let renderer = (rendererHostLayer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         guard let geometry = verifiedReplayPresentationGeometry(
             renderer: renderer,
-            host: layer,
+            host: rendererHostLayer,
             viewportRect: terminalViewportRect
         ) else {
             return nil

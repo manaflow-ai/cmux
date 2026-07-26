@@ -61,25 +61,31 @@ struct GhosttyRuntimeActionTests {
         let bridge = try #require(
             GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(sourceSurface))
         )
-        replacementView.stopDisplayLink()
-        replacementView.needsDraw = false
-
-        #expect(
-            GhosttyRuntime.simulateSurfaceActionForTesting(
-                surface: sourceSurface,
-                tag: GHOSTTY_ACTION_RENDER
-            )
-        )
+        let pendingDelivery = bridge.scheduleRenderWakeup()
 
         // Model the source surface being detached and its raw address being
         // reused before the queued MainActor continuation gets a turn.
         bridge.detach()
         GhosttySurfaceView.register(surface: sourceSurface, for: replacementView)
 
-        for _ in 0..<10 where !replacementView.needsDraw {
-            await Task.yield()
-        }
-        #expect(!replacementView.needsDraw)
+        #expect(GhosttySurfaceView.view(for: sourceSurface) === replacementView)
+        #expect(await pendingDelivery.value == false)
+    }
+
+    @MainActor
+    @Test("a detached callback bridge does not own the terminal view")
+    func detachedCallbackBridgeDoesNotOwnTerminalView() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let delegate = RendererContinuationTestDelegate()
+        var view: GhosttySurfaceView? = GhosttySurfaceView(runtime: runtime, delegate: delegate)
+        _ = try #require(view?.surface)
+        let bridge = try #require(view?.bridge)
+
+        bridge.detach()
+        #expect(isKnownUniquelyReferenced(&view))
+        view?.prepareForDismantle()
+        view = nil
+        withExtendedLifetime(bridge) {}
     }
 }
 
