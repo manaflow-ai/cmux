@@ -3421,6 +3421,20 @@ mod tests {
     }
 
     #[test]
+    fn read_only_terminal_access_does_not_signal_stream_progress() {
+        let mux = Mux::new_for_test("terminal-read-progress", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let progress = &surface.as_pty().unwrap().stream_progress;
+        let revision_before = progress.revision();
+
+        assert_eq!(surface.with_terminal(|term| term.history_rows()), Some(0));
+        assert_eq!(surface.try_with_terminal(|term| term.history_rows()).unwrap(), 0);
+
+        assert_eq!(progress.revision(), revision_before);
+    }
+
+    #[test]
     fn clear_history_waits_for_a_partial_vt_sequence_to_finish() {
         let mux = Mux::new_for_test("clear-history-partial-vt", SurfaceOptions::default());
         let surface =
@@ -3717,7 +3731,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_without_prompt_metadata_fails_closed_with_retained_history() {
+    fn clear_history_without_prompt_metadata_clears_scrollback_only() {
         let mux = Mux::new_for_test("clear-wrapped-input", SurfaceOptions::default());
         let surface = Surface::spawn_for_test(
             1,
@@ -3727,23 +3741,22 @@ mod tests {
         .unwrap();
         let writer = CapturingWriter::default();
         replace_local_writer(&surface, Box::new(writer.clone()));
-        let (history_before, contents_before) = surface
+        let (history_before, viewport_before) = surface
             .with_terminal(|term| {
                 for line in 0..12 {
                     term.vt_write(format!("history-{line}\r\n").as_bytes());
                 }
                 term.vt_write(b"wrapped-edit-buffer");
-                (term.history_rows(), term.plain_text().unwrap())
+                (term.history_rows(), term.viewport_text().unwrap())
             })
             .unwrap();
 
-        let error = surface.clear_history().unwrap_err();
+        surface.clear_history().unwrap();
 
-        assert_eq!(error.to_string(), CLEAR_HISTORY_PRESERVATION_ERROR);
         assert!(history_before > 0);
         surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), history_before);
-            assert_eq!(term.plain_text().unwrap(), contents_before);
+            assert_eq!(term.history_rows(), 0);
+            assert_eq!(term.viewport_text().unwrap(), viewport_before);
         });
         assert!(writer.0.lock().unwrap().is_empty());
     }
