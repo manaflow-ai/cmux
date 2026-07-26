@@ -27,19 +27,22 @@ use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
-    ActionValue, BearerToken, ClientDescriptor, CloseMachineParams, CloseMachineResult,
-    ConnectExternalMachineParams, ConnectExternalMachineResult, CreateMachineParams,
-    CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
-    EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope, ExternalMachineSpecifier, HelloParams,
-    HelloResult, InvokeActionParams, InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY,
-    MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult, MachineMutationParams,
-    MachineMutationResult, OpaqueId, OpenMachineParams, OpenMachineResult, Protocol, ProviderError,
+    AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken,
+    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, ClientDescriptor, CloseMachineParams,
+    CloseMachineResult, ConnectExternalMachineParams, ConnectExternalMachineResult,
+    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
+    DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope,
+    ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
+    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
+    MachineMutationParams, MachineMutationResult, NegotiateClientCapabilitiesParams,
+    NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId, OpenMachineParams,
+    OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError,
     ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
     RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
-    SnapshotResult, TransportDescriptor, TransportHandshake, TransportHandshakeResult,
-    TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode,
-    WorkspaceMutationParams, WorkspaceMutationResult, WorkspaceSnapshotParams,
-    WorkspaceSnapshotResult,
+    SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor,
+    TransportHandshake, TransportHandshakeResult, TransportRole, Version,
+    WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
+    WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -193,10 +196,16 @@ impl From<ReaderFailure> for ProviderClientError {
 type PendingResponse = Result<Vec<u8>, ReaderFailure>;
 
 #[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReceivedProviderEvent {
+    pub(crate) event: ProviderEvent,
+    pub(crate) delivery: Option<NoticeDelivery>,
+}
+
+#[cfg(unix)]
 #[derive(Default)]
 struct ProviderEventQueueState {
-    events: VecDeque<ProviderEvent>,
-    best_effort_len: usize,
+    events: VecDeque<ReceivedProviderEvent>,
     disconnected: bool,
 }
 
@@ -212,57 +221,78 @@ impl ProviderEventQueue {
         Self { state: Mutex::new(ProviderEventQueueState::default()), ready: Condvar::new() }
     }
 
-    fn publish(&self, event: ProviderEvent) {
+    fn publish(&self, event: ReceivedProviderEvent) -> Result<(), ()> {
         let Ok(mut state) = self.state.lock() else {
-            return;
+            return Err(());
         };
         if state.disconnected {
-            return;
+            return Err(());
         }
-        if let ProviderEvent::ConnectionClosed(closed) = &event {
-            if let Some(index) = state.events.iter().position(|queued| {
+
+        if let Some(delivery) = event.delivery.as_ref()
+            && let Some(index) = state.events.iter().position(|queued| {
+                queued
+                    .delivery
+                    .as_ref()
+                    .is_some_and(|queued| queued.notice_id == delivery.notice_id)
+            })
+        {
+            if state.events[index] != event {
+                state.events.clear();
+                state.disconnected = true;
+                drop(state);
+                self.ready.notify_all();
+                return Err(());
+            }
+            drop(state);
+            self.ready.notify_one();
+            return Ok(());
+        }
+
+        if let ProviderEvent::ConnectionClosed(closed) = &event.event
+            && let Some(index) = state.events.iter().position(|queued| {
                 matches!(
-                    queued,
+                    &queued.event,
                     ProviderEvent::ConnectionClosed(queued)
                         if queued.connection_id == closed.connection_id
                             && queued.machine_id == closed.machine_id
                 )
-            }) {
-                // One connection can only be closed once. Retain its latest
-                // provider reason without growing the priority queue.
-                state.events[index] = event;
-                drop(state);
-                self.ready.notify_one();
-                return;
-            }
-            if state.events.len() >= PROVIDER_EVENT_QUEUE_CAPACITY {
-                let best_effort = state
-                    .events
-                    .iter()
-                    .position(|queued| !matches!(queued, ProviderEvent::ConnectionClosed(_)));
-                let Some(best_effort) = best_effort else {
-                    // More distinct closures than the bounded priority budget
-                    // means the consumer cannot safely keep up. Force a
-                    // provider resync instead of dropping an arbitrary closure.
-                    state.events.clear();
-                    state.best_effort_len = 0;
-                    state.disconnected = true;
-                    drop(state);
-                    self.ready.notify_all();
-                    return;
-                };
-                state.events.remove(best_effort);
-                state.best_effort_len -= 1;
-            }
-            state.events.push_back(event);
-        } else if state.events.len() < PROVIDER_EVENT_QUEUE_CAPACITY {
-            state.events.push_back(event);
-            state.best_effort_len += 1;
-        } else {
-            return;
+            })
+        {
+            // One connection can only be closed once. Retain its latest
+            // provider reason without growing the priority queue.
+            state.events[index] = event;
+            drop(state);
+            self.ready.notify_one();
+            return Ok(());
         }
+
+        let priority =
+            event.delivery.is_some() || matches!(&event.event, ProviderEvent::ConnectionClosed(_));
+        if state.events.len() >= PROVIDER_EVENT_QUEUE_CAPACITY {
+            if !priority {
+                return Ok(());
+            }
+            let best_effort = state.events.iter().position(|queued| {
+                queued.delivery.is_none()
+                    && !matches!(&queued.event, ProviderEvent::ConnectionClosed(_))
+            });
+            let Some(best_effort) = best_effort else {
+                // Durable notices and connection closures are loss-intolerant.
+                // Force the control generation to reconnect and replay instead
+                // of dropping one when its bounded priority budget is exhausted.
+                state.events.clear();
+                state.disconnected = true;
+                drop(state);
+                self.ready.notify_all();
+                return Err(());
+            };
+            state.events.remove(best_effort);
+        }
+        state.events.push_back(event);
         drop(state);
         self.ready.notify_one();
+        Ok(())
     }
 
     fn disconnect(&self) {
@@ -283,14 +313,11 @@ impl ProviderEventReceiver {
     pub(crate) fn recv_timeout(
         &self,
         timeout: Duration,
-    ) -> Result<ProviderEvent, RecvTimeoutError> {
+    ) -> Result<ReceivedProviderEvent, RecvTimeoutError> {
         let deadline = Instant::now() + timeout;
         let mut state = self.queue.state.lock().map_err(|_| RecvTimeoutError::Disconnected)?;
         loop {
             if let Some(event) = state.events.pop_front() {
-                if !matches!(&event, ProviderEvent::ConnectionClosed(_)) {
-                    state.best_effort_len -= 1;
-                }
                 return Ok(event);
             }
             if state.disconnected {
@@ -313,12 +340,30 @@ impl ProviderEventReceiver {
 }
 
 #[cfg(unix)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+enum DurableSubscriptionState {
+    #[default]
+    NotStarted,
+    WaitingForCursor,
+    Active,
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct ProviderEventHubState {
+    retained_durable: VecDeque<ReceivedProviderEvent>,
+    acknowledged_sequence: u64,
+    durable_subscription: DurableSubscriptionState,
+    subscribers: Vec<Weak<ProviderEventQueue>>,
+}
+
+#[cfg(unix)]
 struct ProviderClientInner {
     writer: Mutex<Box<dyn Write + Send>>,
     control_guard: ProviderIoGuard,
     streams: Arc<dyn MachineStreamConnector>,
     pending: Mutex<HashMap<String, Sender<PendingResponse>>>,
-    event_subscribers: Mutex<Vec<Weak<ProviderEventQueue>>>,
+    events: Mutex<ProviderEventHubState>,
     snapshot_subscribers: Mutex<Vec<SyncSender<u64>>>,
     next_request_id: AtomicU64,
     live: AtomicBool,
@@ -326,6 +371,7 @@ struct ProviderClientInner {
     authenticated: AtomicBool,
     token: Mutex<Option<BearerToken>>,
     provider_capabilities: Mutex<Vec<String>>,
+    negotiated_client_capabilities: Mutex<Vec<String>>,
 }
 
 #[cfg(unix)]
@@ -342,8 +388,10 @@ impl ProviderClientInner {
     fn mark_disconnected(&self, failure: ReaderFailure) {
         self.live.store(false, Ordering::Release);
         self.cancel_pending(failure);
-        if let Ok(mut subscribers) = self.event_subscribers.lock() {
-            for subscriber in subscribers.drain(..).filter_map(|subscriber| subscriber.upgrade()) {
+        if let Ok(mut events) = self.events.lock() {
+            for subscriber in
+                events.subscribers.drain(..).filter_map(|subscriber| subscriber.upgrade())
+            {
                 subscriber.disconnect();
             }
         }
@@ -365,25 +413,181 @@ impl ProviderClientInner {
         });
     }
 
-    fn publish_event(&self, event: ProviderEvent) {
-        let Ok(mut subscribers) = self.event_subscribers.lock() else {
-            return;
-        };
-        subscribers.retain(|subscriber| {
+    fn publish_to_event_subscribers(
+        events: &mut ProviderEventHubState,
+        event: ReceivedProviderEvent,
+    ) -> Result<(), ReaderFailure> {
+        let mut overflowed = false;
+        events.subscribers.retain(|subscriber| {
             let Some(subscriber) = subscriber.upgrade() else {
                 return false;
             };
-            subscriber.publish(event.clone());
+            if subscriber.publish(event.clone()).is_err() {
+                overflowed = true;
+            }
             true
         });
+        if overflowed {
+            Err(ReaderFailure::InvalidFrame(
+                "durable provider event subscriber exceeded its bounded capacity".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn publish_event(&self, event: ReceivedProviderEvent) -> Result<(), ReaderFailure> {
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|_| ReaderFailure::InvalidFrame("event state is poisoned".into()))?;
+        if let Some(delivery) = event.delivery.as_ref() {
+            if events.durable_subscription == DurableSubscriptionState::NotStarted {
+                return Err(ReaderFailure::InvalidFrame(
+                    "durable notice arrived before subscription".into(),
+                ));
+            }
+            if events.durable_subscription == DurableSubscriptionState::Active
+                && delivery.sequence <= events.acknowledged_sequence
+            {
+                return Ok(());
+            }
+            if let Some(retained) = events.retained_durable.iter().find(|retained| {
+                retained
+                    .delivery
+                    .as_ref()
+                    .is_some_and(|retained| retained.notice_id == delivery.notice_id)
+            }) {
+                return if retained == &event {
+                    Ok(())
+                } else {
+                    Err(ReaderFailure::InvalidFrame(format!(
+                        "durable notice {} changed after replay",
+                        delivery.notice_id
+                    )))
+                };
+            }
+            let retained_sequence = events
+                .retained_durable
+                .back()
+                .and_then(|retained| retained.delivery.as_ref())
+                .map(|retained| retained.sequence);
+            if let Some(retained_sequence) = retained_sequence.or_else(|| {
+                (events.durable_subscription == DurableSubscriptionState::Active)
+                    .then_some(events.acknowledged_sequence)
+            }) {
+                let Some(expected_sequence) = retained_sequence.checked_add(1) else {
+                    return Err(ReaderFailure::InvalidFrame(format!(
+                        "durable notice sequence overflowed after {retained_sequence}",
+                    )));
+                };
+                if delivery.sequence != expected_sequence {
+                    return Err(ReaderFailure::InvalidFrame(format!(
+                        "durable notice sequence {} did not match expected sequence {expected_sequence}",
+                        delivery.sequence,
+                    )));
+                }
+            }
+            if events.retained_durable.len() >= PROVIDER_EVENT_QUEUE_CAPACITY {
+                return Err(ReaderFailure::InvalidFrame(
+                    "durable notice backlog exceeded its bounded capacity".into(),
+                ));
+            }
+            events.retained_durable.push_back(event.clone());
+            if events.durable_subscription == DurableSubscriptionState::WaitingForCursor {
+                return Ok(());
+            }
+        }
+
+        Self::publish_to_event_subscribers(&mut events, event)
+    }
+
+    fn begin_notice_subscription(&self) -> ProviderResult<()> {
+        let mut events =
+            self.events.lock().map_err(|_| ProviderClientError::StatePoisoned("event"))?;
+        if events.durable_subscription != DurableSubscriptionState::NotStarted {
+            return Err(ProviderClientError::Protocol(
+                "durable notice subscription was already started".into(),
+            ));
+        }
+        events.durable_subscription = DurableSubscriptionState::WaitingForCursor;
+        Ok(())
+    }
+
+    fn cancel_notice_subscription(&self) {
+        let Ok(mut events) = self.events.lock() else {
+            return;
+        };
+        if events.durable_subscription == DurableSubscriptionState::WaitingForCursor {
+            events.durable_subscription = DurableSubscriptionState::NotStarted;
+            events.retained_durable.clear();
+        }
+    }
+
+    fn complete_notice_subscription(&self, sequence: u64) -> Result<(), ReaderFailure> {
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|_| ReaderFailure::InvalidFrame("event state is poisoned".into()))?;
+        if events.durable_subscription != DurableSubscriptionState::WaitingForCursor {
+            return Err(ReaderFailure::InvalidFrame(
+                "durable notice subscription cursor arrived without a pending subscription".into(),
+            ));
+        }
+        if let Some(first_sequence) = events
+            .retained_durable
+            .front()
+            .and_then(|event| event.delivery.as_ref())
+            .map(|delivery| delivery.sequence)
+        {
+            let Some(expected_sequence) = sequence.checked_add(1) else {
+                return Err(ReaderFailure::InvalidFrame(format!(
+                    "durable notice sequence overflowed after {sequence}",
+                )));
+            };
+            if first_sequence != expected_sequence {
+                return Err(ReaderFailure::InvalidFrame(format!(
+                    "durable notice sequence {first_sequence} did not match resumed sequence {expected_sequence}",
+                )));
+            }
+        }
+        events.acknowledged_sequence = sequence;
+        events.durable_subscription = DurableSubscriptionState::Active;
+        for event in events.retained_durable.iter().cloned().collect::<Vec<_>>() {
+            Self::publish_to_event_subscribers(&mut events, event)?;
+        }
+        Ok(())
+    }
+
+    fn acknowledge_sequence(&self, sequence: u64) -> ProviderResult<()> {
+        let mut events =
+            self.events.lock().map_err(|_| ProviderClientError::StatePoisoned("event"))?;
+        if events.durable_subscription != DurableSubscriptionState::Active {
+            return Err(ProviderClientError::Protocol(
+                "durable notice acknowledgement preceded subscription".into(),
+            ));
+        }
+        if sequence < events.acknowledged_sequence {
+            return Err(ProviderClientError::Protocol(format!(
+                "durable notice cursor moved backward from {} to {sequence}",
+                events.acknowledged_sequence
+            )));
+        }
+        events.acknowledged_sequence = sequence;
+        events.retained_durable.retain(|event| {
+            event.delivery.as_ref().is_some_and(|delivery| delivery.sequence > sequence)
+        });
+        Ok(())
     }
 }
 
 #[cfg(unix)]
 impl Drop for ProviderClientInner {
     fn drop(&mut self) {
-        if let Ok(subscribers) = self.event_subscribers.get_mut() {
-            for subscriber in subscribers.drain(..).filter_map(|subscriber| subscriber.upgrade()) {
+        if let Ok(events) = self.events.get_mut() {
+            for subscriber in
+                events.subscribers.drain(..).filter_map(|subscriber| subscriber.upgrade())
+            {
                 subscriber.disconnect();
             }
         }
@@ -418,7 +622,7 @@ impl ProviderClient {
             control_guard: guard.clone(),
             streams,
             pending: Mutex::new(HashMap::new()),
-            event_subscribers: Mutex::new(Vec::new()),
+            events: Mutex::new(ProviderEventHubState::default()),
             snapshot_subscribers: Mutex::new(Vec::new()),
             next_request_id: AtomicU64::new(1),
             live: AtomicBool::new(true),
@@ -426,6 +630,7 @@ impl ProviderClient {
             authenticated: AtomicBool::new(false),
             token: Mutex::new(None),
             provider_capabilities: Mutex::new(Vec::new()),
+            negotiated_client_capabilities: Mutex::new(Vec::new()),
         });
         let weak = Arc::downgrade(&inner);
         std::thread::Builder::new()
@@ -453,6 +658,7 @@ impl ProviderClient {
         let (token, control, streams) = connector.connect()?.into_parts();
         let provider = Self::from_transport(control, streams)?;
         let hello = provider.hello(token, client)?;
+        provider.negotiate_supported_client_capabilities()?;
         Ok((provider, hello))
     }
 
@@ -498,11 +704,17 @@ impl ProviderClient {
     }
 
     pub(crate) fn snapshot(&self, known_revision: Option<u64>) -> ProviderResult<SnapshotResult> {
-        self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))
+        let mut snapshot =
+            self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))?;
+        self.retain_negotiated_actions(&mut snapshot)?;
+        Ok(snapshot)
     }
 
     pub(crate) fn select_scope(&self, scope_id: OpaqueId) -> ProviderResult<SelectScopeResult> {
-        self.request(ProviderRequest::SelectScope(SelectScopeParams { scope_id }))
+        let mut result: SelectScopeResult =
+            self.request(ProviderRequest::SelectScope(SelectScopeParams { scope_id }))?;
+        self.retain_negotiated_actions(&mut result.snapshot)?;
+        Ok(result)
     }
 
     pub(crate) fn create_machine(
@@ -643,11 +855,15 @@ impl ProviderClient {
         &self,
         action_id: OpaqueId,
         values: BTreeMap<String, ActionValue>,
+        machine_id: Option<OpaqueId>,
+        workspace_id: Option<OpaqueId>,
         mutation_id: OpaqueId,
     ) -> ProviderResult<InvokeActionResult> {
         self.request(ProviderRequest::InvokeAction(InvokeActionParams {
             action_id,
             values,
+            machine_id,
+            workspace_id,
             mutation_id,
         }))
     }
@@ -657,6 +873,55 @@ impl ProviderClient {
         connection_id: OpaqueId,
     ) -> ProviderResult<CloseMachineResult> {
         self.request(ProviderRequest::CloseMachine(CloseMachineParams { connection_id }))
+    }
+
+    /// Register this process as a durable-notice consumer.
+    ///
+    /// Providers may send replayed events before the response. The control
+    /// reader retains those deliveries until a local subscriber is installed.
+    pub(crate) fn subscribe_notices(
+        &self,
+        consumer_id: OpaqueId,
+    ) -> ProviderResult<SubscribeNoticesResult> {
+        self.require_capability(DURABLE_NOTICES_CAPABILITY)?;
+        self.inner.begin_notice_subscription()?;
+        let result: SubscribeNoticesResult = match self
+            .request(ProviderRequest::SubscribeNotices(SubscribeNoticesParams { consumer_id }))
+        {
+            Ok(result) => result,
+            Err(error) => {
+                self.inner.cancel_notice_subscription();
+                self.inner.mark_disconnected(ReaderFailure::Disconnected);
+                return Err(error);
+            }
+        };
+        if let Err(failure) = self.inner.complete_notice_subscription(result.sequence) {
+            self.inner.mark_disconnected(failure.clone());
+            return Err(failure.into());
+        }
+        Ok(result)
+    }
+
+    /// Acknowledge one visible durable notice and advance its cumulative cursor.
+    pub(crate) fn acknowledge_notice(
+        &self,
+        delivery: NoticeDelivery,
+    ) -> ProviderResult<AcknowledgeNoticeResult> {
+        self.require_capability(DURABLE_NOTICES_CAPABILITY)?;
+        let expected_sequence = delivery.sequence;
+        let result: AcknowledgeNoticeResult =
+            self.request(ProviderRequest::AcknowledgeNotice(AcknowledgeNoticeParams {
+                notice_id: delivery.notice_id,
+                sequence: expected_sequence,
+            }))?;
+        if result.sequence != expected_sequence {
+            return Err(ProviderClientError::Protocol(format!(
+                "durable notice acknowledgement returned {} for sequence {expected_sequence}",
+                result.sequence
+            )));
+        }
+        self.inner.acknowledge_sequence(result.sequence)?;
+        Ok(result)
     }
 
     /// Subscribe to revision invalidations. Receivers are removed after drop.
@@ -675,16 +940,32 @@ impl ProviderClient {
     /// connection closures. Receivers are removed after drop.
     pub(crate) fn subscribe_events(&self) -> ProviderResult<ProviderEventReceiver> {
         let queue = Arc::new(ProviderEventQueue::new());
-        let mut subscribers = self
+        let mut events = self
             .inner
-            .event_subscribers
+            .events
             .lock()
             .map_err(|_| ProviderClientError::StatePoisoned("subscriber"))?;
         // Recheck while holding the same lock used by disconnection cleanup so
         // a receiver cannot be registered after the cleanup drain has passed.
         self.ensure_live()?;
-        subscribers.push(Arc::downgrade(&queue));
+        if events.durable_subscription == DurableSubscriptionState::Active {
+            for retained in events.retained_durable.iter().cloned() {
+                queue.publish(retained).map_err(|()| {
+                    ProviderClientError::Protocol(
+                        "retained durable notice backlog exceeded subscriber capacity".into(),
+                    )
+                })?;
+            }
+        }
+        events.subscribers.push(Arc::downgrade(&queue));
         Ok(ProviderEventReceiver { queue })
+    }
+
+    pub(crate) fn has_retained_durable_notices(&self) -> ProviderResult<bool> {
+        let events =
+            self.inner.events.lock().map_err(|_| ProviderClientError::StatePoisoned("event"))?;
+        Ok(events.durable_subscription == DurableSubscriptionState::Active
+            && !events.retained_durable.is_empty())
     }
 
     pub(crate) fn is_live(&self) -> bool {
@@ -761,12 +1042,49 @@ impl ProviderClient {
 
     pub(crate) fn supports_capability(&self, capability: &str) -> ProviderResult<bool> {
         self.ensure_authenticated()?;
+        self.advertises_capability(capability)
+    }
+
+    fn advertises_capability(&self, capability: &str) -> ProviderResult<bool> {
         let capabilities = self
             .inner
             .provider_capabilities
             .lock()
             .map_err(|_| ProviderClientError::StatePoisoned("capabilities"))?;
         Ok(capabilities.iter().any(|candidate| candidate == capability))
+    }
+
+    fn negotiate_supported_client_capabilities(&self) -> ProviderResult<()> {
+        if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
+            return Ok(());
+        }
+        let requested = vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()];
+        let result: NegotiateClientCapabilitiesResult =
+            self.request(ProviderRequest::NegotiateClientCapabilities(
+                NegotiateClientCapabilitiesParams { capabilities: requested.clone() },
+            ))?;
+        if result.capabilities.iter().any(|capability| !requested.contains(capability)) {
+            return Err(ProviderClientError::Protocol(
+                "provider accepted an unrequested client capability".to_string(),
+            ));
+        }
+        *self
+            .inner
+            .negotiated_client_capabilities
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("client-capabilities"))? =
+            result.capabilities;
+        Ok(())
+    }
+
+    fn retain_negotiated_actions(&self, snapshot: &mut SnapshotResult) -> ProviderResult<()> {
+        let capabilities = self
+            .inner
+            .negotiated_client_capabilities
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("client-capabilities"))?;
+        snapshot.retain_actions_for_client_capabilities(&capabilities);
+        Ok(())
     }
 
     fn require_capability(&self, capability: &'static str) -> ProviderResult<()> {
@@ -940,11 +1258,32 @@ fn dispatch_control_frame(
             let event: EventEnvelope = serde_json::from_value(value)
                 .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
             frame.zeroize();
+            if event.delivery.is_some() && !matches!(&event.event, ProviderEvent::Notice(_)) {
+                return Err(ReaderFailure::InvalidFrame(
+                    "durable delivery metadata accompanied a non-notice event".into(),
+                ));
+            }
+            if event.delivery.is_some()
+                && !inner
+                    .provider_capabilities
+                    .lock()
+                    .map_err(|_| {
+                        ReaderFailure::InvalidFrame("provider capability state is poisoned".into())
+                    })?
+                    .iter()
+                    .any(|capability| capability == DURABLE_NOTICES_CAPABILITY)
+            {
+                return Err(ReaderFailure::InvalidFrame(
+                    "durable delivery metadata was not negotiated".into(),
+                ));
+            }
             if let ProviderEvent::SnapshotChanged(change) = &event.event {
                 inner.publish_snapshot_revision(change.revision);
             }
-            inner.publish_event(event.event);
-            Ok(())
+            inner.publish_event(ReceivedProviderEvent {
+                event: event.event,
+                delivery: event.delivery,
+            })
         }
         (false, true) => {
             let id = object
@@ -1228,6 +1567,20 @@ mod tests {
         BearerToken::new(value).expect("valid test token")
     }
 
+    fn received(event: ProviderEvent) -> ReceivedProviderEvent {
+        ReceivedProviderEvent { event, delivery: None }
+    }
+
+    fn durable_notice(notice_id: &str, sequence: u64, message: &str) -> ReceivedProviderEvent {
+        ReceivedProviderEvent {
+            event: ProviderEvent::Notice(ProviderNotice {
+                level: NoticeLevel::Warning,
+                message: message.to_string(),
+            }),
+            delivery: Some(NoticeDelivery { notice_id: id(notice_id), sequence }),
+        }
+    }
+
     fn client_descriptor() -> ClientDescriptor {
         ClientDescriptor {
             name: "cmux-test".to_string(),
@@ -1362,6 +1715,358 @@ mod tests {
     }
 
     #[test]
+    fn durable_notice_subscription_retains_pre_receiver_delivery_and_acknowledges_it() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[DURABLE_NOTICES_CAPABILITY],
+            );
+
+            let subscribe: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(
+                subscribe.request,
+                ProviderRequest::SubscribeNotices(SubscribeNoticesParams {
+                    ref consumer_id
+                }) if consumer_id == &id("cmux-process-1")
+            ));
+            let delivery = NoticeDelivery { notice_id: id("usage-warning-80"), sequence: 1 };
+            let notice = ProviderNotice {
+                level: NoticeLevel::Warning,
+                message: "trial has one hour remaining".to_string(),
+            };
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(
+                    ProviderEvent::Notice(notice.clone()),
+                    delivery.clone(),
+                ),
+            );
+            // A replay before ACK has the same stable identity and must not
+            // create a second local delivery.
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(ProviderEvent::Notice(notice), delivery),
+            );
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 0 }),
+            );
+
+            let acknowledge: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(
+                acknowledge.request,
+                ProviderRequest::AcknowledgeNotice(AcknowledgeNoticeParams {
+                    ref notice_id,
+                    sequence: 1,
+                }) if notice_id == &id("usage-warning-80")
+            ));
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(acknowledge.id, AcknowledgeNoticeResult { sequence: 1 }),
+            );
+            finished.recv().expect("hold provider connection open");
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert_eq!(
+            provider.subscribe_notices(id("cmux-process-1")).unwrap(),
+            SubscribeNoticesResult { sequence: 0 }
+        );
+        assert!(
+            provider.has_retained_durable_notices().unwrap(),
+            "replayed durable notice was not retained before the local receiver subscribed"
+        );
+
+        let events = provider.subscribe_events().expect("subscribe to retained events");
+        let received =
+            events.recv_timeout(Duration::from_secs(2)).expect("receive retained durable notice");
+        assert_eq!(
+            received.delivery,
+            Some(NoticeDelivery { notice_id: id("usage-warning-80"), sequence: 1 })
+        );
+        assert!(matches!(
+            received.event,
+            ProviderEvent::Notice(ProviderNotice {
+                level: NoticeLevel::Warning,
+                ref message,
+            }) if message == "trial has one hour remaining"
+        ));
+        assert_eq!(
+            events.recv_timeout(Duration::from_millis(20)),
+            Err(RecvTimeoutError::Timeout),
+            "duplicate replay was delivered twice"
+        );
+
+        provider
+            .acknowledge_notice(received.delivery.expect("durable metadata"))
+            .expect("acknowledge durable notice");
+        assert!(
+            !provider.has_retained_durable_notices().unwrap(),
+            "acknowledged durable notice still appeared in the retained-notice query"
+        );
+        let after_ack = provider.subscribe_events().expect("resubscribe after ACK");
+        assert_eq!(
+            after_ack.recv_timeout(Duration::from_millis(20)),
+            Err(RecvTimeoutError::Timeout),
+            "acknowledged notice remained in the retained backlog"
+        );
+
+        finish.send(()).expect("finish provider server");
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn durable_notice_replay_waits_for_the_resumed_subscription_cursor() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[DURABLE_NOTICES_CAPABILITY],
+            );
+
+            let subscribe: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(
+                subscribe.request,
+                ProviderRequest::SubscribeNotices(SubscribeNoticesParams {
+                    ref consumer_id
+                }) if consumer_id == &id("cmux-process-1")
+            ));
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(
+                    ProviderEvent::Notice(ProviderNotice {
+                        level: NoticeLevel::Warning,
+                        message: "trial has ten minutes remaining".into(),
+                    }),
+                    NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 },
+                ),
+            );
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 41 }),
+            );
+            finished.recv().expect("hold provider connection open");
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert_eq!(
+            provider.subscribe_notices(id("cmux-process-1")).expect("resume durable subscription"),
+            SubscribeNoticesResult { sequence: 41 }
+        );
+        assert!(provider.is_live(), "valid replay closed the provider connection");
+        let events = provider.subscribe_events().expect("subscribe to retained events");
+        assert_eq!(
+            events
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive replay after cursor initialization")
+                .delivery,
+            Some(NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 })
+        );
+
+        finish.send(()).expect("finish provider server");
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn durable_notice_methods_are_rejected_without_the_capability() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => {}
+                Ok(_) => panic!("provider received an unadvertised request: {unexpected}"),
+                Err(error) => panic!("provider read failed: {error}"),
+            }
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert!(matches!(
+            provider.subscribe_notices(id("cmux-process-1")),
+            Err(ProviderClientError::UnsupportedCapability(DURABLE_NOTICES_CAPABILITY))
+        ));
+        assert!(matches!(
+            provider.acknowledge_notice(NoticeDelivery {
+                notice_id: id("usage-warning-80"),
+                sequence: 1,
+            }),
+            Err(ProviderClientError::UnsupportedCapability(DURABLE_NOTICES_CAPABILITY))
+        ));
+
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn unnegotiated_durable_delivery_fails_the_control_connection_closed() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(
+                    ProviderEvent::Notice(ProviderNotice {
+                        level: NoticeLevel::Warning,
+                        message: "unnegotiated".into(),
+                    }),
+                    NoticeDelivery { notice_id: id("usage-warning-80"), sequence: 1 },
+                ),
+            );
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while provider.is_live() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!provider.is_live(), "unnegotiated durable delivery remained connected");
+        assert!(provider.subscribe_events().is_err());
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn durable_notice_sequences_must_be_contiguous() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[DURABLE_NOTICES_CAPABILITY],
+            );
+            let subscribe: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(subscribe.request, ProviderRequest::SubscribeNotices(_)));
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(
+                    ProviderEvent::Notice(ProviderNotice {
+                        level: NoticeLevel::Warning,
+                        message: "skipped".into(),
+                    }),
+                    NoticeDelivery { notice_id: id("usage-warning-skipped"), sequence: 2 },
+                ),
+            );
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 0 }),
+            );
+            finished.recv().expect("hold provider connection open");
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert!(provider.subscribe_notices(id("cmux-process-1")).is_err());
+        assert!(!provider.is_live());
+        finish.send(()).expect("finish provider server");
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn acknowledge_notice_requires_the_exact_provider_cursor() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[DURABLE_NOTICES_CAPABILITY],
+            );
+            let subscribe: RequestEnvelope = read_test_frame(&mut reader);
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 0 }),
+            );
+            let acknowledge: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(
+                acknowledge.request,
+                ProviderRequest::AcknowledgeNotice(AcknowledgeNoticeParams { sequence: 1, .. })
+            ));
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(acknowledge.id, AcknowledgeNoticeResult { sequence: 2 }),
+            );
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        provider.subscribe_notices(id("cmux-process-1")).expect("subscribe notices");
+        let error = provider
+            .acknowledge_notice(NoticeDelivery { notice_id: id("usage-warning-80"), sequence: 1 })
+            .expect_err("provider advanced past the requested notice");
+        assert!(matches!(
+            error,
+            ProviderClientError::Protocol(ref message)
+                if message.contains("returned 2 for sequence 1")
+        ));
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
     fn external_machine_connect_replays_one_idempotent_provider_result() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
@@ -1475,12 +2180,12 @@ mod tests {
         send_event.send(()).expect("trigger provider event");
         let event = events.recv_timeout(Duration::from_secs(2)).expect("receive provider event");
         assert!(matches!(
-            event,
+            event.event,
             ProviderEvent::SnapshotChanged(SnapshotChangedEvent { revision: 42 })
         ));
         let event = events.recv_timeout(Duration::from_secs(2)).expect("receive provider notice");
         assert!(matches!(
-            event,
+            event.event,
             ProviderEvent::Notice(ProviderNotice {
                 level: NoticeLevel::Warning,
                 ref message,
@@ -1489,7 +2194,7 @@ mod tests {
         let event =
             events.recv_timeout(Duration::from_secs(2)).expect("receive connection closure");
         assert!(matches!(
-            event,
+            event.event,
             ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
                 ref connection_id,
                 ref machine_id,
@@ -1571,7 +2276,7 @@ mod tests {
         let mut saw_closure = false;
         while let Ok(event) = events.recv_timeout(Duration::from_millis(20)) {
             if matches!(
-                event,
+                event.event,
                 ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
                     ref connection_id,
                     ref machine_id,
@@ -1595,18 +2300,20 @@ mod tests {
         let queue = Arc::new(ProviderEventQueue::new());
         let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
         for index in 0..(PROVIDER_EVENT_QUEUE_CAPACITY * 2) {
-            queue.publish(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
-                connection_id: id("connection-1"),
-                machine_id: id("machine-1"),
-                reason: format!("revision {index}"),
-            }));
+            queue
+                .publish(received(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                    connection_id: id("connection-1"),
+                    machine_id: id("machine-1"),
+                    reason: format!("revision {index}"),
+                })))
+                .unwrap();
         }
 
         let event = events
             .recv_timeout(Duration::from_millis(20))
             .expect("receive coalesced connection closure");
         assert!(matches!(
-            event,
+            event.event,
             ProviderEvent::ConnectionClosed(ConnectionClosedEvent { ref reason, .. })
                 if reason == &format!("revision {}", PROVIDER_EVENT_QUEUE_CAPACITY * 2 - 1)
         ));
@@ -1614,15 +2321,103 @@ mod tests {
     }
 
     #[test]
+    fn durable_notices_displace_best_effort_events_and_coalesce_by_notice_id() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        for index in 0..PROVIDER_EVENT_QUEUE_CAPACITY {
+            queue
+                .publish(received(ProviderEvent::Notice(ProviderNotice {
+                    level: NoticeLevel::Info,
+                    message: format!("best effort {index}"),
+                })))
+                .unwrap();
+        }
+
+        queue.publish(durable_notice("usage-warning-80", 1, "stable message")).unwrap();
+        queue.publish(durable_notice("usage-warning-80", 1, "stable message")).unwrap();
+
+        let mut received_count = 0;
+        let mut durable_messages = Vec::new();
+        while let Ok(event) = events.recv_timeout(Duration::from_millis(1)) {
+            received_count += 1;
+            if event.delivery.is_some()
+                && let ProviderEvent::Notice(notice) = event.event
+            {
+                durable_messages.push(notice.message);
+            }
+        }
+        assert_eq!(received_count, PROVIDER_EVENT_QUEUE_CAPACITY);
+        assert_eq!(durable_messages, vec!["stable message"]);
+    }
+
+    #[test]
+    fn distinct_durable_notice_burst_fails_closed_at_priority_capacity() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        for index in 0..PROVIDER_EVENT_QUEUE_CAPACITY {
+            queue
+                .publish(durable_notice(
+                    &format!("usage-warning-{index}"),
+                    index as u64 + 1,
+                    "usage warning",
+                ))
+                .unwrap();
+        }
+        assert!(
+            queue
+                .publish(durable_notice(
+                    "usage-warning-overflow",
+                    PROVIDER_EVENT_QUEUE_CAPACITY as u64 + 1,
+                    "overflow",
+                ))
+                .is_err()
+        );
+
+        let state = queue.state.lock().unwrap();
+        assert!(state.events.is_empty());
+        assert!(state.disconnected, "durable overflow must force a provider resync");
+        drop(state);
+        assert_eq!(
+            events.recv_timeout(Duration::from_millis(1)),
+            Err(RecvTimeoutError::Disconnected)
+        );
+    }
+
+    #[test]
+    fn durable_notice_id_cannot_change_sequence() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        queue.publish(durable_notice("usage-warning-80", 1, "first")).unwrap();
+        assert!(queue.publish(durable_notice("usage-warning-80", 2, "changed")).is_err());
+        assert_eq!(
+            events.recv_timeout(Duration::from_millis(1)),
+            Err(RecvTimeoutError::Disconnected)
+        );
+    }
+
+    #[test]
+    fn durable_notice_replay_cannot_change_content() {
+        let queue = Arc::new(ProviderEventQueue::new());
+        let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
+        queue.publish(durable_notice("usage-warning-80", 1, "first")).unwrap();
+        assert!(queue.publish(durable_notice("usage-warning-80", 1, "changed")).is_err());
+        assert_eq!(
+            events.recv_timeout(Duration::from_millis(1)),
+            Err(RecvTimeoutError::Disconnected)
+        );
+    }
+
+    #[test]
     fn distinct_connection_closed_burst_fails_closed_at_priority_capacity() {
         let queue = Arc::new(ProviderEventQueue::new());
         let events = ProviderEventReceiver { queue: Arc::clone(&queue) };
         for index in 0..=PROVIDER_EVENT_QUEUE_CAPACITY {
-            queue.publish(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
-                connection_id: id(&format!("connection-{index}")),
-                machine_id: id(&format!("machine-{index}")),
-                reason: "connection revoked".into(),
-            }));
+            let _ =
+                queue.publish(received(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                    connection_id: id(&format!("connection-{index}")),
+                    machine_id: id(&format!("machine-{index}")),
+                    reason: "connection revoked".into(),
+                })));
         }
 
         let state = queue.state.lock().unwrap();
