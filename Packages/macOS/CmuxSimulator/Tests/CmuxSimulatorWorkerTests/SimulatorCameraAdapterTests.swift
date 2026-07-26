@@ -322,6 +322,94 @@ struct SimulatorCameraAdapterTests {
         adapter.detachFromUnavailableDevice()
     }
 
+    @Test("Failed camera injection restores the prior denied authorization")
+    @MainActor
+    func failedInjectionRestoresDeniedCameraAuthorization() async throws {
+        let suffix = UUID().uuidString
+        let bundleIdentifier = "com.example.CameraFixtureAuthorization.\(suffix)"
+        var operationIsCurrent = true
+        let permission = CameraPermissionRecorder(initialAuthorization: .denied)
+        let simctl = CameraReinjectionSimctlFake(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: Int32(getpid()),
+            injectedLaunchDidComplete: { operationIsCurrent = false }
+        )
+        let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: "authorization-\(suffix)",
+            cameraPermission: SimulatorCameraPermissionAdapter(
+                authorization: { device, bundle in
+                    await permission.authorization(device: device, bundle: bundle)
+                },
+                mutation: { device, action, service, bundle in
+                    await permission.record(
+                        device: device,
+                        action: action,
+                        service: service,
+                        bundle: bundle
+                    )
+                }
+            ),
+            compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
+            simctl: { arguments, environment in
+                await simctl.run(arguments: arguments, environment: environment)
+            }
+        )
+        adapter.attach(deviceIdentifier: "DEVICE")
+
+        await #expect(throws: CancellationError.self) {
+            try await adapter.configure(
+                .targeted(bundleIdentifier: bundleIdentifier, source: .placeholder),
+                inferredApplication: nil,
+                operationIsCurrent: { operationIsCurrent }
+            )
+        }
+
+        #expect(await permission.mutations.map(\.action) == [.grant, .revoke])
+        adapter.detachFromUnavailableDevice()
+    }
+
+    @Test("Disabling camera injection restores an undetermined authorization")
+    @MainActor
+    func disablingInjectionRestoresUndeterminedCameraAuthorization() async throws {
+        let suffix = UUID().uuidString
+        let bundleIdentifier = "com.example.CameraFixtureAuthorization.\(suffix)"
+        let permission = CameraPermissionRecorder(initialAuthorization: .notDetermined)
+        let simctl = CameraReinjectionSimctlFake(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: Int32(getpid())
+        )
+        let adapter = SimulatorCameraAdapter(
+            sharedMemoryToken: "authorization-\(suffix)",
+            cameraPermission: SimulatorCameraPermissionAdapter(
+                authorization: { device, bundle in
+                    await permission.authorization(device: device, bundle: bundle)
+                },
+                mutation: { device, action, service, bundle in
+                    await permission.record(
+                        device: device,
+                        action: action,
+                        service: service,
+                        bundle: bundle
+                    )
+                }
+            ),
+            compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
+            simctl: { arguments, environment in
+                await simctl.run(arguments: arguments, environment: environment)
+            }
+        )
+        adapter.attach(deviceIdentifier: "DEVICE")
+        _ = try await adapter.configure(
+            .targeted(bundleIdentifier: bundleIdentifier, source: .placeholder),
+            inferredApplication: nil
+        )
+
+        _ = try await adapter.configure(.disabled, inferredApplication: nil)
+
+        #expect(await permission.mutations.map(\.action) == [.grant, .reset])
+        adapter.detachFromUnavailableDevice()
+    }
+
     @Test("Camera failure before app mutation does not launch the target")
     @MainActor
     func preMutationFailureDoesNotLaunch() async throws {

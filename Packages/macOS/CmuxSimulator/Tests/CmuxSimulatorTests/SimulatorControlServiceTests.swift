@@ -99,6 +99,61 @@ struct SimulatorControlServiceTests {
         }
     }
 
+    @Test("Durable camera cleanup restores the recorded authorization")
+    func cameraCleanupRestoresRecordedAuthorization() async throws {
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "camera-authorization-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
+        try authorizationStore.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let ownershipScope = SimulatorCameraCleanupOwnershipScope()
+        let ownershipToken = try await ownershipScope.coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let commands = RecordingCommandRunner(results: [
+            .success(""),
+            .success(""),
+            .success(""),
+        ])
+        let service = SimulatorControlService(
+            commands: commands,
+            cameraCleanupOwnershipScope: ownershipScope,
+            cameraAuthorizationStore: authorizationStore
+        )
+
+        try await service.cleanupCameraApplication(
+            deviceID: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownershipToken: ownershipToken
+        )
+
+        let invocations = await commands.recordedInvocations()
+        #expect(invocations.map(\.arguments) == [
+            ["simctl", "terminate", deviceIdentifier, bundleIdentifier],
+            [
+                "simctl", "launch", "--terminate-running-process",
+                deviceIdentifier, bundleIdentifier,
+            ],
+            [
+                "simctl", "privacy", deviceIdentifier, "revoke",
+                "camera", bundleIdentifier,
+            ],
+        ])
+        #expect(try authorizationStore.authorization(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ) == nil)
+    }
+
     @Test("Device type identifies family when runtimes omit family metadata")
     func handlesDuplicateRuntimeIdentifiers() async throws {
         let commands = RecordingCommandRunner(results: [
