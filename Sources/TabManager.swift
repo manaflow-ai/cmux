@@ -479,7 +479,7 @@ class TabManager: ObservableObject {
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
-            GhosttyWorkingDirectoryResolver.resolve(
+            GhosttyWorkingDirectoryResolver().resolve(
                 configuredValue: GhosttyConfig.load().workingDirectory
             )
         },
@@ -1142,10 +1142,11 @@ class TabManager: ObservableObject {
             let nextTabCount = snapshot.tabs.count + 1
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
-            let workingDirectory = WorkspaceCreationWorkingDirectoryPolicy.resolve(
+            let workingDirectory = WorkspaceCreationWorkingDirectoryPolicy(
+                inheritanceEnabled: inheritanceEnabled
+            ).resolve(
                 explicitWorkingDirectory: explicitWorkingDirectory,
                 inheritedWorkingDirectory: snapshot.preferredWorkingDirectory,
-                inheritanceEnabled: inheritanceEnabled,
                 defaultWorkingDirectory: defaultWorkspaceWorkingDirectoryProvider()
             )
             let inheritedConfig = workspaceCreationConfigTemplate(

@@ -25,10 +25,9 @@ import Testing
     }
 
     private func resolve(explicit: String?, inherited: String?, enabled: Bool) -> String {
-        WorkspaceCreationWorkingDirectoryPolicy.resolve(
+        WorkspaceCreationWorkingDirectoryPolicy(inheritanceEnabled: enabled).resolve(
             explicitWorkingDirectory: explicit,
             inheritedWorkingDirectory: inherited,
-            inheritanceEnabled: enabled,
             defaultWorkingDirectory: "/default"
         )
     }

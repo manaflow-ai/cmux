@@ -28,19 +28,17 @@ import Testing
 
     @Test func invalidProcessDirectoryFallsBackToHome() {
         #expect(
-            GhosttyWorkingDirectoryResolver.resolve(
-                configuredValue: "inherit",
+            GhosttyWorkingDirectoryResolver(
                 homeDirectory: home,
                 processWorkingDirectory: "relative/path"
-            ) == home
+            ).resolve(configuredValue: "inherit") == home
         )
     }
 
     private func resolve(_ configuredValue: String?) -> String {
-        GhosttyWorkingDirectoryResolver.resolve(
-            configuredValue: configuredValue,
+        GhosttyWorkingDirectoryResolver(
             homeDirectory: home,
             processWorkingDirectory: processDirectory
-        )
+        ).resolve(configuredValue: configuredValue)
     }
 }

@@ -2,14 +2,17 @@ import Foundation
 
 /// Resolves Ghostty's `working-directory` config value into the concrete path
 /// required by cmux when it must suppress Ghostty's focused-surface inheritance.
-public enum GhosttyWorkingDirectoryResolver {
-    /// Resolves using the current user's home directory and the process cwd.
-    public static func resolve(configuredValue: String?) -> String {
-        resolve(
-            configuredValue: configuredValue,
-            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
-            processWorkingDirectory: FileManager.default.currentDirectoryPath
-        )
+public struct GhosttyWorkingDirectoryResolver: Sendable {
+    private let homeDirectory: String
+    private let processWorkingDirectory: String
+
+    /// Creates a resolver using the supplied environment paths.
+    public init(
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        processWorkingDirectory: String = FileManager.default.currentDirectoryPath
+    ) {
+        self.homeDirectory = homeDirectory
+        self.processWorkingDirectory = processWorkingDirectory
     }
 
     /// Returns a concrete absolute working directory for a new terminal.
@@ -18,11 +21,7 @@ public enum GhosttyWorkingDirectoryResolver {
     /// runtime config. Embedded surfaces cannot rely on that default when their
     /// creation context would first inherit another surface's live directory,
     /// so cmux resolves those values before passing the surface override.
-    public static func resolve(
-        configuredValue: String?,
-        homeDirectory: String,
-        processWorkingDirectory: String
-    ) -> String {
+    public func resolve(configuredValue: String?) -> String {
         let home = normalizedAbsolutePath(homeDirectory) ?? "/"
         let processDirectory = normalizedAbsolutePath(processWorkingDirectory) ?? home
         guard let configuredValue = normalizedValue(configuredValue) else {
@@ -43,13 +42,13 @@ public enum GhosttyWorkingDirectoryResolver {
         }
     }
 
-    private static func normalizedValue(_ value: String?) -> String? {
+    private func normalizedValue(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func normalizedAbsolutePath(_ value: String) -> String? {
+    private func normalizedAbsolutePath(_ value: String) -> String? {
         guard let value = normalizedValue(value), value.hasPrefix("/") else {
             return nil
         }
