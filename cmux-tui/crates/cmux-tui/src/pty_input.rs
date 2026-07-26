@@ -1104,6 +1104,48 @@ mod tests {
     }
 
     #[test]
+    fn blocking_surface_operation_is_a_per_surface_barrier() {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let (same_surface_tx, same_surface_rx) = std::sync::mpsc::channel();
+        let (other_surface_tx, other_surface_rx) = std::sync::mpsc::channel();
+
+        assert_eq!(
+            sender.enqueue_surface_operation_with_retained_bytes(
+                "blocking surface operation",
+                41,
+                false,
+                0,
+                move || {
+                    started_tx.send(()).unwrap();
+                    let _ = unblock_rx.recv();
+                    Ok(())
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let mut same_surface = event(41, 1, PtyInputKind::Ordered);
+        same_surface.after_operation =
+            Some(Box::new(move || same_surface_tx.send(()).unwrap()));
+        assert_eq!(sender.enqueue(same_surface), PtyInputEnqueueResult::Accepted);
+
+        let mut other_surface = event(42, 2, PtyInputKind::Ordered);
+        other_surface.after_operation =
+            Some(Box::new(move || other_surface_tx.send(()).unwrap()));
+        assert_eq!(sender.enqueue(other_surface), PtyInputEnqueueResult::Accepted);
+
+        other_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(same_surface_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        unblock_tx.send(()).unwrap();
+        same_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
     fn coalescing_mutations_replace_by_key_across_adjacent_resize_work() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;

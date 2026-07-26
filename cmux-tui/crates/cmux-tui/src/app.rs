@@ -13984,6 +13984,62 @@ mod tests {
     }
 
     #[test]
+    fn delayed_clear_history_completion_preserves_recreated_selection() {
+        let (mux, surface) = test_mux("delayed-command-k-selection-aba-test", None);
+        surface.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> ");
+        });
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let content = Rect { x: 0, y: 0, width: 80, height: 24 };
+        app.pane_areas.push(PaneArea {
+            pane: app.active_pane().unwrap(),
+            surface: surface.id,
+            rect: content,
+            bar: None,
+            omnibar: None,
+            content,
+            track: None,
+        });
+        let point = (content.x + 1, content.y + 1);
+        let selection = Selection {
+            surface: surface.id,
+            anchor: (1, 1),
+            head: (1, 1),
+        };
+        app.selection = Some(selection);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::SUPER,
+        ))))
+        .unwrap();
+        let completion = loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(
+                &event,
+                AppEvent::ClearHistorySucceeded { surface: completed, .. }
+                    if *completed == surface.id
+            ) {
+                break event;
+            }
+        };
+
+        app.handle_left_down(point.0, point.1, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.selection, Some(selection));
+
+        app.handle(completion).unwrap();
+
+        assert_eq!(app.selection, Some(selection));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn failed_command_k_preserves_viewport_and_selection() {
         let (mux, surface) = test_mux("command-k-failure-view-test", None);
         surface.with_terminal(|term| {
