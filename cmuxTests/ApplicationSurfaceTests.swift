@@ -37,6 +37,7 @@ struct ApplicationSurfaceTests {
             backing: .buffered,
             defer: false
         )
+        defer { window.close() }
         window.contentView = view
 
         #expect(window.firstResponder === view)

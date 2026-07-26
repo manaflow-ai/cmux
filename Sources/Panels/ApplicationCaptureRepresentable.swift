@@ -3,13 +3,23 @@ import SwiftUI
 
 struct ApplicationCaptureRepresentable: NSViewRepresentable {
     let panel: ApplicationPanel
-    let windowID: CGWindowID
     let isVisibleInUI: Bool
+
+    final class Coordinator {
+        weak var panel: ApplicationPanel?
+        var captureToken: UUID?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> ApplicationCaptureView {
         let captureToken = panel.beginCaptureSession()
+        context.coordinator.panel = panel
+        context.coordinator.captureToken = captureToken
         let view = ApplicationCaptureView(
-            windowID: windowID,
+            windowID: panel.windowID,
             processID: panel.processID,
             targetFrameRate: panel.targetFrameRate,
             onStateChanged: { [weak panel] state in
@@ -20,15 +30,25 @@ struct ApplicationCaptureRepresentable: NSViewRepresentable {
             }
         )
         panel.attach(view, token: captureToken)
-        view.setCaptureActive(isVisibleInUI)
+        panel.setCaptureVisibleInUI(isVisibleInUI, token: captureToken)
         return view
     }
 
     func updateNSView(_ nsView: ApplicationCaptureView, context: Context) {
-        nsView.setCaptureActive(isVisibleInUI)
+        guard let captureToken = context.coordinator.captureToken else {
+            nsView.stopCapture()
+            return
+        }
+        panel.setCaptureVisibleInUI(isVisibleInUI, token: captureToken)
     }
 
-    static func dismantleNSView(_ nsView: ApplicationCaptureView, coordinator: ()) {
-        nsView.stopCapture()
+    static func dismantleNSView(_ nsView: ApplicationCaptureView, coordinator: Coordinator) {
+        guard let panel = coordinator.panel,
+              let captureToken = coordinator.captureToken else {
+            nsView.stopCapture()
+            return
+        }
+        panel.detach(nsView, token: captureToken)
+        coordinator.captureToken = nil
     }
 }

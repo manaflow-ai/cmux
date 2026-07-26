@@ -5,15 +5,15 @@ import ScreenCaptureKit
 /// mutable value is protected by `lock`, and `onUnexpectedStop` is Sendable.
 final class ApplicationCaptureStreamDelegate: NSObject, SCStreamDelegate, @unchecked Sendable {
     private let lock = NSLock()
-    private let onUnexpectedStop: @Sendable () -> Void
+    private let onUnexpectedStop: @Sendable (ObjectIdentifier) -> Void
     private var expectedStops: Set<ObjectIdentifier> = []
 
-    init(onUnexpectedStop: @escaping @Sendable () -> Void) {
+    init(onUnexpectedStop: @escaping @Sendable (ObjectIdentifier) -> Void) {
         self.onUnexpectedStop = onUnexpectedStop
     }
 
     func expectStop(_ stream: SCStream) {
-        lock.withLock {
+        _ = lock.withLock {
             expectedStops.insert(ObjectIdentifier(stream))
         }
     }
@@ -23,7 +23,7 @@ final class ApplicationCaptureStreamDelegate: NSObject, SCStreamDelegate, @unche
             expectedStops.remove(ObjectIdentifier(stream)) != nil
         }
         if !wasExpected {
-            onUnexpectedStop()
+            onUnexpectedStop(ObjectIdentifier(stream))
         }
     }
 }

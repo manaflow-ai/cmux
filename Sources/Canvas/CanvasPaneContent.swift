@@ -73,6 +73,8 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             if let browserPanel = panel as? BrowserPanel {
                 browserPanel.canvasInlineHostingActive = true
                 browserPanel.noteWebViewVisibility(true, reason: "canvas.mount")
+            } else if let applicationPanel = panel as? ApplicationPanel {
+                applicationPanel.setCanvasRendering(true)
             }
         }
 
@@ -151,10 +153,14 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         case .hosted(let panel, _):
             // Offscreen browsers may hidden-discard their webview; coming
             // back into the render region restores it.
-            (panel as? BrowserPanel)?.noteWebViewVisibility(
-                rendering,
-                reason: rendering ? "canvas.render" : "canvas.occlude"
-            )
+            if let browserPanel = panel as? BrowserPanel {
+                browserPanel.noteWebViewVisibility(
+                    rendering,
+                    reason: rendering ? "canvas.render" : "canvas.occlude"
+                )
+            } else if let applicationPanel = panel as? ApplicationPanel {
+                applicationPanel.setCanvasRendering(rendering)
+            }
         }
     }
 
@@ -173,6 +179,8 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             if let browserPanel = panel as? BrowserPanel {
                 browserPanel.canvasInlineHostingActive = false
                 browserPanel.noteWebViewVisibility(false, reason: "canvas.unmount")
+            } else if let applicationPanel = panel as? ApplicationPanel {
+                applicationPanel.setCanvasRendering(false)
             }
             view.removeFromSuperview()
         }

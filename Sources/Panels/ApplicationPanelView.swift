@@ -8,7 +8,6 @@ struct ApplicationPanelView: View {
     var body: some View {
         ApplicationCaptureRepresentable(
             panel: panel,
-            windowID: panel.windowID,
             isVisibleInUI: isVisibleInUI
         )
             .id(panel.windowID)

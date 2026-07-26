@@ -211959,13 +211959,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Application control is unavailable in allowAll socket mode. Use cmuxOnly, automation, or password mode."
+            "value": "Application control is unavailable with the current socket security settings. Choose a more restrictive access option in Settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "allowAllソケットモードではアプリケーションを操作できません。cmuxOnly、automation、またはpasswordモードを使用してください。"
+            "value": "現在のソケットセキュリティ設定ではアプリケーションを操作できません。設定で、より制限の厳しいアクセスオプションを選択してください。"
           }
         }
       }

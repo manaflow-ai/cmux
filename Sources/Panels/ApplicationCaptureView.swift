@@ -58,7 +58,11 @@ final class ApplicationCaptureView: NSView {
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let streamOutput: ApplicationCaptureStreamOutput
-    private let streamDelegate: ApplicationCaptureStreamDelegate
+    private lazy var streamDelegate = ApplicationCaptureStreamDelegate { [weak self] streamID in
+        Task { @MainActor [weak self] in
+            self?.handleUnexpectedStreamStop(streamID: streamID)
+        }
+    }
     private var captureTask: Task<Void, Never>?
     private var teardownTask: Task<Void, Never>?
     private var startupToken: UUID?
@@ -87,11 +91,6 @@ final class ApplicationCaptureView: NSView {
         self.onStateChanged = onStateChanged
         self.onMovedToWindow = onMovedToWindow
         self.streamOutput = ApplicationCaptureStreamOutput(displayLayer: displayLayer)
-        self.streamDelegate = ApplicationCaptureStreamDelegate {
-            Task { @MainActor in
-                onStateChanged(.failed)
-            }
-        }
         super.init(frame: .zero)
         wantsLayer = true
         layer = CALayer()
@@ -402,6 +401,11 @@ final class ApplicationCaptureView: NSView {
             mouseCursorPosition: sourcePoint,
             mouseButton: button
         ) else { return }
+        cgEvent.flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
+        cgEvent.setIntegerValueField(
+            .mouseEventClickState,
+            value: Int64(event.clickCount)
+        )
         cgEvent.postToPid(processID)
     }
 
@@ -481,5 +485,22 @@ final class ApplicationCaptureView: NSView {
         sourceFrame = .zero
         onStateChanged(.windowUnavailable)
         stopCapture()
+    }
+
+    private func handleUnexpectedStreamStop(streamID: ObjectIdentifier) {
+        guard let activeStream = stream,
+              ObjectIdentifier(activeStream) == streamID else { return }
+        stream = nil
+        captureDesired = false
+        targetUnavailable = true
+        startupToken = nil
+        captureTask?.cancel()
+        captureTask = nil
+        sourceFrame = .zero
+        lastTargetValidationAt = 0
+        pendingScrollX = 0
+        pendingScrollY = 0
+        displayLayer.flushAndRemoveImage()
+        onStateChanged(.failed)
     }
 }

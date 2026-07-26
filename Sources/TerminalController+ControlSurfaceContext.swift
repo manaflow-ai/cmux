@@ -181,7 +181,9 @@ extension TerminalController: ControlSurfaceContext {
             return nil
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            let items = orderedPanels(in: dock).map(controlSurfaceHealthEntry)
+            let items = orderedPanels(in: dock).map {
+                controlSurfaceHealthEntry(for: $0)
+            }
             return ControlSurfaceHealthSnapshot(
                 workspaceID: dock.workspaceId,
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),
@@ -189,7 +191,9 @@ extension TerminalController: ControlSurfaceContext {
             )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
-        let items = controlSurfacePanels(workspace: ws).map(controlSurfaceHealthEntry)
+        let items = controlSurfacePanels(workspace: ws).map {
+            controlSurfaceHealthEntry(for: $0)
+        }
         return ControlSurfaceHealthSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),

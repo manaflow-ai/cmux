@@ -30,6 +30,10 @@ final class ApplicationPanel: Panel {
     private var activeCaptureToken: UUID?
     @ObservationIgnored
     private var pendingFocus = false
+    @ObservationIgnored
+    private var captureVisibleInUI = false
+    @ObservationIgnored
+    private var canvasRendering = true
 
     var displayTitle: String { title }
     var displayIcon: String? { "macwindow" }
@@ -67,7 +71,15 @@ final class ApplicationPanel: Panel {
     }
 
     func beginCaptureSession() -> UUID {
-        hostedView?.stopCapture()
+        if let hostedView, let activeCaptureToken {
+            detach(hostedView, token: activeCaptureToken)
+        } else {
+            hostedView?.stopCapture()
+            hostedView = nil
+            activeCaptureToken = nil
+        }
+        captureVisibleInUI = false
+        canvasRendering = true
         let token = UUID()
         activeCaptureToken = token
         return token
@@ -79,7 +91,19 @@ final class ApplicationPanel: Panel {
             return
         }
         hostedView = view
+        applyCaptureVisibility()
         fulfillPendingFocusIfPossible()
+    }
+
+    func detach(_ view: ApplicationCaptureView, token: UUID) {
+        guard activeCaptureToken == token, hostedView === view else {
+            view.stopCapture()
+            return
+        }
+        view.stopCapture()
+        hostedView = nil
+        activeCaptureToken = nil
+        captureVisibleInUI = false
     }
 
     func captureViewDidMoveToWindow(_ view: ApplicationCaptureView, token: UUID) {
@@ -92,10 +116,27 @@ final class ApplicationPanel: Panel {
         captureState = state
     }
 
+    func setCaptureVisibleInUI(_ visible: Bool, token: UUID) {
+        guard activeCaptureToken == token else { return }
+        captureVisibleInUI = visible
+        applyCaptureVisibility()
+    }
+
+    func setCanvasRendering(_ rendering: Bool) {
+        canvasRendering = rendering
+        applyCaptureVisibility()
+    }
+
     func close() {
-        activeCaptureToken = nil
         pendingFocus = false
-        hostedView?.stopCapture()
+        if let hostedView, let activeCaptureToken {
+            detach(hostedView, token: activeCaptureToken)
+        } else {
+            hostedView?.stopCapture()
+            hostedView = nil
+            activeCaptureToken = nil
+            captureVisibleInUI = false
+        }
     }
 
     func focus() {
@@ -121,7 +162,11 @@ final class ApplicationPanel: Panel {
 
     private func fulfillPendingFocusIfPossible() {
         guard pendingFocus, let hostedView, let window = hostedView.window else { return }
-        window.makeFirstResponder(hostedView)
+        guard window.makeFirstResponder(hostedView) else { return }
         pendingFocus = false
+    }
+
+    private func applyCaptureVisibility() {
+        hostedView?.setCaptureActive(captureVisibleInUI && canvasRendering)
     }
 }
