@@ -1944,7 +1944,7 @@ final class SocketClient {
                 guard remaining > 0 else {
                     throw CLIError(message: "Socket connection deadline exceeded")
                 }
-                try connectOnce(responseTimeout: remaining)
+                try connectOnce(responseTimeout: remaining, deadline: deadline)
                 return
             } catch {
                 guard Self.shouldRetryConnect(error), Date() < retryDeadline else {
@@ -2105,9 +2105,16 @@ final class SocketClient {
         }
     }
 
-    private func connectOnce(responseTimeout: TimeInterval? = nil) throws {
+    private func connectOnce(
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws {
         if let relayEndpoint {
-            try connectToRelay(endpoint: relayEndpoint, responseTimeout: responseTimeout)
+            try connectToRelay(
+                endpoint: relayEndpoint,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
             return
         }
 
@@ -2237,9 +2244,16 @@ final class SocketClient {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
+    private func connectToRelay(
+        endpoint: RelayEndpoint,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws {
         let credentials = try Self.relayCredentials(for: endpoint)
-        let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let timeout = try remainingSocketTimeout(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
@@ -2267,13 +2281,18 @@ final class SocketClient {
             throw CLIError(message: "Invalid relay endpoint \(endpoint.host):\(endpoint.port)")
         }
 
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+        let connectErrno: Int32
+        if let deadline {
+            connectErrno = connectRelaySocket(address: &address, deadline: deadline)
+        } else {
+            let result = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                    Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+                }
             }
+            connectErrno = result == 0 ? 0 : errno
         }
-        if result != 0 {
-            let connectErrno = errno
+        if connectErrno != 0 {
             close()
             throw CLIError(
                 message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
@@ -2281,15 +2300,70 @@ final class SocketClient {
         }
 
         do {
-            try authenticateRelay(credentials: credentials, responseTimeout: timeout)
+            try authenticateRelay(
+                credentials: credentials,
+                responseTimeout: timeout,
+                deadline: deadline
+            )
         } catch {
             close()
             throw error
         }
     }
 
-    private func authenticateRelay(credentials: RelayCredentials, responseTimeout: TimeInterval) throws {
-        let challengeLine = try readLine(responseTimeout: responseTimeout)
+    private func connectRelaySocket(address: inout sockaddr_in, deadline: Date) -> Int32 {
+        let originalFlags = fcntl(socketFD, F_GETFL, 0)
+        guard originalFlags >= 0 else { return errno }
+        guard fcntl(socketFD, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
+            return errno
+        }
+        defer {
+            if socketFD >= 0 {
+                _ = fcntl(socketFD, F_SETFL, originalFlags)
+            }
+        }
+
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+        if result == 0 { return 0 }
+        let connectErrno = errno
+        guard connectErrno == EINPROGRESS || connectErrno == EALREADY else {
+            return connectErrno
+        }
+
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return ETIMEDOUT }
+            var descriptor = pollfd(fd: socketFD, events: Int16(POLLOUT), revents: 0)
+            let timeoutMillis = min(max(Int(ceil(remaining * 1_000)), 0), Int(Int32.max))
+            let ready = Darwin.poll(&descriptor, 1, Int32(timeoutMillis))
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return errno
+            }
+            guard ready > 0 else { return ETIMEDOUT }
+
+            var socketError: Int32 = 0
+            var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+            let errorResult = withUnsafeMutablePointer(to: &socketError) { pointer in
+                getsockopt(socketFD, SOL_SOCKET, SO_ERROR, pointer, &socketErrorLength)
+            }
+            return errorResult == 0 ? socketError : errno
+        }
+    }
+
+    private func authenticateRelay(
+        credentials: RelayCredentials,
+        responseTimeout: TimeInterval,
+        deadline: Date? = nil
+    ) throws {
+        let challengeLine = try readLine(responseTimeout: remainingSocketTimeout(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        ))
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -2308,18 +2382,39 @@ final class SocketClient {
             "relay_id": relayID,
             "mac": Self.hexString(from: mac),
         ])
+        try configureSocketWriteSafety(remainingSocketTimeout(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        ))
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine(responseTimeout: responseTimeout)
+        let authResponseLine = try readLine(responseTimeout: remainingSocketTimeout(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        ))
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
             throw CLIError(message: "Relay authentication failed")
         }
+    }
+
+    private func remainingSocketTimeout(
+        responseTimeout: TimeInterval?,
+        deadline: Date?
+    ) throws -> TimeInterval {
+        guard let deadline else {
+            return responseTimeout ?? Self.responseTimeoutSeconds
+        }
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else {
+            throw CLIError(message: "Socket connection deadline exceeded")
+        }
+        return remaining
     }
 
     private func writeAll(
