@@ -594,6 +594,8 @@ fn direct_child_pids(_parent: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     #[cfg(target_os = "linux")]
     use std::sync::mpsc;
@@ -630,6 +632,37 @@ mod tests {
         child.wait().unwrap();
 
         terminate_process_tree(process).unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn captured_session_waits_for_an_unavailable_exact_member_to_exit() {
+        let mut command = Command::new("sleep");
+        command.arg("60").stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let process = ProcessIdentity::capture(pid).unwrap().unwrap();
+        let unavailable =
+            ProcessIdentity { pid: process.pid, started_at: process.started_at.wrapping_add(1) };
+        let session = CapturedSession { id: pid, members: vec![unavailable] };
+        let reaper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            child.kill().unwrap();
+            child.wait().unwrap()
+        });
+
+        let result = session.kill_until_empty(Instant::now() + Duration::from_secs(1));
+        reaper.join().unwrap();
+
+        assert!(result.unwrap());
     }
 
     #[cfg(target_os = "linux")]
