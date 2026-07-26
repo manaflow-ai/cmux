@@ -4553,7 +4553,7 @@ mod tests {
                 level: protocol::NoticeLevel::Warning,
                 message: "Usage reached 80%".into(),
             }),
-            protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 7 },
+            protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 1 },
         );
         let server = thread::spawn(move || {
             let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
@@ -4580,7 +4580,7 @@ mod tests {
             panic!("blocked refresh reached the app before the durable notice");
         };
         assert_eq!(notice.delivery.notice_id, "usage-80");
-        assert_eq!(notice.delivery.sequence, 7);
+        assert_eq!(notice.delivery.sequence, 1);
         assert_eq!(notice.level, DurableNoticeLevel::Warning);
         assert_eq!(notice.message, "Usage reached 80%");
 
@@ -4602,7 +4602,7 @@ mod tests {
                 level: protocol::NoticeLevel::Warning,
                 message: "Usage reached 80%".into(),
             }),
-            protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 7 },
+            protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 1 },
         );
         let server = thread::spawn(move || {
             let mut catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);

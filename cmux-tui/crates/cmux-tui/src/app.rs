@@ -3146,6 +3146,7 @@ pub struct App {
     pending_durable_notice_acks: VecDeque<DurableNoticeDelivery>,
     durable_notice_ack_in_flight: Option<DurableNoticeDelivery>,
     durable_notice_ack_failures: u8,
+    durable_notice_ack_retry_at: Option<Instant>,
     pub config: Config,
     pub chrome: ChromeTheme,
     default_colors: cmux_tui_core::DefaultColors,
@@ -4244,6 +4245,7 @@ pub fn run_with_machine_updates(
         pending_durable_notice_acks: VecDeque::new(),
         durable_notice_ack_in_flight: None,
         durable_notice_ack_failures: 0,
+        durable_notice_ack_retry_at: None,
         config,
         chrome,
         default_colors,
@@ -4731,6 +4733,7 @@ impl App {
                     match result {
                         Ok(()) => {
                             self.durable_notice_ack_failures = 0;
+                            self.durable_notice_ack_retry_at = None;
                         }
                         Err(_) => {
                             continue_acknowledgements = false;
@@ -4740,13 +4743,9 @@ impl App {
                                 .durable_notice_ack_failures
                                 .saturating_sub(1)
                                 .min(DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT);
-                            self.machine_provider_reconnect_retry_at =
+                            self.durable_notice_ack_retry_at =
                                 Some(Instant::now() + Duration::from_secs(1_u64 << exponent));
-                            if let Some(ui) = self.machine_ui.as_mut()
-                                && ui.request.is_none()
-                            {
-                                ui.request = Some(MachineRequest::ReconnectProvider);
-                            }
+                            self.schedule_machine_provider_reconnect();
                         }
                     }
                 }
@@ -5070,6 +5069,17 @@ impl App {
         true
     }
 
+    fn durable_notice_banner_row(&self) -> Option<u16> {
+        self.durable_notices.front().and_then(|front| front.painted_at).and_then(|_| {
+            let content_bottom = self.content_area.y.saturating_add(self.content_area.height);
+            if self.surface_only.is_some() {
+                content_bottom.checked_sub(1)
+            } else {
+                Some(content_bottom)
+            }
+        })
+    }
+
     fn advance_expired_durable_notice(&mut self) -> bool {
         let expired = self.durable_notices.front().is_some_and(|front| {
             front
@@ -5105,10 +5115,11 @@ impl App {
         if self.durable_notice_ack_in_flight.is_some() {
             return;
         }
-        if self.durable_notice_ack_failures > 0
-            && self.machine_provider_reconnect_retry_at.is_some()
-        {
-            return;
+        if let Some(retry_at) = self.durable_notice_ack_retry_at {
+            if Instant::now() < retry_at {
+                return;
+            }
+            self.durable_notice_ack_retry_at = None;
         }
         let Some(delivery) = self.pending_durable_notice_acks.pop_front() else {
             return;
@@ -6554,6 +6565,12 @@ impl App {
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             AppEvent::Input(Event::Mouse(mouse)) => {
+                if matches!(mouse.kind, MouseEventKind::Down(_))
+                    && self.durable_notice_banner_row() == Some(mouse.row)
+                    && self.dismiss_painted_durable_notice()
+                {
+                    return Ok(RenderAction::Draw);
+                }
                 let dismissed = matches!(
                     mouse.kind,
                     MouseEventKind::Down(_)
@@ -18979,7 +18996,8 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let bottom = (0..8).map(|x| buffer[(x, 2)].symbol()).collect::<String>();
         assert!(bottom.starts_with("! quota"), "{bottom:?}");
-        assert_eq!(buffer[(0, 2)].fg, app.config.theme.notification_warning);
+        assert_eq!(buffer[(0, 2)].fg, app.chrome.status_bg);
+        assert_eq!(buffer[(0, 2)].bg, app.config.theme.notification_warning);
         assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&notice.delivery));
     }
 
@@ -18995,7 +19013,8 @@ mod tests {
 
         let cell = &terminal.backend().buffer()[(0, 0)];
         assert_eq!(cell.symbol(), "!");
-        assert_eq!(cell.fg, app.config.theme.notification_warning);
+        assert_eq!(cell.fg, app.chrome.status_bg);
+        assert_eq!(cell.bg, app.config.theme.notification_warning);
         assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&notice.delivery));
     }
 
@@ -19045,9 +19064,12 @@ mod tests {
         assert!(app.durable_notice().is_none());
 
         app.prompt = None;
-        let mouse = durable_notice("mouse", 14, "mouse");
-        app.accept_durable_notice(mouse.clone());
-        app.record_durable_notice_painted(mouse.delivery);
+        app.machine_ui = Some(provider_machine_ui());
+        app.content_area = Rect { x: 0, y: 0, width: 5, height: 2 };
+        app.hits.push((Rect { x: 0, y: 0, width: 1, height: 1 }, super::Hit::ConnectMachine));
+        let outside_banner = durable_notice("mouse-outside", 14, "mouse");
+        app.accept_durable_notice(outside_banner.clone());
+        app.record_durable_notice_painted(outside_banner.delivery);
         app.commit_successful_durable_notice_paint();
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
@@ -19065,6 +19087,24 @@ mod tests {
         })))
         .unwrap();
         assert!(app.durable_notice().is_none());
+        assert!(app.prompt.is_some(), "mouse presses outside the banner must be preserved");
+
+        app.prompt = None;
+        app.hits.clear();
+        app.hits.push((Rect { x: 0, y: 2, width: 1, height: 1 }, super::Hit::ConnectMachine));
+        let on_banner = durable_notice("mouse-banner", 15, "mouse");
+        app.accept_durable_notice(on_banner.clone());
+        app.record_durable_notice_painted(on_banner.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.durable_notice().is_none());
+        assert!(app.prompt.is_none(), "banner presses must not activate covered hits");
     }
 
     #[test]
@@ -19154,6 +19194,7 @@ mod tests {
         );
 
         assert!(app.durable_notice_ack_in_flight.is_none());
+        assert!(app.durable_notice_ack_retry_at.is_some());
         assert!(app.machine_provider_reconnect_retry_at.is_some());
         assert!(matches!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
@@ -19165,6 +19206,27 @@ mod tests {
             app.pending_durable_notice_acks.iter().collect::<Vec<_>>(),
             vec![&notice.delivery]
         );
+
+        let ack_retry_at = app.durable_notice_ack_retry_at;
+        app.clear_machine_provider_reconnect();
+        assert_eq!(app.durable_notice_ack_retry_at, ack_retry_at);
+        assert_eq!(app.durable_notice_ack_failures, 1);
+
+        app.durable_notice_ack_retry_at = Some(Instant::now() - Duration::from_millis(1));
+        app.submit_pending_durable_notice_ack();
+        assert!(app.durable_notice_ack_retry_at.is_none());
+        assert_eq!(app.durable_notice_ack_failures, 1);
+
+        app.pending_durable_notice_acks.clear();
+        app.durable_notice_ack_in_flight = Some(notice.delivery.clone());
+        app.apply_machine_controller_completion(
+            super::MachineControllerCompletion::DurableNoticeAcknowledged {
+                delivery: notice.delivery,
+                result: Ok(()),
+            },
+        );
+        assert_eq!(app.durable_notice_ack_failures, 0);
+        assert!(app.durable_notice_ack_retry_at.is_none());
     }
 
     #[test]
@@ -19236,6 +19298,7 @@ mod tests {
             pending_durable_notice_acks: VecDeque::new(),
             durable_notice_ack_in_flight: None,
             durable_notice_ack_failures: 0,
+            durable_notice_ack_retry_at: None,
             config: Config::default(),
             chrome: ChromeTheme::dark(),
             default_colors: cmux_tui_core::DefaultColors::default(),
