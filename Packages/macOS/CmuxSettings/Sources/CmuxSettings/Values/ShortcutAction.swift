@@ -470,8 +470,7 @@ extension ShortcutAction {
         case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
         case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
         case .toggleBrowserFocusMode: return "Enter Browser Focus Mode"
-        case .toggleBrowserDesignMode:
-            return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
+        case .toggleBrowserDesignMode: return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
         case .toggleReactGrab: return "Toggle React Grab"
         case .diffViewerScrollDown:
             return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
