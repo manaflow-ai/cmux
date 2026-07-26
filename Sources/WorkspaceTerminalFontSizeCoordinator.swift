@@ -173,13 +173,25 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private final class TransferResourceState {
+        struct RequestRetirement {
+            let resourceBecameIdle: Bool
+            let obligationsToRemove: [TransferObligation]
+            let obligationsToRepair: [TransferObligation]
+        }
+
         private(set) var outstandingRequestCount = 0
         private(set) var firstRequest: TransferRequestRecord?
         private(set) var lastRequest: TransferRequestRecord?
+        private var requestsByToken:
+            [UUID: TransferRequestRecord] = [:]
         private var obligationsByPanelId: [UUID: TransferObligation] = [:]
 
         func appendRequest(_ record: TransferRequestRecord) {
+            precondition(
+                requestsByToken[record.request.token] == nil
+            )
             outstandingRequestCount += 1
+            requestsByToken[record.request.token] = record
             record.previous = lastRequest
             lastRequest?.next = record
             if firstRequest == nil {
@@ -188,21 +200,76 @@ final class WorkspaceTerminalFontSizeCoordinator {
             lastRequest = record
         }
 
-        @discardableResult
-        func retireRequest(token: UUID) -> Bool {
+        func retireRequest(token: UUID) -> RequestRetirement {
             precondition(outstandingRequestCount > 0)
-            guard let record = firstRequest else {
+            guard let record =
+                    requestsByToken.removeValue(
+                        forKey: token
+                    ) else {
                 preconditionFailure("Missing transfer request record")
             }
-            precondition(record.request.token == token)
-            firstRequest = record.next
-            firstRequest?.previous = nil
-            if lastRequest === record {
-                lastRequest = nil
+
+            let previous = record.previous
+            let next = record.next
+            var obligationsToRemove: [TransferObligation] = []
+            var obligationsToRepair: [TransferObligation] = []
+            for obligation in obligationsByPanelId.values {
+                let beginsWithRecord =
+                    obligation.nextRequest === record
+                let endsWithRecord =
+                    obligation.throughRequest === record
+                switch (beginsWithRecord, endsWithRecord) {
+                case (true, true):
+                    obligation.nextRequest = nil
+                    obligationsToRemove.append(obligation)
+                case (true, false):
+                    guard let next else {
+                        preconditionFailure(
+                            "Transfer interval lost its next request"
+                        )
+                    }
+                    obligation.nextRequest = next
+                    obligationsToRepair.append(obligation)
+                case (false, true):
+                    guard let previous else {
+                        preconditionFailure(
+                            "Transfer interval lost its final request"
+                        )
+                    }
+                    obligation.throughRequest = previous
+                case (false, false):
+                    break
+                }
             }
+
+            previous?.next = next
+            next?.previous = previous
+            if firstRequest === record {
+                firstRequest = next
+            }
+            if lastRequest === record {
+                lastRequest = previous
+            }
+            record.previous = nil
             record.next = nil
             outstandingRequestCount -= 1
-            return outstandingRequestCount == 0
+            precondition(
+                outstandingRequestCount == requestsByToken.count
+            )
+            let resourceBecameIdle =
+                outstandingRequestCount == 0
+            if resourceBecameIdle {
+                obligationsToRemove =
+                    Array(obligationsByPanelId.values)
+                obligationsToRepair.removeAll(
+                    keepingCapacity: false
+                )
+            }
+            return RequestRetirement(
+                resourceBecameIdle: resourceBecameIdle,
+                obligationsToRemove: obligationsToRemove,
+                obligationsToRepair: obligationsToRepair
+            )
         }
 
         func register(
@@ -1887,22 +1954,32 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
         }
         if let resourceState =
-                transferResourceStates[request.resourceKey],
-           resourceState.retireRequest(token: request.token) {
-            for obligation in Array(resourceState.obligations) {
+                transferResourceStates[request.resourceKey] {
+            let retirement = resourceState.retireRequest(
+                token: request.token
+            )
+            for obligation in retirement.obligationsToRemove {
                 removeTransferObligation(obligation)
             }
-            transferResourceStates.removeValue(
-                forKey: request.resourceKey
-            )
-            if case .windowDock(let slot, _) = request.target,
-               let dock = slot.value {
-                let dockIdentity = ObjectIdentifier(dock)
-                if windowDockResourceKeys[dockIdentity]
-                    == request.resourceKey {
-                    windowDockResourceKeys.removeValue(
-                        forKey: dockIdentity
-                    )
+            for obligation in retirement.obligationsToRepair {
+                guard let index = obligation.heapIndex else {
+                    continue
+                }
+                repairTransferObligationHeap(at: index)
+            }
+            if retirement.resourceBecameIdle {
+                transferResourceStates.removeValue(
+                    forKey: request.resourceKey
+                )
+                if case .windowDock(let slot, _) = request.target,
+                   let dock = slot.value {
+                    let dockIdentity = ObjectIdentifier(dock)
+                    if windowDockResourceKeys[dockIdentity]
+                        == request.resourceKey {
+                        windowDockResourceKeys.removeValue(
+                            forKey: dockIdentity
+                        )
+                    }
                 }
             }
         }
