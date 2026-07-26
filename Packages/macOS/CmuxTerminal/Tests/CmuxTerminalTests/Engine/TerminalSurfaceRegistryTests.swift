@@ -138,6 +138,27 @@ struct TerminalSurfaceRegistryTests {
         #expect(traversedIds == Set(retained.map(\.id)))
     }
 
+    @Test func incrementalTraversalIncludesLateRegistrations() {
+        let registry = TerminalSurfaceRegistry()
+        let initial = (0..<4).map { _ in FakeSurface() }
+        for surface in initial {
+            registry.register(surface)
+        }
+        let traversal = registry.makeIncrementalTraversal()
+        let first = traversal.next()
+        let late = FakeSurface()
+        registry.register(late)
+
+        var traversedIds = Set(first.map { [$0.id] } ?? [])
+        while let surface = traversal.next() {
+            traversedIds.insert(surface.id)
+        }
+        #expect(
+            traversedIds
+                == Set((initial + [late]).map(\.id))
+        )
+    }
+
     @Test func runtimeSurfaceOwnershipFollowsOwnerIdGuard() throws {
         let registry = TerminalSurfaceRegistry()
         let pointer = try #require(ghostty_surface_t(bitPattern: 0xdead_beef))

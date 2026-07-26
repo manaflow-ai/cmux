@@ -3280,41 +3280,6 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertEqual(observedOrder, ["config", "next"])
     }
 
-    func testConfigurationFontReconcilerBoundsWorkPerMainTurn() {
-        let scheduler =
-            ManualTerminalFontConfigurationReloadScheduler()
-        let reconciler =
-            TerminalFontConfigurationReloadReconciler(
-                maximumSurfaceVisitsPerDrain: 3,
-                schedule: scheduler.schedule(action:)
-            )
-        var visits: [Int] = []
-        var didComplete = false
-        let work = (0..<8).map { index in
-            { @MainActor in
-                visits.append(index)
-            }
-        }
-
-        reconciler.reconcile(work) {
-            didComplete = true
-        }
-        XCTAssertTrue(visits.isEmpty)
-        XCTAssertFalse(didComplete)
-
-        scheduler.fire(at: 0)
-        XCTAssertEqual(visits, [0, 1, 2])
-        XCTAssertFalse(didComplete)
-
-        scheduler.fire(at: 1)
-        XCTAssertEqual(visits, [0, 1, 2, 3, 4, 5])
-        XCTAssertFalse(didComplete)
-
-        scheduler.fire(at: 2)
-        XCTAssertEqual(visits, [0, 1, 2, 3, 4, 5, 6, 7])
-        XCTAssertTrue(didComplete)
-    }
-
     func testConfigurationFontReconcilerBoundsCaptureBeforeApply() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
@@ -3410,6 +3375,52 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
         scheduler.fire(at: 2)
         XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(didComplete)
+    }
+
+    func testConfigurationFontReconcilerAbandonsExhaustedWork() {
+        let scheduler =
+            ManualTerminalFontConfigurationReloadScheduler()
+        let reconciler =
+            TerminalFontConfigurationReloadReconciler(
+                maximumSurfaceVisitsPerDrain: 3,
+                maximumAttemptsPerWork: 2,
+                schedule: scheduler.schedule(action:)
+            )
+        var didCapture = false
+        var attempts = 0
+        var didAbandon = false
+        var didComplete = false
+
+        reconciler.reconcileIncrementally(
+            captureNextWork: {
+                guard !didCapture else { return nil }
+                didCapture = true
+                return .init(
+                    attempt: {
+                        attempts += 1
+                        return false
+                    },
+                    abandon: {
+                        didAbandon = true
+                    }
+                )
+            },
+            applyConfiguration: {},
+            completion: {
+                didComplete = true
+            }
+        )
+
+        scheduler.fire(at: 0)
+        scheduler.fire(at: 1)
+        XCTAssertEqual(attempts, 1)
+        XCTAssertFalse(didAbandon)
+        XCTAssertFalse(didComplete)
+
+        scheduler.fire(at: 2)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(didAbandon)
         XCTAssertTrue(didComplete)
     }
 
