@@ -675,6 +675,21 @@ mod tests {
     }
 
     #[test]
+    fn deferred_input_discard_status_is_catalog_backed() {
+        let app_source = include_str!("app.rs");
+        assert!(
+            !app_source
+                .contains("\"Deferred input was discarded because its destination changed\""),
+            "user-visible status text must come from the locale catalog"
+        );
+        assert!(
+            include_str!("localization.rs")
+                .contains("送信先が変更されたため、保留中の入力を破棄しました"),
+            "the deferred-input status must include a Japanese translation"
+        );
+    }
+
+    #[test]
     fn foreign_viewport_hints_are_neutral_and_stack_backed() {
         let english = ENGLISH.foreign_viewport.hint(12, 5).expect("English hint fits inline");
         assert_eq!(english.as_str(), "terminal grid (12x5)");

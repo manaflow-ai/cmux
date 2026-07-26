@@ -1984,13 +1984,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn guarded_browser_pointer_input_requires_a_server_capability() {
-        let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "cmux-tui protocol 10 server does not support guarded browser pointer input; restart the cmux-tui server"
+    fn protocol_10_identity_without_browser_capability_keeps_pty_sessions_compatible() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    }
+
+    #[test]
+    fn browser_attach_requires_the_guarded_pointer_capability() {
+        let unsupported = super::test_session_with_provider_context(None, HashSet::new());
+        assert!(!unsupported.supports_browser_attach());
+
+        let supported = super::test_session_with_provider_context(
+            None,
+            HashSet::from([GUARDED_BROWSER_POINTER_CAPABILITY.to_string()]),
         );
+        assert!(supported.supports_browser_attach());
     }
 
     #[test]

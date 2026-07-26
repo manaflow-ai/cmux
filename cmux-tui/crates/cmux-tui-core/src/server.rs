@@ -5338,7 +5338,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_browser_pointer_commands_remain_protocol_9_compatible() {
+    fn legacy_browser_pointer_commands_cannot_bypass_frame_authority() {
         for cmd in ["browser-mouse", "browser-wheel"] {
             let mut request = json!({
                 "id": 1,
@@ -5353,14 +5353,14 @@ mod tests {
                 request["delta_y_px"] = json!(3.0);
             }
             assert!(
-                serde_json::from_value::<Request>(request.clone()).is_ok(),
-                "protocol 9 {cmd} must keep accepting a missing frame guard"
+                serde_json::from_value::<Request>(request.clone()).is_err(),
+                "{cmd} must reject a missing frame guard"
             );
 
             request["frame_seq"] = Value::Null;
             assert!(
-                serde_json::from_value::<Request>(request).is_ok(),
-                "protocol 9 {cmd} must keep accepting a null frame guard"
+                serde_json::from_value::<Request>(request).is_err(),
+                "{cmd} must reject a null frame guard"
             );
         }
     }

@@ -4310,6 +4310,38 @@ mod tests {
     }
 
     #[test]
+    fn coalesced_navigation_keeps_its_first_ordering_barrier() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        assert!(browser.enqueue_test_command(BrowserCommand::Hold { entered, release: held }));
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        browser.navigate("https://first.test").unwrap();
+        browser.mouse_event("mousePressed", 1.0, 1.0, Some("left"), Some(1)).unwrap();
+        browser.navigate("https://latest.test").unwrap();
+
+        {
+            let pending = browser.latest_nav.lock().unwrap();
+            let pending = pending.as_ref().expect("coalesced navigation");
+            assert_eq!(
+                pending.sequence, 1,
+                "replacing the destination must not move navigation behind intervening pointer input"
+            );
+            assert!(matches!(
+                &pending.command,
+                BrowserCommand::Navigate(url) if url == "https://latest.test"
+            ));
+        }
+
+        release.send(()).unwrap();
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after kill");
+    }
+
+    #[test]
     fn kill_drops_sender_and_worker_exits() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
