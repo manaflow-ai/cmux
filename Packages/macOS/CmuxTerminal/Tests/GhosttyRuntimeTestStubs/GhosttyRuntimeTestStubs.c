@@ -25,6 +25,10 @@ static bool cmux_test_renderer_realized_result = true;
 static bool cmux_test_renderer_occlusion_visible = true;
 static bool cmux_test_renderer_release_was_occluded = false;
 static void* cmux_test_last_updated_surface = NULL;
+static void* cmux_test_font_surface = NULL;
+static float cmux_test_font_runtime_points = 0;
+static float cmux_test_font_configured_runtime_points = 0;
+static bool cmux_test_font_adjusted = false;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
@@ -135,21 +139,42 @@ bool ghostty_surface_binding_action(
     const char *action,
     uintptr_t action_len
 ) {
-    (void)surface;
-    (void)action;
-    (void)action_len;
+    if (surface == cmux_test_font_surface) {
+        char buffer[128];
+        const uintptr_t copy_len =
+            action_len < sizeof(buffer) - 1
+                ? action_len
+                : sizeof(buffer) - 1;
+        memcpy(buffer, action, copy_len);
+        buffer[copy_len] = '\0';
+        const char *set_prefix = "set_font_size:";
+        if (strncmp(
+                buffer,
+                set_prefix,
+                strlen(set_prefix)
+            ) == 0) {
+            cmux_test_font_runtime_points =
+                strtof(buffer + strlen(set_prefix), NULL);
+            cmux_test_font_adjusted = true;
+        } else if (strcmp(buffer, "reset_font_size") == 0) {
+            cmux_test_font_runtime_points =
+                cmux_test_font_configured_runtime_points;
+            cmux_test_font_adjusted = false;
+        }
+    }
     return true;
 }
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_free(void) {}
 void ghostty_surface_free_text(void) {}
 float ghostty_surface_font_size(void *surface) {
-    (void)surface;
-    return 0;
+    return surface == cmux_test_font_surface
+        ? cmux_test_font_runtime_points
+        : 0;
 }
 bool ghostty_surface_font_size_adjusted(void *surface) {
-    (void)surface;
-    return false;
+    return surface == cmux_test_font_surface
+        && cmux_test_font_adjusted;
 }
 uint64_t ghostty_surface_foreground_pid(void *surface) {
     (void)surface;
@@ -212,4 +237,24 @@ ghostty_string_s ghostty_surface_tty_name(void *surface) {
 
 bool cmux_test_ghostty_surface_was_updated(void *surface) {
     return surface == cmux_test_last_updated_surface;
+}
+
+void cmux_test_ghostty_font_state_begin(
+    void *surface,
+    float runtime_points,
+    bool adjusted,
+    float configured_runtime_points
+) {
+    cmux_test_font_surface = surface;
+    cmux_test_font_runtime_points = runtime_points;
+    cmux_test_font_adjusted = adjusted;
+    cmux_test_font_configured_runtime_points =
+        configured_runtime_points;
+}
+
+void cmux_test_ghostty_font_state_end(void) {
+    cmux_test_font_surface = NULL;
+    cmux_test_font_runtime_points = 0;
+    cmux_test_font_configured_runtime_points = 0;
+    cmux_test_font_adjusted = false;
 }

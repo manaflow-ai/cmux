@@ -2663,6 +2663,71 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testParkedFontSizeRetryDoesNotRetainUnvisitedPanels() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        for _ in 0..<3 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+        }
+
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var failedPanelId: UUID?
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, candidate, _, _ in
+                if failedPanelId == nil {
+                    failedPanelId = candidate.id
+                }
+                return candidate.id == failedPanelId
+                    ? .failed
+                    : .alreadySatisfied
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+
+        guard let failedPanelId else {
+            XCTFail("Expected a failed terminal")
+            return
+        }
+        var removablePanel =
+            workspace.panels.values
+                .compactMap({ $0 as? TerminalPanel })
+                .first(where: { $0.id != failedPanelId })
+        guard let removablePanelId = removablePanel?.id else {
+            XCTFail("Expected an unvisited terminal")
+            return
+        }
+        weak var weakRemovablePanel = removablePanel
+        workspace.panels.removeValue(forKey: removablePanelId)
+        removablePanel = nil
+
+        XCTAssertNil(
+            weakRemovablePanel,
+            "A parked discovery must not retain panels removed from the owner"
+        )
+    }
+
     func testClosingFailedWorkspacePanelWakesParkedRequest() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
