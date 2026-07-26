@@ -2902,7 +2902,7 @@ mod tests {
 
         runtime.close_surface_detached(&"x".repeat(8 * 1024 * 1024), "session-1");
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
-        let shutdown_runtime = runtime.clone();
+        let shutdown_runtime = runtime;
         let shutdown = thread::spawn(move || {
             shutdown_tx
                 .send(shutdown_runtime.shutdown_until(Instant::now() + Duration::from_secs(2)))

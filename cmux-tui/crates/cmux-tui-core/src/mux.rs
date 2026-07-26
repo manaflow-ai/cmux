@@ -10227,7 +10227,7 @@ mod tests {
             let gate = gate.clone();
             move || {
                 bounded_shutdown_fanout(
-                    &vec![(); SHUTDOWN_FANOUT_WORKERS + 1],
+                    &[(); SHUTDOWN_FANOUT_WORKERS + 1],
                     deadline,
                     |_, _| {
                         started_tx.send(()).unwrap();
