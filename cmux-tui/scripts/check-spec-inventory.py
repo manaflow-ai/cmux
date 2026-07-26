@@ -256,21 +256,205 @@ def strip_rust_comments(source: str) -> str:
     return "".join(output)
 
 
+def rust_tokens(source: str) -> list[str]:
+    """Tokenize the Rust subset needed to inspect JSON event construction."""
+    tokens: list[str] = []
+    index = 0
+    while index < len(source):
+        if source[index].isspace():
+            index += 1
+            continue
+        raw_end = rust_raw_string_end(source, index)
+        if raw_end is not None:
+            tokens.append(source[index:raw_end])
+            index = raw_end
+            continue
+        if source[index] == '"':
+            end = index + 1
+            while end < len(source):
+                if source[end] == "\\":
+                    end += 2
+                elif source[end] == '"':
+                    end += 1
+                    break
+                else:
+                    end += 1
+            tokens.append(source[index:end])
+            index = end
+            continue
+        identifier = re.match(r"[A-Za-z_][A-Za-z0-9_]*", source[index:])
+        if identifier:
+            token = identifier.group(0)
+            tokens.append(token)
+            index += len(token)
+            continue
+        if source[index] in "{}()[],:;!.=":
+            tokens.append(source[index])
+        index += 1
+    return tokens
+
+
+def rust_string_value(token: str) -> str | None:
+    if token.startswith('"'):
+        try:
+            value = json.loads(token)
+        except json.JSONDecodeError:
+            return None
+        return value if isinstance(value, str) else None
+    raw = re.fullmatch(r"(?:br|cr|r)(#*)\"(.*)\"\1", token, re.DOTALL)
+    return raw.group(2) if raw else None
+
+
+def matching_token(tokens: list[str], start: int) -> int | None:
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    opener = tokens[start]
+    if opener not in pairs:
+        return None
+    stack = [pairs[opener]]
+    for index in range(start + 1, len(tokens)):
+        token = tokens[index]
+        if token in pairs:
+            stack.append(pairs[token])
+        elif token in {")", "]", "}"}:
+            if not stack or token != stack[-1]:
+                return None
+            stack.pop()
+            if not stack:
+                return index
+    return None
+
+
+def expression_tokens(tokens: list[str], start: int) -> list[str]:
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack: list[str] = []
+    expression: list[str] = []
+    for token in tokens[start:]:
+        if token in pairs:
+            stack.append(pairs[token])
+        elif token in {")", "]", "}"}:
+            if not stack:
+                break
+            if token != stack[-1]:
+                break
+            stack.pop()
+        elif token in {",", ";"} and not stack:
+            break
+        expression.append(token)
+    return expression
+
+
+def split_rust_arguments(tokens: list[str]) -> list[list[str]]:
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack: list[str] = []
+    arguments: list[list[str]] = [[]]
+    for token in tokens:
+        if token == "," and not stack:
+            arguments.append([])
+            continue
+        arguments[-1].append(token)
+        if token in pairs:
+            stack.append(pairs[token])
+        elif token in {")", "]", "}"} and stack and token == stack[-1]:
+            stack.pop()
+    return arguments
+
+
+def rust_string_constants(tokens: list[str]) -> dict[str, str]:
+    constants: dict[str, str] = {}
+    for index, token in enumerate(tokens):
+        if token != "const" or index + 1 >= len(tokens):
+            continue
+        name = tokens[index + 1]
+        try:
+            equals = tokens.index("=", index + 2)
+            semicolon = tokens.index(";", equals + 1)
+        except ValueError:
+            continue
+        for candidate in tokens[equals + 1 : semicolon]:
+            value = rust_string_value(candidate)
+            if value is not None:
+                constants[name] = value
+                break
+    return constants
+
+
+def wire_names_from_tokens(tokens: list[str], constants: dict[str, str]) -> set[str]:
+    names: set[str] = set()
+    for token in tokens:
+        value = rust_string_value(token)
+        if value is None:
+            value = constants.get(token)
+        if value is not None and re.fullmatch(r"[a-z][a-z0-9-]*", value):
+            names.add(value)
+    return names
+
+
+def json_macro_event_names(tokens: list[str], constants: dict[str, str]) -> set[str]:
+    names: set[str] = set()
+    for index in range(len(tokens) - 2):
+        if tokens[index : index + 2] != ["json", "!"]:
+            continue
+        close = matching_token(tokens, index + 2)
+        if close is None:
+            continue
+        body = tokens[index + 3 : close]
+        for key_index in range(len(body) - 2):
+            if rust_string_value(body[key_index]) != "event" or body[key_index + 1] != ":":
+                continue
+            names.update(
+                wire_names_from_tokens(
+                    expression_tokens(body, key_index + 2),
+                    constants,
+                )
+            )
+    return names
+
+
+def inserted_event_names(tokens: list[str], constants: dict[str, str]) -> set[str]:
+    names: set[str] = set()
+    for index, token in enumerate(tokens[:-1]):
+        if token != "insert" or tokens[index + 1] != "(":
+            continue
+        close = matching_token(tokens, index + 1)
+        if close is None:
+            continue
+        arguments = split_rust_arguments(tokens[index + 2 : close])
+        if len(arguments) < 2:
+            continue
+        keys = {
+            rust_string_value(candidate) or constants.get(candidate)
+            for candidate in arguments[0]
+        }
+        if "event" in keys:
+            names.update(wire_names_from_tokens(arguments[1], constants))
+    return names
+
+
+def assigned_event_names(tokens: list[str], constants: dict[str, str]) -> set[str]:
+    names: set[str] = set()
+    for index in range(len(tokens) - 3):
+        if (
+            tokens[index] == "["
+            and rust_string_value(tokens[index + 1]) == "event"
+            and tokens[index + 2 : index + 4] == ["]", "="]
+        ):
+            names.update(
+                wire_names_from_tokens(
+                    expression_tokens(tokens, index + 4),
+                    constants,
+                )
+            )
+    return names
+
+
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
-    names = set(
-        re.findall(
-            r'json\s*!\s*\(\s*\{\s*"event"\s*:\s*"([a-z][a-z0-9-]*)"',
-            production,
-        )
-    )
-    names.update(
-        re.findall(
-            r'value\["event"\]\s*=\s*json!\("([a-z][a-z0-9-]*)"\)',
-            production,
-        )
-    )
+    tokens = rust_tokens(production)
+    constants = rust_string_constants(tokens)
+    names = json_macro_event_names(tokens, constants)
+    names.update(inserted_event_names(tokens, constants))
+    names.update(assigned_event_names(tokens, constants))
 
     mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
     delta_impl = mux.split("impl TreeDeltaKind", 1)

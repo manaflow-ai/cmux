@@ -944,8 +944,8 @@ impl Action {
             ),
             Action::NewBrowserTab => ActionMetadata::new(
                 "new-browser-tab",
-                ActionClassification::Direct,
-                "new-browser-tab",
+                ActionClassification::Composite,
+                "frontend omnibar + new-browser-tab",
                 ActionExecution::NewBrowserTab,
             ),
             Action::NewPaneSmart => ActionMetadata::new(
@@ -998,20 +998,20 @@ impl Action {
             ),
             Action::RenameTab => ActionMetadata::new(
                 "rename-tab",
-                ActionClassification::Direct,
-                "rename-surface",
+                ActionClassification::Composite,
+                "frontend prompt + rename-surface",
                 ActionExecution::RenameTab,
             ),
             Action::RenameScreen => ActionMetadata::new(
                 "rename-screen",
-                ActionClassification::Direct,
-                "rename-screen",
+                ActionClassification::Composite,
+                "frontend prompt + rename-screen",
                 ActionExecution::RenameScreen,
             ),
             Action::RenameWorkspace => ActionMetadata::new(
                 "rename-workspace",
-                ActionClassification::Direct,
-                "rename-workspace",
+                ActionClassification::Composite,
+                "frontend prompt + rename-workspace",
                 ActionExecution::RenameWorkspace,
             ),
             Action::CloseScreen => ActionMetadata::new(
