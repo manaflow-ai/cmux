@@ -18060,6 +18060,7 @@ mod tests {
                 capabilities: ManagedWorkspaceCapabilities::default(),
             }],
         );
+        ui.session_available = true;
         app.machine_ui = Some(ui);
 
         app.begin_provider_action(2);
