@@ -36,6 +36,76 @@ struct BrowserWebViewUserAgentRegressionTests {
     }
 }
 
+@MainActor
+final class BrowserPanelTrackpadMagnificationTests: XCTestCase {
+    func testMagnificationDeltaRoutesOnlyToInstalledHandler() {
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var receivedDelta: CGFloat?
+
+        XCTAssertFalse(webView.handleMagnificationDelta(0.2))
+
+        webView.onMagnificationDelta = { receivedDelta = $0 }
+
+        XCTAssertTrue(webView.handleMagnificationDelta(0.2))
+        XCTAssertEqual(receivedDelta, 0.2)
+    }
+
+    func testMagnificationDeltasAdjustCurrentPageZoomAdditively() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        _ = panel.setPageZoomFactor(1.0)
+
+        XCTAssertTrue(webView.handleMagnificationDelta(0.3))
+        XCTAssertEqual(panel.currentPageZoomFactor(), 1.3, accuracy: 0.000_001)
+
+        XCTAssertTrue(webView.handleMagnificationDelta(-0.15))
+        XCTAssertEqual(panel.currentPageZoomFactor(), 1.15, accuracy: 0.000_001)
+    }
+
+    func testMagnificationRejectsInvalidDeltasAndUsesExistingZoomLimits() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        XCTAssertTrue(panel.setPageZoomFactor(1.25))
+
+        for delta in [CGFloat.nan, .infinity, -.infinity] {
+            XCTAssertTrue(webView.handleMagnificationDelta(delta))
+            XCTAssertEqual(panel.currentPageZoomFactor(), 1.25, accuracy: 0.000_001)
+        }
+
+        XCTAssertTrue(panel.setPageZoomFactor(4.9))
+        XCTAssertTrue(webView.handleMagnificationDelta(1.0))
+        XCTAssertEqual(panel.currentPageZoomFactor(), 5.0, accuracy: 0.000_001)
+    }
+
+    func testMagnificationRetainsAutomationViewportRenderLimit() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        let viewport = try XCTUnwrap(BrowserViewport(width: 4_096, height: 4_096))
+        panel.viewportModel.setViewport(viewport)
+        XCTAssertTrue(panel.setPageZoomFactor(1.4))
+
+        XCTAssertTrue(webView.handleMagnificationDelta(0.1))
+        XCTAssertEqual(panel.currentPageZoomFactor(), 1.4, accuracy: 0.000_001)
+    }
+
+    func testStaleWebViewMagnificationIsIgnoredAfterProfileReplacement() throws {
+        let alternateProfile = try makeTemporaryBrowserPanelProfile(named: "Magnification")
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: alternateProfile.id) }
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
+        let staleWebView = try XCTUnwrap(panel.webView as? CmuxWebView)
+
+        XCTAssertTrue(panel.switchToProfile(alternateProfile.id))
+        XCTAssertFalse(panel.webView === staleWebView)
+        XCTAssertTrue(panel.setPageZoomFactor(1.25))
+
+        XCTAssertTrue(staleWebView.handleMagnificationDelta(0.5))
+        XCTAssertEqual(panel.currentPageZoomFactor(), 1.25, accuracy: 0.000_001)
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
