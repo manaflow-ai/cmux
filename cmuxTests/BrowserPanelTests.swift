@@ -4404,7 +4404,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
     }
 
-    func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() {
+    func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -4438,7 +4438,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         anchor.removeFromSuperview()
         offWindowContainer.addSubview(anchor)
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        for _ in 0..<16 {
+            await waitForNextMainTurn()
+        }
 
         XCTAssertTrue(
             webView.superview === slot,
