@@ -1636,6 +1636,150 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testParkedCrossWindowOwnersWakeAndBoundDeferredBacklog() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let movedWorkspace = sourceManager.selectedWorkspace,
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace else {
+            XCTFail("Expected source and destination workspaces")
+            return
+        }
+        let sourceDock = sourceManager.makeWindowDockStore(
+            windowId: UUID()
+        )
+        let destinationDock = destinationManager.makeWindowDockStore(
+            windowId: UUID()
+        )
+        let sourceDockPanel = TerminalPanel(
+            workspaceId: sourceDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        sourceDockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        sourceDock.panels[sourceDockPanel.id] = sourceDockPanel
+        let destinationDockPanel = TerminalPanel(
+            workspaceId: destinationDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        destinationDockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        destinationDock.panels[destinationDockPanel.id] =
+            destinationDockPanel
+
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let sourceScheduler = ManualWorkspaceFontSizeDrainScheduler()
+        let destinationScheduler =
+            ManualWorkspaceFontSizeDrainScheduler()
+        let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: sourceManager,
+            arbiter: arbiter,
+            schedule: sourceScheduler.schedule(delay:action:),
+            applyChange: { _, _, _ in .failed }
+        )
+        let destinationCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: destinationManager,
+                arbiter: arbiter,
+                schedule: destinationScheduler.schedule(delay:action:),
+                applyChange: { _, _, _ in .failed }
+            )
+        sourceCoordinator.attachWindowDock(sourceDock)
+        destinationCoordinator.attachWindowDock(destinationDock)
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+            sourceDock.closeAllPanels()
+            destinationDock.closeAllPanels()
+        }
+
+        sourceCoordinator.enqueue(
+            .relative([-1]),
+            workspaceId: movedWorkspace.id,
+            deferFlush: true
+        )
+        destinationCoordinator.enqueue(
+            .relative([-1]),
+            workspaceId: destinationWorkspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        sourceCoordinator.debugFlushOneDrain()
+        destinationCoordinator.debugFlushOneDrain()
+        sourceScheduler.fire(at: 1)
+        destinationScheduler.fire(at: 1)
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        guard let detached =
+                sourceManager.detachWorkspace(
+                    tabId: movedWorkspace.id
+                ) else {
+            XCTFail("Expected the source workspace to detach")
+            return
+        }
+        destinationManager.attachWorkspace(detached, select: true)
+
+        let sourceScheduleCount = sourceScheduler.delays.count
+        let destinationScheduleCount =
+            destinationScheduler.delays.count
+        destinationCoordinator.enqueue(
+            .relative([-1]),
+            workspaceId: movedWorkspace.id,
+            deferFlush: true
+        )
+
+        XCTAssertGreaterThan(
+            sourceScheduler.delays.count,
+            sourceScheduleCount,
+            "A deferred join must schedule its parked workspace owner"
+        )
+        XCTAssertGreaterThan(
+            destinationScheduler.delays.count,
+            destinationScheduleCount,
+            "A deferred join must schedule its parked Dock owner"
+        )
+
+        for index in 0..<600 {
+            if index.isMultiple(of: 2) {
+                destinationCoordinator.enqueue(
+                    .relative([-1]),
+                    workspaceId: movedWorkspace.id,
+                    deferFlush: true
+                )
+            } else {
+                sourceCoordinator.enqueue(
+                    .relative([1]),
+                    workspaceId: destinationWorkspace.id,
+                    deferFlush: true
+                )
+            }
+        }
+
+        guard let deferredJoinCount = mirroredCollectionCount(
+            named: "deferredCoordinatorJoins",
+            in: arbiter
+        ) else {
+            XCTFail("Expected deferred coordinator join storage")
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            deferredJoinCount,
+            256,
+            "Backpressure must bound retained deferred join storage"
+        )
+    }
+
     func testTransferredDescendantPreservesEveryReconciledRequestToken() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -3785,6 +3929,17 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         return Mirror(reflecting: value).children.reduce(into: 0) {
             $0 += storedFloatCount(in: $1.value)
         }
+    }
+
+    private func mirroredCollectionCount(
+        named label: String,
+        in value: Any
+    ) -> Int? {
+        guard let collection = Mirror(reflecting: value).children
+            .first(where: { $0.label == label })?.value else {
+            return nil
+        }
+        return Mirror(reflecting: collection).children.count
     }
 
     private func makeDormantTerminalTransfer(
