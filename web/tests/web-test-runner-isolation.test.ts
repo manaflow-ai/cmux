@@ -19,14 +19,18 @@ const fixtureTestSource = `
 import { test } from "bun:test";
 test("fixture runs", () => {});
 `;
+const ignoredFixtureTestSource = `
+import { test } from "bun:test";
+test("fixture stays ignored", () => {
+  throw new Error("ignored fixture ran");
+});
+`;
 
 test("shared web test runner isolates module mocks across files", () => {
   const result = runChild(
-    process.execPath,
+    "/bin/bash",
     [
-      "run",
-      "test",
-      "--",
+      "scripts/run-tests.sh",
       "--randomize",
       "--seed=1",
       "tests/feedback-route.test.ts",
@@ -45,17 +49,37 @@ test("shared web test runner isolates module mocks across files", () => {
   expect(result.output).toContain("0 fail");
 });
 
-test("shared web test runner preserves recursive default discovery", () => {
+test("shared web test runner preserves sorted recursive discovery", () => {
   const fixtureRoot = createRunnerFixture();
   try {
+    mkdirSync(join(fixtureRoot, ".hidden"));
+    mkdirSync(join(fixtureRoot, "node_modules", "fixture"), {
+      recursive: true,
+    });
     mkdirSync(join(fixtureRoot, "tests", "nested"), { recursive: true });
     writeFileSync(
-      join(fixtureRoot, "tests", "top-level.test.ts"),
+      join(fixtureRoot, "scripts", "alpha_spec.mts"),
       fixtureTestSource,
     );
     writeFileSync(
-      join(fixtureRoot, "tests", "nested", "nested.test.ts"),
+      join(fixtureRoot, "tests", "beta.test.ts"),
       fixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, "tests", "nested", "gamma_test.tsx"),
+      fixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, "tests", "nested", "omega.spec.mjs"),
+      fixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, ".hidden", "ignored.test.ts"),
+      ignoredFixtureTestSource,
+    );
+    writeFileSync(
+      join(fixtureRoot, "node_modules", "fixture", "ignored.test.ts"),
+      ignoredFixtureTestSource,
     );
 
     const result = runChild(
@@ -68,8 +92,84 @@ test("shared web test runner preserves recursive default discovery", () => {
         `shared web test runner skipped recursive discovery:\n${result.output}`,
       );
     }
-    expect(result.output).toContain("tests/top-level.test.ts:");
-    expect(result.output).toContain("tests/nested/nested.test.ts:");
+    const expectedHeadings = [
+      "scripts/alpha_spec.mts:",
+      "tests/beta.test.ts:",
+      "tests/nested/gamma_test.tsx:",
+      "tests/nested/omega.spec.mjs:",
+    ];
+    expectHeadingsInOrder(result.output, expectedHeadings);
+    expect(result.output).not.toContain("ignored.test.ts:");
+
+    const optionedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "-t", "fixture runs"],
+      fixtureRoot,
+    );
+    if (optionedResult.status !== 0) {
+      throw new Error(
+        `option-only web test run lost discovery:\n${optionedResult.output}`,
+      );
+    }
+    expectHeadingsInOrder(optionedResult.output, expectedHeadings);
+    expect(optionedResult.output).not.toContain("ignored.test.ts:");
+
+    const scopedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "--bail", "tests/beta.test.ts"],
+      fixtureRoot,
+    );
+    if (scopedResult.status !== 0) {
+      throw new Error(
+        `optional Bun flag consumed a test filter:\n${scopedResult.output}`,
+      );
+    }
+    expect(scopedResult.output).toContain("tests/beta.test.ts:");
+    expect(scopedResult.output).not.toContain("scripts/alpha_spec.mts:");
+    expect(scopedResult.output).not.toContain("tests/nested/");
+
+    writeFileSync(
+      join(fixtureRoot, "bunfig.toml"),
+      '[test]\nroot = "tests"\n',
+    );
+    const rootedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh"],
+      fixtureRoot,
+    );
+    if (rootedResult.status !== 0) {
+      throw new Error(
+        `default Bun test root was not preserved:\n${rootedResult.output}`,
+      );
+    }
+    expectHeadingsInOrder(rootedResult.output, [
+      "tests/beta.test.ts:",
+      "tests/nested/gamma_test.tsx:",
+      "tests/nested/omega.spec.mjs:",
+    ]);
+    expect(rootedResult.output).not.toContain("scripts/alpha_spec.mts:");
+    rmSync(join(fixtureRoot, "bunfig.toml"));
+
+    writeFileSync(
+      join(fixtureRoot, "tests-only.bunfig.toml"),
+      '[test]\nroot = "tests"\n',
+    );
+    const configuredResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "--config=tests-only.bunfig.toml"],
+      fixtureRoot,
+    );
+    if (configuredResult.status !== 0) {
+      throw new Error(
+        `alternate Bun test root was not preserved:\n${configuredResult.output}`,
+      );
+    }
+    expectHeadingsInOrder(configuredResult.output, [
+      "tests/beta.test.ts:",
+      "tests/nested/gamma_test.tsx:",
+      "tests/nested/omega.spec.mjs:",
+    ]);
+    expect(configuredResult.output).not.toContain("scripts/alpha_spec.mts:");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -85,6 +185,7 @@ test("shared web test runner fails when default discovery finds no tests", () =>
       fixtureRoot,
     );
     expect(result.status).not.toBe(0);
+    expect(result.output).toContain("No web test files found");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -102,10 +203,20 @@ function runChild(
   args: string[],
   cwd: string,
 ): { status: number | null; output: string } {
+  const environment = { ...process.env };
+  // Bun's agent reporter hides passing-file headings, which these discovery
+  // assertions intentionally inspect.
+  delete environment.CLAUDECODE;
+  delete environment.REPL_ID;
+  delete environment.AGENT;
+
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
-    timeout: 30_000,
+    env: environment,
+    // This bounds only a non-terminating child; normal completion is asserted
+    // causally below rather than against elapsed time.
+    timeout: 300_000,
     killSignal: "SIGKILL",
   });
   const output = [result.stdout, result.stderr].join("\n");
@@ -116,4 +227,13 @@ function runChild(
     );
   }
   return { status: result.status, output };
+}
+
+function expectHeadingsInOrder(output: string, headings: string[]): void {
+  let previousIndex = -1;
+  for (const heading of headings) {
+    const index = output.indexOf(heading);
+    expect(index).toBeGreaterThan(previousIndex);
+    previousIndex = index;
+  }
 }
