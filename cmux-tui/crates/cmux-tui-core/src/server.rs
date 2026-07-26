@@ -2651,6 +2651,7 @@ fn browser_state_json(
         "title": state.title,
         "status": state.status.as_str(),
         "error": state.status.error(),
+        "pointer_frame_seq": state.pointer_frame_seq,
         "frames_stalled": state.frames_stalled,
     });
     if include_frame {
@@ -4722,6 +4723,7 @@ mod tests {
                 css_height: 48,
                 seq: 7,
             }),
+            pointer_frame_seq: None,
             frames_stalled: false,
         };
 

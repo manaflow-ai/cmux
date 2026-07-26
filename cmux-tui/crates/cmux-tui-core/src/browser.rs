@@ -94,6 +94,8 @@ pub struct BrowserAttachState {
     pub rows: u16,
     pub status: BrowserStatus,
     pub frame: Option<BrowserFrame>,
+    /// Retained frame sequence that may currently receive guarded pointer input.
+    pub pointer_frame_seq: Option<u64>,
     pub frames_stalled: bool,
 }
 
@@ -1199,14 +1201,9 @@ impl BrowserSurface {
     }
 
     /// Return the newest usable screencast frame sequence, or `None` while the
-    /// surface has no frame or is failed.
+    /// retained frame is not currently safe for pointer input.
     pub fn latest_frame_seq(&self) -> Option<u64> {
-        let state = self.state.lock().unwrap();
-        if matches!(state.status, BrowserStatus::Failed(_)) {
-            None
-        } else {
-            state.latest_frame.as_ref().map(|frame| frame.seq)
-        }
+        self.state.lock().unwrap().pointer_frame_seq
     }
 
     pub fn title(&self) -> String {
@@ -1406,10 +1403,12 @@ impl BrowserSurface {
         if changed {
             state.latest_frame = None;
             Self::set_pointer_frame_locked(&mut state, None);
+            Self::set_pending_attach_frame_locked(&mut state, None);
             state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
             state.stall_nudged = false;
+            Self::mark_state_dirty_locked(&mut state);
         }
     }
 
@@ -1709,10 +1708,17 @@ impl BrowserSurface {
         state.pointer_frame_revision = state.pointer_frame_revision.wrapping_add(1);
     }
 
+    fn set_pending_attach_frame_locked(state: &mut BrowserState, frame: Option<BrowserFrame>) {
+        for tap in &state.taps {
+            tap.slot.lock().unwrap().frame = frame.clone();
+        }
+    }
+
     fn invalidate_pointer_frame_locked(state: &mut BrowserState) -> PointerFrameInvalidation {
         let previous = state.pointer_frame_seq;
         let previous_capture_generation = state.pointer_capture_generation;
         Self::set_pointer_frame_locked(state, None);
+        Self::set_pending_attach_frame_locked(state, None);
         state.pointer_capture_generation = state.pointer_capture_generation.wrapping_add(1);
         PointerFrameInvalidation {
             previous,
@@ -1722,7 +1728,10 @@ impl BrowserSurface {
     }
 
     fn invalidate_pointer_frame(&self) -> PointerFrameInvalidation {
-        Self::invalidate_pointer_frame_locked(&mut self.state.lock().unwrap())
+        let mut state = self.state.lock().unwrap();
+        let invalidation = Self::invalidate_pointer_frame_locked(&mut state);
+        Self::mark_state_dirty_locked(&mut state);
+        invalidation
     }
 
     fn restore_pointer_frame_after_failed_command(&self, invalidation: PointerFrameInvalidation) {
@@ -1735,6 +1744,9 @@ impl BrowserSurface {
         }
         state.pointer_capture_generation = invalidation.previous_capture_generation;
         Self::set_pointer_frame_locked(&mut state, invalidation.previous);
+        let retained_frame = state.latest_frame.clone();
+        Self::set_pending_attach_frame_locked(&mut state, retained_frame);
+        Self::mark_state_dirty_locked(&mut state);
     }
 
     fn restore_pointer_frame_on_command_error<T>(
@@ -2228,6 +2240,7 @@ fn browser_attach_state_locked(
         rows: state.size.1,
         status: state.status.clone(),
         frame: include_frame.then(|| state.latest_frame.clone()).flatten(),
+        pointer_frame_seq: state.pointer_frame_seq,
         frames_stalled: frames_stalled_locked(state, now, dead),
     }
 }
@@ -3541,9 +3554,16 @@ mod tests {
             .notify
             .recv_timeout(Duration::from_secs(1))
             .expect("pointer invalidation must wake attached clients");
-        assert!(
-            stream.slot.lock().unwrap().state.take().is_some(),
-            "pointer invalidation must publish browser state"
+        let invalidated = stream
+            .slot
+            .lock()
+            .unwrap()
+            .state
+            .take()
+            .expect("pointer invalidation must publish browser state");
+        assert_eq!(
+            invalidated.pointer_frame_seq, None,
+            "attached clients must stop admitting the retained frame"
         );
 
         browser.restore_pointer_frame_after_failed_command(invalidation);
@@ -3551,9 +3571,17 @@ mod tests {
             .notify
             .recv_timeout(Duration::from_secs(1))
             .expect("failed-command rollback must wake attached clients");
-        assert!(
-            stream.slot.lock().unwrap().state.take().is_some(),
-            "failed-command rollback must publish browser state"
+        let restored = stream
+            .slot
+            .lock()
+            .unwrap()
+            .state
+            .take()
+            .expect("failed-command rollback must publish browser state");
+        assert_eq!(
+            restored.pointer_frame_seq,
+            Some(1),
+            "attached clients must restore admission after a rejected navigation"
         );
     }
 
@@ -3571,9 +3599,16 @@ mod tests {
             .notify
             .recv_timeout(Duration::from_secs(1))
             .expect("geometry invalidation must wake attached clients");
-        assert!(
-            stream.slot.lock().unwrap().state.take().is_some(),
-            "geometry invalidation must publish browser state"
+        let invalidated = stream
+            .slot
+            .lock()
+            .unwrap()
+            .state
+            .take()
+            .expect("geometry invalidation must publish browser state");
+        assert_eq!(
+            invalidated.pointer_frame_seq, None,
+            "attached clients must stop admitting the pre-resize frame"
         );
     }
 
@@ -3984,10 +4019,7 @@ mod tests {
         let invalidation = browser.invalidate_pointer_frame();
         stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
         let invalidated = std::mem::take(&mut *stream.slot.lock().unwrap());
-        assert!(
-            invalidated.state.is_some(),
-            "invalidation state must supersede the pending frame"
-        );
+        assert!(invalidated.state.is_some(), "invalidation state must supersede the pending frame");
         assert!(
             invalidated.frame.is_none(),
             "a pre-invalidation frame must not be delivered after the barrier"
@@ -3996,10 +4028,7 @@ mod tests {
         browser.restore_pointer_frame_after_failed_command(invalidation);
         stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
         let restored = std::mem::take(&mut *stream.slot.lock().unwrap());
-        assert!(
-            restored.state.is_some(),
-            "rollback state must restore pointer admission"
-        );
+        assert!(restored.state.is_some(), "rollback state must restore pointer admission");
         assert_eq!(
             restored.frame.map(|frame| frame.seq),
             Some(2),

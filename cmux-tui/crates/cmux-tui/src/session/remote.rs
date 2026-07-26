@@ -110,6 +110,7 @@ struct RemoteBrowserState {
     live_since: Option<Instant>,
     last_frame_at: Option<Instant>,
     frame: Option<RemoteBrowserFrame>,
+    pointer_frame_seq: Option<u64>,
 }
 
 impl Default for RemoteBrowserState {
@@ -123,6 +124,7 @@ impl Default for RemoteBrowserState {
             live_since: None,
             last_frame_at: None,
             frame: None,
+            pointer_frame_seq: None,
         }
     }
 }
@@ -482,7 +484,7 @@ impl RemoteSurface {
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             None
         } else {
-            browser.frame.as_ref().map(|frame| frame.frame.seq)
+            browser.pointer_frame_seq
         }
     }
 
@@ -534,7 +536,13 @@ impl RemoteSurface {
         }
         if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
             browser.last_frame_at = Some(Instant::now());
+            if value.get("pointer_frame_seq").is_none() {
+                browser.pointer_frame_seq = Some(frame.frame.seq);
+            }
             browser.frame = Some(frame);
+        }
+        if let Some(pointer_frame_seq) = value.get("pointer_frame_seq") {
+            browser.pointer_frame_seq = pointer_frame_seq.as_u64();
         }
     }
 
@@ -545,6 +553,7 @@ impl RemoteSurface {
             browser.frames_stalled = false;
             browser.live_since.get_or_insert_with(Instant::now);
             browser.last_frame_at = Some(Instant::now());
+            browser.pointer_frame_seq = Some(frame.frame.seq);
             browser.frame = Some(frame);
         }
     }
