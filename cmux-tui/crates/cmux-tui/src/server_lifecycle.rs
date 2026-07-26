@@ -689,6 +689,18 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn shutdown_read_error_accepts_a_socket_that_stopped_listening() {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-tui-shutdown-disconnect-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        assert!(shutdown_read_error(&path).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn legacy_stop_terminates_only_the_identified_process() {
         let mut child =
             Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
