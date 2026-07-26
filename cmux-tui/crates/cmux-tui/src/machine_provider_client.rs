@@ -1653,6 +1653,75 @@ mod tests {
     }
 
     #[test]
+    fn durable_notice_replay_waits_for_the_resumed_subscription_cursor() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello_with_capabilities(
+                &mut stream,
+                &mut reader,
+                "provider-secret",
+                &[DURABLE_NOTICES_CAPABILITY],
+            );
+
+            let subscribe: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(
+                subscribe.request,
+                ProviderRequest::SubscribeNotices(SubscribeNoticesParams {
+                    ref consumer_id
+                }) if consumer_id == &id("cmux-process-1")
+            ));
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(
+                    ProviderEvent::Notice(ProviderNotice {
+                        level: NoticeLevel::Warning,
+                        message: "trial has ten minutes remaining".into(),
+                    }),
+                    NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 },
+                ),
+            );
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::success(
+                    subscribe.id,
+                    SubscribeNoticesResult { sequence: 41 },
+                ),
+            );
+            finished.recv().expect("hold provider connection open");
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert_eq!(
+            provider
+                .subscribe_notices(id("cmux-process-1"))
+                .expect("resume durable subscription"),
+            SubscribeNoticesResult { sequence: 41 }
+        );
+        assert!(provider.is_live(), "valid replay closed the provider connection");
+        let events = provider.subscribe_events().expect("subscribe to retained events");
+        assert_eq!(
+            events
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive replay after cursor initialization")
+                .delivery,
+            Some(NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 })
+        );
+
+        finish.send(()).expect("finish provider server");
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
     fn durable_notice_methods_are_rejected_without_the_capability() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
