@@ -28,6 +28,10 @@ canonical distribution identity.
 - npm `cmux-tui-linux-arm64`: Linux arm64 binary package.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
 
+Linux packages contain static musl binaries that run on both glibc and musl
+distributions. PyPI publishes each Linux binary under matching manylinux and
+musllinux wheel tags so installers on both runtime families can resolve it.
+
 ## One-time registry setup
 
 Add npm Trusted Publishers for all five npm package names:
@@ -97,12 +101,10 @@ Use `.github/workflows/cmux-tui-release-cut.yml` from `main`.
 - The tag is pushed with the default `GITHUB_TOKEN`, and GitHub suppresses
   workflow triggers for token-created events, so the release-cut workflow then
   explicitly dispatches `cmux-tui-release.yml` (build + package) and
-  `tui-publish-pypi.yml` (PyPI wheels) against the new tag. A manual
-  `git push origin cmux-tui-vX.Y.Z` from a developer machine still fires both
-  tag triggers directly.
-- npm remains dispatch-gated. After the tag cut, manually dispatch
-  `tui-publish-npm.yml` with the same `X.Y.Z` version and
-  `confirm_tui_cmux=true`.
+  both registry publishers against the new tag. The npm dispatch sets
+  `confirm_tui_cmux=true`. A manual `git push origin cmux-tui-vX.Y.Z` from a
+  developer machine still fires the build and PyPI tag triggers directly, but
+  npm remains manual-dispatch only.
 
 ## Publishing
 
@@ -110,6 +112,11 @@ PyPI publishing can run from `cmux-tui-vX.Y.Z` tags or manual dispatch.
 
 npm publishing is manual dispatch only and requires `confirm_tui_cmux=true`.
 The platform packages are published first, then the `cmux` launcher.
+
+Each publisher runs its generated Linux entrypoint packages across the
+supported glibc and musl distribution matrix on x86_64 and ARM64 before its
+publish job starts. A compatibility regression therefore blocks writes to that
+registry.
 
 The npm launcher publish deliberately does not pass `--tag`: when the TUI
 version is greater than `0.8.3`, this coordinated release takes over the npm
