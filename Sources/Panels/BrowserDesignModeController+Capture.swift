@@ -66,9 +66,10 @@ extension BrowserDesignModeController {
         in webView: WKWebView
     ) async throws -> (
         snapshot: BrowserDesignModeSnapshot,
-        pageImage: NSImage?,
-        selectionImages: [String: NSImage],
-        viewBounds: NSRect
+        pageScreenshotPath: String?,
+        selectionScreenshotPaths: [String: String],
+        lease: UUID,
+        artifactURLs: [URL]
     ) {
         let visibleImage = try await screenshotEvaluator.captureVisibleViewport(from: webView)
         let captureShield = BrowserDesignModeCaptureShield.install(image: visibleImage, over: webView)
@@ -84,11 +85,16 @@ extension BrowserDesignModeController {
             ) {
                 return (
                     candidate.after,
-                    candidate.pageImage,
-                    candidate.selectionImages,
-                    candidate.afterViewBounds
+                    candidate.pageScreenshotPath,
+                    candidate.selectionScreenshotPaths,
+                    candidate.lease,
+                    candidate.artifactURLs
                 )
             }
+            await discardHandoffCandidate(
+                lease: candidate.lease,
+                artifactURLs: candidate.artifactURLs
+            )
         }
         throw BrowserDesignModeError.captureChanged
     }
@@ -219,34 +225,53 @@ extension BrowserDesignModeController {
     ) async throws -> (
         before: BrowserDesignModeSnapshot,
         after: BrowserDesignModeSnapshot,
-        pageImage: NSImage?,
-        selectionImages: [String: NSImage],
+        pageScreenshotPath: String?,
+        selectionScreenshotPaths: [String: String],
+        lease: UUID,
+        artifactURLs: [URL],
         beforeViewBounds: NSRect,
         afterViewBounds: NSRect
     ) {
+        let lease = await artifactStore.beginHandoff()
+        var artifactURLs: [URL] = []
         do {
             let prepared = try await evaluate("return globalThis.__cmuxDesignMode?.prepareCapture();", in: webView)
             let before = try BrowserDesignModeSupport.decodeSnapshot(prepared)
             let beforeViewBounds = webView.bounds
-            let pageImage: NSImage?
-            var selectionImages: [String: NSImage] = [:]
+            let pageScreenshotPath: String?
+            var selectionScreenshotPaths: [String: String] = [:]
             do {
-                pageImage = try await screenshotEvaluator.captureFullPage(from: webView)
+                let pageImage = try await screenshotEvaluator.captureFullPage(from: webView)
+                let pageURL = try await saveHandoffScreenshot(
+                    pageImage,
+                    lease: lease
+                )
+                artifactURLs.append(pageURL)
+                pageScreenshotPath = pageURL.path
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                pageImage = nil
+                pageScreenshotPath = nil
             }
             // The bounded page overview is prompt context, not a high-quality
             // source for element crops. Capture each selection at its own
             // bounded resolution, including when the overview succeeded.
-            for selection in before.selections
-                where annotationScreenshotPaths[selection.selector] == nil {
+            for selection in before.selections {
+                if let annotationPath = annotationScreenshotPaths[selection.selector] {
+                    selectionScreenshotPaths[selection.selector] = annotationPath
+                    continue
+                }
                 let captureRect = selection.documentCaptureRect(
                     webViewBounds: beforeViewBounds
                 )
-                selectionImages[selection.selector] = try await screenshotEvaluator
+                let selectionImage = try await screenshotEvaluator
                     .captureDocumentRect(captureRect, from: webView)
+                let selectionURL = try await saveHandoffScreenshot(
+                    selectionImage,
+                    lease: lease
+                )
+                artifactURLs.append(selectionURL)
+                selectionScreenshotPaths[selection.selector] = selectionURL.path
             }
             let after = try BrowserDesignModeSupport.decodeSnapshot(
                 try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
@@ -256,8 +281,10 @@ extension BrowserDesignModeController {
             return (
                 before,
                 after,
-                pageImage,
-                selectionImages,
+                pageScreenshotPath,
+                selectionScreenshotPaths,
+                lease,
+                artifactURLs,
                 beforeViewBounds,
                 afterViewBounds
             )
@@ -273,8 +300,24 @@ extension BrowserDesignModeController {
                 _ = try? await self.screenshotEvaluator.captureVisibleViewport(from: webView)
             }
             await cleanup.value
+            await discardHandoffCandidate(
+                lease: lease,
+                artifactURLs: artifactURLs
+            )
             throw error
         }
+    }
+
+    private func saveHandoffScreenshot(
+        _ image: NSImage,
+        lease: UUID
+    ) async throws -> URL {
+        let pngData = try await screenshotWriter.pngData(for: image)
+        return try await artifactStore.saveScreenshot(
+            pngData,
+            surfaceID: surfaceID,
+            handoffLease: lease
+        )
     }
 
     private func restoreCapturePresentation(in webView: WKWebView) async throws {

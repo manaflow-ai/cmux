@@ -496,52 +496,38 @@ final class BrowserDesignModeController {
         let operation = beginOperation()
         errorMessage = nil
         var candidateLease: UUID?
-        var deliveryOwnsLease = false
+        var candidateArtifactURLs: [URL] = []
         do {
             let capture = try await captureStableSelection(in: webView)
-            guard operation == operationRevision else { return }
+            candidateLease = capture.lease
+            candidateArtifactURLs = capture.artifactURLs
+            guard operation == operationRevision else {
+                await discardHandoffCandidate(
+                    lease: capture.lease,
+                    artifactURLs: candidateArtifactURLs
+                )
+                candidateLease = nil
+                candidateArtifactURLs = []
+                return
+            }
             apply(capture.snapshot)
             guard !capture.snapshot.selections.isEmpty else {
                 throw BrowserScreenshotError.invalidSelection
             }
-            let lease = await artifactStore.beginHandoff()
-            candidateLease = lease
-            var screenshotPaths: [String?] = []
-            for selection in capture.snapshot.selections {
-                if let annotationPath = annotationScreenshotPaths[selection.selector] {
-                    screenshotPaths.append(annotationPath)
-                    continue
-                }
-                let selectionImage: NSImage
-                if let fallbackImage = capture.selectionImages[selection.selector] {
-                    selectionImage = fallbackImage
-                } else {
-                    throw BrowserScreenshotError.invalidSelection
-                }
-                let pngData = try await screenshotWriter.pngData(for: selectionImage)
-                screenshotPaths.append(try await artifactStore.saveScreenshot(
-                    pngData,
-                    surfaceID: surfaceID,
-                    handoffLease: lease
-                ).path)
+            let lease = capture.lease
+            let screenshotPaths = capture.snapshot.selections.map {
+                capture.selectionScreenshotPaths[$0.selector]
+            }
+            guard screenshotPaths.allSatisfy({ $0 != nil }) else {
+                throw BrowserScreenshotError.invalidSelection
             }
             guard operation == operationRevision else {
-                await artifactStore.releaseHandoff(lease)
-                return
-            }
-            let pageScreenshotPath: String?
-            if let pageImage = capture.pageImage {
-                let pagePNG = try await screenshotWriter.pngData(for: pageImage)
-                pageScreenshotPath = try await artifactStore.saveScreenshot(
-                    pagePNG,
-                    surfaceID: surfaceID,
-                    handoffLease: lease
-                ).path
-            } else {
-                pageScreenshotPath = nil
-            }
-            guard operation == operationRevision else {
-                await artifactStore.releaseHandoff(lease)
+                await discardHandoffCandidate(
+                    lease: lease,
+                    artifactURLs: candidateArtifactURLs
+                )
+                candidateLease = nil
+                candidateArtifactURLs = []
                 return
             }
             let context = BrowserDesignModePromptContext(
@@ -549,34 +535,53 @@ final class BrowserDesignModeController {
                 snapshot: capture.snapshot,
                 screenshotPaths: screenshotPaths,
                 requestedChange: requestedChange,
-                pageScreenshotPath: pageScreenshotPath,
+                pageScreenshotPath: capture.pageScreenshotPath,
                 prompt: promptRuns
             )
             let contextJSON = try promptFormatter.contextJSON(for: context)
-            let contextJSONPath = try await artifactStore.saveContextJSON(
+            let contextJSONURL = try await artifactStore.saveContextJSON(
                 contextJSON,
                 surfaceID: surfaceID,
                 handoffLease: lease
-            ).path
+            )
+            candidateArtifactURLs.append(contextJSONURL)
+            let contextJSONPath = contextJSONURL.path
             guard operation == operationRevision else {
-                await artifactStore.releaseHandoff(lease)
+                await discardHandoffCandidate(
+                    lease: lease,
+                    artifactURLs: candidateArtifactURLs
+                )
+                candidateLease = nil
+                candidateArtifactURLs = []
                 return
             }
             let artifactPaths = screenshotPaths.compactMap { $0 }
-                + [pageScreenshotPath, contextJSONPath].compactMap { $0 }
+                + [capture.pageScreenshotPath, contextJSONPath].compactMap { $0 }
             let prompt = promptFormatter.format(context, contextJSONPath: contextJSONPath)
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }
-            deliveryOwnsLease = true
             guard try await deliverHandoff(
                 prompt: prompt,
                 artifactPaths: artifactPaths,
                 operation: operation,
                 candidateLease: lease
-            ) else { return }
+            ) else {
+                await discardHandoffCandidate(
+                    lease: lease,
+                    artifactURLs: candidateArtifactURLs
+                )
+                candidateLease = nil
+                candidateArtifactURLs = []
+                return
+            }
+            candidateLease = nil
+            candidateArtifactURLs = []
             didCopy = true
         } catch let copyError {
-            if let candidateLease, !deliveryOwnsLease {
-                await artifactStore.releaseHandoff(candidateLease)
+            if let candidateLease {
+                await discardHandoffCandidate(
+                    lease: candidateLease,
+                    artifactURLs: candidateArtifactURLs
+                )
             }
             guard operation == operationRevision else { return }
             BrowserDesignModeSupport.record(copyError, operation: "copy")

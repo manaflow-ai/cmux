@@ -304,7 +304,7 @@ enum BrowserScreenshotWebViewSnapshotter {
                     guard let origin = tilePlan.origin(column: column, row: row) else {
                         throw BrowserScreenshotError.webContentMetricsUnavailable
                     }
-                    try await scroll(webView, to: origin)
+                    let actualOrigin = try await scroll(webView, to: origin)
                     onProgress()
                     try Task.checkCancellation()
                     let tile = try await captureVisibleViewport(
@@ -316,7 +316,7 @@ enum BrowserScreenshotWebViewSnapshotter {
                     try Task.checkCancellation()
                     drawTile(
                         tile,
-                        at: origin,
+                        at: actualOrigin,
                         into: output,
                         contentSize: contentSize,
                         viewportSize: viewportSize
@@ -868,11 +868,31 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws -> CGPoint {
         let value = try await webView.callAsyncJavaScript(
             """
-            window.scrollTo(x, y);
+            const doc = document.documentElement;
+            const body = document.body;
+            const maximumX = Math.max(
+              0,
+              doc ? doc.scrollWidth - window.innerWidth : 0,
+              body ? body.scrollWidth - window.innerWidth : 0
+            );
+            const maximumY = Math.max(
+              0,
+              doc ? doc.scrollHeight - window.innerHeight : 0,
+              body ? body.scrollHeight - window.innerHeight : 0
+            );
+            const expectedX = Math.min(Math.max(0, x), maximumX);
+            const expectedY = Math.min(Math.max(0, y), maximumY);
+            window.scrollTo({ left: x, top: y, behavior: "instant" });
+            document.documentElement?.getBoundingClientRect();
             await new Promise((resolve) => {
               requestAnimationFrame(() => requestAnimationFrame(resolve));
             });
-            return { x: window.scrollX || 0, y: window.scrollY || 0 };
+            return {
+              x: window.scrollX || 0,
+              y: window.scrollY || 0,
+              expectedX,
+              expectedY
+            };
             """,
             arguments: [
                 "x": Double(point.x),
@@ -886,36 +906,14 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
         let x = numberValue(result["x"])
         let y = numberValue(result["y"])
-        guard x.isFinite, y.isFinite else {
-            throw BrowserScreenshotError.webContentMetricsUnavailable
-        }
-        return CGPoint(x: x, y: y)
-    }
-
-    @discardableResult
-    private static func scrollImmediately(
-        _ webView: WKWebView,
-        to point: NSPoint
-    ) async throws -> CGPoint {
-        let value = try await webView.callAsyncJavaScript(
-            """
-            window.scrollTo(x, y);
-            document.documentElement?.getBoundingClientRect();
-            return { x: window.scrollX || 0, y: window.scrollY || 0 };
-            """,
-            arguments: [
-                "x": Double(point.x),
-                "y": Double(point.y),
-            ],
-            in: nil,
-            contentWorld: .page
-        )
-        guard let result = value as? [String: Any] else {
-            throw BrowserScreenshotError.webContentMetricsUnavailable
-        }
-        let x = numberValue(result["x"])
-        let y = numberValue(result["y"])
-        guard x.isFinite, y.isFinite else {
+        let expectedX = numberValue(result["expectedX"])
+        let expectedY = numberValue(result["expectedY"])
+        guard x.isFinite,
+              y.isFinite,
+              expectedX.isFinite,
+              expectedY.isFinite,
+              abs(x - expectedX) <= 1,
+              abs(y - expectedY) <= 1 else {
             throw BrowserScreenshotError.webContentMetricsUnavailable
         }
         return CGPoint(x: x, y: y)

@@ -186,8 +186,14 @@ actor BrowserDesignModeArtifactStore {
 
     /// Deletes a capture that never became part of authoritative prompt context.
     func remove(_ url: URL) {
+        remove([url])
+    }
+
+    /// Deletes one rejected candidate bundle under a single directory lock.
+    func remove(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
         try? withDirectoryLock {
-            removeArtifactLocked(at: url)
+            urls.forEach { removeArtifactLocked(at: $0) }
         }
     }
 
