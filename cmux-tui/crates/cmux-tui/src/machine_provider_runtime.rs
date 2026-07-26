@@ -767,12 +767,7 @@ impl ProviderMachineRuntime {
         {
             Ok(connected) => connected,
             Err(error) => {
-                if !matches!(
-                    error,
-                    ProviderClientError::Io(_)
-                        | ProviderClientError::Disconnected
-                        | ProviderClientError::Timeout
-                ) {
+                if matches!(error, ProviderClientError::Provider(_)) {
                     self.pending_external_connect = None;
                 }
                 return Err(error.into());
@@ -822,7 +817,7 @@ impl ProviderMachineRuntime {
                                     last_workspace_snapshot.as_ref(),
                                     &keys,
                                     false,
-                                    provider_connect_supported,
+                                    false,
                                 );
                                 ui.notice = Some(
                                     localization::catalog()
@@ -865,7 +860,7 @@ impl ProviderMachineRuntime {
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
-                                provider_connect_supported,
+                                false,
                             );
                             ui.notice = Some(if client.is_live() {
                                 format!(
@@ -897,7 +892,7 @@ impl ProviderMachineRuntime {
                                     last_workspace_snapshot.as_ref(),
                                     &keys,
                                     false,
-                                    provider_connect_supported,
+                                    false,
                                 );
                                 ui.notice = Some(format!(
                                     "{}: {error}",
@@ -919,7 +914,7 @@ impl ProviderMachineRuntime {
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
-                                provider_connect_supported,
+                                false,
                             );
                             ui.notice = Some(format!(
                                 "{}: {error}",
@@ -3110,8 +3105,11 @@ mod tests {
             active_local: None,
             pending_active_local: None,
         };
-        let first_error =
-            controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into())).unwrap_err();
+        let Err(first_error) =
+            controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
+        else {
+            panic!("invalid provider response unexpectedly completed external connect");
+        };
         assert!(first_error.to_string().contains("protocol error"));
         let Err(retry_while_disconnected) =
             controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))

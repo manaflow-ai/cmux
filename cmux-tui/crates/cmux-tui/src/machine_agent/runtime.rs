@@ -25,6 +25,8 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MIN_HEARTBEAT: Duration = Duration::from_millis(protocol::MIN_HEARTBEAT_INTERVAL_MS);
 const MAX_HEARTBEAT: Duration = Duration::from_millis(protocol::MAX_HEARTBEAT_INTERVAL_MS);
 const EVENT_QUEUE_CAPACITY: usize = 128;
+const LOCAL_OPEN_QUEUE_CAPACITY: usize = 8;
+const LOCAL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 const LOCAL_WRITE_QUEUE_CAPACITY: usize = 8;
 const RECONNECT_BASE: Duration = Duration::from_millis(250);
 const RECONNECT_MAX: Duration = Duration::from_secs(30);
@@ -572,9 +574,25 @@ enum WorkerCommand {
 
 enum WorkerInput {
     Cloud(Result<Envelope, FrameReadError>),
-    LocalData { stream_id: u32, instance_id: u64, payload: DataPayload },
-    LocalWriteComplete { stream_id: u32, instance_id: u64, bytes: u32 },
-    LocalWriteFailed { stream_id: u32, instance_id: u64 },
+    LocalOpenCompleted {
+        stream_id: u32,
+        instance_id: u64,
+        connection: io::Result<DuplexConnection>,
+    },
+    LocalData {
+        stream_id: u32,
+        instance_id: u64,
+        payload: DataPayload,
+    },
+    LocalWriteComplete {
+        stream_id: u32,
+        instance_id: u64,
+        bytes: u32,
+    },
+    LocalWriteFailed {
+        stream_id: u32,
+        instance_id: u64,
+    },
     LocalWake,
     Command(WorkerCommand),
 }
@@ -622,13 +640,22 @@ fn generation_worker(context: WorkerContext) {
         return;
     }
 
+    let local_opens = match spawn_local_connector(local, inputs_tx.clone()) {
+        Ok(local_opens) => local_opens,
+        Err(_) => {
+            control.close();
+            let _ = coordinator.send(CoordinatorEvent::Closed { worker_id, stable: false });
+            return;
+        }
+    };
     let mut state = GenerationState {
         generation,
         writer,
         control: Arc::clone(&control),
-        local,
+        local_opens,
         inputs: inputs_tx,
         recent_opens,
+        pending_opens: HashMap::new(),
         streams: HashMap::new(),
         next_stream_instance_id: 1,
         migration_pending: false,
@@ -681,13 +708,43 @@ where
     }
 }
 
+struct LocalOpenRequest {
+    stream_id: u32,
+    instance_id: u64,
+}
+
+fn spawn_local_connector(
+    local: Arc<dyn LocalSessionConnector>,
+    sender: SyncSender<WorkerInput>,
+) -> io::Result<SyncSender<LocalOpenRequest>> {
+    let (requests, receiver) = mpsc::sync_channel::<LocalOpenRequest>(LOCAL_OPEN_QUEUE_CAPACITY);
+    thread::Builder::new().name("machine-agent-local-connector".to_string()).spawn(move || {
+        while let Ok(request) = receiver.recv() {
+            let connection = local.open();
+            if let Err(error) = sender.send(WorkerInput::LocalOpenCompleted {
+                stream_id: request.stream_id,
+                instance_id: request.instance_id,
+                connection,
+            }) {
+                if let WorkerInput::LocalOpenCompleted { connection: Ok(connection), .. } = error.0
+                {
+                    connection.control.close();
+                }
+                break;
+            }
+        }
+    })?;
+    Ok(requests)
+}
+
 struct GenerationState {
     generation: u64,
     writer: Box<dyn Write + Send>,
     control: Arc<dyn ConnectionControl>,
-    local: Arc<dyn LocalSessionConnector>,
+    local_opens: SyncSender<LocalOpenRequest>,
     inputs: SyncSender<WorkerInput>,
     recent_opens: Arc<Mutex<RecentOpenIds>>,
+    pending_opens: HashMap<u32, PendingLocalOpen>,
     streams: HashMap<u32, ActiveStream>,
     next_stream_instance_id: u64,
     migration_pending: bool,
@@ -712,6 +769,9 @@ impl GenerationState {
                     self.last_received = Instant::now();
                     self.handle_cloud(worker_id, coordinator, frame?)?;
                 }
+                Ok(WorkerInput::LocalOpenCompleted { stream_id, instance_id, connection }) => {
+                    self.handle_local_open_completed(stream_id, instance_id, connection)?;
+                }
                 Ok(WorkerInput::LocalData { stream_id, instance_id, payload }) => {
                     self.handle_local_data(stream_id, instance_id, payload)?;
                 }
@@ -732,8 +792,9 @@ impl GenerationState {
                     anyhow::bail!("machine-agent generation input queue disconnected")
                 }
             }
+            self.reap_pending_opens()?;
             self.reap_local_streams()?;
-            if self.draining && self.streams.is_empty() {
+            if self.draining && self.pending_opens.is_empty() && self.streams.is_empty() {
                 self.send(Message::DrainComplete(DrainComplete { generation: self.generation }))?;
                 return Ok(());
             }
@@ -808,6 +869,7 @@ impl GenerationState {
                 }
                 self.migration_pending = false;
                 self.draining = true;
+                self.reject_pending_opens("migrating")?;
                 let _ = acknowledgment.try_send(true);
                 Ok(false)
             }
@@ -830,10 +892,12 @@ impl GenerationState {
         {
             return self.reject(open.stream_id, "invalid_open");
         }
-        if self.streams.contains_key(&open.stream_id) {
+        if self.streams.contains_key(&open.stream_id)
+            || self.pending_opens.contains_key(&open.stream_id)
+        {
             return self.reject(open.stream_id, "stream_replay");
         }
-        if self.streams.len() >= protocol::MAX_ACTIVE_STREAMS {
+        if self.streams.len() + self.pending_opens.len() >= protocol::MAX_ACTIVE_STREAMS {
             return self.reject(open.stream_id, "stream_limit");
         }
         let new_open = self
@@ -844,20 +908,53 @@ impl GenerationState {
         if !new_open {
             return self.reject(open.stream_id, "replay");
         }
-        let connection = match self.local.open() {
-            Ok(connection) => connection,
-            Err(_) => return self.reject(open.stream_id, "local_unavailable"),
-        };
         let instance_id = self.next_stream_instance_id;
         let Some(next_instance_id) = instance_id.checked_add(1) else {
-            connection.control.close();
             return self.reject(open.stream_id, "stream_limit");
         };
         self.next_stream_instance_id = next_instance_id;
-        let DuplexConnection { reader, writer, control } = connection;
-        let flow = Arc::new(StreamFlow::new(open.initial_window));
-        let writes = match spawn_local_writer(
+        let request = LocalOpenRequest { stream_id: open.stream_id, instance_id };
+        if self.local_opens.try_send(request).is_err() {
+            return self.reject(open.stream_id, "local_unavailable");
+        }
+        self.pending_opens.insert(
             open.stream_id,
+            PendingLocalOpen {
+                instance_id,
+                initial_window: open.initial_window,
+                deadline: Instant::now() + LOCAL_OPEN_TIMEOUT,
+            },
+        );
+        Ok(())
+    }
+
+    fn handle_local_open_completed(
+        &mut self,
+        stream_id: u32,
+        instance_id: u64,
+        connection: io::Result<DuplexConnection>,
+    ) -> anyhow::Result<()> {
+        let Some(pending) = self.pending_opens.remove(&stream_id) else {
+            if let Ok(connection) = connection {
+                connection.control.close();
+            }
+            return Ok(());
+        };
+        if pending.instance_id != instance_id {
+            if let Ok(connection) = connection {
+                connection.control.close();
+            }
+            self.pending_opens.insert(stream_id, pending);
+            return Ok(());
+        }
+        let connection = match connection {
+            Ok(connection) => connection,
+            Err(_) => return self.reject(stream_id, "local_unavailable"),
+        };
+        let DuplexConnection { reader, writer, control } = connection;
+        let flow = Arc::new(StreamFlow::new(pending.initial_window));
+        let writes = match spawn_local_writer(
+            stream_id,
             instance_id,
             writer,
             Arc::clone(&control),
@@ -866,11 +963,11 @@ impl GenerationState {
             Ok(writes) => writes,
             Err(_) => {
                 control.close();
-                return self.reject(open.stream_id, "local_unavailable");
+                return self.reject(stream_id, "local_unavailable");
             }
         };
         if spawn_local_reader(
-            open.stream_id,
+            stream_id,
             instance_id,
             reader,
             Arc::clone(&flow),
@@ -881,10 +978,10 @@ impl GenerationState {
         {
             drop(writes);
             control.close();
-            return self.reject(open.stream_id, "local_unavailable");
+            return self.reject(stream_id, "local_unavailable");
         }
         self.streams.insert(
-            open.stream_id,
+            stream_id,
             ActiveStream {
                 instance_id,
                 writes,
@@ -894,7 +991,7 @@ impl GenerationState {
             },
         );
         self.send(Message::Opened(StreamOpened {
-            stream_id: open.stream_id,
+            stream_id,
             receive_window: protocol::MAX_STREAM_WINDOW_BYTES,
         }))
     }
@@ -975,11 +1072,36 @@ impl GenerationState {
     }
 
     fn close_stream(&mut self, stream_id: u32, notify: Option<&str>) -> anyhow::Result<()> {
+        self.pending_opens.remove(&stream_id);
         if let Some(stream) = self.streams.remove(&stream_id) {
             stream.close();
         }
         if let Some(code) = notify {
             self.send(Message::Close(StreamClosed { stream_id, code: error_code(code) }))?;
+        }
+        Ok(())
+    }
+
+    fn reap_pending_opens(&mut self) -> anyhow::Result<()> {
+        let expired = self
+            .pending_opens
+            .iter()
+            .filter_map(|(stream_id, pending)| {
+                (Instant::now() >= pending.deadline).then_some(*stream_id)
+            })
+            .collect::<Vec<_>>();
+        for stream_id in expired {
+            self.pending_opens.remove(&stream_id);
+            self.reject(stream_id, "local_unavailable")?;
+        }
+        Ok(())
+    }
+
+    fn reject_pending_opens(&mut self, code: &str) -> anyhow::Result<()> {
+        let stream_ids = self.pending_opens.keys().copied().collect::<Vec<_>>();
+        self.pending_opens.clear();
+        for stream_id in stream_ids {
+            self.reject(stream_id, code)?;
         }
         Ok(())
     }
@@ -1007,11 +1129,18 @@ impl GenerationState {
     }
 
     fn close_all(&mut self) {
+        self.pending_opens.clear();
         for (_, stream) in self.streams.drain() {
             stream.close();
         }
         self.control.close();
     }
+}
+
+struct PendingLocalOpen {
+    instance_id: u64,
+    initial_window: u32,
+    deadline: Instant,
 }
 
 struct ActiveStream {
@@ -1301,6 +1430,7 @@ mod tests {
     ) -> (GenerationState, RecordingWriter, Receiver<DataPayload>) {
         let writer = RecordingWriter::default();
         let (inputs, _inputs_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        let (local_opens, _local_opens_rx) = mpsc::sync_channel(LOCAL_OPEN_QUEUE_CAPACITY);
         let (writes, write_rx) = mpsc::sync_channel(LOCAL_WRITE_QUEUE_CAPACITY);
         let control = Arc::new(RecordingControl::default());
         let erased_control: Arc<dyn ConnectionControl> = control;
@@ -1310,9 +1440,10 @@ mod tests {
             generation: 1,
             writer: Box::new(writer.clone()),
             control: erased_control,
-            local: Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) }),
+            local_opens,
             inputs,
             recent_opens: Arc::new(Mutex::new(RecentOpenIds::default())),
+            pending_opens: HashMap::new(),
             streams: HashMap::from([(
                 7,
                 ActiveStream {
