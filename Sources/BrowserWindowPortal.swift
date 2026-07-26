@@ -3469,6 +3469,8 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let containerOwnsWebView = webView.superview === containerView
+        let containerOwnsPresentationView =
+            webView.cmuxBrowserViewportPresentationView.superview === containerView
         let containerBounds = containerView.bounds
         let preNormalizeWebFrame = containerOwnsWebView ? webView.frame : .zero
         let inspectorHeightFromInsets = max(0, containerBounds.height - preNormalizeWebFrame.height)
@@ -3591,7 +3593,7 @@ final class WindowBrowserPortal: NSObject {
         )
         let shouldReapplyHostedInspectorPostRefresh =
             presentationUpdateKind == .refresh && requiresRenderingStateReattach
-        if !shouldHide, containerOwnsWebView, presentationUpdateKind != .none {
+        if !shouldHide, containerOwnsPresentationView, presentationUpdateKind != .none {
             if presentationUpdateKind == .refresh &&
                 hostedInspectorAdjustedDuringSync &&
                 !recoveredFromTransientGeometry &&
