@@ -59,23 +59,31 @@ public struct ChatArtifactGalleryRowEligibility: Sendable {
     }
 
     /// Cheap eligibility for count-only scans: same rule as page rows, fed
-    /// from a single existence syscall.
+    /// from one attributes read. `attributesOfItem` observes a symlink itself
+    /// (matching `ArtifactByteReader.stat`), where `fileExists` would traverse
+    /// it and disagree with the gallery about dangling links.
     public func isEligible(
         _ reference: ChatArtifactIndexedReference,
         includeDirectories: Bool,
         includeMissing: Bool
     ) -> Bool {
-        var isDirectory: ObjCBool = false
-        let exists = FileManager.default.fileExists(
-            atPath: reference.path,
-            isDirectory: &isDirectory
-        )
-        return Self.isRowIncluded(
-            exists: exists,
-            isDirectory: isDirectory.boolValue,
-            includeDirectories: includeDirectories,
-            includeMissing: includeMissing
-        )
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: reference.path)
+            let isDirectory = (attributes[.type] as? FileAttributeType) == .typeDirectory
+            return Self.isRowIncluded(
+                exists: true,
+                isDirectory: isDirectory,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            )
+        } catch {
+            return Self.isRowIncluded(
+                exists: false,
+                isDirectory: false,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            )
+        }
     }
 
     /// The single row-inclusion rule shared by page rows and count-only

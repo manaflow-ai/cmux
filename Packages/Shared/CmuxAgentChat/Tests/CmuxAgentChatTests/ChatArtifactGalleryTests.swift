@@ -353,11 +353,19 @@ struct ChatArtifactGalleryTests {
         #expect(FileManager.default.createFile(atPath: attached.path, contents: Data()))
         defer { try? FileManager.default.removeItem(at: root) }
 
+        let danglingLink = root.appendingPathComponent("dangling-link")
+        try FileManager.default.createSymbolicLink(
+            at: danglingLink,
+            withDestinationURL: root.appendingPathComponent("no-such-target")
+        )
         let snapshot = [
-            ChatArtifactIndexedReference(path: created.path, provenance: .created, lastReferencedSeq: 4),
-            ChatArtifactIndexedReference(path: attached.path, provenance: .attached, lastReferencedSeq: 3),
-            ChatArtifactIndexedReference(path: directory.path, provenance: .referenced, lastReferencedSeq: 2),
-            ChatArtifactIndexedReference(path: missing.path, provenance: .referenced, lastReferencedSeq: 1),
+            ChatArtifactIndexedReference(path: created.path, provenance: .created, lastReferencedSeq: 5),
+            ChatArtifactIndexedReference(path: attached.path, provenance: .attached, lastReferencedSeq: 4),
+            ChatArtifactIndexedReference(path: directory.path, provenance: .referenced, lastReferencedSeq: 3),
+            ChatArtifactIndexedReference(path: missing.path, provenance: .referenced, lastReferencedSeq: 2),
+            // A dangling symlink: attributesOfItem observes the link itself,
+            // so count and rows must both treat it as an existing entry.
+            ChatArtifactIndexedReference(path: danglingLink.path, provenance: .referenced, lastReferencedSeq: 1),
         ]
         let builder = ChatArtifactGalleryBuilder()
         let eligibility = ChatArtifactGalleryRowEligibility()
