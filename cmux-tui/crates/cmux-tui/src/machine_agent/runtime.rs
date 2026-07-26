@@ -1689,4 +1689,73 @@ mod tests {
         new_server.shutdown();
         thread.join().unwrap();
     }
+
+    fn assert_invalid_migration_registration(
+        registered_generation: u64,
+        pairing_code: Option<&str>,
+        expected_code: &str,
+        expected_diagnostic: MachineAgentDiagnostic,
+    ) {
+        let (cloud, mut servers) = QueueCloud::new();
+        let mut old_server = WirePeer::new(servers.remove(0));
+        let mut replacement_server = WirePeer::new(servers.remove(0));
+        let local = Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) });
+        let reporter = Arc::new(TestReporter::default());
+        let stop = AtomicStop::new();
+        let agent = MachineAgent::new(
+            identity(),
+            SessionName::new("agents").unwrap(),
+            cloud,
+            local,
+            reporter.clone(),
+            Arc::new(TestWait),
+            stop.clone(),
+        );
+        let thread = thread::spawn(move || agent.run().unwrap());
+
+        let _ = old_server.read();
+        old_server.write(registered(4, None));
+        old_server.write(Message::ReconnectGeneration(ReconnectGeneration {
+            generation: 5,
+            token: MigrationToken::new("invalid-migration-1234").unwrap(),
+        }));
+        let Message::Hello(hello) = replacement_server.read().message else {
+            panic!("expected replacement hello");
+        };
+        assert_eq!(hello.migration.unwrap().generation, 5);
+        replacement_server.write(registered(registered_generation, pairing_code));
+
+        assert!(matches!(
+            old_server.read().message,
+            Message::GenerationRejected(GenerationRejected { generation: 5, ref code })
+                if code.as_str() == expected_code
+        ));
+        assert_eq!(*reporter.diagnostics.lock().unwrap(), vec![expected_diagnostic]);
+        assert_eq!(reporter.migrations.load(Ordering::Relaxed), 1);
+
+        stop.stop();
+        old_server.shutdown();
+        replacement_server.shutdown();
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn migration_pairing_code_resumes_old_generation_and_reports_diagnostic() {
+        assert_invalid_migration_registration(
+            5,
+            Some("ABCD-EFGH"),
+            "invalid_migration",
+            MachineAgentDiagnostic::MigrationPairingCode,
+        );
+    }
+
+    #[test]
+    fn migration_generation_mismatch_resumes_old_generation_and_reports_diagnostic() {
+        assert_invalid_migration_registration(
+            6,
+            None,
+            "generation_mismatch",
+            MachineAgentDiagnostic::MigrationGenerationMismatch,
+        );
+    }
 }

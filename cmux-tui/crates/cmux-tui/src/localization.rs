@@ -460,6 +460,19 @@ mod tests {
                 .contains("ローカルの cmux セッションをリモートサービス経由で共有")
         );
         assert!(!catalog_for_locale("en_US.UTF-8").machine_agent.help.contains("BatchMode"));
+        assert!(!catalog_for_locale("ja_JP.UTF-8").machine_agent.help.contains("BatchMode"));
+        assert!(
+            catalog_for_locale("en_US.UTF-8")
+                .machine_agent
+                .pairing_code_unavailable
+                .contains("interactive terminal")
+        );
+        assert!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .machine_agent
+                .pairing_code_unavailable
+                .contains("対話型端末")
+        );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").machine_agent.invalid_cloud_port_message("invalid"),
             "Invalid --cloud-port value: invalid"

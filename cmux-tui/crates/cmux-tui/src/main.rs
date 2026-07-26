@@ -1555,8 +1555,10 @@ mod tests {
     #[test]
     fn startup_help_localizes_the_machine_agent_entrypoint() {
         let english = usage_for(&localization::catalog_for_locale("en_US.UTF-8").machine_agent);
+        assert!(english.contains("cmux machine-agent"));
         assert!(english.contains("Share one local session through the configured host"));
         let japanese = usage_for(&localization::catalog_for_locale("ja_JP.UTF-8").machine_agent);
+        assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
         assert!(!japanese.contains("Share one local session"));
     }
