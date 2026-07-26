@@ -200,6 +200,8 @@ _SWIFT_SLEEP_CALL = re.compile(
   | (?<![.$\w])(?:Darwin|Glibc)\.(?:sleep|usleep|nanosleep)\s*\(
   | (?<![.$\w])(?:Foundation\.)?Thread\.sleep\s*\(
   | (?<![.$\w])Task(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
+  | (?<![.$\w])(?:Swift\.)?(?:ContinuousClock|SuspendingClock)
+    \s*\(\s*\)\s*\.sleep\s*\(
     """
 )
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
@@ -3687,6 +3689,12 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "cmuxTests/continuous-clock.swift",
+            "try await ContinuousClock().sleep(until: deadline)\n"
+            "#expect(finished)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/interpolation.sh",
             'actual="$(start_job; sleep 1; read_state)"\n'
             'assert "$actual" "$expected"\n',
@@ -3751,8 +3759,6 @@ def _self_test() -> int:
         (
             "cmuxTests/virtual.swift",
             "try await clock.sleep(until: deadline)\n"
-            "#expect(await completed)\n"
-            "try await ContinuousClock().sleep(until: deadline)\n"
             "#expect(await completed)\n",
         ),
         # A known module name nested under another receiver is not a direct API.
