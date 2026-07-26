@@ -208,7 +208,6 @@ struct BrowserPortalFirstRevealScrollTests {
         let displayCountBeforeReveal = webView.displayIfNeededCount
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
-        BrowserWindowPortalRegistry.synchronizeForAnchor(fixture.anchor)
 
         let slot = try #require(webView.superview as? WindowBrowserSlotView)
         let revealedSize = slot.bounds.size
