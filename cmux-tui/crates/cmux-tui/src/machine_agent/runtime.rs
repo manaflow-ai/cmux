@@ -220,6 +220,17 @@ impl MachineAgent {
                         );
                         continue;
                     }
+                    if workers.keys().any(|existing| *existing != worker_id) {
+                        try_send_worker_command(
+                            &workers,
+                            worker_id,
+                            WorkerCommand::ResumeMigration {
+                                generation: request.generation,
+                                code: error_code("migration_in_progress"),
+                            },
+                        );
+                        continue;
+                    }
                     remember_migration(&mut recent_migrations, &request);
                     let proof = MigrationProof {
                         generation: request.generation,
