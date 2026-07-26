@@ -695,7 +695,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn terminal_reaper_wait_error_releases_the_profile() {
+    fn terminal_reaper_wait_error_retains_ownership_for_retry() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
@@ -712,12 +712,13 @@ mod tests {
         let pid = i32::try_from(child.id()).unwrap();
         let profile_dir = make_profile_dir().unwrap();
         FORCE_REAPER_WAIT_ERROR.store(true, Ordering::Release);
+        REAPER_POLL_ATTEMPTS.store(0, Ordering::Release);
         reap_child_detached(chrome_reaper_lease().unwrap(), child, Some(profile_dir.clone()));
         let deadline = Instant::now() + Duration::from_millis(200);
-        while profile_dir.exists() && Instant::now() < deadline {
+        while REAPER_POLL_ATTEMPTS.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        let released = !profile_dir.exists();
+        let retained = profile_dir.exists();
         FORCE_REAPER_WAIT_ERROR.store(false, Ordering::Release);
 
         let cleanup_deadline = Instant::now() + Duration::from_secs(1);
@@ -731,7 +732,7 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&profile_dir);
 
-        assert!(released, "terminal wait error retained the Chrome profile indefinitely");
+        assert!(retained, "terminal wait error discarded Chrome cleanup ownership");
     }
 
     #[test]

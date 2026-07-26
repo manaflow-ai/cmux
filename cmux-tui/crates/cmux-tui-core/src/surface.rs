@@ -790,6 +790,14 @@ struct LocalPtyProcess {
     child_reaped: AtomicBool,
     #[cfg(unix)]
     group_escalation_complete: AtomicBool,
+    #[cfg(all(unix, test))]
+    normal_cleanup_failures: AtomicUsize,
+    #[cfg(all(unix, test))]
+    normal_cleanup_attempts: AtomicUsize,
+    #[cfg(all(unix, test))]
+    normal_cleanup_delay_ms: AtomicU64,
+    #[cfg(all(unix, test))]
+    normal_cleanup_started: AtomicBool,
 }
 
 impl LocalPtyProcess {
@@ -813,6 +821,14 @@ impl LocalPtyProcess {
             child_reaped: AtomicBool::new(false),
             #[cfg(unix)]
             group_escalation_complete: AtomicBool::new(false),
+            #[cfg(all(unix, test))]
+            normal_cleanup_failures: AtomicUsize::new(0),
+            #[cfg(all(unix, test))]
+            normal_cleanup_attempts: AtomicUsize::new(0),
+            #[cfg(all(unix, test))]
+            normal_cleanup_delay_ms: AtomicU64::new(0),
+            #[cfg(all(unix, test))]
+            normal_cleanup_started: AtomicBool::new(false),
         })
     }
 
@@ -999,6 +1015,24 @@ impl LocalPtyProcess {
 
     #[cfg(unix)]
     fn kill_session_descendants_before_reap(&self, deadline: Instant) -> bool {
+        #[cfg(test)]
+        {
+            self.normal_cleanup_attempts.fetch_add(1, Ordering::AcqRel);
+            self.normal_cleanup_started.store(true, Ordering::Release);
+            let delay_ms = self.normal_cleanup_delay_ms.load(Ordering::Acquire);
+            if delay_ms > 0 {
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+            if self
+                .normal_cleanup_failures
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok()
+            {
+                return false;
+            }
+        }
         let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return false;
         };
@@ -3291,6 +3325,91 @@ mod tests {
         assert!(
             !descendant_alive,
             "normal PTY exit reaped its leader while a same-session descendant remained alive"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn normal_child_exit_retries_a_failed_session_cleanup() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-local-reap-retry-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let release_path = root.join("release");
+        let mux = Mux::new_for_test("local-reap-retry", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                format!("while [ ! -e {} ]; do sleep 0.01; done", release_path.display()),
+            ]),
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
+        let process =
+            match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
+                LocalProcess::Owned(process) => process.clone(),
+                LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+            };
+        process.normal_cleanup_failures.store(1, Ordering::Release);
+        std::fs::write(&release_path, b"ready").unwrap();
+
+        let retry_deadline = Instant::now() + Duration::from_secs(1);
+        while (!process.child_reaped.load(Ordering::Acquire)
+            || process.normal_cleanup_attempts.load(Ordering::Acquire) < 2)
+            && Instant::now() < retry_deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let retried = process.normal_cleanup_attempts.load(Ordering::Acquire) >= 2;
+        let reaped = process.child_reaped.load(Ordering::Acquire);
+        let _ = process.terminate_and_wait(Instant::now() + Duration::from_secs(1));
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(retried, "natural PTY cleanup was not retried after a transient failure");
+        assert!(reaped, "the PTY leader remained unreaped after cleanup could succeed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_shutdown_deadline_does_not_wait_for_natural_cleanup_sweep() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-local-reap-lock-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let release_path = root.join("release");
+        let mux = Mux::new_for_test("local-reap-lock", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                format!("while [ ! -e {} ]; do sleep 0.01; done", release_path.display()),
+            ]),
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
+        let process =
+            match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
+                LocalProcess::Owned(process) => process.clone(),
+                LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+            };
+        process.normal_cleanup_delay_ms.store(300, Ordering::Release);
+        std::fs::write(&release_path, b"ready").unwrap();
+        let sweep_deadline = Instant::now() + Duration::from_secs(1);
+        while !process.normal_cleanup_started.load(Ordering::Acquire)
+            && Instant::now() < sweep_deadline
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(process.normal_cleanup_started.load(Ordering::Acquire));
+
+        let started = Instant::now();
+        let _ = process.terminate_and_wait(started + Duration::from_millis(50));
+        let elapsed = started.elapsed();
+        let _ = process.terminate_and_wait(Instant::now() + Duration::from_secs(1));
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "explicit shutdown waited behind the natural cleanup sweep: {elapsed:?}"
         );
     }
 

@@ -302,6 +302,10 @@ mod unix {
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
     const HOST_LAUNCH_CANCEL_POLL: Duration = Duration::from_millis(25);
+    #[cfg(test)]
+    static HOST_REAP_TEST_LOCK: Mutex<()> = Mutex::new(());
+    #[cfg(test)]
+    static NEXT_HOST_NORMAL_CLEANUP_FAILURES: AtomicUsize = AtomicUsize::new(0);
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
@@ -2099,6 +2103,10 @@ mod unix {
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
         group_escalation_complete: AtomicBool,
+        #[cfg(test)]
+        normal_cleanup_failures: AtomicUsize,
+        #[cfg(test)]
+        normal_cleanup_attempts: AtomicUsize,
     }
 
     fn publish_host_frames(
@@ -2410,6 +2418,19 @@ mod unix {
         }
 
         fn kill_session_descendants_before_reap(&self, deadline: Instant) -> bool {
+            #[cfg(test)]
+            {
+                self.normal_cleanup_attempts.fetch_add(1, Ordering::AcqRel);
+                if self
+                    .normal_cleanup_failures
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                        remaining.checked_sub(1)
+                    })
+                    .is_ok()
+                {
+                    return false;
+                }
+            }
             let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 return false;
             };
@@ -2913,6 +2934,12 @@ mod unix {
             child_signal_lock: Mutex::new(()),
             child_reaped: AtomicBool::new(false),
             group_escalation_complete: AtomicBool::new(false),
+            #[cfg(test)]
+            normal_cleanup_failures: AtomicUsize::new(
+                NEXT_HOST_NORMAL_CLEANUP_FAILURES.swap(0, Ordering::AcqRel),
+            ),
+            #[cfg(test)]
+            normal_cleanup_attempts: AtomicUsize::new(0),
         });
 
         let reader_host = shared.clone();
@@ -3781,6 +3808,53 @@ mod unix {
             .unwrap_err();
             assert!(error.to_string().contains("injected PTY"));
             assert_eq!(*viewers.lock().unwrap(), HashMap::from([(1, (80, 24))]));
+        }
+
+        #[test]
+        fn hosted_child_exit_retries_a_failed_session_cleanup() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            NEXT_HOST_NORMAL_CLEANUP_FAILURES.store(1, Ordering::Release);
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: "/tmp/cmux-host-reap-retry.sock".into(),
+                record_path: "/tmp/cmux-host-reap-retry.json".into(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec!["/bin/sh".into(), "-c".into(), "exit 0".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+            };
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+
+            let retry_deadline = Instant::now() + Duration::from_secs(1);
+            while (!host.child_reaped.load(Ordering::Acquire)
+                || host.normal_cleanup_attempts.load(Ordering::Acquire) < 2)
+                && Instant::now() < retry_deadline
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let retried = host.normal_cleanup_attempts.load(Ordering::Acquire) >= 2;
+            let reaped = host.child_reaped.load(Ordering::Acquire);
+            host.request_termination();
+            let _ = host.wait_for_child_exit(Duration::from_secs(1));
+
+            assert!(retried, "hosted PTY cleanup was not retried after a transient failure");
+            assert!(reaped, "the hosted PTY leader remained unreaped after cleanup could succeed");
         }
 
         #[test]

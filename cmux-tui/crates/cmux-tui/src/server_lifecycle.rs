@@ -977,10 +977,67 @@ fn shell_quote(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{self, Read};
+    use std::net::Shutdown;
     #[cfg(unix)]
     use std::process::{Command, Stdio};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    struct FloodStream {
+        remaining_chunks: usize,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl Read for FloodStream {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.remaining_chunks == 0 {
+                return Ok(0);
+            }
+            self.remaining_chunks -= 1;
+            self.reads.fetch_add(1, Ordering::AcqRel);
+            buffer.fill(b'x');
+            Ok(buffer.len())
+        }
+    }
+
+    impl Write for FloodStream {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for FloodStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "test stream is not cloneable"))
+        }
+
+        fn read_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(None)
+        }
+
+        fn set_read_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn write_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(None)
+        }
+
+        fn set_write_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn mismatch_message_contains_both_release_identities_and_stop_command() {
@@ -1224,5 +1281,24 @@ mod tests {
             started.elapsed()
         );
         assert_eq!(error.to_string(), crate::localization::catalog().server.transport_failed);
+    }
+
+    #[test]
+    fn response_reader_rejects_an_unterminated_frame_at_its_size_limit() {
+        const CHUNK_BYTES: usize = 1024 * 1024;
+        let reads = Arc::new(AtomicUsize::new(0));
+        let stream = FloodStream { remaining_chunks: 20, reads: reads.clone() };
+        let mut reader =
+            BufReader::with_capacity(CHUNK_BYTES, Box::new(stream) as Box<dyn transport::Stream>);
+
+        let error =
+            read_matching_response_with_timeout(&mut reader, 7, false, Duration::from_secs(1))
+                .unwrap_err();
+
+        assert_eq!(error.to_string(), crate::localization::catalog().server.response_invalid);
+        assert!(
+            reads.load(Ordering::Acquire) <= 17,
+            "response reader consumed an unbounded unterminated frame"
+        );
     }
 }
