@@ -1333,6 +1333,13 @@ impl FlagMap {
 }
 
 fn parse_u64(name: &str, value: &str) -> Result<u64, UsageError> {
+    let is_id =
+        matches!(name, "client" | "pane" | "screen" | "split" | "surface" | "target" | "workspace");
+    if is_id && value.len() > 1 && value.starts_with('0') {
+        return Err(UsageError(format!(
+            "--{name} must be a canonical uint64; short ids are supported only by interactive attach"
+        )));
+    }
     value.parse::<u64>().map_err(|_| UsageError(format!("--{name} must be a uint64")))
 }
 
@@ -1906,6 +1913,22 @@ mod tests {
         assert_eq!(
             build_read_scrollback(&flags).unwrap(),
             json!({"surface": 9, "start": 40, "count": 2})
+        );
+    }
+
+    #[test]
+    fn generated_id_flags_reject_padded_short_id_lookalikes() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "000010".to_string()),
+                ("text".to_string(), "hello".to_string()),
+            ]),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            build_send(&flags).unwrap_err().0,
+            "--surface must be a canonical uint64; short ids are supported only by interactive attach"
         );
     }
 

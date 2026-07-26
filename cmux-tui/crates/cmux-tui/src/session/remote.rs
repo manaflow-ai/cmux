@@ -432,8 +432,11 @@ pub struct RemoteSession {
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
+    subscription_started: AtomicBool,
+    event_surface_filter: AtomicU64,
     subscription_recovery: Mutex<SubscriptionRecoveryState>,
     subscribers: MuxEventBroadcaster,
+    primed_subscription: Mutex<Option<MuxEventReceiver>>,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
     capabilities: Mutex<HashSet<String>>,
@@ -524,10 +527,22 @@ impl RemoteSession {
     }
 
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path(path, true)
+    }
+
+    pub fn connect_for_surface_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path(path, false)
+    }
+
+    fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
         })?;
-        Self::connect_stream(stream)
+        if subscribe {
+            Self::connect_stream(stream)
+        } else {
+            Self::connect_stream_with_subscription(stream, false)
+        }
     }
 
     /// Connect over an already-established full-duplex byte stream.
@@ -537,26 +552,41 @@ impl RemoteSession {
     /// an SSH relay, or another authenticated tunnel without teaching the
     /// session and rendering layers about those transports.
     pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
+        Self::connect_stream_with_subscription(stream, true)
+    }
+
+    fn connect_stream_with_subscription(
+        stream: Box<dyn transport::Stream>,
+        subscribe: bool,
+    ) -> anyhow::Result<Arc<Self>> {
         let transport = RemoteTransport::json_lines(stream).map_err(|error| {
             anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
-        Self::connect_transport(transport)
+        Self::connect_transport_with_initial_subscription(transport, subscribe)
     }
 
     pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, None)
+        Self::connect_transport_with_initial_subscription(transport, true)
+    }
+
+    fn connect_transport_with_initial_subscription(
+        transport: RemoteTransport,
+        subscribe: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority(transport, None, subscribe)
     }
 
     pub fn connect_provider_transport(
         transport: RemoteTransport,
         authority: BearerToken,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, Some(authority))
+        Self::connect_transport_with_provider_authority(transport, Some(authority), true)
     }
 
     fn connect_transport_with_provider_authority(
         transport: RemoteTransport,
         provider_workspace_authority: Option<BearerToken>,
+        subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer } = transport;
         let session = Arc::new(RemoteSession {
@@ -569,8 +599,11 @@ impl RemoteSession {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
+            subscription_started: AtomicBool::new(false),
+            event_surface_filter: AtomicU64::new(0),
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
+            primed_subscription: Mutex::new(None),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(HashSet::new()),
@@ -592,15 +625,15 @@ impl RemoteSession {
             }
         })?;
 
-        if let Err(error) = session.initialize() {
+        if let Err(error) = session.initialize(subscribe) {
             session.disconnect_transport();
             return Err(error);
         }
         Ok(session)
     }
 
-    fn initialize(&self) -> anyhow::Result<()> {
-        // Identify (validates the endpoint) and subscribe to events.
+    fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
+        // Identify the endpoint and register this connection before any optional subscription.
         let ident = self.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
         *self.capabilities.lock().unwrap() = ident
@@ -616,12 +649,23 @@ impl RemoteSession {
             client_info["name"] = json!(hostname);
         }
         self.request(client_info)?;
-        self.request(json!({"cmd": "subscribe"}))?;
+        if subscribe {
+            self.prime_local_subscription();
+            if let Err(error) = self.request(self.subscription_request()) {
+                self.primed_subscription.lock().unwrap().take();
+                return Err(error);
+            }
+            self.subscription_started.store(true, Ordering::Release);
+        }
         Ok(())
     }
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
         self.capabilities.lock().unwrap().contains(capability)
+    }
+
+    pub fn supports_surface_subscription_filter(&self) -> bool {
+        self.supports_capability(cmux_tui_core::server::SURFACE_SUBSCRIBE_FILTER_CAPABILITY)
     }
 
     pub(super) fn provider_workspace_authority(&self) -> Option<&BearerToken> {
@@ -653,12 +697,93 @@ impl RemoteSession {
     }
 
     pub fn subscribe(&self) -> MuxEventReceiver {
-        self.subscribers.subscribe()
+        self.primed_subscription
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| self.subscribers.subscribe())
+    }
+
+    fn prime_local_subscription(&self) {
+        let receiver = self.subscribers.subscribe();
+        let previous = self.primed_subscription.lock().unwrap().replace(receiver);
+        debug_assert!(previous.is_none(), "event receiver must be consumed before re-priming");
+    }
+
+    /// Limit this connection to events that can affect one attached terminal.
+    /// Surface IDs are allocated from one, so zero is the unscoped sentinel.
+    pub fn scope_events_to_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        debug_assert_ne!(surface, 0);
+        if !self.supports_surface_subscription_filter() {
+            anyhow::bail!("remote server does not support filtered surface subscriptions");
+        }
+        if self
+            .subscription_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            anyhow::bail!("event subscription already started");
+        }
+        self.event_surface_filter.store(surface, Ordering::Release);
+        self.prime_local_subscription();
+        if let Err(error) = self.request(self.subscription_request()) {
+            self.primed_subscription.lock().unwrap().take();
+            self.event_surface_filter.store(0, Ordering::Release);
+            self.subscription_started.store(false, Ordering::Release);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn subscription_request(&self) -> Value {
+        let surface = self.event_surface_filter.load(Ordering::Acquire);
+        if surface == 0 {
+            json!({"cmd": "subscribe"})
+        } else {
+            json!({"cmd": "subscribe", "surface": surface})
+        }
+    }
+
+    fn accepts_event_in_surface_scope(&self, event: &str, value: &Value) -> bool {
+        let target = self.event_surface_filter.load(Ordering::Acquire);
+        if target == 0 {
+            return true;
+        }
+        let surface = value.get("surface").and_then(Value::as_u64);
+        match event {
+            "client-attached"
+            | "client-changed"
+            | "client-detached"
+            | "client-list-invalidated" => false,
+            "notification" => surface.is_none_or(|surface| surface == target),
+            "overflow" if value.get("scope").and_then(Value::as_str) == Some("surface") => {
+                surface == Some(target)
+            }
+            "vt-state"
+            | "surface-output"
+            | "surface-resized"
+            | "surface-resize-failed"
+            | "output"
+            | "resized"
+            | "colors-changed"
+            | "browser-state"
+            | "frame"
+            | "detached"
+            | "surface-exited"
+            | "title-changed"
+            | "bell"
+            | "scroll-changed" => surface == Some(target),
+            _ => true,
+        }
     }
 
     fn handle_line(self: &Arc<Self>, value: Value) {
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
-        match value.get("event").and_then(|v| v.as_str()) {
+        let event = value.get("event").and_then(Value::as_str);
+        if event.is_some_and(|event| !self.accepts_event_in_surface_scope(event, &value)) {
+            return;
+        }
+        match event {
             None => {
                 // Response: route to the waiting request.
                 let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
@@ -995,10 +1120,10 @@ impl RemoteSession {
                 loop {
                     let recovery_generation =
                         session.subscription_recovery.lock().unwrap().generation;
-                    let first = session.request(json!({"cmd": "subscribe"}));
+                    let first = session.request(session.subscription_request());
                     let result = match first {
                         Err(error) if Self::subscription_recovery_is_retryable(&error) => {
-                            session.request(json!({"cmd": "subscribe"}))
+                            session.request(session.subscription_request())
                         }
                         result => result,
                     };
@@ -1588,8 +1713,11 @@ fn test_session_with_writer(
         tree: Mutex::new(RemoteTreeCache::default()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),
+        subscription_started: AtomicBool::new(false),
+        event_surface_filter: AtomicU64::new(0),
         subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
         subscribers: MuxEventBroadcaster::default(),
+        primed_subscription: Mutex::new(None),
         frame_logs: Mutex::new(HashMap::new()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
         capabilities: Mutex::new(capabilities),
@@ -1917,11 +2045,17 @@ mod tests {
 
     struct AcknowledgingWriter {
         session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        requests: Option<Sender<Value>>,
     }
 
     impl RemoteMessageWriter for AcknowledgingWriter {
         fn send(&mut self, message: &str) -> io::Result<()> {
             let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            if let Some(requests) = self.requests.as_ref() {
+                requests.send(request.clone()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "request reader exited")
+                })?;
+            }
             let id = request
                 .get("id")
                 .and_then(Value::as_u64)
@@ -1964,8 +2098,11 @@ mod tests {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
+            subscription_started: AtomicBool::new(false),
+            event_surface_filter: AtomicU64::new(0),
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
+            primed_subscription: Mutex::new(None),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(capabilities),
@@ -1981,7 +2118,7 @@ mod tests {
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
         let session_slot = Arc::new(Mutex::new(None));
         let session = test_session_with_provider_context(
-            Box::new(AcknowledgingWriter { session: session_slot.clone() }),
+            Box::new(AcknowledgingWriter { session: session_slot.clone(), requests: None }),
             HashSet::from([
                 cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
             ]),
@@ -1989,6 +2126,22 @@ mod tests {
         );
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
         session
+    }
+
+    fn recording_acknowledging_session() -> (Arc<RemoteSession>, Receiver<Value>) {
+        let session_slot = Arc::new(Mutex::new(None));
+        let (requests, received_requests) = channel();
+        let session = test_session(Box::new(AcknowledgingWriter {
+            session: session_slot.clone(),
+            requests: Some(requests),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session
+            .capabilities
+            .lock()
+            .unwrap()
+            .insert(cmux_tui_core::server::SURFACE_SUBSCRIBE_FILTER_CAPABILITY.to_string());
+        (session, received_requests)
     }
 
     #[test]
@@ -2046,6 +2199,23 @@ mod tests {
             );
             assert!(closed.load(Ordering::Acquire), "{failure:?} did not close its transport");
         }
+    }
+
+    #[test]
+    fn deferred_surface_initialization_skips_the_unfiltered_subscription() {
+        let closed = Arc::new(AtomicBool::new(false));
+
+        let session = RemoteSession::connect_transport_with_initial_subscription(
+            scripted_initialization_transport(
+                InitializationFailure::SubscribeRejected,
+                closed.clone(),
+            ),
+            false,
+        )
+        .expect("deferred initialization must not send subscribe");
+
+        assert!(!session.subscription_started.load(Ordering::Acquire));
+        assert!(!closed.load(Ordering::Acquire));
     }
 
     #[cfg(unix)]
@@ -2287,6 +2457,118 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ClientDetached(7))
         ));
+    }
+
+    #[test]
+    fn surface_event_scope_filters_before_remote_cache_invalidation() {
+        let (session, _requests) = recording_acknowledging_session();
+        session.tree.lock().unwrap().replace(
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [
+                                {"surface": 7, "title": "target"},
+                                {"surface": 8, "title": "unrelated"}
+                            ]
+                        }]
+                    }]
+                }]
+            })),
+            0,
+        );
+        session.scope_events_to_surface(7).unwrap();
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        for event in [
+            json!({"event": "title-changed", "surface": 8, "title": "changed"}),
+            json!({"event": "surface-output", "surface": 8}),
+            json!({"event": "surface-exited", "surface": 8}),
+            json!({"event": "client-list-invalidated"}),
+            json!({"event": "client-attached", "client": 11, "transport": "unix"}),
+            json!({"event": "notification", "notification": 12, "surface": 8}),
+        ] {
+            session.handle_line(event);
+        }
+
+        assert!(!session.tree_is_stale());
+        assert!(events.try_iter().next().is_none());
+        assert_eq!(session.tree.lock().unwrap().view.surface(8).unwrap().title, "unrelated");
+
+        session.handle_line(json!({"event": "tree-changed"}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+        session.tree_stale.store(false, Ordering::Release);
+
+        session.handle_line(json!({"event": "layout-changed", "screen": 2}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::LayoutChanged(2))
+        ));
+        session.tree_stale.store(false, Ordering::Release);
+
+        session.handle_line(json!({
+            "event": "title-changed",
+            "surface": 7,
+            "title": "target changed",
+        }));
+        assert!(!session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TitleChanged { surface: 7, .. })
+        ));
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
+        ));
+    }
+
+    #[test]
+    fn surface_event_scope_registers_a_filtered_server_subscription() {
+        let (session, requests) = recording_acknowledging_session();
+
+        session.scope_events_to_surface(7).unwrap();
+
+        let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(request.get("cmd").and_then(Value::as_str), Some("subscribe"));
+        assert_eq!(request.get("surface").and_then(Value::as_u64), Some(7));
+    }
+
+    #[test]
+    fn surface_event_scope_retains_events_until_the_first_local_receiver_starts() {
+        let (session, _requests) = recording_acknowledging_session();
+
+        session.scope_events_to_surface(7).unwrap();
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        let events = session.subscribe();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
+        ));
+    }
+
+    #[test]
+    fn surface_event_scope_rejects_servers_without_source_filtering() {
+        let session = test_session(Box::new(UnexpectedWriteWriter));
+
+        let error = session.scope_events_to_surface(7).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "remote server does not support filtered surface subscriptions"
+        );
     }
 
     #[test]
