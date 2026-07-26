@@ -233,6 +233,52 @@ struct TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
+    @Test("timed-out providers cannot permanently exhaust paste preparation")
+    func timedOutProvidersDoNotExhaustPastePreparation() async {
+        let operation = BlockingPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            maximumBlockingOperations: 2,
+            maximumQueuedJobs: 0,
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            operation: { operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { _ in }
+        )
+        var started = operation.startedEvents().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "exhaustion-first")
+        let secondRequest = makeReadRequest(label: "exhaustion-second")
+        let thirdRequest = makeReadRequest(label: "exhaustion-third")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        await deadlines.waitForArrivalCount(1)
+        #expect(await started.next() == firstRequest.pasteboardName)
+        #expect(await deadlines.fireNext())
+        #expect(await firstTask.value == .reject)
+
+        let secondTask = Task {
+            await service.prepare(request: secondRequest, mode: .paste)
+        }
+        await deadlines.waitForArrivalCount(2)
+        #expect(await started.next() == secondRequest.pasteboardName)
+        #expect(await deadlines.fireNext())
+        #expect(await secondTask.value == .reject)
+
+        operation.release(thirdRequest.pasteboardName)
+        let thirdResult = await service.prepare(
+            request: thirdRequest,
+            mode: .paste
+        )
+        #expect(thirdResult == .insertText(thirdRequest.pasteboardName))
+
+        operation.release(firstRequest.pasteboardName)
+        operation.release(secondRequest.pasteboardName)
+    }
+
+    @MainActor
     @Test("bounded queue overflow is reported explicitly")
     func queueOverflowIsExplicit() async {
         let operation = BlockingPastePreparationOperation()

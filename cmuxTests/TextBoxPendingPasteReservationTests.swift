@@ -234,6 +234,67 @@ struct TextBoxPendingPasteReservationTests {
         #expect(textView.string == "before replacement after")
     }
 
+    @Test("representable update preserves a pending selected-text paste")
+    func representableUpdatePreservesPendingSelectedTextPaste() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+        let authoritativeText = textView.string
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+
+        simulateRepresentableUpdate(
+            externalText: authoritativeText,
+            textView: textView
+        )
+
+        #expect(textView.hasPendingAttachmentUploadPlaceholder())
+        #expect(
+            textView.replacePendingAttachmentUploadPlaceholder(
+                id: pasteID,
+                withText: "pasted"
+            )
+        )
+        #expect(textView.string == "before pasted after")
+    }
+
+    @Test("external text replacement cancels a pending paste reservation")
+    func externalTextReplacementCancelsPendingPasteReservation() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+
+        simulateRepresentableUpdate(
+            externalText: "external replacement",
+            textView: textView
+        )
+
+        #expect(textView.pendingPasteReservations.isEmpty)
+        #expect(
+            !textView.replacePendingAttachmentUploadPlaceholder(
+                id: pasteID,
+                withText: "late paste"
+            )
+        )
+        #expect(textView.string == "external replacement")
+    }
+
+    private func simulateRepresentableUpdate(
+        externalText: String,
+        textView: TextBoxInputTextView
+    ) {
+        if shouldSynchronizeExternalTextToTextBox(
+            inlineAttachmentCount: textView.inlineAttachments().count,
+            plainText: textView.plainText(),
+            externalText: externalText,
+            hasMarkedText: textView.hasMarkedText()
+        ) {
+            textView.string = externalText
+        }
+    }
+
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 30)
