@@ -1,9 +1,11 @@
 //! Ordered, off-loop PTY input forwarding.
 //!
-//! All PTY bytes use one lane so local writer locks and remote control-socket
-//! responses cannot block the UI. Consecutive byte-stream writes are batched,
-//! motion is coalesced, and every accepted mouse press reserves its release
-//! capacity.
+//! PTY bytes and session mutations enter one bounded scheduler so local writer
+//! locks and remote control-socket responses cannot block the UI. Acknowledged
+//! surface operations run concurrently behind per-surface barriers, allowing
+//! unrelated panes to keep accepting input while preserving each surface's
+//! order. Consecutive byte-stream writes are batched, motion is coalesced, and
+//! every accepted mouse press reserves its release capacity.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
@@ -86,6 +88,7 @@ pub struct PtyInputEvent {
     label: &'static str,
     coalesce_key: Option<MutationCoalesceKey>,
     failure_surface_id: Option<SurfaceId>,
+    concurrent_surface_operation: bool,
     remote: bool,
     reservation_id: Option<u64>,
     remote_release_attempts: u8,
@@ -111,6 +114,7 @@ impl PtyInputEvent {
             label: "PTY input",
             coalesce_key: None,
             failure_surface_id: None,
+            concurrent_surface_operation: false,
             remote,
             reservation_id: None,
             remote_release_attempts: 0,
@@ -177,6 +181,7 @@ impl PtyInputEvent {
             label,
             coalesce_key: identity.coalesce_key,
             failure_surface_id: identity.failure_surface_id,
+            concurrent_surface_operation: identity.concurrent_surface_operation,
             remote,
             reservation_id: None,
             remote_release_attempts: 0,
@@ -185,6 +190,14 @@ impl PtyInputEvent {
 
     fn queued_byte_len(&self) -> usize {
         self.bytes.len().saturating_add(self.retained_bytes)
+    }
+
+    fn ordering_surface_id(&self) -> Option<SurfaceId> {
+        if self.kind == PtyInputKind::Mutation {
+            self.concurrent_surface_operation.then_some(self.failure_surface_id).flatten()
+        } else {
+            Some(self.surface_id)
+        }
     }
 }
 
@@ -205,6 +218,7 @@ struct QueueState {
     queued_bytes: usize,
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
+    in_flight_surface_operations: HashSet<SurfaceId>,
     closed: bool,
     remote_failed: bool,
     shutdown_release_drain: bool,
@@ -283,6 +297,7 @@ struct PtyMutationIdentity {
     coalesce_key: Option<MutationCoalesceKey>,
     failure_surface_id: Option<SurfaceId>,
     retained_bytes: usize,
+    concurrent_surface_operation: bool,
 }
 
 impl PtyInputDispatcher {
@@ -326,12 +341,18 @@ impl PtyInputDispatcher {
         let mut state = self.sender.queue.state.lock().unwrap();
         state.closed = true;
         self.sender.queue.changed.notify_all();
-        while (!state.events.is_empty() || state.in_flight.is_some()) && Instant::now() < deadline {
+        while (!state.events.is_empty()
+            || state.in_flight.is_some()
+            || !state.in_flight_surface_operations.is_empty())
+            && Instant::now() < deadline
+        {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let (next, _) = self.sender.queue.changed.wait_timeout(state, remaining).unwrap();
             state = next;
         }
-        let drained = state.events.is_empty() && state.in_flight.is_none();
+        let drained = state.events.is_empty()
+            && state.in_flight.is_none()
+            && state.in_flight_surface_operations.is_empty();
         let canceled = if drained {
             Vec::new()
         } else {
@@ -481,6 +502,7 @@ impl PtyInputSender {
             PtyMutationIdentity {
                 coalesce_key: Some((label, surface_id, 0)),
                 failure_surface_id: Some(surface_id),
+                concurrent_surface_operation: true,
                 ..Default::default()
             },
             remote,
@@ -503,6 +525,7 @@ impl PtyInputSender {
             PtyMutationIdentity {
                 failure_surface_id: Some(surface_id),
                 retained_bytes,
+                concurrent_surface_operation: true,
                 ..Default::default()
             },
             remote,
@@ -712,146 +735,241 @@ fn enqueue_bounded_with_evictions(
 
 fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
     loop {
-        let mut event = {
+        let event = {
             let mut state = queue.state.lock().unwrap();
-            while state.events.is_empty() && !state.closed {
+            loop {
+                if let Some(event) = dequeue_ready_event(&mut state) {
+                    break event;
+                }
+                if state.events.is_empty()
+                    && state.in_flight_surface_operations.is_empty()
+                    && state.closed
+                {
+                    return;
+                }
                 state = queue.changed.wait(state).unwrap();
             }
-            if state.events.is_empty() && state.closed {
-                return;
-            }
-            let event = state.events.pop_front().unwrap();
-            state.in_flight =
-                Some(InFlightInput { surface_id: event.surface_id, kind: event.kind });
-            state.queued_bytes = state.queued_bytes.saturating_sub(event.queued_byte_len());
-            event
         };
-        let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
-        let surface_id = kind.map(|_| event.surface_id).or(event.failure_surface_id);
-        let remote = event.remote;
-        let reservation_id = event.reservation_id;
-        if remote && event.kind == PtyInputKind::Release {
-            event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
-        }
-        let after_operation = event.after_operation.take();
-        let result = if let Some(operation) = event.mutation.take() {
-            operation()
+
+        if event.concurrent_surface_operation {
+            spawn_surface_operation(queue.clone(), on_failure.clone(), event);
         } else {
-            event.surface.write_bytes(&event.bytes)
-        };
-        #[cfg(test)]
-        let before_cleanup = queue.after_operation_before_cleanup.lock().unwrap().clone();
-        #[cfg(test)]
-        if let Some(before_cleanup) = before_cleanup {
-            before_cleanup();
+            process_event(queue.clone(), on_failure.clone(), event);
         }
-        let marked_known_not_delivered = result
-            .as_ref()
-            .err()
-            .is_some_and(|error| error.downcast_ref::<KnownNotDeliveredOperationError>().is_some());
-        let operation_error = result.as_ref().err().map(underlying_operation_error);
-        let remote_transport_failed =
-            remote && operation_error.is_some_and(is_remote_transport_failure);
-        let remote_timed_out = remote && operation_error.is_some_and(is_remote_timeout);
-        // Any remote transport error can follow a complete request write, and
-        // response timeout or rejection can likewise follow an operation that
-        // already executed. Local PTY errors can occur while flushing after
-        // bytes were written.
-        let known_not_delivered = marked_known_not_delivered
-            || (event.kind != PtyInputKind::Mutation
-                && !remote
-                && event.surface.kind() == SurfaceKind::Browser);
-        let suppress_mutation_timeout = remote_timed_out
-            && event.kind == PtyInputKind::Mutation
-            && event.failure_surface_id.is_none();
-        let ambiguous_release = remote_timed_out && event.kind == PtyInputKind::Release;
-        let retry_ambiguous_release =
-            ambiguous_release && event.remote_release_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
-        let exhausted_ambiguous_release = ambiguous_release && !retry_ambiguous_release;
-        let failure = result.err().and_then(|error| {
-            (!suppress_mutation_timeout && !retry_ambiguous_release).then(|| PtyOperationFailure {
-                surface_id,
-                kind,
-                reservation_id,
+    }
+}
+
+fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
+    let index = state.events.iter().enumerate().find_map(|(index, event)| {
+        if event.kind == PtyInputKind::Mutation && !event.concurrent_surface_operation {
+            return (index == 0 && state.in_flight_surface_operations.is_empty()).then_some(index);
+        }
+        let surface = event
+            .ordering_surface_id()
+            .expect("surface input and concurrent operations have an ordering surface");
+        (!state.in_flight_surface_operations.contains(&surface)).then_some(index)
+    })?;
+    let event = state.events.remove(index).unwrap();
+    state.queued_bytes = state.queued_bytes.saturating_sub(event.queued_byte_len());
+    if event.concurrent_surface_operation {
+        let surface = event
+            .ordering_surface_id()
+            .expect("concurrent surface operation has an ordering surface");
+        assert!(state.in_flight_surface_operations.insert(surface));
+    } else {
+        state.in_flight = Some(InFlightInput { surface_id: event.surface_id, kind: event.kind });
+    }
+    Some(event)
+}
+
+fn spawn_surface_operation(
+    queue: Arc<SharedQueue>,
+    on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>,
+    event: PtyInputEvent,
+) {
+    let pending = Arc::new(Mutex::new(Some(event)));
+    let worker_pending = pending.clone();
+    let worker_queue = queue.clone();
+    let worker_failure = on_failure.clone();
+    let spawn = std::thread::Builder::new().name("mux-surface-operation".into()).spawn(move || {
+        let event = worker_pending.lock().unwrap().take().unwrap();
+        process_event(worker_queue, worker_failure, event);
+    });
+    if let Err(error) = spawn {
+        let event = pending.lock().unwrap().take().unwrap();
+        fail_surface_operation_spawn(queue, on_failure, event, error);
+    }
+}
+
+fn fail_surface_operation_spawn(
+    queue: Arc<SharedQueue>,
+    on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>,
+    mut event: PtyInputEvent,
+    error: std::io::Error,
+) {
+    let surface =
+        event.ordering_surface_id().expect("concurrent surface operation has an ordering surface");
+    let after_operation = event.after_operation.take();
+    let mut state = queue.state.lock().unwrap();
+    state.in_flight_surface_operations.remove(&surface);
+    queue.changed.notify_all();
+    drop(state);
+    on_failure(PtyOperationFailure {
+        surface_id: Some(surface),
+        kind: None,
+        reservation_id: None,
+        label: event.label,
+        error: format!("could not start surface operation worker: {error}"),
+        lane_failed: false,
+        delivery: PtyOperationDelivery::KnownNotDelivered,
+    });
+    if let Some(after_operation) = after_operation {
+        after_operation();
+    }
+}
+
+fn process_event(
+    queue: Arc<SharedQueue>,
+    on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>,
+    mut event: PtyInputEvent,
+) {
+    let concurrent_surface = event.concurrent_surface_operation;
+    let ordering_surface = event.ordering_surface_id();
+    let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
+    let surface_id = kind.map(|_| event.surface_id).or(event.failure_surface_id);
+    let remote = event.remote;
+    let reservation_id = event.reservation_id;
+    if remote && event.kind == PtyInputKind::Release {
+        event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
+    }
+    let after_operation = event.after_operation.take();
+    let result = if let Some(operation) = event.mutation.take() {
+        operation()
+    } else {
+        event.surface.write_bytes(&event.bytes)
+    };
+    #[cfg(test)]
+    let before_cleanup = queue.after_operation_before_cleanup.lock().unwrap().clone();
+    #[cfg(test)]
+    if let Some(before_cleanup) = before_cleanup {
+        before_cleanup();
+    }
+    let marked_known_not_delivered = result
+        .as_ref()
+        .err()
+        .is_some_and(|error| error.downcast_ref::<KnownNotDeliveredOperationError>().is_some());
+    let operation_error = result.as_ref().err().map(underlying_operation_error);
+    let remote_transport_failed =
+        remote && operation_error.is_some_and(is_remote_transport_failure);
+    let remote_timed_out = remote && operation_error.is_some_and(is_remote_timeout);
+    // Any remote transport error can follow a complete request write, and
+    // response timeout or rejection can likewise follow an operation that
+    // already executed. Local PTY errors can occur while flushing after
+    // bytes were written.
+    let known_not_delivered = marked_known_not_delivered
+        || (event.kind != PtyInputKind::Mutation
+            && !remote
+            && event.surface.kind() == SurfaceKind::Browser);
+    let suppress_mutation_timeout = remote_timed_out
+        && event.kind == PtyInputKind::Mutation
+        && event.failure_surface_id.is_none();
+    let ambiguous_release = remote_timed_out && event.kind == PtyInputKind::Release;
+    let retry_ambiguous_release =
+        ambiguous_release && event.remote_release_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
+    let exhausted_ambiguous_release = ambiguous_release && !retry_ambiguous_release;
+    let failure = result.err().and_then(|error| {
+        (!suppress_mutation_timeout && !retry_ambiguous_release).then(|| PtyOperationFailure {
+            surface_id,
+            kind,
+            reservation_id,
+            label: event.label,
+            error: if exhausted_ambiguous_release {
+                format!(
+                    "mouse release timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} attempts; detach and reconnect before sending more input"
+                )
+            } else {
+                error.to_string()
+            },
+            lane_failed: remote_transport_failed || exhausted_ambiguous_release,
+            delivery: if known_not_delivered {
+                PtyOperationDelivery::KnownNotDelivered
+            } else {
+                PtyOperationDelivery::Ambiguous
+            },
+        })
+    });
+    let mut state = queue.state.lock().unwrap();
+    let mut canceled = Vec::new();
+    if failure
+        .as_ref()
+        .is_some_and(|failure| failure.delivery == PtyOperationDelivery::KnownNotDelivered)
+        && kind == Some(PtyInputKind::Press)
+        && let Some(reservation_id) = reservation_id
+    {
+        state.release_reservations.outstanding.remove(&reservation_id);
+    }
+    if remote_transport_failed || exhausted_ambiguous_release {
+        // One dispatcher belongs to one local or remote App session. A
+        // failed socket write means every queued remote request shares the
+        // same dead transport, so cancel the backlog immediately. The
+        // failed request is ambiguous; queued requests never started.
+        state.remote_failed = true;
+        canceled.extend(state.events.drain(..).map(|event| {
+            PtyOperationFailure {
+                surface_id: (event.kind != PtyInputKind::Mutation)
+                    .then_some(event.surface_id)
+                    .or(event.failure_surface_id),
+                kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+                reservation_id: event.reservation_id,
                 label: event.label,
                 error: if exhausted_ambiguous_release {
-                    format!(
-                        "mouse release timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} attempts; detach and reconnect before sending more input"
-                    )
+                    "canceled after mouse release recovery timed out; detach and reconnect".into()
                 } else {
-                    error.to_string()
+                    "canceled after the remote transport failed".into()
                 },
-                lane_failed: remote_transport_failed || exhausted_ambiguous_release,
-                delivery: if known_not_delivered {
-                    PtyOperationDelivery::KnownNotDelivered
-                } else {
-                    PtyOperationDelivery::Ambiguous
-                },
-            })
-        });
-        let mut state = queue.state.lock().unwrap();
-        let mut canceled = Vec::new();
-        if failure
-            .as_ref()
-            .is_some_and(|failure| failure.delivery == PtyOperationDelivery::KnownNotDelivered)
-            && kind == Some(PtyInputKind::Press)
-            && let Some(reservation_id) = reservation_id
-        {
-            state.release_reservations.outstanding.remove(&reservation_id);
-        }
-        if remote_transport_failed || exhausted_ambiguous_release {
-            // One dispatcher belongs to one local or remote App session. A
-            // failed socket write means every queued remote request shares the
-            // same dead transport, so cancel the backlog immediately. The
-            // failed request is ambiguous; queued requests never started.
-            state.remote_failed = true;
-            canceled.extend(state.events.drain(..).map(|event| {
-                PtyOperationFailure {
-                    surface_id: (event.kind != PtyInputKind::Mutation)
-                        .then_some(event.surface_id)
-                        .or(event.failure_surface_id),
-                    kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
-                    reservation_id: event.reservation_id,
-                    label: event.label,
-                    error: if exhausted_ambiguous_release {
-                        "canceled after mouse release recovery timed out; detach and reconnect"
-                            .into()
-                    } else {
-                        "canceled after the remote transport failed".into()
-                    },
-                    lane_failed: true,
-                    delivery: PtyOperationDelivery::KnownNotDelivered,
-                }
-            }));
-            state.queued_bytes = 0;
-            state.release_reservations.clear();
-        } else if remote_timed_out {
-            // A timeout does not prove the socket is dead. Drop stale queued
-            // work so one stalled request cannot multiply into minutes of
-            // latency, but retain releases that may balance a press already
-            // executed by the remote server.
-            if retry_ambiguous_release && (!state.closed || state.shutdown_release_drain) {
-                requeue_ambiguous_release(&mut state, event);
+                lane_failed: true,
+                delivery: PtyOperationDelivery::KnownNotDelivered,
             }
+        }));
+        state.queued_bytes = 0;
+        state.release_reservations.clear();
+    } else if remote_timed_out {
+        // A timeout does not prove the socket is dead. Acknowledged surface
+        // operations cancel only their own followers; unrelated surfaces can
+        // continue using the live transport.
+        if retry_ambiguous_release && (!state.closed || state.shutdown_release_drain) {
+            requeue_ambiguous_release(&mut state, event);
+        }
+        if concurrent_surface {
+            canceled.extend(prune_surface_to_recovery_releases(
+                &mut state,
+                ordering_surface.expect("concurrent operation has a surface"),
+                "canceled after a remote surface request timed out",
+            ));
+        } else {
             canceled.extend(prune_to_recovery_releases(
                 &mut state,
                 "canceled after a remote request timed out",
             ));
         }
+    }
+    if let Some(surface) = concurrent_surface.then_some(ordering_surface).flatten() {
+        state.in_flight_surface_operations.remove(&surface);
+    } else {
         state.in_flight = None;
-        queue.changed.notify_all();
-        drop(state);
-        if let Some(failure) = failure {
-            on_failure(failure);
-        }
-        for failure in canceled {
-            on_failure(failure);
-        }
-        // Completion is a barrier: publish only after timeout pruning,
-        // in-flight ownership, and failure delivery have all settled.
-        if let Some(after_operation) = after_operation {
-            after_operation();
-        }
+    }
+    queue.changed.notify_all();
+    drop(state);
+    if let Some(failure) = failure {
+        on_failure(failure);
+    }
+    for failure in canceled {
+        on_failure(failure);
+    }
+    // Completion is a barrier: publish only after timeout pruning,
+    // in-flight ownership, and failure delivery have all settled.
+    if let Some(after_operation) = after_operation {
+        after_operation();
     }
 }
 
@@ -899,6 +1017,52 @@ fn prune_to_recovery_releases(
     }
     state.queued_bytes = releases.iter().map(PtyInputEvent::queued_byte_len).sum();
     state.events = releases;
+    canceled
+}
+
+fn prune_surface_to_recovery_releases(
+    state: &mut QueueState,
+    surface: SurfaceId,
+    error: &'static str,
+) -> Vec<PtyOperationFailure> {
+    let canceled_press_reservations = state
+        .events
+        .iter()
+        .filter(|event| {
+            event.ordering_surface_id() == Some(surface) && event.kind == PtyInputKind::Press
+        })
+        .filter_map(|event| event.reservation_id)
+        .collect::<HashSet<_>>();
+    let mut retained = VecDeque::new();
+    let mut canceled = Vec::new();
+    for event in state.events.drain(..) {
+        if event.ordering_surface_id() != Some(surface) {
+            retained.push_back(event);
+            continue;
+        }
+        let retain_release = event.kind == PtyInputKind::Release
+            && event.reservation_id.is_some_and(|id| !canceled_press_reservations.contains(&id));
+        if retain_release {
+            retained.push_back(event);
+            continue;
+        }
+        if event.kind == PtyInputKind::Press
+            && let Some(reservation_id) = event.reservation_id
+        {
+            state.release_reservations.outstanding.remove(&reservation_id);
+        }
+        canceled.push(PtyOperationFailure {
+            surface_id: Some(surface),
+            kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+            reservation_id: event.reservation_id,
+            label: event.label,
+            error: error.into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+    }
+    state.queued_bytes = retained.iter().map(PtyInputEvent::queued_byte_len).sum();
+    state.events = retained;
     canceled
 }
 
@@ -1129,13 +1293,11 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let mut same_surface = event(41, 1, PtyInputKind::Ordered);
-        same_surface.after_operation =
-            Some(Box::new(move || same_surface_tx.send(()).unwrap()));
+        same_surface.after_operation = Some(Box::new(move || same_surface_tx.send(()).unwrap()));
         assert_eq!(sender.enqueue(same_surface), PtyInputEnqueueResult::Accepted);
 
         let mut other_surface = event(42, 2, PtyInputKind::Ordered);
-        other_surface.after_operation =
-            Some(Box::new(move || other_surface_tx.send(()).unwrap()));
+        other_surface.after_operation = Some(Box::new(move || other_surface_tx.send(()).unwrap()));
         assert_eq!(sender.enqueue(other_surface), PtyInputEnqueueResult::Accepted);
 
         other_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -1143,6 +1305,67 @@ mod tests {
 
         unblock_tx.send(()).unwrap();
         same_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn timed_out_surface_operation_prunes_only_its_surface() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let mut dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            let _ = failure_tx.send(failure);
+        })
+        .unwrap();
+        let sender = dispatcher.sender();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let (same_surface_tx, same_surface_rx) = std::sync::mpsc::channel();
+        let (other_surface_tx, other_surface_rx) = std::sync::mpsc::channel();
+
+        assert_eq!(
+            sender.enqueue_surface_operation_with_retained_bytes(
+                "timed out surface operation",
+                41,
+                true,
+                0,
+                move || {
+                    started_tx.send(()).unwrap();
+                    let _ = unblock_rx.recv();
+                    Err(crate::session::test_remote_timeout_error())
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let mut same_surface = event(41, 1, PtyInputKind::Ordered);
+        same_surface.remote = true;
+        same_surface.after_operation = Some(Box::new(move || same_surface_tx.send(()).unwrap()));
+        assert_eq!(sender.enqueue(same_surface), PtyInputEnqueueResult::Accepted);
+
+        let mut other_surface = event(42, 2, PtyInputKind::Ordered);
+        other_surface.remote = true;
+        other_surface.after_operation = Some(Box::new(move || other_surface_tx.send(()).unwrap()));
+        assert_eq!(sender.enqueue(other_surface), PtyInputEnqueueResult::Accepted);
+
+        other_surface_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        unblock_tx.send(()).unwrap();
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
+        assert!(same_surface_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        let failures = failure_rx.try_iter().collect::<Vec<_>>();
+        assert!(failures.iter().any(|failure| {
+            failure.surface_id == Some(41)
+                && failure.label == "timed out surface operation"
+                && failure.delivery == PtyOperationDelivery::Ambiguous
+        }));
+        assert!(failures.iter().any(|failure| {
+            failure.surface_id == Some(41)
+                && failure.label == "PTY input"
+                && failure.delivery == PtyOperationDelivery::KnownNotDelivered
+        }));
+        assert!(!failures.iter().any(|failure| {
+            failure.surface_id == Some(42)
+                && failure.error.contains("canceled after a remote surface request timed out")
+        }));
     }
 
     #[test]

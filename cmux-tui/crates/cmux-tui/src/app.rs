@@ -156,6 +156,7 @@ pub enum AppEvent {
         surface: SurfaceId,
         input_revision: u64,
         selection_at_invocation: Option<Selection>,
+        selection_generation: u64,
     },
     SessionMutationSettled {
         outcome: SessionMutationOutcome,
@@ -2065,6 +2066,7 @@ impl OrderedSession {
         surface: SurfaceId,
         input_revision: u64,
         selection_at_invocation: Option<Selection>,
+        selection_generation: u64,
     ) {
         let events = self.events.clone();
         self.enqueue_coalescing_surface_operation(
@@ -2078,6 +2080,7 @@ impl OrderedSession {
                     surface,
                     input_revision,
                     selection_at_invocation,
+                    selection_generation,
                 });
                 Ok(())
             },
@@ -2090,6 +2093,7 @@ impl OrderedSession {
         fallback_key: KeyInput,
         input_revision: u64,
         selection_at_invocation: Option<Selection>,
+        selection_generation: u64,
     ) {
         let session = self.inner.clone();
         let events = self.events.clone();
@@ -2107,6 +2111,7 @@ impl OrderedSession {
                     surface,
                     input_revision,
                     selection_at_invocation,
+                    selection_generation,
                 });
                 Ok(())
             },
@@ -3410,6 +3415,7 @@ pub struct App {
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
+    selection_generation: u64,
     input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -4496,6 +4502,7 @@ pub fn run_with_machine_updates(
         toast: None,
         shake_frames: 0,
         selection: None,
+        selection_generation: 0,
         input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
@@ -5561,7 +5568,7 @@ impl App {
         self.omnibar = None;
         self.toast = None;
         self.shake_frames = 0;
-        self.selection = None;
+        self.replace_selection(None);
         self.last_browser_hover = None;
         self.deferred_input.clear();
         self.routing_refresh_pending = false;
@@ -5900,7 +5907,7 @@ impl App {
             }
         }
         if self.selection.is_some_and(|selection| selection.surface == surface) {
-            self.selection = None;
+            self.replace_selection(None);
         }
         if self.omnibar.as_ref().is_some_and(|state| state.surface == surface) {
             self.omnibar = None;
@@ -6452,7 +6459,7 @@ impl App {
                 self.menu = None;
                 self.prompt = None;
                 self.omnibar = None;
-                self.selection = None;
+                self.replace_selection(None);
             }
         }
         if self.workspace_sidebar_focused() && self.sidebar_plugin_surface.is_none() {
@@ -6689,6 +6696,7 @@ impl App {
                 surface,
                 input_revision,
                 selection_at_invocation,
+                selection_generation,
             } => {
                 let Some(handle) = self.session.surface(surface) else {
                     return Ok(RenderAction::None);
@@ -6697,10 +6705,11 @@ impl App {
                     let _ = handle.scroll_to_bottom();
                 }
                 self.render_states.remove(&surface);
-                if self.selection == selection_at_invocation
+                if self.selection_generation == selection_generation
+                    && self.selection == selection_at_invocation
                     && self.selection.is_some_and(|selection| selection.surface == surface)
                 {
-                    self.selection = None;
+                    self.replace_selection(None);
                 }
                 Ok(RenderAction::Draw)
             }
@@ -7387,6 +7396,11 @@ impl App {
             .unwrap_or(0)
     }
 
+    fn replace_selection(&mut self, selection: Option<Selection>) {
+        self.selection_generation = self.selection_generation.wrapping_add(1);
+        self.selection = selection;
+    }
+
     fn selection_auto_scroll_active(&self) -> bool {
         matches!(self.drag, Some(Drag::Select { auto_scroll: Some(_), .. }))
     }
@@ -7400,8 +7414,9 @@ impl App {
         let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
-        if let Some(sel) = self.selection.as_mut() {
-            sel.head = (col.min(content.width.saturating_sub(1)), offset + edge_row as u64);
+        if let Some(mut selection) = self.selection {
+            selection.head = (col.min(content.width.saturating_sub(1)), offset + edge_row as u64);
+            self.replace_selection(Some(selection));
         }
         moved
     }
@@ -7921,7 +7936,7 @@ impl App {
             return self.run_action(action);
         }
         // Typing replaces any selection highlight.
-        self.selection = None;
+        self.replace_selection(None);
         self.forward_key(input);
         Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
     }
@@ -8856,7 +8871,12 @@ impl App {
                 if let Some(surface) = self.active_surface()
                     && self.tree.surface_kind(surface) == SurfaceKind::Pty
                 {
-                    self.session.clear_history(surface, self.input_revision, self.selection);
+                    self.session.clear_history(
+                        surface,
+                        self.input_revision,
+                        self.selection,
+                        self.selection_generation,
+                    );
                 }
                 return Ok(RenderAction::None);
             }
@@ -8888,7 +8908,7 @@ impl App {
                 self.menu = None;
                 self.prompt = None;
                 self.omnibar = None;
-                self.selection = None;
+                self.replace_selection(None);
                 return Ok(RenderAction::Draw);
             }
             Action::Detach => {
@@ -9395,7 +9415,7 @@ impl App {
             self.menu = None;
             self.prompt = None;
             self.omnibar = None;
-            self.selection = None;
+            self.replace_selection(None);
         } else if requested {
             self.sidebar_focus_pending = true;
         }
@@ -9430,7 +9450,7 @@ impl App {
             return RenderAction::None;
         };
         if self.tree.surface_kind(surface_id) != SurfaceKind::Pty {
-            self.selection = None;
+            self.replace_selection(None);
             self.forward_key(input);
             return if self.status_message.is_some() {
                 RenderAction::Draw
@@ -9449,6 +9469,7 @@ impl App {
             key_input,
             self.input_revision,
             self.selection,
+            self.selection_generation,
         );
         if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
     }
@@ -9939,7 +9960,7 @@ impl App {
             self.focus_pane_after_input(area.pane);
         }
         self.leave_workspace_sidebar();
-        self.selection = None;
+        self.replace_selection(None);
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             return PtyMousePressResult::Consumed;
         }
@@ -10801,7 +10822,7 @@ impl App {
         y: u16,
         modifiers: KeyModifiers,
     ) -> anyhow::Result<RenderAction> {
-        self.selection = None;
+        self.replace_selection(None);
         self.drag = None;
 
         if self.pairing_dialog.is_some() {
@@ -11060,8 +11081,11 @@ impl App {
                     // mouse moves to a second cell.
                     let offset = self.surface_scroll_offset(area.surface);
                     let cell = (x - content.x, offset + (y - content.y) as u64);
-                    self.selection =
-                        Some(Selection { surface: area.surface, anchor: cell, head: cell });
+                    self.replace_selection(Some(Selection {
+                        surface: area.surface,
+                        anchor: cell,
+                        head: cell,
+                    }));
                     self.drag =
                         Some(Drag::Select { content, auto_scroll: None, col: x - content.x });
                 }
@@ -11110,8 +11134,9 @@ impl App {
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 let offset =
                     self.selection.map(|sel| self.surface_scroll_offset(sel.surface)).unwrap_or(0);
-                if let Some(sel) = self.selection.as_mut() {
-                    sel.head = (cx - content.x, offset + (cy - content.y) as u64);
+                if let Some(mut selection) = self.selection {
+                    selection.head = (cx - content.x, offset + (cy - content.y) as u64);
+                    self.replace_selection(Some(selection));
                 }
                 let auto_scroll = if y <= content.y {
                     Some(-1)
@@ -11274,7 +11299,7 @@ impl App {
             }
             _ => {
                 // A plain click: no selection to keep.
-                self.selection = None;
+                self.replace_selection(None);
                 Ok(RenderAction::Draw)
             }
         }
@@ -13996,23 +14021,8 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
-        let content = Rect { x: 0, y: 0, width: 80, height: 24 };
-        app.pane_areas.push(PaneArea {
-            pane: app.active_pane().unwrap(),
-            surface: surface.id,
-            rect: content,
-            bar: None,
-            omnibar: None,
-            content,
-            track: None,
-        });
-        let point = (content.x + 1, content.y + 1);
-        let selection = Selection {
-            surface: surface.id,
-            anchor: (1, 1),
-            head: (1, 1),
-        };
-        app.selection = Some(selection);
+        let selection = Selection { surface: surface.id, anchor: (1, 1), head: (1, 1) };
+        app.replace_selection(Some(selection));
 
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('k'),
@@ -14030,7 +14040,8 @@ mod tests {
             }
         };
 
-        app.handle_left_down(point.0, point.1, KeyModifiers::NONE).unwrap();
+        app.replace_selection(None);
+        app.replace_selection(Some(selection));
         assert_eq!(app.selection, Some(selection));
 
         app.handle(completion).unwrap();
@@ -14106,6 +14117,7 @@ mod tests {
                 fallback_key.clone(),
                 app.input_revision,
                 app.selection,
+                app.selection_generation,
             );
         }
 
@@ -21378,6 +21390,7 @@ mod tests {
             toast: None,
             shake_frames: 0,
             selection: None,
+            selection_generation: 0,
             input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),
