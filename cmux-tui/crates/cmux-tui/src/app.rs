@@ -45,9 +45,9 @@ use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView}
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineController,
-    MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest, MachineSession,
-    MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
+    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
+    MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
+    MachineSession, MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
     ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
     WorkspaceCreationPolicy, validate_machine_session,
@@ -7887,7 +7887,13 @@ impl App {
             if !input.trim().is_empty()
                 && let Some(machine) = self.machine_ui.as_mut()
             {
-                machine.request = Some(MachineRequest::Connect(input.trim().to_string()));
+                let route = if machine.connect_accepts_pairing_code {
+                    MachineConnectRoute::Provider
+                } else {
+                    MachineConnectRoute::Local
+                };
+                machine.request =
+                    Some(MachineRequest::Connect { target: input.trim().to_string(), route });
             }
             return;
         }
@@ -11603,8 +11609,8 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
+        ForwardMuxOutcome, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
+        MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
         PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
@@ -17820,7 +17826,7 @@ mod tests {
     }
 
     #[test]
-    fn connect_machine_footer_mouse_and_keyboard_share_the_opaque_request_path() {
+    fn connect_machine_footer_captures_the_route_shown_by_each_entrypoint() {
         let mux = Mux::new("connect-machine-footer-input-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.sidebar_view = SidebarView::Workspaces;
@@ -17845,22 +17851,30 @@ mod tests {
         app.commit_prompt();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
-            Some(&MachineRequest::Connect("PAIR 4J7K".into()))
+            Some(&MachineRequest::Connect {
+                target: "PAIR 4J7K".into(),
+                route: MachineConnectRoute::Provider,
+            })
         );
 
-        app.machine_ui.as_mut().unwrap().request = None;
+        let machine = app.machine_ui.as_mut().unwrap();
+        machine.request = None;
+        machine.connect_accepts_pairing_code = false;
         app.focus = FocusTarget::MachineRail;
         app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
-            Some(localization::catalog().sidebar.connect_prompt)
+            Some(localization::catalog().sidebar.connect_host_prompt)
         );
         app.prompt.as_mut().unwrap().input.insert_str("mini.local");
         app.commit_prompt();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
-            Some(&MachineRequest::Connect("mini.local".into()))
+            Some(&MachineRequest::Connect {
+                target: "mini.local".into(),
+                route: MachineConnectRoute::Local,
+            })
         );
     }
 

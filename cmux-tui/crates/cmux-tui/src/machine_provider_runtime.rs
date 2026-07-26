@@ -15,13 +15,14 @@ use crate::config::MachineConfig;
 use crate::localization;
 use crate::machine::{
     DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-    MachineCapabilities, MachineController, MachineDescriptor, MachineKey, MachineRequest,
-    MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate, MachineUpdateStream,
-    ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
-    ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
-    ProviderActionFieldKind, ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor,
-    ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    MachineCapabilities, MachineConnectRoute, MachineController, MachineDescriptor, MachineKey,
+    MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
+    MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
+    ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionDescriptor,
+    ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionValue,
+    ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode,
+    WorkspaceCreationPolicy,
 };
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
@@ -54,11 +55,6 @@ struct PendingExternalConnect {
     scope_id: protocol::OpaqueId,
     specifier: protocol::ExternalMachineSpecifier,
     mutation_id: protocol::OpaqueId,
-}
-
-enum ExternalConnectRouting {
-    Provider(Box<MachineActionResult>),
-    Local(String),
 }
 
 #[derive(Clone)]
@@ -146,16 +142,13 @@ impl ProviderMachineController {
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
         match request {
-            MachineRequest::Connect(target) => {
-                match self.provider.perform_external_connect(target)? {
-                    ExternalConnectRouting::Provider(result) => {
-                        Ok(self.finish_provider_result(true, *result))
-                    }
-                    ExternalConnectRouting::Local(target) => {
-                        let key = self.local.connect_machine(&target)?;
-                        self.switch_local(key)
-                    }
-                }
+            MachineRequest::Connect { target, route: MachineConnectRoute::Provider } => {
+                let result = self.provider.perform_external_connect(target)?;
+                Ok(self.finish_provider_result(true, result))
+            }
+            MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
+                let key = self.local.connect_machine(&target)?;
+                self.switch_local(key)
             }
             MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
             MachineRequest::ReconnectProvider if self.active_local.is_some() => {
@@ -487,7 +480,7 @@ impl ProviderMachineRuntime {
                 )?;
                 Ok(self.finish_accepted_machine_selection(created.machine_id, created.notice))
             }
-            MachineRequest::Connect(_) => {
+            MachineRequest::Connect { .. } => {
                 unreachable!("external connect requests are routed by ProviderMachineController")
             }
             MachineRequest::SelectProviderScope(scope_id) => {
@@ -699,7 +692,7 @@ impl ProviderMachineRuntime {
     fn perform_external_connect(
         &mut self,
         specifier: String,
-    ) -> anyhow::Result<ExternalConnectRouting> {
+    ) -> anyhow::Result<MachineActionResult> {
         let matches_pending = protocol::ExternalMachineSpecifier::new(specifier.clone())
             .ok()
             .is_some_and(|candidate| {
@@ -721,27 +714,19 @@ impl ProviderMachineRuntime {
                     );
                 }
                 self.pending_external_connect = None;
-                return Ok(ExternalConnectRouting::Local(specifier));
+                anyhow::bail!(
+                    localization::catalog().sidebar.machine_provider_external_connect_unsupported
+                );
             }
             Err(ProviderClientError::Disconnected | ProviderClientError::NotAuthenticated) => {
-                if matches_pending {
-                    anyhow::bail!(localization::catalog().sidebar.machine_provider_disconnected);
-                }
-                self.pending_external_connect = None;
-                return Ok(ExternalConnectRouting::Local(specifier));
+                anyhow::bail!(localization::catalog().sidebar.machine_provider_disconnected);
             }
             Err(error) => return Err(error.into()),
         }
         if let Err(error) = self.refresh() {
             match error.downcast_ref::<ProviderClientError>() {
                 Some(ProviderClientError::Disconnected | ProviderClientError::NotAuthenticated) => {
-                    if matches_pending {
-                        anyhow::bail!(
-                            localization::catalog().sidebar.machine_provider_disconnected
-                        );
-                    }
-                    self.pending_external_connect = None;
-                    return Ok(ExternalConnectRouting::Local(specifier));
+                    anyhow::bail!(localization::catalog().sidebar.machine_provider_disconnected);
                 }
                 _ => return Err(error),
             }
@@ -753,11 +738,11 @@ impl ProviderMachineRuntime {
                 );
             }
             self.pending_external_connect = None;
-            return Ok(ExternalConnectRouting::Local(specifier));
+            anyhow::bail!(
+                localization::catalog().sidebar.machine_provider_external_connect_unsupported
+            );
         }
         self.connect_external_after_refresh(specifier)
-            .map(Box::new)
-            .map(ExternalConnectRouting::Provider)
     }
 
     fn connect_external_after_refresh(
@@ -1975,6 +1960,14 @@ mod tests {
 
     fn token() -> protocol::BearerToken {
         protocol::BearerToken::new("runtime-test-token").unwrap()
+    }
+
+    fn provider_connect(target: &str) -> MachineRequest {
+        MachineRequest::Connect { target: target.into(), route: MachineConnectRoute::Provider }
+    }
+
+    fn local_connect(target: &str) -> MachineRequest {
+        MachineRequest::Connect { target: target.into(), route: MachineConnectRoute::Local }
     }
 
     fn read_frame<T: DeserializeOwned>(reader: &mut BufReader<UnixStream>) -> T {
@@ -3215,9 +3208,7 @@ mod tests {
             active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
             pending_active_local: None,
         };
-        let result = controller
-            .perform_request(MachineRequest::Connect("PAIR 4J7K;$(opaque)".into()))
-            .unwrap();
+        let result = controller.perform_request(provider_connect("PAIR 4J7K;$(opaque)")).unwrap();
 
         let paired = result
             .ui
@@ -3240,7 +3231,7 @@ mod tests {
     }
 
     #[test]
-    fn capability_revocation_routes_connect_through_local_validation() {
+    fn capability_revocation_fails_the_presented_provider_route_closed() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let mut initial = snapshot(1, "Existing", protocol::MachineStatus::Running);
@@ -3276,14 +3267,13 @@ mod tests {
             active_local: None,
             pending_active_local: None,
         };
-        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
-        else {
+        let Err(error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
             panic!("revoked provider unexpectedly handled external connect");
         };
 
         assert_eq!(
             error.to_string(),
-            "machine address must be a host or user@host without whitespace"
+            localization::catalog().sidebar.machine_provider_external_connect_unsupported
         );
         controller.close();
         server.join().unwrap();
@@ -3348,15 +3338,12 @@ mod tests {
             active_local: None,
             pending_active_local: None,
         };
-        let Err(first_error) =
-            controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
-        else {
+        let Err(first_error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
             panic!("invalid provider response unexpectedly completed external connect");
         };
         assert!(first_error.to_string().contains("protocol error"));
         for unrelated in ["PAIR 9ZZZ", "not a valid local machine"] {
-            let Err(error) = controller.perform_request(MachineRequest::Connect(unrelated.into()))
-            else {
+            let Err(error) = controller.perform_request(provider_connect(unrelated)) else {
                 panic!("unrelated input discarded an ambiguous external connect");
             };
             assert_eq!(
@@ -3365,7 +3352,7 @@ mod tests {
             );
         }
         let Err(retry_while_disconnected) =
-            controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
+            controller.perform_request(provider_connect("PAIR 4J7K"))
         else {
             panic!("ambiguous connect retry was rerouted while its provider was disconnected");
         };
@@ -3374,8 +3361,7 @@ mod tests {
             localization::catalog().sidebar.machine_provider_disconnected
         );
         controller.provider.reconnect_control().unwrap();
-        let result =
-            controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into())).unwrap();
+        let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
 
         assert!(result.ui.request.is_some());
         controller.close();
@@ -3429,11 +3415,10 @@ mod tests {
             active_local: None,
             pending_active_local: None,
         };
-        assert!(controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into())).is_err());
+        assert!(controller.perform_request(provider_connect("PAIR 4J7K")).is_err());
         controller.provider.reconnect_control().unwrap();
 
-        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
-        else {
+        let Err(error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
             panic!("ambiguous retry fell back after capability revocation");
         };
         assert_eq!(
@@ -3475,8 +3460,7 @@ mod tests {
             active_local: None,
             pending_active_local: None,
         };
-        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
-        else {
+        let Err(error) = controller.perform_request(local_connect("PAIR 4J7K")) else {
             panic!("unnegotiated provider unexpectedly handled local connect input");
         };
 
@@ -3489,7 +3473,7 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_provider_external_connect_falls_back_to_local_validation() {
+    fn disconnected_provider_external_connect_never_reaches_local_ssh() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let (disconnect, disconnect_now) = mpsc::channel();
@@ -3517,20 +3501,19 @@ mod tests {
             pending_active_local: None,
         };
 
-        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
-        else {
-            panic!("disconnected provider unexpectedly handled local connect input");
+        let Err(error) = controller.perform_request(provider_connect("ABCD-EFGH")) else {
+            panic!("disconnected provider unexpectedly completed external connect");
         };
 
         assert_eq!(
             error.to_string(),
-            "machine address must be a host or user@host without whitespace"
+            localization::catalog().sidebar.machine_provider_disconnected
         );
         controller.close();
     }
 
     #[test]
-    fn provider_disconnect_during_external_connect_refresh_falls_back_to_local_validation() {
+    fn provider_disconnect_during_external_connect_refresh_fails_closed() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let server = thread::spawn(move || {
@@ -3551,14 +3534,13 @@ mod tests {
             active_local: None,
             pending_active_local: None,
         };
-        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
-        else {
+        let Err(error) = controller.perform_request(provider_connect("ABCD-EFGH")) else {
             panic!("refresh-disconnected provider unexpectedly handled external connect");
         };
 
         assert_eq!(
             error.to_string(),
-            "machine address must be a host or user@host without whitespace"
+            localization::catalog().sidebar.machine_provider_disconnected
         );
         controller.close();
         server.join().unwrap();

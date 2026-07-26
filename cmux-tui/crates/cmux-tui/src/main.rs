@@ -41,7 +41,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceKind, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
-use machine::{MachineActionResult, MachineController, MachineRequest, MachineUiState};
+use machine::{
+    MachineActionResult, MachineConnectRoute, MachineController, MachineRequest, MachineUiState,
+};
 #[cfg(unix)]
 use machine_provider_client::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
@@ -1152,10 +1154,14 @@ impl MachineController for StaticMachineController {
     fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
         match request {
             MachineRequest::Switch(machine) => self.switch(machine),
-            MachineRequest::Connect(target) => {
+            MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let machine = self.runtime.connect_machine(&target)?;
                 self.switch(machine)
             }
+            MachineRequest::Connect { route: MachineConnectRoute::Provider, .. } => Ok(self
+                .notice(
+                    localization::catalog().sidebar.machine_catalog_provider_actions_unsupported,
+                )),
             MachineRequest::Create => {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
             }
