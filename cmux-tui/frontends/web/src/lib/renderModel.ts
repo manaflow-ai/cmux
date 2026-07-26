@@ -30,6 +30,16 @@ export interface RenderModel {
   graphics: RenderGraphicsModel;
 }
 
+interface ValidatedImageMetadata {
+  image: RenderGraphicImage;
+  decodedBytes: number;
+}
+
+const validatedImageMetadata = new WeakMap<
+  readonly RenderGraphicImage[],
+  ReadonlyMap<number, ValidatedImageMetadata>
+>();
+
 function emptyRow(row: number): RenderRow {
   return { row, runs: [] };
 }
@@ -123,7 +133,10 @@ function decodedImageBytes(image: RenderGraphicImage): number {
   return decodedBytes;
 }
 
-function validateAuthoritativeImages(images: readonly RenderGraphicImage[]): void {
+function validateAuthoritativeImages(
+  images: readonly RenderGraphicImage[],
+  previous?: readonly RenderGraphicImage[],
+): void {
   if (images.length > RENDER_GRAPHIC_MAX_IMAGES) {
     throw new CmuxProtocolError(
       `render graphics state exceeds ${RENDER_GRAPHIC_MAX_IMAGES} images`,
@@ -132,25 +145,37 @@ function validateAuthoritativeImages(images: readonly RenderGraphicImage[]): voi
 
   let decodedBytes = 0;
   const ids = new Set<number>();
+  const previousMetadata = previous === undefined
+    ? undefined
+    : validatedImageMetadata.get(previous);
+  const metadata = new Map<number, ValidatedImageMetadata>();
   for (const image of images) {
     if (ids.has(image.id)) {
       throw new CmuxProtocolError(`render graphics state contains duplicate image ${image.id}`);
     }
     ids.add(image.id);
-    decodedBytes += decodedImageBytes(image);
+    const retained = previousMetadata?.get(image.id);
+    const imageBytes = retained?.image === image
+      ? retained.decodedBytes
+      : decodedImageBytes(image);
+    decodedBytes += imageBytes;
     if (decodedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) {
       throw new CmuxProtocolError(
         `render graphics state exceeds ${RENDER_GRAPHIC_MAX_DECODED_BYTES} decoded image bytes`,
       );
     }
+    metadata.set(image.id, { image, decodedBytes: imageBytes });
   }
+  validatedImageMetadata.set(images, metadata);
 }
 
 function snapshotGraphics(
   graphics: RenderGraphics | undefined,
 ): RenderGraphicsModel {
   if (graphics === undefined) return { generation: 0, images: [], placements: [] };
-  const images = (graphics.images ?? []).map((image) => ({ ...image }));
+  const images = Object.freeze(
+    (graphics.images ?? []).map((image) => Object.freeze({ ...image })),
+  );
   validateAuthoritativeImages(images);
   return {
     generation: graphics.generation,
@@ -183,15 +208,15 @@ function mergeImages(
     if (sameImage(image, upsert)) {
       merged.push(image);
     } else {
-      merged.push({ ...upsert });
+      merged.push(Object.freeze({ ...upsert }));
       changed = true;
     }
   }
   for (const upsert of pending.values()) {
-    merged.push({ ...upsert });
+    merged.push(Object.freeze({ ...upsert }));
     changed = true;
   }
-  return changed ? merged : previous;
+  return changed ? Object.freeze(merged) : previous;
 }
 
 function applyGraphicsDelta(
@@ -204,7 +229,9 @@ function applyGraphicsDelta(
     graphics.images ?? [],
     graphics.removed_image_ids ?? [],
   );
-  validateAuthoritativeImages(images);
+  if (images !== previous.images || !validatedImageMetadata.has(images)) {
+    validateAuthoritativeImages(images, previous.images);
+  }
   const placements = graphics.placements === undefined
     || samePlacements(previous.placements, graphics.placements)
     ? previous.placements

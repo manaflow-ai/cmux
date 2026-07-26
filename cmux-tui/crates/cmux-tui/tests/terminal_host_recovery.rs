@@ -1823,6 +1823,27 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     assert_eq!(ack.sequence, 0);
     assert_eq!(ack.payload, vec![11, 0, 22, 0]);
 
+    let resnapshot_grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let resnapshot = connect_host_detailed(
+        resnapshot_grant["endpoint"].as_str().unwrap(),
+        resnapshot_grant["terminal_id"].as_str().unwrap(),
+        resnapshot_grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    assert_eq!(
+        snapshot_cell_pixels(&resnapshot.snapshot.payload),
+        (11, 22),
+        "a reconnect snapshot must expose the host's committed cell geometry"
+    );
+    drop(resnapshot);
+
     let mut unchanged = Frame::new(MessageKind::ViewerSize, Vec::new());
     unchanged.request_id = 42;
     unchanged.payload.extend_from_slice(&80u16.to_le_bytes());
@@ -2408,6 +2429,15 @@ fn snapshot_replay(payload: &[u8]) -> &[u8] {
     let end = 12usize.checked_add(replay_len).expect("Snapshot replay length overflow");
     assert!(end <= payload.len(), "Snapshot replay was truncated");
     &payload[12..end]
+}
+
+fn snapshot_cell_pixels(payload: &[u8]) -> (u16, u16) {
+    assert!(payload.len() >= 4, "Snapshot payload omitted cell geometry");
+    let offset = payload.len() - 4;
+    (
+        u16::from_le_bytes(payload[offset..offset + 2].try_into().unwrap()),
+        u16::from_le_bytes(payload[offset + 2..].try_into().unwrap()),
+    )
 }
 
 fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

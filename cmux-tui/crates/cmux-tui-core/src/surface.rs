@@ -979,12 +979,14 @@ impl Surface {
         #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+            let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
             let attachment = match terminal_id {
                 Some(terminal_id) => {
                     crate::terminal_host_runtime::launch_terminal_host_with_identity(
                         &opts,
                         &root,
                         default_colors,
+                        cell_pixels,
                         terminal_id,
                     )?
                 }
@@ -992,6 +994,7 @@ impl Surface {
                     &opts,
                     &root,
                     default_colors,
+                    cell_pixels,
                 )?,
             };
             return Self::spawn_hosted(id, opts, mux, attachment, true);
@@ -1199,6 +1202,90 @@ impl Surface {
     }
 
     #[cfg(unix)]
+    fn install_deferred_cell_pixel_handler(
+        surface: &Arc<Surface>,
+        responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
+    ) {
+        let surface = Arc::downgrade(surface);
+        let responses = Arc::downgrade(responses);
+        responses
+            .upgrade()
+            .expect("control responses are live while installing their handler")
+            .set_deferred_cell_pixel_handler(Arc::new(move |request_id, expected, frame| {
+                let (Some(surface), Some(responses)) = (surface.upgrade(), responses.upgrade())
+                else {
+                    return;
+                };
+                let _ = std::thread::Builder::new()
+                    .name(format!("surface-{}-cell-pixel-ack", surface.id))
+                    .spawn(move || {
+                        surface.reconcile_deferred_cell_pixel_ack(
+                            &responses, request_id, expected, frame,
+                        );
+                    });
+            }));
+    }
+
+    #[cfg(unix)]
+    fn reconcile_deferred_cell_pixel_ack(
+        &self,
+        responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
+        request_id: u64,
+        expected: (u16, u16),
+        frame: Frame,
+    ) {
+        let Some(pty) = self.as_pty() else { return };
+        let owns_response = {
+            let runtime = pty.runtime.lock().unwrap();
+            matches!(
+                &*runtime,
+                PtyRuntime::Hosted(host)
+                    if Arc::ptr_eq(&host.control_responses(), responses)
+            )
+        };
+        if !owns_response || responses.latest_cell_pixel_ack() > request_id {
+            return;
+        }
+        let expected_payload = [expected.0.to_le_bytes(), expected.1.to_le_bytes()].concat();
+        if frame.kind != MessageKind::CellPixelSizeAck
+            || frame.payload.as_slice() != expected_payload
+        {
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                host.disconnect();
+            }
+            return;
+        }
+
+        let mut geometry = pty.geometry.lock().unwrap();
+        let still_owns_response = {
+            let runtime = pty.runtime.lock().unwrap();
+            matches!(
+                &*runtime,
+                PtyRuntime::Hosted(host)
+                    if Arc::ptr_eq(&host.control_responses(), responses)
+            )
+        };
+        if !still_owns_response || responses.latest_cell_pixel_ack() > request_id {
+            return;
+        }
+        let next = PtyGeometry { cell_width: expected.0, cell_height: expected.1, ..*geometry };
+        match pty.commit_geometry(&mut geometry, next, false) {
+            Ok(true) => {
+                if let Some(mux) = pty.mux.upgrade() {
+                    mux.emit(MuxEvent::SurfaceOutput(self.id));
+                }
+            }
+            Ok(false) => {}
+            Err(_) => {
+                drop(geometry);
+                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                    host.disconnect();
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
     fn spawn_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -1207,7 +1294,6 @@ impl Surface {
         terminate_on_error: bool,
     ) -> anyhow::Result<Arc<Surface>> {
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
         attachment.send_default_colors(initial_defaults)?;
         let mut reader = attachment.take_reader()?;
         if let Ok(delay_ms) = std::env::var("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT")
@@ -1225,8 +1311,8 @@ impl Surface {
         term.resize(
             snapshot.cols,
             snapshot.rows,
-            u32::from(cell_pixels.0),
-            u32::from(cell_pixels.1),
+            u32::from(snapshot.cell_pixels.0),
+            u32::from(snapshot.cell_pixels.1),
         )?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
@@ -1267,8 +1353,8 @@ impl Surface {
             geometry: Mutex::new(PtyGeometry {
                 cols: snapshot.cols,
                 rows: snapshot.rows,
-                cell_width: cell_pixels.0,
-                cell_height: cell_pixels.1,
+                cell_width: snapshot.cell_pixels.0,
+                cell_height: snapshot.cell_pixels.1,
             }),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
@@ -1290,6 +1376,7 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         }));
+        Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
 
         // Keep exact-child rollback ownership armed through the final thread
@@ -1537,6 +1624,7 @@ impl Surface {
                             HostedTransition::ResyncRequired => break,
                         }
                     }
+                    control_responses.fail_all();
                     let Some(pty) = surface.as_pty() else { return };
                     if pty.owner_detaching.load(Ordering::Acquire) {
                         return;
@@ -1651,6 +1739,10 @@ impl Surface {
                             std::thread::sleep(retry_delay);
                             continue;
                         }
+                        Self::install_deferred_cell_pixel_handler(
+                            &surface,
+                            &replacement_control_responses,
+                        );
 
                         let replacement_reader = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -1668,7 +1760,8 @@ impl Surface {
                         let next_geometry = PtyGeometry {
                             cols: replacement_snapshot.cols,
                             rows: replacement_snapshot.rows,
-                            ..*geometry
+                            cell_width: replacement_snapshot.cell_pixels.0,
+                            cell_height: replacement_snapshot.cell_pixels.1,
                         };
                         let callbacks =
                             hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());

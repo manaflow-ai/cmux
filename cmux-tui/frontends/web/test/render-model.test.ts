@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   RenderGraphicImage,
   RenderCursor,
@@ -168,6 +168,37 @@ describe("render model", () => {
     expect(replaced.graphics.images[0]).toMatchObject({ generation: 3, data: "AAD//w==" });
     expect(replaced.graphics.images[1]).toBe(initial.graphics.images[1]);
     expect(replaced.graphics.placements[0]?.viewport_col).toBe(3);
+  });
+
+  it("does not rescan retained image payloads for graphics deltas", () => {
+    const charCodeAt = vi.spyOn(String.prototype, "charCodeAt");
+    try {
+      const initial = applySnapshot(snapshot());
+      charCodeAt.mockClear();
+
+      const moved = applyDelta(initial, delta({
+        graphics: {
+          generation: 5,
+          placements: [{ ...graphics.placements[0], viewport_col: 2 }],
+        },
+      }));
+      expect(moved.graphics.images).toBe(initial.graphics.images);
+      expect(charCodeAt).not.toHaveBeenCalled();
+
+      applyDelta(moved, delta({
+        graphics: {
+          generation: 6,
+          images: [{
+            ...graphics.images![0],
+            generation: 3,
+            data: "AAD//w==",
+          }],
+        },
+      }));
+      expect(charCodeAt).toHaveBeenCalledTimes(8);
+    } finally {
+      charCodeAt.mockRestore();
+    }
   });
 
   it("preserves placements for image-only graphics deltas", () => {

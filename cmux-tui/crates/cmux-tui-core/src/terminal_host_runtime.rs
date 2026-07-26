@@ -37,6 +37,7 @@ const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
+const CELL_PIXEL_SIZE_ENCODED_LEN: usize = 2 * size_of::<u16>();
 const TERMINAL_COLORS_WIRE_VERSION_V1: u16 = 1;
 pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 2;
 pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
@@ -46,6 +47,7 @@ const _: () = assert!(
         + crate::surface::VT_REPLAY_MAX_BYTES
         + KITTY_IMAGE_ALIAS_COUNT_LEN
         + MAX_KITTY_IMAGE_ALIASES * KITTY_IMAGE_ALIAS_ENCODED_LEN
+        + CELL_PIXEL_SIZE_ENCODED_LEN
         <= MAX_FRAME_PAYLOAD
 );
 
@@ -114,6 +116,8 @@ impl TerminalHostRecord {
 pub struct HostSnapshot {
     pub cols: u16,
     pub rows: u16,
+    /// Authoritative PTY and parser cell metrics at the snapshot boundary.
+    pub cell_pixels: (u16, u16),
     pub replay: Vec<u8>,
     pub kitty_image_aliases: Vec<KittyImageAlias>,
     /// Global live-stream sequence at the atomic Snapshot/Colors boundary.
@@ -290,7 +294,7 @@ mod unix {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
+    use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
     use std::sync::{Arc, Condvar, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -373,6 +377,7 @@ mod unix {
         term: String,
         cols: u16,
         rows: u16,
+        cell_pixels: (u16, u16),
         scrollback: usize,
         cwd: Option<String>,
         command: Vec<String>,
@@ -389,6 +394,8 @@ mod unix {
                 anyhow::bail!("terminal-host environment count is out of range");
             }
             let (cols, rows) = normalize_terminal_geometry(self.cols, self.rows)?;
+            let cell_pixels = (self.cell_pixels.0.max(1), self.cell_pixels.1.max(1));
+            pty_size(cols, rows, cell_pixels)?;
             let mut output = Vec::new();
             put_string(&mut output, &self.endpoint)?;
             put_string(&mut output, &self.record_path)?;
@@ -411,6 +418,8 @@ mod unix {
                 put_string(&mut output, value)?;
             }
             encode_default_colors(&mut output, self.default_colors);
+            output.extend_from_slice(&cell_pixels.0.to_le_bytes());
+            output.extend_from_slice(&cell_pixels.1.to_le_bytes());
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
             }
@@ -442,6 +451,8 @@ mod unix {
                 extra_env.push((decoder.string()?, decoder.string()?));
             }
             let default_colors = decode_default_colors(&mut decoder)?;
+            let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
+            pty_size(cols, rows, cell_pixels)?;
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -449,6 +460,7 @@ mod unix {
                 term,
                 cols,
                 rows,
+                cell_pixels,
                 scrollback,
                 cwd,
                 command,
@@ -561,15 +573,57 @@ mod unix {
         Ok(colors)
     }
 
+    enum ControlResponseWaiter {
+        Blocking(SyncSender<Frame>),
+        DeferredCellPixel { expected: (u16, u16) },
+    }
+
+    pub(crate) type DeferredCellPixelHandler =
+        Arc<dyn Fn(u64, (u16, u16), Frame) + Send + Sync + 'static>;
+
     pub(crate) struct ControlResponses {
-        waiters: Mutex<HashMap<u64, SyncSender<Frame>>>,
+        waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
+        deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
+        latest_cell_pixel_ack: AtomicU64,
     }
 
     impl ControlResponses {
         pub(crate) fn resolve(&self, frame: &Frame) {
-            if let Some(waiter) = self.waiters.lock().unwrap().remove(&frame.request_id) {
-                let _ = waiter.try_send(frame.clone());
+            if frame.kind == MessageKind::CellPixelSizeAck {
+                self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
             }
+            let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
+            match waiter {
+                Some(ControlResponseWaiter::Blocking(waiter)) => {
+                    let _ = waiter.try_send(frame.clone());
+                }
+                Some(ControlResponseWaiter::DeferredCellPixel { expected }) => {
+                    let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
+                    if let Some(handler) = handler {
+                        handler(frame.request_id, expected, frame.clone());
+                    }
+                }
+                None => {}
+            }
+        }
+
+        fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
+            let mut waiters = self.waiters.lock().unwrap();
+            let Some(waiter) = waiters.get_mut(&request_id) else { return false };
+            *waiter = ControlResponseWaiter::DeferredCellPixel { expected };
+            true
+        }
+
+        pub(crate) fn fail_all(&self) {
+            self.waiters.lock().unwrap().clear();
+        }
+
+        pub(crate) fn set_deferred_cell_pixel_handler(&self, handler: DeferredCellPixelHandler) {
+            *self.deferred_cell_pixel_handler.lock().unwrap() = Some(handler);
+        }
+
+        pub(crate) fn latest_cell_pixel_ack(&self) -> u64 {
+            self.latest_cell_pixel_ack.load(Ordering::Acquire)
         }
     }
 
@@ -676,7 +730,11 @@ mod unix {
             let height_px = height_px.max(1);
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             let (sender, receiver) = sync_channel(1);
-            self.control_responses.waiters.lock().unwrap().insert(request_id, sender);
+            self.control_responses
+                .waiters
+                .lock()
+                .unwrap()
+                .insert(request_id, ControlResponseWaiter::Blocking(sender));
             let mut payload = Vec::with_capacity(4);
             payload.extend_from_slice(&width_px.to_le_bytes());
             payload.extend_from_slice(&height_px.to_le_bytes());
@@ -693,26 +751,58 @@ mod unix {
                 return Err(error.into());
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                anyhow::bail!("terminal host cell pixel size deadline elapsed after request");
-            }
-            let response = match receiver.recv_timeout(remaining) {
-                Ok(response) => response,
-                Err(error) => {
+            let response = match (!remaining.is_zero())
+                .then(|| receiver.recv_timeout(remaining))
+                .transpose()
+            {
+                Ok(Some(response)) => response,
+                Ok(None) | Err(RecvTimeoutError::Timeout) => {
+                    match self.defer_or_receive_raced_cell_pixel_ack(
+                        request_id,
+                        (width_px, height_px),
+                        &receiver,
+                    )? {
+                        Some(response) => response,
+                        None => anyhow::bail!(
+                            "terminal host cell pixel acknowledgement is pending; \
+                             the late response will reconcile the mirror"
+                        ),
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
                     self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                    return Err(anyhow::anyhow!(
-                        "terminal host did not acknowledge cell pixel size: {error}"
-                    ));
+                    anyhow::bail!(
+                        "terminal host connection closed before acknowledging cell pixel size"
+                    );
                 }
             };
             if response.kind != MessageKind::CellPixelSizeAck
                 || response.payload.as_slice()
                     != [width_px.to_le_bytes(), height_px.to_le_bytes()].concat()
             {
+                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
                 anyhow::bail!("terminal host returned a malformed cell pixel size acknowledgement");
             }
             Ok(true)
+        }
+
+        fn defer_or_receive_raced_cell_pixel_ack(
+            &self,
+            request_id: u64,
+            expected: (u16, u16),
+            receiver: &Receiver<Frame>,
+        ) -> anyhow::Result<Option<Frame>> {
+            if self.control_responses.defer_cell_pixel(request_id, expected) {
+                return Ok(None);
+            }
+            // resolve() removes the waiter while holding the same mutex
+            // before delivering the response. An absent entry therefore
+            // means a response won the timeout race or the connection failed.
+            receiver.recv().map(Some).map_err(|_| {
+                anyhow::anyhow!(
+                    "terminal host connection closed while acknowledging cell pixel size"
+                )
+            })
         }
 
         pub fn release_viewer_size(&self) -> std::io::Result<bool> {
@@ -781,7 +871,11 @@ mod unix {
                 .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             let (sender, receiver) = sync_channel(1);
-            self.control_responses.waiters.lock().unwrap().insert(request_id, sender);
+            self.control_responses
+                .waiters
+                .lock()
+                .unwrap()
+                .insert(request_id, ControlResponseWaiter::Blocking(sender));
             let mut payload = Vec::with_capacity(8);
             payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
             payload.extend_from_slice(&ttl_ms.to_le_bytes());
@@ -906,9 +1000,10 @@ mod unix {
         options: &SurfaceOptions,
         root: &Path,
         default_colors: DefaultColors,
+        cell_pixels: (u16, u16),
     ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::random()?;
-        launch_terminal_host_with_identity(options, root, default_colors, terminal_id)
+        launch_terminal_host_with_identity(options, root, default_colors, cell_pixels, terminal_id)
     }
 
     /// Launch using a registry-reserved stable UUID. The workspace registry
@@ -918,6 +1013,7 @@ mod unix {
         options: &SurfaceOptions,
         root: &Path,
         default_colors: DefaultColors,
+        cell_pixels: (u16, u16),
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
         prepare_private_dir(root)?;
@@ -946,6 +1042,7 @@ mod unix {
             term: options.term.clone(),
             cols: options.cols,
             rows: options.rows,
+            cell_pixels,
             scrollback: options.scrollback,
             cwd: options.cwd.clone().or_else(|| {
                 crate::platform::home_dir().map(|path| path.to_string_lossy().into_owned())
@@ -1373,7 +1470,11 @@ mod unix {
             protocol_version,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            control_responses: Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) }),
+            control_responses: Arc::new(ControlResponses {
+                waiters: Mutex::new(HashMap::new()),
+                deferred_cell_pixel_handler: Mutex::new(None),
+                latest_cell_pixel_ack: AtomicU64::new(0),
+            }),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -2323,7 +2424,8 @@ mod unix {
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
-        let initial_pty_size = pty_size(launch.cols, launch.rows, DEFAULT_CELL_PIXELS)?;
+        let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
         let pty = native_pty_system().openpty(initial_pty_size)?;
         let mut command = CommandBuilder::new(&launch.command[0]);
         command.args(&launch.command[1..]);
@@ -2361,12 +2463,7 @@ mod unix {
             })),
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
-        term.resize(
-            launch.cols,
-            launch.rows,
-            u32::from(DEFAULT_CELL_PIXELS.0),
-            u32::from(DEFAULT_CELL_PIXELS.1),
-        )?;
+        term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         term.replace_default_colors(
             launch.default_colors.fg,
             launch.default_colors.bg,
@@ -2388,7 +2485,7 @@ mod unix {
             command: launch.command.clone(),
             cwd: launch.cwd.clone(),
             size: Mutex::new((launch.cols, launch.rows)),
-            cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
+            cell_pixels: Mutex::new(cell_pixels),
             viewer_sizes: Mutex::new(HashMap::new()),
             taps: Mutex::new(HashMap::new()),
             broadcast_lock: Mutex::new(()),
@@ -2565,16 +2662,18 @@ mod unix {
         };
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence) = {
-            // Viewer registration follows the same viewer -> parser ->
-            // broadcast lock order as resize application. This makes the
-            // initial snapshot an atomic member of size arbitration too.
+            // Match resize's viewer -> size -> cell metrics -> parser ->
+            // broadcast lock order so a snapshot contains one atomic
+            // logical and pixel geometry.
             let mut viewer_sizes = host.viewer_sizes.lock().unwrap();
+            let size = host.size.lock().unwrap();
+            let cell_pixels = *host.cell_pixels.lock().unwrap();
             let mut term = host.term.lock().unwrap();
             let replay = term.vt_replay_bounded_theme_portable_with_aliases(
                 crate::surface::VT_REPLAY_MAX_BYTES,
             )?;
             let colors = term.color_overrides();
-            let (cols, rows) = (term.cols(), term.rows());
+            let (cols, rows) = *size;
             let _broadcast = host.broadcast_lock.lock().unwrap();
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
@@ -2593,6 +2692,7 @@ mod unix {
                 HostSnapshot {
                     cols,
                     rows,
+                    cell_pixels,
                     replay: replay.bytes,
                     kitty_image_aliases: replay.kitty_image_aliases,
                     sequence_boundary: 0,
@@ -2831,6 +2931,8 @@ mod unix {
             put_string(&mut output, argument)?;
         }
         encode_kitty_image_aliases(&mut output, &snapshot.kitty_image_aliases)?;
+        output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
+        output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
         if output.len() > MAX_FRAME_PAYLOAD {
             anyhow::bail!("terminal-host snapshot payload is too large");
         }
@@ -2870,10 +2972,17 @@ mod unix {
         } else {
             Vec::new()
         };
+        let cell_pixels = if protocol_version >= 2 {
+            (decoder.u16()?.max(1), decoder.u16()?.max(1))
+        } else {
+            DEFAULT_CELL_PIXELS
+        };
+        pty_size(cols, rows, cell_pixels)?;
         decoder.finish()?;
         Ok(HostSnapshot {
             cols,
             rows,
+            cell_pixels,
             replay,
             kitty_image_aliases,
             sequence_boundary: 0,
@@ -3255,6 +3364,7 @@ mod unix {
                 term: "xterm-256color".into(),
                 cols: 80,
                 rows: 24,
+                cell_pixels: (9, 18),
                 scrollback: 10_000,
                 cwd: Some("/tmp".into()),
                 command: vec!["/bin/cat".into()],
@@ -3264,6 +3374,7 @@ mod unix {
 
             let decoded = HostLaunch::decode(&launch.encode().unwrap()).unwrap();
             assert_eq!(decoded.default_colors, default_colors);
+            assert_eq!(decoded.cell_pixels, (9, 18));
             assert_eq!(decoded.command, launch.command);
             assert_eq!(decoded.extra_env, launch.extra_env);
             assert_eq!(
@@ -3296,6 +3407,7 @@ mod unix {
             let snapshot = HostSnapshot {
                 cols: 80,
                 rows: 24,
+                cell_pixels: (9, 18),
                 replay: b"theme-portable replay".to_vec(),
                 kitty_image_aliases: vec![
                     KittyImageAlias { image_id: 41, image_number: 77 },
@@ -3312,6 +3424,7 @@ mod unix {
             let decoded =
                 decode_snapshot(&payload).expect("snapshot decoder must retain Kitty aliases");
             assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
+            assert_eq!(decoded.cell_pixels, snapshot.cell_pixels);
             assert_eq!(
                 encode_snapshot(&decoded).unwrap(),
                 payload,
@@ -3324,6 +3437,7 @@ mod unix {
             let snapshot = HostSnapshot {
                 cols: 80,
                 rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
                 replay: b"legacy replay".to_vec(),
                 kitty_image_aliases: Vec::new(),
                 sequence_boundary: 0,
@@ -3333,7 +3447,9 @@ mod unix {
                 cwd: Some("/tmp".into()),
             };
             let mut snapshot_payload = encode_snapshot(&snapshot).unwrap();
-            snapshot_payload.truncate(snapshot_payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN);
+            snapshot_payload.truncate(
+                snapshot_payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN - CELL_PIXEL_SIZE_ENCODED_LEN,
+            );
             let decoded =
                 decode_snapshot_for_version(&snapshot_payload, LEGACY_PROTOCOL_VERSION).unwrap();
             assert_eq!(decoded.replay, snapshot.replay);
@@ -3511,6 +3627,79 @@ mod unix {
         }
 
         #[test]
+        fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
+            let (record_path, record, lease) = record_fixture("late-cell-pixel-ack");
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses = Arc::new(ControlResponses {
+                waiters: Mutex::new(HashMap::new()),
+                deferred_cell_pixel_handler: Mutex::new(None),
+                latest_cell_pixel_ack: AtomicU64::new(0),
+            });
+            let (reconciled_tx, reconciled_rx) = std::sync::mpsc::channel();
+            control_responses.set_deferred_cell_pixel_handler(Arc::new(
+                move |request_id, expected, frame| {
+                    reconciled_tx.send((request_id, expected, frame)).unwrap();
+                },
+            ));
+            let attachment = HostAttachment {
+                record: record.clone(),
+                record_path: record_path.clone(),
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: vec!["/bin/cat".into()],
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let resolver = {
+                let control_responses = control_responses.clone();
+                thread::spawn(move || {
+                    let request =
+                        read_required_frame(&mut host, "cell pixel size request").unwrap();
+                    assert_eq!(request.kind, MessageKind::SetCellPixelSize);
+                    thread::sleep(Duration::from_millis(50));
+                    let mut ack =
+                        Frame::new(MessageKind::CellPixelSizeAck, request.payload.clone());
+                    ack.request_id = request.request_id;
+                    control_responses.resolve(&ack);
+                })
+            };
+
+            let error = attachment
+                .send_cell_pixel_size_until(9, 18, Instant::now() + Duration::from_millis(10))
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("late response will reconcile the mirror"),
+                "{error:#}"
+            );
+            let (request_id, expected, ack) =
+                reconciled_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(request_id, 2);
+            assert_eq!(expected, (9, 18));
+            assert_eq!(ack.payload, vec![9, 0, 18, 0]);
+            assert_eq!(control_responses.latest_cell_pixel_ack(), 2);
+
+            resolver.join().unwrap();
+            drop(attachment);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
         fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
             let (record_path, record, lease) = record_fixture("protocol-one-adoption");
             let endpoint = PathBuf::from(&record.endpoint);
@@ -3554,6 +3743,7 @@ mod unix {
                 let snapshot = HostSnapshot {
                     cols: 80,
                     rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
                     replay: host_replay,
                     kitty_image_aliases: Vec::new(),
                     sequence_boundary: 0,
@@ -3563,7 +3753,9 @@ mod unix {
                     cwd: Some("/tmp".into()),
                 };
                 let mut payload = encode_snapshot(&snapshot).unwrap();
-                payload.truncate(payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN);
+                payload.truncate(
+                    payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN - CELL_PIXEL_SIZE_ENCODED_LEN,
+                );
                 let mut frame = Frame::new(MessageKind::Snapshot, payload);
                 frame.version = LEGACY_PROTOCOL_VERSION;
                 write_frame(&mut legacy, &frame).unwrap();
@@ -3976,7 +4168,7 @@ mod unix {
 }
 
 #[cfg(unix)]
-pub(crate) use unix::decode_host_resize_payload_for_version;
+pub(crate) use unix::{ControlResponses, decode_host_resize_payload_for_version};
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,
