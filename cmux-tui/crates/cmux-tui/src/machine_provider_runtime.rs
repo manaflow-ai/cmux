@@ -3435,6 +3435,59 @@ mod tests {
     }
 
     #[test]
+    fn selecting_provider_scope_cancels_ambiguous_external_connect() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut personal = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        personal.scopes.push(protocol::ScopeDescriptor {
+            id: id("team-1"),
+            display_name: "Team".into(),
+            kind: protocol::ScopeKind::Team,
+            can_admin: true,
+        });
+        let mut team = personal.clone();
+        team.revision = 2;
+        team.selected_scope_id = id("team-1");
+        let server_personal = personal.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) =
+                serve_initial_snapshot(&listener, server_personal.clone());
+            serve_runtime_refresh(&mut stream, &mut reader, &server_personal, None);
+
+            let select: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(
+                &select.request,
+                protocol::ProviderRequest::SelectScope(params)
+                    if params.scope_id == id("team-1")
+            ));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    select.id,
+                    protocol::SelectScopeResult { snapshot: team.clone() },
+                ),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &team);
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        runtime.pending_external_connect = Some(PendingExternalConnect {
+            scope_id: personal.selected_scope_id,
+            specifier: protocol::ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
+            mutation_id: id("old-scope-mutation"),
+        });
+
+        runtime.perform_request(MachineRequest::SelectProviderScope("team-1".into())).unwrap();
+
+        assert!(
+            runtime.pending_external_connect.is_none(),
+            "an accepted scope selection must cancel the old scope's ambiguous connect"
+        );
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn capability_revocation_fails_the_presented_provider_route_closed() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
