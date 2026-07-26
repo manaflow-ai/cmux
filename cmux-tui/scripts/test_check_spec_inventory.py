@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import io
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -80,6 +82,73 @@ class SchemaValidationTests(unittest.TestCase):
         with redirect_stderr(errors), self.assertRaises(SystemExit):
             CHECKER.validate_schema({"names": ["alpha"], "extra": True}, self.SCHEMA)
         self.assertIn("$ has unknown property 'extra'", errors.getvalue())
+
+
+class InventoryContractTests(unittest.TestCase):
+    def inventory(self) -> dict:
+        return json.loads((CHECKER.SPEC / "inventory.json").read_text())
+
+    def test_command_profile_drift_is_rejected(self) -> None:
+        inventory = copy.deepcopy(self.inventory())
+        inventory["commands"]["local-admin"].remove("shutdown-daemon")
+        inventory["commands"]["control"].append("shutdown-daemon")
+        errors = io.StringIO()
+        with redirect_stderr(errors), self.assertRaises(SystemExit):
+            CHECKER.validate_commands(inventory)
+        self.assertIn("command profile", errors.getvalue())
+
+    def test_event_stream_drift_is_rejected(self) -> None:
+        inventory = copy.deepcopy(self.inventory())
+        bell = next(event for event in inventory["events"] if event["name"] == "bell")
+        bell["streams"] = ["attach-byte"]
+        errors = io.StringIO()
+        with redirect_stderr(errors), self.assertRaises(SystemExit):
+            CHECKER.validate_events(inventory)
+        self.assertIn("event stream", errors.getvalue())
+
+    def test_event_discovery_scans_early_production_serializers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            mux = tui / "crates/cmux-tui-core/src/mux.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text(
+                """\
+fn early_serializer() {
+    let _ = json!({"event": "early-event"});
+}
+
+fn tree_delta_json() {
+    let _ = json!({"event": "tree-changed"});
+}
+"""
+            )
+            mux.write_text(
+                """\
+impl TreeDeltaKind {
+    fn wire_name(&self) -> &str {
+        "workspace-added"
+    }
+}
+"""
+            )
+
+            original_tui = CHECKER.TUI
+            CHECKER.TUI = tui
+            try:
+                self.assertIn("early-event", CHECKER.event_names())
+            finally:
+                CHECKER.TUI = original_tui
+
+    def test_new_workspace_route_covers_provider_owned_sessions(self) -> None:
+        actions = {
+            action["variant"]: action
+            for action in self.inventory()["tui_actions"]
+        }
+        new_workspace = actions["NewWorkspace"]
+        self.assertEqual(new_workspace["classification"], "composite")
+        self.assertIn("new-workspace", new_workspace["route"])
+        self.assertIn("machine-provider create_workspace", new_workspace["route"])
 
 
 if __name__ == "__main__":
