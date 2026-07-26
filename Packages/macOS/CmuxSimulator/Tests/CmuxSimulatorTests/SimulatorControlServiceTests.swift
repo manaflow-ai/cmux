@@ -265,13 +265,25 @@ struct SimulatorControlServiceTests {
             isDirectory: true
         )
         defer { try? FileManager.default.removeItem(at: directory) }
+        let recoverableDeviceID = "RECOVERABLE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
+        try authorizationStore.save(
+            .denied,
+            deviceIdentifier: recoverableDeviceID,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
         try FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true
         )
         let corruptJournal = directory.appendingPathComponent("corrupt.json")
         try Data(#"{"deviceIdentifier":"DEVICE""#.utf8).write(to: corruptJournal)
-        let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
         let commands = RecordingCommandRunner()
         let service = SimulatorControlService(
             commands: commands,
@@ -279,11 +291,85 @@ struct SimulatorControlServiceTests {
         )
 
         #expect(!(await service.recoverOrphanedCameraAuthorizations()))
-        #expect(await commands.recordedInvocations().isEmpty)
+        #expect(await commands.recordedInvocations().map(\.arguments) == [
+            ["simctl", "terminate", recoverableDeviceID, bundleIdentifier],
+            [
+                "simctl", "privacy", recoverableDeviceID, "revoke",
+                "camera", bundleIdentifier,
+            ],
+            [
+                "simctl", "launch", "--terminate-running-process",
+                recoverableDeviceID, bundleIdentifier,
+            ],
+        ])
+        #expect(try authorizationStore.authorization(
+            deviceIdentifier: recoverableDeviceID,
+            bundleIdentifier: bundleIdentifier
+        ) == nil)
         #expect(FileManager.default.fileExists(atPath: corruptJournal.path))
-        #expect(throws: (any Error).self) {
-            try authorizationStore.records()
+    }
+
+    @Test("Launch recovery migrates a legacy temporary camera journal")
+    func cameraLaunchRecoveryMigratesLegacyJournal() async throws {
+        let fileManager = FileManager.default
+        let legacyDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
+            .appendingPathComponent("camera-authorizations", isDirectory: true)
+        let deviceIdentifier = "LEGACY-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let legacyStore = SimulatorCameraAuthorizationStore(directory: legacyDirectory)
+        try legacyStore.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let legacyURL = try #require(try fileManager.contentsOfDirectory(
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil
+        ).first { url in
+            guard let data = try? Data(contentsOf: url),
+                  let record = try? JSONDecoder().decode(
+                      SimulatorCameraAuthorizationRecord.self,
+                      from: data
+                  ) else { return false }
+            return record.deviceIdentifier == deviceIdentifier
+                && record.bundleIdentifier == bundleIdentifier
+        })
+        let legacyRecord = SimulatorCameraAuthorizationRecord(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            authorization: .denied,
+            ownerProcessIdentity: nil
+        )
+        try JSONEncoder().encode(legacyRecord).write(to: legacyURL, options: .atomic)
+        defer {
+            try? fileManager.removeItem(at: legacyURL)
+            try? SimulatorCameraAuthorizationStore().remove(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
         }
+        let commands = RecordingCommandRunner(results: [
+            .success(""),
+            .success(""),
+            .success(""),
+        ])
+        let service = SimulatorControlService(commands: commands)
+
+        #expect(await service.recoverOrphanedCameraAuthorizations())
+
+        #expect(await commands.recordedInvocations().map(\.arguments) == [
+            ["simctl", "terminate", deviceIdentifier, bundleIdentifier],
+            [
+                "simctl", "privacy", deviceIdentifier, "revoke",
+                "camera", bundleIdentifier,
+            ],
+            [
+                "simctl", "launch", "--terminate-running-process",
+                deviceIdentifier, bundleIdentifier,
+            ],
+        ])
+        #expect(!fileManager.fileExists(atPath: legacyURL.path))
     }
 
     @Test("Device type identifies family when runtimes omit family metadata")
