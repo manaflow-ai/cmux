@@ -45,11 +45,12 @@ use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView}
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    MachineActionResult, MachineConnectRoute, MachineController, MachineKey, MachineRailSelection,
-    MachineRailTarget, MachineRequest, MachineSession, MachineUiState, MachineUpdateStream,
-    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
-    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionInputError,
-    WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
+    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
+    MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
+    MachineSession, MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
+    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
+    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
+    WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
@@ -76,6 +77,10 @@ const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
 const MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT: u8 = 5;
+const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
+const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
+const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
+const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
 
 pub enum AppEvent {
     SessionScoped {
@@ -115,9 +120,9 @@ pub enum AppEvent {
     },
     #[cfg(test)]
     MachineUiUpdated(Box<MachineUiState>),
-    MachineUiUpdatedForGeneration {
+    MachineUpdatedForGeneration {
         generation: u64,
-        update: Box<MachineUiState>,
+        update: Box<MachineUpdate>,
     },
     MachineControllerCompleted(Box<MachineControllerCompletion>),
 }
@@ -3196,6 +3201,13 @@ pub struct App {
     pending_machine_replacement: Option<PendingMachineReplacement>,
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
+    durable_notices: VecDeque<QueuedDurableNotice>,
+    recent_durable_notices: VecDeque<DurableNoticeDelivery>,
+    painted_durable_notice_this_frame: Option<DurableNoticeDelivery>,
+    pending_durable_notice_acks: VecDeque<DurableNoticeDelivery>,
+    durable_notice_ack_in_flight: Option<DurableNoticeDelivery>,
+    durable_notice_ack_failures: u8,
+    durable_notice_ack_retry_at: Option<Instant>,
     pub config: Config,
     pub chrome: ChromeTheme,
     default_colors: cmux_tui_core::DefaultColors,
@@ -3300,6 +3312,11 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+}
+
+struct QueuedDurableNotice {
+    notice: DurableProviderNotice,
+    painted_at: Option<Instant>,
 }
 
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
@@ -3622,6 +3639,7 @@ struct MachineUpdatePump {
 enum MachineControllerCommand {
     Perform { request: MachineRequest, preparation: Box<MachineSessionPreparation> },
     SubscribeUpdates,
+    AcknowledgeDurableNotice(DurableNoticeDelivery),
     CommitReplacement(u64),
     AbortReplacement(u64),
 }
@@ -3673,6 +3691,10 @@ pub(crate) enum MachineControllerCompletion {
         updates: Option<Result<Option<MachineUpdateStream>, String>>,
     },
     Updates(Result<Option<MachineUpdateStream>, String>),
+    DurableNoticeAcknowledged {
+        delivery: DurableNoticeDelivery,
+        result: Result<(), String>,
+    },
 }
 
 struct MachineActionWorker {
@@ -3773,6 +3795,15 @@ impl MachineActionWorker {
                                 controller.subscribe_updates().map_err(|error| error.to_string()),
                             )
                         }
+                        MachineControllerCommand::AcknowledgeDurableNotice(delivery) => {
+                            let result = controller
+                                .acknowledge_durable_notice(&delivery)
+                                .map_err(|error| error.to_string());
+                            MachineControllerCompletion::DurableNoticeAcknowledged {
+                                delivery,
+                                result,
+                            }
+                        }
                         MachineControllerCommand::CommitReplacement(action_id) => {
                             match pending_replacement.take() {
                                 Some((pending_id, restart_updates)) if pending_id == action_id => {
@@ -3871,6 +3902,9 @@ impl MachineActionWorker {
                 MachineControllerCommand::SubscribeUpdates => {
                     unreachable!("perform returned a subscription command")
                 }
+                MachineControllerCommand::AcknowledgeDurableNotice(_) => {
+                    unreachable!("perform returned a durable notice acknowledgement")
+                }
                 MachineControllerCommand::CommitReplacement(_)
                 | MachineControllerCommand::AbortReplacement(_) => {
                     unreachable!("perform returned a replacement decision")
@@ -3881,6 +3915,9 @@ impl MachineActionWorker {
                     MachineControllerCommand::Perform { request, .. } => request,
                     MachineControllerCommand::SubscribeUpdates => {
                         unreachable!("perform returned a subscription command")
+                    }
+                    MachineControllerCommand::AcknowledgeDurableNotice(_) => {
+                        unreachable!("perform returned a durable notice acknowledgement")
                     }
                     MachineControllerCommand::CommitReplacement(_)
                     | MachineControllerCommand::AbortReplacement(_) => {
@@ -3895,6 +3932,27 @@ impl MachineActionWorker {
         self.sender.as_ref().is_some_and(|sender| {
             sender.try_send(MachineControllerCommand::SubscribeUpdates).is_ok()
         })
+    }
+
+    fn acknowledge_durable_notice(
+        &self,
+        delivery: DurableNoticeDelivery,
+    ) -> Result<(), DurableNoticeDelivery> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err(delivery);
+        };
+        match sender.try_send(MachineControllerCommand::AcknowledgeDurableNotice(delivery)) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(MachineControllerCommand::AcknowledgeDurableNotice(
+                delivery,
+            )))
+            | Err(TrySendError::Disconnected(
+                MachineControllerCommand::AcknowledgeDurableNotice(delivery),
+            )) => Err(delivery),
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                unreachable!("durable notice sender returned a different command")
+            }
+        }
     }
 
     fn commit_replacement(&self, action_id: u64) -> bool {
@@ -4009,13 +4067,13 @@ impl MachineUpdatePump {
                         Ok(update) => {
                             let mut update = Box::new(update);
                             loop {
-                                match app_events.try_send(AppEvent::MachineUiUpdatedForGeneration {
+                                match app_events.try_send(AppEvent::MachineUpdatedForGeneration {
                                     generation,
                                     update,
                                 }) {
                                     Ok(()) => break,
                                     Err(TrySendError::Full(
-                                        AppEvent::MachineUiUpdatedForGeneration {
+                                        AppEvent::MachineUpdatedForGeneration {
                                             update: returned,
                                             ..
                                         },
@@ -4242,6 +4300,13 @@ pub fn run_with_machine_updates(
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
+        durable_notices: VecDeque::new(),
+        recent_durable_notices: VecDeque::new(),
+        painted_durable_notice_this_frame: None,
+        pending_durable_notice_acks: VecDeque::new(),
+        durable_notice_ack_in_flight: None,
+        durable_notice_ack_failures: 0,
+        durable_notice_ack_retry_at: None,
         config,
         chrome,
         default_colors,
@@ -4565,6 +4630,9 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
+            if self.advance_expired_durable_notice() {
+                action = action.merge(RenderAction::Draw);
+            }
             self.retry_deferred_surface_attach();
             if self.browser_input.resize_retry_due() {
                 let mut visible_surfaces =
@@ -4633,6 +4701,7 @@ impl App {
     }
 
     fn process_machine_requests(&mut self) -> RenderAction {
+        self.submit_pending_durable_notice_ack();
         if self.machine_action_in_flight {
             return RenderAction::None;
         }
@@ -4718,6 +4787,34 @@ impl App {
         completion: MachineControllerCompletion,
     ) -> RenderAction {
         match completion {
+            MachineControllerCompletion::DurableNoticeAcknowledged { delivery, result } => {
+                let mut continue_acknowledgements = true;
+                if self.durable_notice_ack_in_flight.as_ref() == Some(&delivery) {
+                    self.durable_notice_ack_in_flight = None;
+                    match result {
+                        Ok(()) => {
+                            self.durable_notice_ack_failures = 0;
+                            self.durable_notice_ack_retry_at = None;
+                        }
+                        Err(_) => {
+                            continue_acknowledgements = false;
+                            self.durable_notice_ack_failures =
+                                self.durable_notice_ack_failures.saturating_add(1);
+                            let exponent = self
+                                .durable_notice_ack_failures
+                                .saturating_sub(1)
+                                .min(DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT);
+                            self.durable_notice_ack_retry_at =
+                                Some(Instant::now() + Duration::from_secs(1_u64 << exponent));
+                            self.schedule_machine_provider_reconnect();
+                        }
+                    }
+                }
+                if continue_acknowledgements {
+                    self.submit_pending_durable_notice_ack();
+                }
+                RenderAction::None
+            }
             MachineControllerCompletion::Updates(updates) => {
                 if let Err(error) = updates
                     .map_err(anyhow::Error::msg)
@@ -4974,6 +5071,129 @@ impl App {
             self.status_message = Some(notice);
         }
         RenderAction::Draw
+    }
+
+    fn accept_durable_notice(&mut self, notice: DurableProviderNotice) -> RenderAction {
+        let delivery = notice.delivery.clone();
+        if let Some(queued) =
+            self.durable_notices.iter().find(|queued| queued.notice.delivery == delivery)
+        {
+            if queued.painted_at.is_some() {
+                self.queue_durable_notice_ack(delivery);
+            }
+            return RenderAction::None;
+        }
+        if self.recent_durable_notices.contains(&delivery) {
+            self.queue_durable_notice_ack(delivery);
+            return RenderAction::None;
+        }
+        if self.durable_notices.len() >= DURABLE_NOTICE_QUEUE_CAPACITY {
+            // A conforming provider has one delivery in flight, so this only
+            // trips for a broken or hostile stream. Leave the new delivery
+            // unacknowledged and reconnect so the durable cursor can replay it
+            // after queued notices drain.
+            self.schedule_machine_provider_reconnect();
+            return RenderAction::None;
+        }
+        self.durable_notices.push_back(QueuedDurableNotice { notice, painted_at: None });
+        RenderAction::Draw
+    }
+
+    pub(crate) fn durable_notice(&self) -> Option<&DurableProviderNotice> {
+        self.durable_notices.front().map(|queued| &queued.notice)
+    }
+
+    pub(crate) fn record_durable_notice_painted(&mut self, delivery: DurableNoticeDelivery) {
+        self.painted_durable_notice_this_frame = Some(delivery);
+    }
+
+    fn commit_successful_durable_notice_paint(&mut self) {
+        let Some(delivery) = self.painted_durable_notice_this_frame.take() else {
+            return;
+        };
+        let Some(front) = self.durable_notices.front_mut() else {
+            return;
+        };
+        if front.notice.delivery != delivery || front.painted_at.is_some() {
+            return;
+        }
+        front.painted_at = Some(Instant::now());
+        self.remember_durable_notice(delivery.clone());
+        self.queue_durable_notice_ack(delivery);
+    }
+
+    fn dismiss_painted_durable_notice(&mut self) -> bool {
+        if self.durable_notices.front().is_none_or(|front| front.painted_at.is_none()) {
+            return false;
+        }
+        self.durable_notices.pop_front();
+        true
+    }
+
+    fn durable_notice_banner_row(&self) -> Option<u16> {
+        self.durable_notices.front().and_then(|front| front.painted_at).and_then(|_| {
+            let content_bottom = self.content_area.y.saturating_add(self.content_area.height);
+            if self.surface_only.is_some() {
+                content_bottom.checked_sub(1)
+            } else {
+                Some(content_bottom)
+            }
+        })
+    }
+
+    fn advance_expired_durable_notice(&mut self) -> bool {
+        let expired = self.durable_notices.front().is_some_and(|front| {
+            front
+                .painted_at
+                .is_some_and(|painted_at| painted_at.elapsed() >= DURABLE_NOTICE_DISPLAY_DURATION)
+        });
+        if expired {
+            self.durable_notices.pop_front();
+        }
+        expired
+    }
+
+    fn remember_durable_notice(&mut self, delivery: DurableNoticeDelivery) {
+        if self.recent_durable_notices.contains(&delivery) {
+            return;
+        }
+        if self.recent_durable_notices.len() == DURABLE_NOTICE_RECENT_CAPACITY {
+            self.recent_durable_notices.pop_front();
+        }
+        self.recent_durable_notices.push_back(delivery);
+    }
+
+    fn queue_durable_notice_ack(&mut self, delivery: DurableNoticeDelivery) {
+        if self.durable_notice_ack_in_flight.as_ref() == Some(&delivery)
+            || self.pending_durable_notice_acks.contains(&delivery)
+        {
+            return;
+        }
+        self.pending_durable_notice_acks.push_back(delivery);
+    }
+
+    fn submit_pending_durable_notice_ack(&mut self) {
+        if self.durable_notice_ack_in_flight.is_some() {
+            return;
+        }
+        if let Some(retry_at) = self.durable_notice_ack_retry_at {
+            if Instant::now() < retry_at {
+                return;
+            }
+            self.durable_notice_ack_retry_at = None;
+        }
+        let Some(delivery) = self.pending_durable_notice_acks.pop_front() else {
+            return;
+        };
+        let Some(worker) = self.machine_action_worker.as_ref() else {
+            self.pending_durable_notice_acks.push_front(delivery);
+            return;
+        };
+        let in_flight = delivery.clone();
+        match worker.acknowledge_durable_notice(delivery) {
+            Ok(()) => self.durable_notice_ack_in_flight = Some(in_flight),
+            Err(delivery) => self.pending_durable_notice_acks.push_front(delivery),
+        }
     }
 
     fn install_prepared_machine_session(&mut self, prepared: PreparedMachineSession) {
@@ -5500,7 +5720,10 @@ impl App {
     ) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock();
+        self.painted_durable_notice_this_frame = None;
         terminal.draw(|f| crate::ui::draw(self, f))?;
+        self.commit_successful_durable_notice_paint();
+        self.submit_pending_durable_notice_ack();
         if let Some(sequence) =
             outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
         {
@@ -6087,11 +6310,14 @@ impl App {
             }
             #[cfg(test)]
             AppEvent::MachineUiUpdated(update) => Ok(self.apply_machine_ui_update(*update)),
-            AppEvent::MachineUiUpdatedForGeneration { generation, update } => {
+            AppEvent::MachineUpdatedForGeneration { generation, update } => {
                 if generation != self.machine_update_generation {
                     return Ok(RenderAction::None);
                 }
-                Ok(self.apply_machine_ui_update(*update))
+                Ok(match *update {
+                    MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
+                    MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
+                })
             }
             AppEvent::MachineControllerCompleted(completion) => {
                 Ok(self.apply_machine_controller_completion(*completion))
@@ -6393,43 +6619,67 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Input(Event::Key(key)) => self.handle_key(key),
-            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
+            AppEvent::Input(Event::Key(key)) => {
+                let dismissed =
+                    key.kind != KeyEventKind::Release && self.dismiss_painted_durable_notice();
+                let action = self.handle_key(key)?;
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
+            }
+            AppEvent::Input(Event::Mouse(mouse)) => {
+                if matches!(mouse.kind, MouseEventKind::Down(_))
+                    && self.durable_notice_banner_row() == Some(mouse.row)
+                    && self.dismiss_painted_durable_notice()
+                {
+                    return Ok(RenderAction::Draw);
+                }
+                let dismissed = matches!(
+                    mouse.kind,
+                    MouseEventKind::Down(_)
+                        | MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                        | MouseEventKind::ScrollLeft
+                        | MouseEventKind::ScrollRight
+                ) && self.dismiss_painted_durable_notice();
+                let action = self.handle_mouse(mouse)?;
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
+            }
             AppEvent::Input(Event::Paste(text)) => {
+                let dismissed = self.dismiss_painted_durable_notice();
                 self.status_message = None;
-                if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
-                    Ok(RenderAction::Draw)
+                let action = if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
+                    RenderAction::Draw
                 } else if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
-                    Ok(RenderAction::Draw)
+                    RenderAction::Draw
                 } else if let Some(state) = self.omnibar.as_mut() {
                     clear_omnibar_selection(state);
                     state.input.insert_str(&text);
-                    Ok(RenderAction::Draw)
+                    RenderAction::Draw
                 } else if self.machine_sidebar_focused() {
-                    Ok(RenderAction::Draw)
+                    RenderAction::Draw
                 } else if self.workspace_sidebar_focused() {
                     if self.config.sidebar.plugin.is_some() {
                         self.paste_sidebar(&text);
-                        Ok(if self.status_message.is_some() {
+                        if self.status_message.is_some() {
                             RenderAction::Draw
                         } else {
                             RenderAction::None
-                        })
+                        }
                     } else {
                         if self.sidebar_view == SidebarView::Files {
                             self.sidebar_files.insert_filter_text(&text);
                         }
-                        Ok(RenderAction::Draw)
+                        RenderAction::Draw
                     }
                 } else {
                     self.paste(&text);
-                    Ok(if self.status_message.is_some() {
+                    if self.status_message.is_some() {
                         RenderAction::Draw
                     } else {
                         RenderAction::None
-                    })
-                }
+                    }
+                };
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             AppEvent::Input(Event::FocusGained) => {
                 self.reassert_visible_surface_sizes();
@@ -11462,9 +11712,10 @@ mod tests {
     };
     use crate::localization;
     use crate::machine::{
-        MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
+        DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
+        MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
         MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
-        ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
+        MachineUpdate, ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
         ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
         ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
         ProviderActionFieldKind, ProviderActionValue, ProviderPresentation,
@@ -18427,6 +18678,14 @@ mod tests {
         )
     }
 
+    fn durable_notice(id: &str, sequence: u64, message: &str) -> DurableProviderNotice {
+        DurableProviderNotice {
+            delivery: DurableNoticeDelivery { notice_id: id.into(), sequence },
+            level: DurableNoticeLevel::Warning,
+            message: message.into(),
+        }
+    }
+
     fn install_machine_controller(app: &mut App, controller: Box<dyn MachineController>) {
         app.machine_action_worker =
             Some(MachineActionWorker::spawn(controller, app.app_events.clone()).unwrap());
@@ -18498,6 +18757,63 @@ mod tests {
         fn perform(&mut self, _request: MachineRequest) -> anyhow::Result<MachineActionResult> {
             self.release.recv().expect("release blocked machine action");
             Ok(MachineActionResult::ui(provider_machine_ui()))
+        }
+    }
+
+    struct AckMachineController {
+        acknowledgements: std::sync::mpsc::Sender<DurableNoticeDelivery>,
+        fail: bool,
+    }
+
+    impl MachineController for AckMachineController {
+        fn perform(&mut self, _request: MachineRequest) -> anyhow::Result<MachineActionResult> {
+            unreachable!("ack controller does not perform machine actions")
+        }
+
+        fn acknowledge_durable_notice(
+            &mut self,
+            delivery: &DurableNoticeDelivery,
+        ) -> anyhow::Result<()> {
+            self.acknowledgements.send(delivery.clone()).unwrap();
+            if self.fail {
+                anyhow::bail!("ack failed");
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn machine_worker_preserves_exact_durable_notice_ack_result() {
+        for fail in [false, true] {
+            let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+            let (acknowledgements, acknowledged) = std::sync::mpsc::channel();
+            let mut worker = MachineActionWorker::spawn(
+                Box::new(AckMachineController { acknowledgements, fail }),
+                events,
+            )
+            .unwrap();
+            let delivery =
+                DurableNoticeDelivery { notice_id: format!("notice-{fail}"), sequence: 41 };
+
+            worker.acknowledge_durable_notice(delivery.clone()).unwrap();
+
+            assert_eq!(acknowledged.recv_timeout(Duration::from_secs(1)).unwrap(), delivery);
+            let AppEvent::MachineControllerCompleted(completion) =
+                event_receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+            else {
+                panic!("expected durable notice acknowledgement completion");
+            };
+            match *completion {
+                super::MachineControllerCompletion::DurableNoticeAcknowledged {
+                    delivery: completed,
+                    result,
+                } => {
+                    assert_eq!(completed, delivery);
+                    assert_eq!(result.is_err(), fail);
+                }
+                _ => panic!("expected durable notice acknowledgement completion"),
+            }
+            worker.shutdown();
         }
     }
 
@@ -18885,14 +19201,289 @@ mod tests {
         stale.notice = Some("stale provider update".into());
 
         let action = app
-            .handle(AppEvent::MachineUiUpdatedForGeneration {
+            .handle(AppEvent::MachineUpdatedForGeneration {
                 generation: 1,
-                update: Box::new(stale),
+                update: Box::new(MachineUpdate::Ui(Box::new(stale))),
             })
             .unwrap();
 
         assert_eq!(action, RenderAction::None);
         assert_ne!(app.status_message.as_deref(), Some("stale provider update"));
+    }
+
+    #[test]
+    fn durable_notices_wait_for_exact_successful_paint_and_advance_in_fifo_order() {
+        let mux = Mux::new("durable-notice-fifo", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let first = durable_notice("usage-80", 7, "Usage reached 80%");
+        let second = durable_notice("usage-90", 8, "Usage reached 90%");
+
+        assert_eq!(app.accept_durable_notice(first.clone()), RenderAction::Draw);
+        assert_eq!(app.accept_durable_notice(second.clone()), RenderAction::Draw);
+        assert!(!app.dismiss_painted_durable_notice());
+
+        let mut terminal = Terminal::new(TestBackend::new(16, 3)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&first.delivery));
+        assert!(app.pending_durable_notice_acks.is_empty());
+        assert_eq!(app.durable_notice().map(|notice| &notice.delivery), Some(&first.delivery));
+
+        app.commit_successful_durable_notice_paint();
+        assert_eq!(app.pending_durable_notice_acks.front(), Some(&first.delivery));
+        assert!(app.dismiss_painted_durable_notice());
+        assert_eq!(app.durable_notice().map(|notice| &notice.delivery), Some(&second.delivery));
+        assert!(!app.dismiss_painted_durable_notice());
+    }
+
+    #[test]
+    fn durable_notice_banner_overrides_prefix_and_empty_status_bar() {
+        let mux = Mux::new("durable-notice-banner", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let notice = durable_notice("usage-80", 9, "quota");
+        app.prefix_armed = true;
+        app.accept_durable_notice(notice.clone());
+
+        let mut terminal = Terminal::new(TestBackend::new(8, 3)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let bottom = (0..8).map(|x| buffer[(x, 2)].symbol()).collect::<String>();
+        assert!(bottom.starts_with("! quota"), "{bottom:?}");
+        assert_eq!(buffer[(0, 2)].fg, app.chrome.status_bg);
+        assert_eq!(buffer[(0, 2)].bg, app.config.theme.notification_warning);
+        assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&notice.delivery));
+    }
+
+    #[test]
+    fn durable_notice_banner_is_visible_in_a_one_cell_terminal() {
+        let mux = Mux::new("durable-notice-one-cell", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let notice = durable_notice("usage-95", 10, "quota");
+        app.accept_durable_notice(notice.clone());
+
+        let mut terminal = Terminal::new(TestBackend::new(1, 1)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let cell = &terminal.backend().buffer()[(0, 0)];
+        assert_eq!(cell.symbol(), "!");
+        assert_eq!(cell.fg, app.chrome.status_bg);
+        assert_eq!(cell.bg, app.config.theme.notification_warning);
+        assert_eq!(app.painted_durable_notice_this_frame.as_ref(), Some(&notice.delivery));
+    }
+
+    #[test]
+    fn durable_notice_auto_advance_waits_until_after_a_readable_interval() {
+        let mux = Mux::new("durable-notice-auto-advance", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let first = durable_notice("usage-80", 10, "first");
+        let second = durable_notice("usage-90", 11, "second");
+        app.accept_durable_notice(first.clone());
+        app.accept_durable_notice(second.clone());
+        app.record_durable_notice_painted(first.delivery);
+        app.commit_successful_durable_notice_paint();
+
+        assert!(!app.advance_expired_durable_notice());
+        app.durable_notices.front_mut().unwrap().painted_at =
+            Some(Instant::now() - super::DURABLE_NOTICE_DISPLAY_DURATION);
+        assert!(app.advance_expired_durable_notice());
+        assert_eq!(app.durable_notice().map(|notice| &notice.delivery), Some(&second.delivery));
+    }
+
+    #[test]
+    fn durable_notice_dismissal_preserves_text_and_mouse_input() {
+        let mux = Mux::new("durable-notice-input", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(super::Prompt::new(
+            "Rename",
+            String::new(),
+            PromptTarget::ConnectMachine(MachineConnectRoute::Local),
+        ));
+
+        let keyboard = durable_notice("keyboard", 12, "keyboard");
+        app.accept_durable_notice(keyboard.clone());
+        app.record_durable_notice_painted(keyboard.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('é'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "é");
+        assert!(app.durable_notice().is_none());
+
+        let paste = durable_notice("paste", 13, "paste");
+        app.accept_durable_notice(paste.clone());
+        app.record_durable_notice_painted(paste.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Paste("文".into()))).unwrap();
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "é文");
+        assert!(app.durable_notice().is_none());
+
+        app.prompt = None;
+        app.machine_ui = Some(provider_machine_ui());
+        app.content_area = Rect { x: 0, y: 0, width: 5, height: 2 };
+        app.hits.push((Rect { x: 0, y: 0, width: 1, height: 1 }, super::Hit::ConnectMachine));
+        let outside_banner = durable_notice("mouse-outside", 14, "mouse");
+        app.accept_durable_notice(outside_banner.clone());
+        app.record_durable_notice_painted(outside_banner.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.durable_notice().is_some());
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.durable_notice().is_none());
+        assert!(app.prompt.is_some(), "mouse presses outside the banner must be preserved");
+
+        app.prompt = None;
+        app.hits.clear();
+        app.hits.push((Rect { x: 0, y: 2, width: 1, height: 1 }, super::Hit::ConnectMachine));
+        let on_banner = durable_notice("mouse-banner", 15, "mouse");
+        app.accept_durable_notice(on_banner.clone());
+        app.record_durable_notice_painted(on_banner.delivery);
+        app.commit_successful_durable_notice_paint();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.durable_notice().is_none());
+        assert!(app.prompt.is_none(), "banner presses must not activate covered hits");
+    }
+
+    #[test]
+    fn durable_notice_recent_ledger_is_bounded_to_provider_retention() {
+        let mux = Mux::new("durable-notice-ledger", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        for sequence in 0..=super::DURABLE_NOTICE_RECENT_CAPACITY as u64 {
+            let notice = durable_notice(&format!("notice-{sequence}"), sequence, "notice");
+            app.accept_durable_notice(notice.clone());
+            app.record_durable_notice_painted(notice.delivery);
+            app.commit_successful_durable_notice_paint();
+            assert!(app.dismiss_painted_durable_notice());
+        }
+
+        assert_eq!(app.recent_durable_notices.len(), super::DURABLE_NOTICE_RECENT_CAPACITY);
+        assert_eq!(app.recent_durable_notices.front().map(|delivery| delivery.sequence), Some(1));
+    }
+
+    #[test]
+    fn durable_notice_queue_overflow_reconnects_without_acknowledging_or_growing() {
+        let mux = Mux::new("durable-notice-queue-bound", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        for sequence in 1..=super::DURABLE_NOTICE_QUEUE_CAPACITY as u64 {
+            assert_eq!(
+                app.accept_durable_notice(durable_notice(
+                    &format!("notice-{sequence}"),
+                    sequence,
+                    "notice",
+                )),
+                RenderAction::Draw
+            );
+        }
+        assert_eq!(
+            app.accept_durable_notice(durable_notice(
+                "overflow",
+                super::DURABLE_NOTICE_QUEUE_CAPACITY as u64 + 1,
+                "overflow",
+            )),
+            RenderAction::None
+        );
+
+        assert_eq!(app.durable_notices.len(), super::DURABLE_NOTICE_QUEUE_CAPACITY);
+        assert!(app.pending_durable_notice_acks.is_empty());
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+        assert!(matches!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(MachineRequest::ReconnectProvider)
+        ));
+    }
+
+    #[test]
+    fn stale_durable_notice_is_neither_displayed_nor_acknowledged() {
+        let mux = Mux::new("stale-durable-notice", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_update_generation = 2;
+        let notice = durable_notice("stale", 12, "stale");
+
+        let action = app
+            .handle(AppEvent::MachineUpdatedForGeneration {
+                generation: 1,
+                update: Box::new(MachineUpdate::DurableNotice(notice)),
+            })
+            .unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert!(app.durable_notices.is_empty());
+        assert!(app.recent_durable_notices.is_empty());
+        assert!(app.pending_durable_notice_acks.is_empty());
+        assert!(app.durable_notice_ack_in_flight.is_none());
+    }
+
+    #[test]
+    fn failed_durable_notice_ack_reconnects_and_replay_is_not_redisplayed() {
+        let mux = Mux::new("failed-durable-notice-ack", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let notice = durable_notice("usage-80", 13, "quota");
+        app.remember_durable_notice(notice.delivery.clone());
+        app.durable_notice_ack_in_flight = Some(notice.delivery.clone());
+
+        app.apply_machine_controller_completion(
+            super::MachineControllerCompletion::DurableNoticeAcknowledged {
+                delivery: notice.delivery.clone(),
+                result: Err("permission revoked".into()),
+            },
+        );
+
+        assert!(app.durable_notice_ack_in_flight.is_none());
+        assert!(app.durable_notice_ack_retry_at.is_some());
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+        assert!(matches!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(MachineRequest::ReconnectProvider)
+        ));
+        assert_eq!(app.accept_durable_notice(notice.clone()), RenderAction::None);
+        assert!(app.durable_notices.is_empty());
+        assert_eq!(
+            app.pending_durable_notice_acks.iter().collect::<Vec<_>>(),
+            vec![&notice.delivery]
+        );
+
+        let ack_retry_at = app.durable_notice_ack_retry_at;
+        app.clear_machine_provider_reconnect();
+        assert_eq!(app.durable_notice_ack_retry_at, ack_retry_at);
+        assert_eq!(app.durable_notice_ack_failures, 1);
+
+        app.durable_notice_ack_retry_at = Some(Instant::now() - Duration::from_millis(1));
+        app.submit_pending_durable_notice_ack();
+        assert!(app.durable_notice_ack_retry_at.is_none());
+        assert_eq!(app.durable_notice_ack_failures, 1);
+
+        app.pending_durable_notice_acks.clear();
+        app.durable_notice_ack_in_flight = Some(notice.delivery.clone());
+        app.apply_machine_controller_completion(
+            super::MachineControllerCompletion::DurableNoticeAcknowledged {
+                delivery: notice.delivery,
+                result: Ok(()),
+            },
+        );
+        assert_eq!(app.durable_notice_ack_failures, 0);
+        assert!(app.durable_notice_ack_retry_at.is_none());
     }
 
     #[test]
@@ -18958,6 +19549,13 @@ mod tests {
             pending_machine_replacement: None,
             machine_update_pump: None,
             machine_update_generation: 0,
+            durable_notices: VecDeque::new(),
+            recent_durable_notices: VecDeque::new(),
+            painted_durable_notice_this_frame: None,
+            pending_durable_notice_acks: VecDeque::new(),
+            durable_notice_ack_in_flight: None,
+            durable_notice_ack_failures: 0,
+            durable_notice_ack_retry_at: None,
             config: Config::default(),
             chrome: ChromeTheme::dark(),
             default_colors: cmux_tui_core::DefaultColors::default(),
