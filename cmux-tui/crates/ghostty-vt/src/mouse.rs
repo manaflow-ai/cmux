@@ -61,6 +61,13 @@ pub struct MouseEncoders {
     release: MouseEncoder,
 }
 
+/// Fingerprints the effective tracking and wire-format behavior of Ghostty's
+/// own encoder. This keeps Ghostty's parsed terminal state authoritative when
+/// multiple DEC modes are enabled and their last-set precedence matters.
+pub(crate) struct MouseModeProbe {
+    encoder: MouseEncoder,
+}
+
 impl MouseEncoders {
     pub fn new() -> Result<Self> {
         Ok(Self { primary: MouseEncoder::new()?, release: MouseEncoder::new()? })
@@ -95,6 +102,90 @@ impl MouseEncoders {
     }
 }
 
+impl MouseModeProbe {
+    pub(crate) fn new() -> Result<Self> {
+        Ok(Self { encoder: MouseEncoder::new()? })
+    }
+
+    pub(crate) fn signature(&mut self, terminal: sys::GhosttyTerminal) -> Vec<u8> {
+        self.encoder.sync_from_raw_terminal(terminal);
+        self.encoder.reset_motion_dedupe();
+        let mut signature = Vec::with_capacity(96);
+        // Together these events distinguish X10, normal, button-motion,
+        // any-motion, UTF-8, SGR, URXVT, and pixel-coordinate behavior.
+        for (tag, input) in [
+            (
+                1,
+                MouseInput {
+                    action: MouseAction::Press,
+                    button: Some(MouseButton::Left),
+                    mods: Mods::default(),
+                    position: (300.5, 200.5),
+                    screen_size: (800, 600),
+                    cell_size: (8, 16),
+                    any_button_pressed: true,
+                },
+            ),
+            (
+                2,
+                MouseInput {
+                    action: MouseAction::Release,
+                    button: Some(MouseButton::Left),
+                    mods: Mods::default(),
+                    position: (301.5, 201.5),
+                    screen_size: (800, 600),
+                    cell_size: (8, 16),
+                    any_button_pressed: false,
+                },
+            ),
+            (
+                3,
+                MouseInput {
+                    action: MouseAction::Motion,
+                    button: Some(MouseButton::Left),
+                    mods: Mods::default(),
+                    position: (302.5, 202.5),
+                    screen_size: (800, 600),
+                    cell_size: (8, 16),
+                    any_button_pressed: true,
+                },
+            ),
+            (
+                4,
+                MouseInput {
+                    action: MouseAction::Motion,
+                    button: None,
+                    mods: Mods::default(),
+                    position: (303.5, 203.5),
+                    screen_size: (800, 600),
+                    cell_size: (8, 16),
+                    any_button_pressed: false,
+                },
+            ),
+            (
+                5,
+                MouseInput {
+                    action: MouseAction::Press,
+                    button: Some(MouseButton::Left),
+                    mods: Mods::default(),
+                    position: (300.5, 200.5),
+                    screen_size: (800, 600),
+                    cell_size: (1, 1),
+                    any_button_pressed: true,
+                },
+            ),
+        ] {
+            let mut encoded = Vec::new();
+            let result = self.encoder.encode(input, &mut encoded);
+            signature.push(tag);
+            signature.push(u8::from(result.is_err()));
+            signature.extend_from_slice(&(encoded.len() as u16).to_le_bytes());
+            signature.extend_from_slice(&encoded);
+        }
+        signature
+    }
+}
+
 impl MouseEncoder {
     pub fn new() -> Result<Self> {
         let mut encoder: sys::GhosttyMouseEncoder = ptr::null_mut();
@@ -121,10 +212,12 @@ impl MouseEncoder {
         if self.terminal_state == Some(state) {
             return;
         }
-        unsafe {
-            sys::ghostty_mouse_encoder_setopt_from_terminal(self.encoder, terminal.raw());
-        }
+        self.sync_from_raw_terminal(terminal.raw());
         self.terminal_state = Some(state);
+    }
+
+    fn sync_from_raw_terminal(&mut self, terminal: sys::GhosttyTerminal) {
+        unsafe { sys::ghostty_mouse_encoder_setopt_from_terminal(self.encoder, terminal) };
     }
 
     /// Forget the last encoded motion cell so an event that was not delivered

@@ -122,6 +122,10 @@ struct BrowserState {
     accepted_navigation_epoch: u64,
     handled_navigation_epoch: u64,
     pending_frame_epoch: Option<u64>,
+    // Navigation commands retain their own authority reservation because a
+    // concurrent capture restart may advance and settle the shared frame
+    // epoch without proving that the document committed.
+    pending_navigation_epoch: Option<u64>,
     pending_frame: Option<(u64, BrowserFrame)>,
     /// Frame that may currently receive guarded pointer input. Navigation and
     /// geometry changes invalidate it before the next screencast frame lands.
@@ -178,11 +182,17 @@ struct BrowserReconfigureFailure {
     retry_at: Option<Instant>,
 }
 
+struct BrowserReconfigureCommandError {
+    error: anyhow::Error,
+    definitely_unchanged: bool,
+}
+
 #[derive(Clone)]
 struct PointerFrameInvalidation {
     previous: Option<u64>,
     previous_capture_generation: u64,
     previous_pending_frame_epoch: Option<u64>,
+    previous_pending_navigation_epoch: Option<u64>,
     previous_pending_frame: Option<(u64, BrowserFrame)>,
     revision: u64,
     expected_frame_epoch: Option<u64>,
@@ -648,6 +658,7 @@ pub(crate) fn new_surface(
             accepted_navigation_epoch: frame_epoch.latest_navigation(),
             handled_navigation_epoch: frame_epoch.latest_navigation(),
             pending_frame_epoch: None,
+            pending_navigation_epoch: None,
             pending_frame: None,
             pointer_frame_seq: None,
             pointer_frame_revision: 0,
@@ -1352,9 +1363,11 @@ impl BrowserSurface {
                 self.confirm_reconfigure(queued, frame_epoch);
                 Ok(())
             }
-            Err(error) => {
-                self.restore_pointer_frame_after_failed_command(invalidation);
-                Err(error)
+            Err(failure) => {
+                if failure.definitely_unchanged {
+                    self.restore_pointer_frame_after_failed_command(invalidation);
+                }
+                Err(failure.error)
             }
         }
     }
@@ -1510,17 +1523,29 @@ impl BrowserSurface {
         }
     }
 
-    fn reconfigure_blocking(&self, width: u32, height: u32) -> anyhow::Result<u64> {
-        let Some(session) = self.live_session()? else {
+    fn reconfigure_blocking(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Result<u64, BrowserReconfigureCommandError> {
+        let Some(session) = self.live_session().map_err(|error| {
+            BrowserReconfigureCommandError { error, definitely_unchanged: true }
+        })?
+        else {
             return Ok(self.frame_epoch.advance());
         };
-        session.runtime.client.set_device_metrics(&session.session_id, width, height)?;
+        if let Err(error) =
+            session.runtime.client.set_device_metrics(&session.session_id, width, height)
+        {
+            let definitely_unchanged = !is_cdp_timeout_error(&error.to_string());
+            return Err(BrowserReconfigureCommandError { error, definitely_unchanged });
+        }
         let _ = session.runtime.client.stop_screencast(&session.session_id);
-        session.runtime.client.start_screencast_with_frame_barrier(
-            &session.session_id,
-            width,
-            height,
-        )
+        session
+            .runtime
+            .client
+            .start_screencast_with_frame_barrier(&session.session_id, width, height)
+            .map_err(|error| BrowserReconfigureCommandError { error, definitely_unchanged: false })
     }
 
     pub(crate) fn resize_needed(&self, cols: u16, rows: u16) -> bool {
@@ -1636,7 +1661,9 @@ impl BrowserSurface {
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
-        let pointer_frame_seq = matches!(state.status, BrowserStatus::Live).then_some(frame.seq);
+        let pointer_frame_seq = (matches!(state.status, BrowserStatus::Live)
+            && state.pending_navigation_epoch.is_none())
+        .then_some(frame.seq);
         Self::set_pointer_frame_locked(state, pointer_frame_seq);
         state.latest_frame = Some(frame.clone());
         let update = BrowserFrameUpdate {
@@ -1813,6 +1840,7 @@ impl BrowserSurface {
 
     fn pointer_epoch_is_current_locked(&self, state: &BrowserState) -> bool {
         state.pending_frame_epoch.is_none()
+            && state.pending_navigation_epoch.is_none()
             && state.accepted_frame_epoch == self.frame_epoch.current()
     }
 
@@ -1884,6 +1912,7 @@ impl BrowserSurface {
         let previous = state.pointer_frame_seq;
         let previous_capture_generation = state.pointer_capture_generation;
         let previous_pending_frame_epoch = state.pending_frame_epoch;
+        let previous_pending_navigation_epoch = state.pending_navigation_epoch;
         let previous_pending_frame = state.pending_frame.clone();
         Self::set_pointer_frame_locked(state, None);
         Self::set_pending_attach_frame_locked(state, None);
@@ -1894,16 +1923,34 @@ impl BrowserSurface {
             previous,
             previous_capture_generation,
             previous_pending_frame_epoch,
+            previous_pending_navigation_epoch,
             previous_pending_frame,
             revision: state.pointer_frame_revision,
             expected_frame_epoch: None,
         }
     }
 
+    #[cfg(test)]
     fn invalidate_pointer_frame(&self) -> PointerFrameInvalidation {
         self.begin_frame_transition(true)
     }
 
+    fn begin_navigation_frame_transition(&self) -> anyhow::Result<PointerFrameInvalidation> {
+        let mut state = self.state.lock().unwrap();
+        if state.pending_frame_epoch.is_some() || state.pending_navigation_epoch.is_some() {
+            anyhow::bail!("browser navigation is still committing");
+        }
+        let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
+        let mut invalidation = Self::invalidate_pointer_frame_locked(&mut state, true);
+        state.pending_frame_epoch = Some(pending_frame_epoch);
+        state.pending_navigation_epoch = Some(pending_frame_epoch);
+        state.pending_frame = None;
+        invalidation.expected_frame_epoch = Some(pending_frame_epoch);
+        Self::mark_state_dirty_locked(&mut state);
+        Ok(invalidation)
+    }
+
+    #[cfg(test)]
     fn begin_frame_transition(&self, revoke_capture: bool) -> PointerFrameInvalidation {
         let mut state = self.state.lock().unwrap();
         let pending_frame_epoch =
@@ -1933,23 +1980,32 @@ impl BrowserSurface {
     fn abandon_frame_transition(&self) {
         let mut state = self.state.lock().unwrap();
         state.pending_frame_epoch = None;
+        state.pending_navigation_epoch = None;
         state.pending_frame = None;
     }
 
     fn accept_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
         let mut state = self.state.lock().unwrap();
         if frame_epoch <= state.handled_navigation_epoch
-            || state.pending_frame_epoch.is_some_and(|pending_epoch| frame_epoch < pending_epoch)
+            || state
+                .pending_navigation_epoch
+                .is_some_and(|pending_epoch| frame_epoch < pending_epoch)
         {
             return false;
         }
         state.handled_navigation_epoch = frame_epoch;
-        if frame_epoch < state.accepted_frame_epoch {
+        if state.pending_navigation_epoch.is_some_and(|pending_epoch| frame_epoch >= pending_epoch)
+        {
+            state.pending_navigation_epoch = None;
+        }
+        Self::invalidate_pointer_frame_locked(&mut state, false);
+        if frame_epoch < state.accepted_frame_epoch
+            || state.pending_frame_epoch.is_some_and(|pending_epoch| frame_epoch < pending_epoch)
+        {
             Self::reconcile_navigation_capture_locked(&mut state, frame_epoch);
             Self::mark_state_dirty_locked(&mut state);
             return true;
         }
-        Self::invalidate_pointer_frame_locked(&mut state, false);
         state.pending_frame_epoch = Some(frame_epoch);
         state.pending_frame = state.pending_frame.take().filter(|(epoch, _)| *epoch >= frame_epoch);
         Self::accept_frame_epoch_locked(&mut state, frame_epoch, frame_epoch);
@@ -1967,6 +2023,7 @@ impl BrowserSurface {
         }
         state.pointer_capture_generation = invalidation.previous_capture_generation;
         state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
+        state.pending_navigation_epoch = invalidation.previous_pending_navigation_epoch;
         state.pending_frame = invalidation.previous_pending_frame;
         Self::set_pointer_frame_locked(&mut state, invalidation.previous);
         let retained_frame = state.latest_frame.clone();
@@ -1992,9 +2049,10 @@ impl BrowserSurface {
         let Some(expected_frame_epoch) = invalidation.expected_frame_epoch else {
             return;
         };
-        if !self.frame_epoch.wait_until_at_least(expected_frame_epoch, NAVIGATION_COMMIT_WAIT) {
-            self.restore_pointer_frame_after_failed_command(invalidation);
-        }
+        // Command acknowledgment does not mean the document committed. The
+        // ingress navigation event owns this barrier and may arrive after the
+        // short synchronous wait on a slow page.
+        let _ = self.frame_epoch.wait_until_at_least(expected_frame_epoch, NAVIGATION_COMMIT_WAIT);
     }
 
     fn finish_navigation_command<T>(
@@ -2424,7 +2482,7 @@ impl BrowserSurface {
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
-        let invalidation = self.invalidate_pointer_frame();
+        let invalidation = self.begin_navigation_frame_transition()?;
         let navigation_result =
             match session.runtime.client.navigate(&session.session_id, &normalized) {
                 Ok(Some(error)) => {
@@ -2467,7 +2525,7 @@ impl BrowserSurface {
             );
         }
         let entry = &history.entries[next as usize];
-        let invalidation = self.invalidate_pointer_frame();
+        let invalidation = self.begin_navigation_frame_transition()?;
         self.finish_navigation_command(
             invalidation,
             session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id),
@@ -2482,7 +2540,7 @@ impl BrowserSurface {
 
     fn reload_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
-        let invalidation = self.invalidate_pointer_frame();
+        let invalidation = self.begin_navigation_frame_transition()?;
         self.finish_navigation_command(
             invalidation,
             session.runtime.client.reload(&session.session_id),
@@ -4083,7 +4141,7 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         let older_epoch = browser.frame_epoch.advance();
-        browser.invalidate_pointer_frame();
+        browser.begin_navigation_frame_transition().expect("navigation reservation");
         let expected_epoch = browser.state.lock().unwrap().pending_frame_epoch.unwrap();
         assert_ne!(older_epoch, expected_epoch);
 
@@ -4130,9 +4188,48 @@ mod tests {
     }
 
     #[test]
+    fn reconfigure_completion_does_not_release_uncommitted_navigation() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        browser.begin_navigation_frame_transition().expect("navigation reservation");
+
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        browser.begin_reconfigure_frame_transition();
+        let reconfigure_epoch = browser.frame_epoch.advance();
+        browser.confirm_reconfigure(queued, reconfigure_epoch);
+        browser.store_frame_for_epoch(test_frame(2), reconfigure_epoch);
+
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "a resize frame cannot prove that an unresolved navigation committed"
+        );
+        assert!(
+            browser.begin_navigation_frame_transition().is_err(),
+            "the unresolved navigation must keep command serialization ownership across a resize"
+        );
+
+        let navigation_epoch = browser.frame_epoch.advance_navigation();
+        handle_frame_navigated(
+            browser,
+            json!({"frame": {"url": "https://next.test", "name": "next"}}),
+            navigation_epoch,
+        );
+        browser.store_frame_for_epoch(test_frame(3), navigation_epoch);
+
+        assert_eq!(
+            browser.latest_frame_seq(),
+            Some(3),
+            "a post-navigation frame may regain pointer authority"
+        );
+    }
+
+    #[test]
     fn no_commit_reload_does_not_poison_the_next_navigation_epoch() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        let (commit_tx, commit_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
@@ -4144,6 +4241,20 @@ mod tests {
             let reload = read_ws_json(&mut ws);
             assert_eq!(reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": reload["id"], "result": {}}));
+            commit_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.frameNavigated",
+                    "sessionId": "session-1",
+                    "params": {
+                        "frame": {
+                            "id": "main-frame",
+                            "url": "https://example.test"
+                        }
+                    }
+                }),
+            );
 
             let navigate = read_ws_json(&mut ws);
             assert_eq!(navigate["method"], "Page.navigate");
@@ -4183,16 +4294,33 @@ mod tests {
         browser.store_frame(test_frame(1));
 
         browser.reload_blocking().unwrap();
+        assert!(
+            browser.navigate_blocking("https://next.test").is_err(),
+            "a later command must not reuse an unresolved navigation event reservation"
+        );
+        commit_tx.send(()).unwrap();
+        let reload_deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < reload_deadline
+            && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
+        {
+            thread::yield_now();
+        }
+        assert_eq!(
+            browser.state.lock().unwrap().pending_navigation_epoch,
+            None,
+            "the authoritative reload event must release the serialized navigation lane"
+        );
         browser.navigate_blocking("https://next.test").unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         while Instant::now() < deadline
-            && browser.state.lock().unwrap().pending_frame_epoch.is_some()
+            && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
         {
             thread::yield_now();
         }
 
         let state = browser.state.lock().unwrap();
         assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(state.pending_navigation_epoch, None);
         assert_eq!(state.accepted_frame_epoch, browser.frame_epoch.current());
         drop(state);
         assert_eq!(browser.url(), "https://next.test");
@@ -4458,6 +4586,7 @@ mod tests {
             None,
             "a response-level failure must not poison the next navigation epoch"
         );
+        assert_eq!(browser.state.lock().unwrap().pending_navigation_epoch, None);
         runtime.shutdown();
         server.join().unwrap();
     }
@@ -4487,7 +4616,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
-        let invalidation = browser.invalidate_pointer_frame();
+        let invalidation = browser.begin_navigation_frame_transition().unwrap();
         let expected_epoch = invalidation.expected_frame_epoch;
 
         let result: anyhow::Result<()> = browser.finish_navigation_command(
@@ -4501,6 +4630,7 @@ mod tests {
             state.pending_frame_epoch, expected_epoch,
             "an ambiguous production timeout must retain its navigation barrier"
         );
+        assert_eq!(state.pending_navigation_epoch, expected_epoch);
         assert_eq!(state.pointer_frame_seq, None);
     }
 
@@ -4509,7 +4639,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
-        let invalidation = browser.invalidate_pointer_frame();
+        let invalidation = browser.begin_navigation_frame_transition().unwrap();
         let expected_epoch = invalidation.expected_frame_epoch;
 
         let result: anyhow::Result<()> = browser.finish_navigation_command(invalidation, Ok(()));
@@ -4520,6 +4650,7 @@ mod tests {
             state.pending_frame_epoch, expected_epoch,
             "command acknowledgment must not settle navigation before its authoritative event"
         );
+        assert_eq!(state.pending_navigation_epoch, expected_epoch);
         assert_eq!(
             state.pointer_frame_seq, None,
             "the pre-navigation frame must remain non-interactive while commit is unresolved"

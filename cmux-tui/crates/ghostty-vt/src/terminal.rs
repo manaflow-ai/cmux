@@ -5,12 +5,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ghostty_vt_sys as sys;
 
+use crate::mouse::MouseModeProbe;
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
+const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -138,175 +140,14 @@ pub struct Callbacks {
     pub on_bell: Option<NotifyFn>,
 }
 
-#[derive(Default)]
-struct MouseModeScan {
-    state: MouseModeScanState,
-    utf8_remaining: u8,
-}
-
-#[derive(Default)]
-enum MouseModeScanState {
-    #[default]
-    Ground,
-    Escape,
-    Csi {
-        private: bool,
-        at_start: bool,
-        parameter: u16,
-        has_parameter: bool,
-        has_mouse_mode: bool,
-        soft_reset: bool,
-    },
-}
-
-impl MouseModeScan {
-    fn feed(&mut self, data: &[u8]) -> bool {
-        use MouseModeScanState as State;
-
-        let mut changed = false;
-        for &byte in data {
-            if self.consume_utf8_continuation(byte) {
-                continue;
-            }
-            self.note_utf8_lead(byte);
-            let state = std::mem::take(&mut self.state);
-            self.state = match state {
-                State::Ground => match byte {
-                    0x1b => State::Escape,
-                    0x9b => Self::csi(),
-                    _ => State::Ground,
-                },
-                State::Escape => match byte {
-                    b'[' => Self::csi(),
-                    0x1b => State::Escape,
-                    b'c' => {
-                        changed = true;
-                        State::Ground
-                    }
-                    _ => State::Ground,
-                },
-                State::Csi {
-                    mut private,
-                    mut at_start,
-                    mut parameter,
-                    mut has_parameter,
-                    mut has_mouse_mode,
-                    mut soft_reset,
-                } => match byte {
-                    b'?' if at_start => {
-                        private = true;
-                        at_start = false;
-                        State::Csi {
-                            private,
-                            at_start,
-                            parameter,
-                            has_parameter,
-                            has_mouse_mode,
-                            soft_reset,
-                        }
-                    }
-                    b'0'..=b'9' => {
-                        at_start = false;
-                        has_parameter = true;
-                        parameter =
-                            parameter.saturating_mul(10).saturating_add(u16::from(byte - b'0'));
-                        State::Csi {
-                            private,
-                            at_start,
-                            parameter,
-                            has_parameter,
-                            has_mouse_mode,
-                            soft_reset,
-                        }
-                    }
-                    b';' => {
-                        has_mouse_mode |=
-                            private && has_parameter && Self::is_mouse_mode(parameter);
-                        at_start = false;
-                        parameter = 0;
-                        has_parameter = false;
-                        State::Csi {
-                            private,
-                            at_start,
-                            parameter,
-                            has_parameter,
-                            has_mouse_mode,
-                            soft_reset,
-                        }
-                    }
-                    b'!' => {
-                        soft_reset = true;
-                        State::Csi {
-                            private,
-                            at_start,
-                            parameter,
-                            has_parameter,
-                            has_mouse_mode,
-                            soft_reset,
-                        }
-                    }
-                    0x40..=0x7e => {
-                        has_mouse_mode |=
-                            private && has_parameter && Self::is_mouse_mode(parameter);
-                        if (has_mouse_mode && matches!(byte, b'h' | b'l' | b'r'))
-                            || (soft_reset && byte == b'p')
-                        {
-                            changed = true;
-                        }
-                        State::Ground
-                    }
-                    0x1b => State::Escape,
-                    _ => State::Ground,
-                },
-            };
-        }
-        changed
-    }
-
-    fn csi() -> MouseModeScanState {
-        MouseModeScanState::Csi {
-            private: false,
-            at_start: true,
-            parameter: 0,
-            has_parameter: false,
-            has_mouse_mode: false,
-            soft_reset: false,
-        }
-    }
-
-    fn is_mouse_mode(mode: u16) -> bool {
-        matches!(mode, 9 | 1000 | 1002 | 1003 | 1005 | 1006 | 1015 | 1016)
-    }
-
-    fn consume_utf8_continuation(&mut self, byte: u8) -> bool {
-        if self.utf8_remaining == 0 {
-            return false;
-        }
-        if matches!(byte, 0x80..=0xbf) {
-            self.utf8_remaining -= 1;
-            true
-        } else {
-            self.utf8_remaining = 0;
-            false
-        }
-    }
-
-    fn note_utf8_lead(&mut self, byte: u8) {
-        self.utf8_remaining = match byte {
-            0xc2..=0xdf => 1,
-            0xe0..=0xef => 2,
-            0xf0..=0xf4 => 3,
-            _ => 0,
-        };
-    }
-}
-
 /// A terminal instance: VT parser plus full screen/scrollback state.
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
     instance_id: u64,
     mouse_mode_revision: u64,
-    mouse_mode_scan: MouseModeScan,
+    mouse_mode_bits: u8,
+    mouse_mode_signature: Vec<u8>,
+    mouse_mode_probe: MouseModeProbe,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -1209,6 +1050,7 @@ unsafe extern "C" fn bell_trampoline(_terminal: sys::GhosttyTerminal, userdata: 
 
 impl Terminal {
     pub fn new(cols: u16, rows: u16, max_scrollback: usize, callbacks: Callbacks) -> Result<Self> {
+        let mouse_mode_probe = MouseModeProbe::new()?;
         let mut raw: sys::GhosttyTerminal = ptr::null_mut();
         let opts =
             sys::GhosttyTerminalOptions { cols: cols.max(1), rows: rows.max(1), max_scrollback };
@@ -1218,7 +1060,9 @@ impl Terminal {
             raw,
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
-            mouse_mode_scan: MouseModeScan::default(),
+            mouse_mode_bits: 0,
+            mouse_mode_signature: Vec::new(),
+            mouse_mode_probe,
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -1244,6 +1088,8 @@ impl Terminal {
                 bell_trampoline as *const c_void,
             );
         }
+        term.mouse_mode_bits = term.current_mouse_mode_bits();
+        term.mouse_mode_signature = term.mouse_mode_probe.signature(term.raw);
         Ok(term)
     }
 
@@ -1274,15 +1120,41 @@ impl Terminal {
         if data.is_empty() {
             return Cow::Borrowed(data);
         }
-        if self.mouse_mode_scan.feed(data) {
-            self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
-        }
         let normalized = self.c1_normalizer.normalize(data);
         self.cursor_override.write(&normalized);
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
+        self.refresh_mouse_mode_revision();
         normalized
+    }
+
+    fn refresh_mouse_mode_revision(&mut self) {
+        let next_bits = self.current_mouse_mode_bits();
+        let bits_changed = next_bits != self.mouse_mode_bits;
+        let tracking_bits = next_bits & 0x0f;
+        let format_bits = next_bits >> 4;
+        // A bit tuple is sufficient when at most one tracking and wire-format
+        // mode is active. When modes overlap, query Ghostty's encoder because
+        // its parsed last-set precedence is not represented by the bits.
+        let behavior_can_be_ambiguous =
+            tracking_bits.count_ones() > 1 || tracking_bits != 0 && format_bits.count_ones() > 1;
+        if !bits_changed && !behavior_can_be_ambiguous {
+            return;
+        }
+        let next_signature = self.mouse_mode_probe.signature(self.raw);
+        if bits_changed || next_signature != self.mouse_mode_signature {
+            self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
+        }
+        self.mouse_mode_bits = next_bits;
+        self.mouse_mode_signature = next_signature;
+    }
+
+    fn current_mouse_mode_bits(&self) -> u8 {
+        MOUSE_DEC_MODES
+            .into_iter()
+            .enumerate()
+            .fold(0, |bits, (index, mode)| bits | (u8::from(self.mode(mode, false)) << index))
     }
 
     /// Whether the current cursor style/blink came from an active DECSCUSR
@@ -2095,34 +1967,11 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, PaletteOsc, Terminal, vt_replay_row_window};
+    use super::{Callbacks, PaletteOsc, Terminal, vt_replay_row_window};
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
         assert!(size_of::<PaletteOsc>() <= 16);
-    }
-
-    #[test]
-    fn mouse_mode_scan_tracks_split_private_mode_sequences() {
-        let mut scan = MouseModeScan::default();
-
-        assert!(!scan.feed(b"\x1b[?10"));
-        assert!(scan.feed(b"00;1006h"));
-        assert!(!scan.feed(b"ordinary output\x1b[31m"));
-        assert!(scan.feed(b"\x9b?1002l"));
-        assert!(scan.feed(b"\x1b[?1000r"));
-        assert!(scan.feed(b"\x1b[!p"));
-        assert!(scan.feed(b"\x1bc"));
-    }
-
-    #[test]
-    fn mouse_mode_scan_ignores_c1_bytes_inside_utf8_text() {
-        let mut scan = MouseModeScan::default();
-
-        assert!(!scan.feed("ě!p".as_bytes()));
-        assert!(!scan.feed(&[0xc4]));
-        assert!(!scan.feed(&[0x9b, b'!', b'p']));
-        assert!(scan.feed(b"\x9b!p"), "a standalone C1 CSI still denotes a soft reset");
     }
 
     #[test]
