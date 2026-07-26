@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("check-spec-inventory.py")
@@ -38,15 +39,103 @@ enum Command {
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 self.assertEqual(
                     CHECKER.command_names(),
                     {"ping", "tuple-value", "struct-value", "bare-final"},
                 )
-            finally:
-                CHECKER.TUI = original_tui
+
+    def test_rust_function_body_ignores_braces_in_string_literals(self) -> None:
+        source = r'''
+fn metadata(&self) -> ActionMetadata {
+    let closing = "}";
+    let opening = r#"{"#;
+    ActionMetadata::new("new-tab", ActionExecution::NewTab)
+}
+
+fn following() {}
+'''
+        body = CHECKER.rust_function_body(source, "metadata")
+        self.assertIn("ActionMetadata::new", body)
+        self.assertNotIn("fn following", body)
+
+    def test_action_variants_ignore_commented_out_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            config = tui / "crates/cmux-tui/src/config.rs"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                """\
+enum Action {
+    NewTab,
+    /*
+    CommentedOut,
+    */
+    BareFinal
+}
+"""
+            )
+
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(CHECKER.action_variants(), {"NewTab", "BareFinal"})
+
+    def test_secondary_protocols_include_bare_final_and_tuple_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            host = tui / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
+            provider = tui / "crates/cmux-tui-machine-protocol/src/lib.rs"
+            management = tui / "crates/cmux-tui-core/src/provider_management.rs"
+            host.parent.mkdir(parents=True)
+            provider.parent.mkdir(parents=True)
+            host.write_text(
+                """\
+enum MessageKind {
+    Hello = 1,
+    BareFinal = 2
+}
+"""
+            )
+            provider.write_text(
+                """\
+enum ProviderRequest {
+    TupleRequest(u8),
+    BareRequest
+}
+
+enum ProviderEvent {
+    StructEvent { value: u8 },
+    BareEvent
+}
+"""
+            )
+            management.write_text(
+                """\
+enum Request {
+    TupleOperation(u8),
+    BareOperation
+}
+"""
+            )
+
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.secondary_protocols(),
+                    {
+                        "terminal_host_v1": {"Hello": 1, "BareFinal": 2},
+                        "machine_provider_v1_requests": {
+                            "tuple_request",
+                            "bare_request",
+                        },
+                        "machine_provider_v1_events": {
+                            "struct_event",
+                            "bare_event",
+                        },
+                        "provider_management_v1": {
+                            "tuple_operation",
+                            "bare_operation",
+                        },
+                    },
+                )
 
 
 class RuntimeMetadataTests(unittest.TestCase):
@@ -73,9 +162,7 @@ impl Command {
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 self.assertEqual(
                     CHECKER.command_profiles(),
                     {
@@ -83,8 +170,37 @@ impl Command {
                         "local-admin": {"shutdown-daemon"},
                     },
                 )
-            finally:
-                CHECKER.TUI = original_tui
+
+    def test_duplicate_command_profile_metadata_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text(
+                """\
+enum Command {
+    Ping,
+}
+
+impl Command {
+    fn profile(&self) -> CommandProfile {
+        match self {
+            Command::Ping => CommandProfile::Control,
+            Command::Ping => CommandProfile::Frontend,
+        }
+    }
+}
+"""
+            )
+
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.command_profiles()
+            self.assertIn("duplicate command profile metadata", errors.getvalue())
 
     def test_event_streams_come_from_rust_writer_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -106,9 +222,7 @@ const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 self.assertEqual(
                     CHECKER.event_streams(),
                     {
@@ -116,8 +230,28 @@ const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
                         "notification": {"subscribe", "attach-byte"},
                     },
                 )
-            finally:
-                CHECKER.TUI = original_tui
+
+    def test_public_event_without_runtime_stream_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text(
+                """\
+const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
+    PublicEvent::new("bell", &[]),
+];
+"""
+            )
+
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.event_streams()
+            self.assertIn("public event bell has no runtime stream", errors.getvalue())
 
     def test_action_contracts_come_from_rust_execution_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -152,9 +286,7 @@ impl Action {
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 self.assertEqual(
                     CHECKER.action_metadata(),
                     {
@@ -170,8 +302,93 @@ impl Action {
                         },
                     },
                 )
-            finally:
-                CHECKER.TUI = original_tui
+
+    def test_action_metadata_dispatch_mismatch_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            config = tui / "crates/cmux-tui/src/config.rs"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                """\
+enum Action {
+    NewTab,
+}
+
+impl Action {
+    fn metadata(&self) -> ActionMetadata {
+        match self {
+            Action::NewTab => ActionMetadata::new(
+                "new-tab",
+                ActionClassification::Direct,
+                "new-tab",
+                ActionExecution::CloseTab,
+            ),
+        }
+    }
+}
+"""
+            )
+
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.action_metadata()
+            self.assertIn("action metadata dispatch mismatch", errors.getvalue())
+
+    def test_workspace_ownership_route_comes_from_runtime_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            config = tui / "crates/cmux-tui/src/config.rs"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                """\
+enum Action {
+    NewWorkspace,
+}
+
+impl Action {
+    fn metadata(&self) -> ActionMetadata {
+        match self {
+            Action::NewWorkspace => ActionMetadata::workspace_ownership(
+                "new-workspace",
+                ActionClassification::Composite,
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("new-workspace"),
+                ActionRouteTarget::MachineProviderRequest("create_workspace"),
+                UnknownOwnership::Reject,
+                ActionExecution::NewWorkspace,
+            ),
+        }
+    }
+}
+"""
+            )
+
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.action_metadata(),
+                    {
+                        "NewWorkspace": {
+                            "key": "new-workspace",
+                            "classification": "composite",
+                            "route": {
+                                "ownership_source": "active-workspace-session",
+                                "session_owned": {
+                                    "kind": "mux-command",
+                                    "operation": "new-workspace",
+                                },
+                                "provider_owned": {
+                                    "kind": "machine-provider-request",
+                                    "operation": "create_workspace",
+                                },
+                                "unknown_ownership": "reject",
+                            },
+                        },
+                    },
+                )
 
     def test_prompt_driven_actions_are_composite_routes(self) -> None:
         actions = CHECKER.action_metadata()
@@ -217,9 +434,7 @@ impl MenuAction {
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 self.assertEqual(
                     CHECKER.menu_action_metadata(),
                     {
@@ -233,8 +448,6 @@ impl MenuAction {
                         },
                     },
                 )
-            finally:
-                CHECKER.TUI = original_tui
 
 
 class DocumentationConsistencyTests(unittest.TestCase):
@@ -333,18 +546,16 @@ fn tree_delta_json() {
                 """\
 impl TreeDeltaKind {
     fn wire_name(&self) -> &str {
-        "workspace-added"
+        match self {
+            Self::WorkspaceAdded => "workspace-added",
+        }
     }
 }
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 self.assertIn("early-event", CHECKER.event_names())
-            finally:
-                CHECKER.TUI = original_tui
 
     def test_event_discovery_ignores_event_shaped_comments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -367,20 +578,20 @@ fn tree_delta_json() {
                 """\
 impl TreeDeltaKind {
     fn wire_name(&self) -> &str {
-        "workspace-added"
+        match self {
+            Self::WorkspaceAdded => "workspace-added",
+        }
     }
 }
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 names = CHECKER.event_names()
+                self.assertIn("tree-changed", names)
+                self.assertIn("workspace-added", names)
                 self.assertNotIn("comment-only", names)
                 self.assertNotIn("nested-comment-only", names)
-            finally:
-                CHECKER.TUI = original_tui
 
     def test_event_discovery_handles_field_order_constants_and_insertions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -413,9 +624,7 @@ impl TreeDeltaKind {
 """
             )
 
-            original_tui = CHECKER.TUI
-            CHECKER.TUI = tui
-            try:
+            with patch.object(CHECKER, "TUI", tui):
                 names = CHECKER.event_names()
                 self.assertTrue(
                     {
@@ -424,8 +633,6 @@ impl TreeDeltaKind {
                         "inserted-event",
                     }.issubset(names)
                 )
-            finally:
-                CHECKER.TUI = original_tui
 
     def test_new_workspace_route_covers_provider_owned_sessions(self) -> None:
         actions = {
@@ -434,8 +641,74 @@ impl TreeDeltaKind {
         }
         new_workspace = actions["NewWorkspace"]
         self.assertEqual(new_workspace["classification"], "composite")
-        self.assertIn("new-workspace", new_workspace["route"])
-        self.assertIn("machine-provider create_workspace", new_workspace["route"])
+        self.assertEqual(
+            new_workspace["route"],
+            {
+                "ownership_source": "active-workspace-session",
+                "session_owned": {
+                    "kind": "mux-command",
+                    "operation": "new-workspace",
+                },
+                "provider_owned": {
+                    "kind": "machine-provider-request",
+                    "operation": "create_workspace",
+                },
+                "unknown_ownership": "reject",
+            },
+        )
+
+    def test_new_workspace_route_rejects_unknown_authority_and_operations(self) -> None:
+        route = {
+            "ownership_source": "active-workspace-session",
+            "session_owned": {
+                "kind": "mux-command",
+                "operation": "new-workspace",
+            },
+            "provider_owned": {
+                "kind": "machine-provider-request",
+                "operation": "create_workspace",
+            },
+            "unknown_ownership": "reject",
+        }
+        cases = [
+            (
+                ("ownership_source",),
+                "guessed-owner",
+                "unknown workspace ownership source",
+            ),
+            (
+                ("session_owned", "operation"),
+                "future-command",
+                "unknown mux command",
+            ),
+            (
+                ("provider_owned", "operation"),
+                "future_request",
+                "unknown machine-provider request",
+            ),
+            (
+                ("unknown_ownership",),
+                "fallback",
+                "unknown workspace ownership must reject",
+            ),
+        ]
+        for path, value, expected_error in cases:
+            with self.subTest(path=path):
+                inventory = copy.deepcopy(self.inventory())
+                new_workspace = next(
+                    action
+                    for action in inventory["tui_actions"]
+                    if action["variant"] == "NewWorkspace"
+                )
+                new_workspace["route"] = copy.deepcopy(route)
+                target = new_workspace["route"]
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                errors = io.StringIO()
+                with redirect_stderr(errors), self.assertRaises(SystemExit):
+                    CHECKER.validate_tui_actions(inventory)
+                self.assertIn(expected_error, errors.getvalue())
 
     def test_menu_action_route_drift_is_rejected(self) -> None:
         inventory = copy.deepcopy(self.inventory())
