@@ -14,8 +14,9 @@ use zeroize::Zeroize;
 use crate::config::MachineConfig;
 use crate::localization;
 use crate::machine::{
-    MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
-    MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdateStream,
+    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
+    MachineCapabilities, MachineController, MachineDescriptor, MachineKey, MachineRequest,
+    MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate, MachineUpdateStream,
     ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
     ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
     ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
@@ -27,6 +28,8 @@ use crate::machine_provider_client::UnixProviderConnector;
 use crate::machine_provider_client::{MachineProviderConnector, ProviderClient};
 use crate::machine_runtime::MachineRuntime;
 use crate::session::{RemoteSession, Session};
+
+const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
 
 struct OpenConnection {
     client: Arc<ProviderClient>,
@@ -59,6 +62,12 @@ struct AcceptedProviderEffects {
     restart_updates: bool,
 }
 
+#[derive(Debug)]
+enum ProviderRefreshSignal {
+    Refresh(Option<protocol::ProviderEvent>),
+    Disconnected,
+}
+
 struct KeyRegistry {
     by_id: HashMap<protocol::OpaqueId, MachineKey>,
     by_key: HashMap<MachineKey, protocol::OpaqueId>,
@@ -75,6 +84,7 @@ pub(crate) struct ProviderMachineRuntime {
     keys: Arc<Mutex<KeyRegistry>>,
     mutation_nonce: String,
     mutation_sequence: AtomicU64,
+    notice_consumer_id: protocol::OpaqueId,
     open: Option<OpenConnection>,
     pending: Option<PendingConnection>,
     accepted_selection: Option<AcceptedSelectionIntent>,
@@ -197,11 +207,16 @@ impl ProviderMachineController {
             std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
                 while !worker_stop.load(Ordering::Acquire) {
                     match provider_receiver.recv_timeout(Duration::from_millis(250)) {
-                        Ok(ui) => {
-                            if sender
-                                .send(merge_local_machine_ui(ui, &local_snapshot, active_local))
-                                .is_err()
-                            {
+                        Ok(update) => {
+                            let update = match update {
+                                MachineUpdate::Ui(ui) => MachineUpdate::Ui(Box::new(
+                                    merge_local_machine_ui(*ui, &local_snapshot, active_local),
+                                )),
+                                MachineUpdate::DurableNotice(notice) => {
+                                    MachineUpdate::DurableNotice(notice)
+                                }
+                            };
+                            if sender.send(update).is_err() {
                                 break;
                             }
                         }
@@ -246,6 +261,13 @@ impl MachineController for ProviderMachineController {
         self.subscribe_ui_updates().map(Some)
     }
 
+    fn acknowledge_durable_notice(
+        &mut self,
+        delivery: &DurableNoticeDelivery,
+    ) -> anyhow::Result<()> {
+        self.provider.acknowledge_durable_notice(delivery)
+    }
+
     fn commit_replacement(&mut self) -> anyhow::Result<()> {
         ProviderMachineController::commit_replacement(self)
     }
@@ -274,9 +296,11 @@ impl ProviderMachineRuntime {
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
     ) -> anyhow::Result<Self> {
+        let notice_consumer_id = random_notice_consumer_id()?;
         let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
-            connect_client(Arc::clone(&connector))?;
+            connect_client(Arc::clone(&connector), &notice_consumer_id)?;
         let client = Arc::new(client);
+        let surface_initial_snapshot_notice = !client.has_retained_durable_notices()?;
         let mut runtime = Self {
             connector,
             client,
@@ -290,6 +314,7 @@ impl ProviderMachineRuntime {
             })),
             mutation_nonce: random_mutation_nonce()?,
             mutation_sequence: AtomicU64::new(1),
+            notice_consumer_id,
             open: None,
             pending: None,
             accepted_selection: None,
@@ -297,7 +322,10 @@ impl ProviderMachineRuntime {
             pending_notice_messages: HashSet::new(),
             notice: None,
         };
-        runtime.observe_snapshot_notice(runtime.snapshot.notice.clone());
+        runtime.observe_snapshot_notice(
+            runtime.snapshot.notice.clone(),
+            surface_initial_snapshot_notice,
+        );
         runtime.reconcile_keys();
         Ok(runtime)
     }
@@ -315,7 +343,9 @@ impl ProviderMachineRuntime {
     }
 
     fn install_snapshot(&mut self, mut snapshot: protocol::SnapshotResult) -> anyhow::Result<()> {
-        self.observe_snapshot_notice(snapshot.notice.clone());
+        let surface_snapshot_notice =
+            !self.client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)?;
+        self.observe_snapshot_notice(snapshot.notice.clone(), surface_snapshot_notice);
         let selection_applied = self.accepted_selection.as_ref().is_none_or(|intent| {
             let scope_matches = intent
                 .scope_id
@@ -648,6 +678,14 @@ impl ProviderMachineRuntime {
         self.close_open_connection();
     }
 
+    fn acknowledge_durable_notice(&self, delivery: &DurableNoticeDelivery) -> anyhow::Result<()> {
+        self.client.acknowledge_notice(protocol::NoticeDelivery {
+            notice_id: protocol::OpaqueId::new(delivery.notice_id.clone())?,
+            sequence: delivery.sequence,
+        })?;
+        Ok(())
+    }
+
     pub(crate) fn subscribe_ui_updates(&self) -> anyhow::Result<MachineUpdateStream> {
         let events = self.client.subscribe_events()?;
         let client = self.client.clone();
@@ -655,28 +693,68 @@ impl ProviderMachineRuntime {
         let provider_connect_supported = client
             .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
             .unwrap_or(false);
+        let durable_notices_supported =
+            client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY).unwrap_or(false);
         let mut connected_session =
             self.open.as_ref().map(|open| (open.connection_id.clone(), open.machine_id.clone()));
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let thread_stop = stop.clone();
-        let (sender, receiver) = mpsc::sync_channel(8);
+        let (sender, receiver) = mpsc::sync_channel(PROVIDER_REFRESH_QUEUE_CAPACITY);
         let mut last_snapshot = self.snapshot.clone();
         let mut last_machine_lifecycle_snapshot = self.machine_lifecycle_snapshot.clone();
         let mut last_workspace_snapshot = self.workspace_snapshot.clone();
         let mut last_snapshot_notice = self.last_snapshot_notice.clone();
         let (mut desired_scope_id, mut desired_machine_id) = self.desired_selection();
-        let worker = std::thread::Builder::new().name("machine-provider-snapshots".into()).spawn(
-            move || {
-                let mut authoritative_refresh_pending = true;
-                while !thread_stop.load(Ordering::Acquire) {
-                    let event = if authoritative_refresh_pending {
-                        authoritative_refresh_pending = false;
-                        None
-                    } else {
-                        match events.recv_timeout(Duration::from_millis(250)) {
-                            Ok(event) => Some(event),
-                            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(mpsc::RecvTimeoutError::Disconnected) => {
+        let (refresh_sender, refresh_receiver) =
+            mpsc::sync_channel(PROVIDER_REFRESH_QUEUE_CAPACITY);
+        let refresh_overflowed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_refresh_overflowed = refresh_overflowed.clone();
+        let refresh_stop = stop.clone();
+        let refresh_output = sender.clone();
+        let refresh_worker = std::thread::Builder::new()
+            .name("machine-provider-refresh".into())
+            .spawn(move || {
+                while !refresh_stop.load(Ordering::Acquire) {
+                    if worker_refresh_overflowed.load(Ordering::Acquire) {
+                        let mut ui = machine_ui_state(
+                            &last_snapshot,
+                            &last_machine_lifecycle_snapshot,
+                            last_workspace_snapshot.as_ref(),
+                            &keys,
+                            false,
+                            provider_connect_supported,
+                        );
+                        ui.notice = Some(
+                            localization::catalog().sidebar.machine_provider_disconnected.into(),
+                        );
+                        ui.request = Some(MachineRequest::ReconnectProvider);
+                        let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
+                        break;
+                    }
+                    let event = match refresh_receiver.recv_timeout(Duration::from_millis(250)) {
+                        Ok(ProviderRefreshSignal::Refresh(event)) => event,
+                        Ok(ProviderRefreshSignal::Disconnected) => {
+                            let mut ui = machine_ui_state(
+                                &last_snapshot,
+                                &last_machine_lifecycle_snapshot,
+                                last_workspace_snapshot.as_ref(),
+                                &keys,
+                                false,
+                                provider_connect_supported,
+                            );
+                            ui.notice = Some(
+                                localization::catalog()
+                                    .sidebar
+                                    .machine_provider_disconnected
+                                    .into(),
+                            );
+                            ui.request = Some(MachineRequest::ReconnectProvider);
+                            let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
+                            break;
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            if worker_refresh_overflowed.load(Ordering::Acquire) {
                                 let mut ui = machine_ui_state(
                                     &last_snapshot,
                                     &last_machine_lifecycle_snapshot,
@@ -692,9 +770,9 @@ impl ProviderMachineRuntime {
                                         .into(),
                                 );
                                 ui.request = Some(MachineRequest::ReconnectProvider);
-                                let _ = sender.send(ui);
-                                break;
+                                let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                             }
+                            break;
                         }
                     };
                     let mut notice = None;
@@ -737,15 +815,16 @@ impl ProviderMachineRuntime {
                                 localization::catalog().sidebar.machine_provider_disconnected.into()
                             });
                             ui.request = Some(MachineRequest::ReconnectProvider);
-                            let _ = sender.send(ui);
+                            let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                             break;
                         }
                     };
-                    let changed_snapshot_notice = if snapshot.notice != last_snapshot_notice {
-                        snapshot.notice.clone()
-                    } else {
-                        None
-                    };
+                    let changed_snapshot_notice =
+                        if !durable_notices_supported && snapshot.notice != last_snapshot_notice {
+                            snapshot.notice.clone()
+                        } else {
+                            None
+                        };
                     last_snapshot_notice = snapshot.notice.clone();
                     last_snapshot = snapshot.clone();
                     last_machine_lifecycle_snapshot =
@@ -767,7 +846,7 @@ impl ProviderMachineRuntime {
                                         .machine_provider_lifecycle_update_failed
                                 ));
                                 ui.request = Some(MachineRequest::ReconnectProvider);
-                                let _ = sender.send(ui);
+                                let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                                 break;
                             }
                         };
@@ -789,7 +868,7 @@ impl ProviderMachineRuntime {
                                     .machine_provider_workspace_update_failed
                             ));
                             ui.request = Some(MachineRequest::ReconnectProvider);
-                            let _ = sender.send(ui);
+                            let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                             break;
                         }
                     };
@@ -821,10 +900,68 @@ impl ProviderMachineRuntime {
                     } else if !session_available && had_connected_session {
                         ui.request = Some(MachineRequest::ReconnectProvider);
                     }
-                    if sender.send(ui).is_err() {
+                    if refresh_output.send(MachineUpdate::Ui(Box::new(ui))).is_err() {
                         break;
                     }
                 }
+            })?;
+        refresh_sender.send(ProviderRefreshSignal::Refresh(None))?;
+        let worker = std::thread::Builder::new().name("machine-provider-events".into()).spawn(
+            move || {
+                while !thread_stop.load(Ordering::Acquire) {
+                    match events.recv_timeout(Duration::from_millis(250)) {
+                        Ok(received) => {
+                            let crate::machine_provider_client::ReceivedProviderEvent {
+                                event,
+                                delivery,
+                            } = received;
+                            if let (
+                                protocol::ProviderEvent::Notice(provider_notice),
+                                Some(delivery),
+                            ) = (&event, delivery)
+                            {
+                                let level = match provider_notice.level {
+                                    protocol::NoticeLevel::Info => DurableNoticeLevel::Info,
+                                    protocol::NoticeLevel::Warning => DurableNoticeLevel::Warning,
+                                    protocol::NoticeLevel::Error => DurableNoticeLevel::Error,
+                                };
+                                let update = MachineUpdate::DurableNotice(DurableProviderNotice {
+                                    delivery: DurableNoticeDelivery {
+                                        notice_id: delivery.notice_id.into_inner(),
+                                        sequence: delivery.sequence,
+                                    },
+                                    level,
+                                    message: provider_notice.message.clone(),
+                                });
+                                if sender.send(update).is_err() {
+                                    break;
+                                }
+                                continue;
+                            }
+                            match refresh_sender
+                                .try_send(ProviderRefreshSignal::Refresh(Some(event)))
+                            {
+                                Ok(()) => {}
+                                Err(mpsc::TrySendError::Full(_)) => {
+                                    refresh_overflowed.store(true, Ordering::Release);
+                                    break;
+                                }
+                                Err(mpsc::TrySendError::Disconnected(_)) => break,
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            if let Err(mpsc::TrySendError::Full(_)) =
+                                refresh_sender.try_send(ProviderRefreshSignal::Disconnected)
+                            {
+                                refresh_overflowed.store(true, Ordering::Release);
+                            }
+                            break;
+                        }
+                    }
+                }
+                drop(refresh_sender);
+                let _ = refresh_worker.join();
             },
         )?;
         Ok(MachineUpdateStream::new(receiver, stop, worker))
@@ -868,7 +1005,7 @@ impl ProviderMachineRuntime {
 
     fn reconnect_control(&mut self) -> anyhow::Result<()> {
         let (client, initial_snapshot, initial_machine_lifecycle, initial_workspace) =
-            connect_client(Arc::clone(&self.connector))?;
+            connect_client(Arc::clone(&self.connector), &self.notice_consumer_id)?;
         let (mut desired_scope_id, mut desired_machine_id) = self.desired_selection();
         let mut snapshot = reconcile_snapshot_selection(
             &client,
@@ -876,7 +1013,9 @@ impl ProviderMachineRuntime {
             &mut desired_scope_id,
             &mut desired_machine_id,
         )?;
-        self.observe_snapshot_notice(snapshot.notice.clone());
+        let surface_snapshot_notice =
+            !client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)?;
+        self.observe_snapshot_notice(snapshot.notice.clone(), surface_snapshot_notice);
         let (machine_lifecycle_snapshot, workspace_snapshot) = if snapshot == initial_snapshot {
             (initial_machine_lifecycle, initial_workspace)
         } else {
@@ -1188,12 +1327,12 @@ impl ProviderMachineRuntime {
         (scope_id, machine_id)
     }
 
-    fn observe_snapshot_notice(&mut self, notice: Option<protocol::ProviderNotice>) {
+    fn observe_snapshot_notice(&mut self, notice: Option<protocol::ProviderNotice>, surface: bool) {
         if self.last_snapshot_notice == notice {
             return;
         }
         self.last_snapshot_notice = notice.clone();
-        if let Some(notice) = notice {
+        if surface && let Some(notice) = notice {
             self.push_notice(notice.message);
         }
     }
@@ -1265,6 +1404,11 @@ fn random_mutation_nonce() -> anyhow::Result<String> {
     Ok(encoded)
 }
 
+fn random_notice_consumer_id() -> anyhow::Result<protocol::OpaqueId> {
+    protocol::OpaqueId::new(format!("cmux-tui-{}", random_mutation_nonce()?))
+        .map_err(anyhow::Error::from)
+}
+
 impl MachineController for ProviderMachineRuntime {
     fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
         self.perform_request(request)
@@ -1272,6 +1416,13 @@ impl MachineController for ProviderMachineRuntime {
 
     fn subscribe_updates(&self) -> anyhow::Result<Option<MachineUpdateStream>> {
         self.subscribe_ui_updates().map(Some)
+    }
+
+    fn acknowledge_durable_notice(
+        &mut self,
+        delivery: &DurableNoticeDelivery,
+    ) -> anyhow::Result<()> {
+        ProviderMachineRuntime::acknowledge_durable_notice(self, delivery)
     }
 
     fn commit_replacement(&mut self) -> anyhow::Result<()> {
@@ -1289,6 +1440,7 @@ impl MachineController for ProviderMachineRuntime {
 
 fn connect_client(
     connector: Arc<dyn MachineProviderConnector>,
+    notice_consumer_id: &protocol::OpaqueId,
 ) -> anyhow::Result<(
     ProviderClient,
     protocol::SnapshotResult,
@@ -1302,6 +1454,9 @@ fn connect_client(
     };
     let (client, _hello) =
         ProviderClient::connect_authenticated_with(connector, client_descriptor)?;
+    if client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)? {
+        client.subscribe_notices(notice_consumer_id.clone())?;
+    }
     let snapshot = client.snapshot(None)?;
     let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
     let workspace_snapshot = load_workspace_snapshot(&client, &snapshot)?;
@@ -1675,6 +1830,15 @@ mod tests {
         stream.flush().unwrap();
     }
 
+    fn expect_ui_update(update: MachineUpdate) -> MachineUiState {
+        match update {
+            MachineUpdate::Ui(ui) => *ui,
+            MachineUpdate::DurableNotice(notice) => {
+                panic!("expected UI update, received durable notice {notice:?}")
+            }
+        }
+    }
+
     fn serve_initial_snapshot(
         listener: &UnixListener,
         snapshot: protocol::SnapshotResult,
@@ -1711,6 +1875,61 @@ mod tests {
         );
         serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &snapshot);
         (stream, reader)
+    }
+
+    fn serve_initial_durable_snapshot(
+        listener: &UnixListener,
+        snapshot: protocol::SnapshotResult,
+        replay: Option<protocol::EventEnvelope>,
+    ) -> (UnixStream, BufReader<UnixStream>, protocol::OpaqueId) {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let hello: protocol::RequestEnvelope = read_frame(&mut reader);
+        let protocol::ProviderRequest::Hello(params) = hello.request else {
+            panic!("first provider request was not hello");
+        };
+        assert_eq!(params.token.expose(), "runtime-test-token");
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(
+                hello.id,
+                protocol::HelloResult {
+                    provider_id: id("test-provider"),
+                    provider_name: "Test Provider".into(),
+                    negotiated_version: protocol::Version,
+                },
+            )
+            .with_capabilities([
+                protocol::DURABLE_NOTICES_CAPABILITY,
+                protocol::MACHINE_LIFECYCLE_CAPABILITY,
+                protocol::WORKSPACE_LIFECYCLE_CAPABILITY,
+                protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY,
+            ]),
+        );
+
+        let subscribe: protocol::RequestEnvelope = read_frame(&mut reader);
+        let protocol::ProviderRequest::SubscribeNotices(params) = subscribe.request else {
+            panic!("durable notice subscription did not precede the initial snapshot");
+        };
+        if let Some(event) = replay {
+            write_frame(&mut stream, &event);
+        }
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(
+                subscribe.id,
+                protocol::SubscribeNoticesResult { sequence: 0 },
+            ),
+        );
+
+        let request: protocol::RequestEnvelope = read_frame(&mut reader);
+        assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(request.id, snapshot.clone()),
+        );
+        serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &snapshot);
+        (stream, reader, params.consumer_id)
     }
 
     fn machine_lifecycle_snapshot(
@@ -3512,7 +3731,7 @@ mod tests {
             .unwrap();
         let updates = runtime.subscribe_ui_updates().unwrap();
         let (receiver, stop, worker) = updates.into_parts();
-        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
         stop.store(true, Ordering::Release);
         drop(receiver);
         worker.join().unwrap();
@@ -3745,6 +3964,229 @@ mod tests {
     }
 
     #[test]
+    fn durable_notice_bypasses_a_blocked_authoritative_refresh() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (refresh_started, wait_for_refresh) = mpsc::channel();
+        let (release_refresh, refresh_release) = mpsc::channel();
+        let replay = protocol::EventEnvelope::with_delivery(
+            protocol::ProviderEvent::Notice(protocol::ProviderNotice {
+                level: protocol::NoticeLevel::Warning,
+                message: "Usage reached 80%".into(),
+            }),
+            protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 7 },
+        );
+        let server = thread::spawn(move || {
+            let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+            let (mut stream, mut reader, _) =
+                serve_initial_durable_snapshot(&listener, catalog.clone(), Some(replay));
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            refresh_started.send(()).unwrap();
+            refresh_release.recv().unwrap();
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, catalog.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &catalog);
+        });
+
+        let runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        wait_for_refresh.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        let MachineUpdate::DurableNotice(notice) = update else {
+            panic!("blocked refresh reached the app before the durable notice");
+        };
+        assert_eq!(notice.delivery.notice_id, "usage-80");
+        assert_eq!(notice.delivery.sequence, 7);
+        assert_eq!(notice.level, DurableNoticeLevel::Warning);
+        assert_eq!(notice.message, "Usage reached 80%");
+
+        release_refresh.send(()).unwrap();
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn initial_durable_replay_suppresses_the_legacy_snapshot_notice() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let replay = protocol::EventEnvelope::with_delivery(
+            protocol::ProviderEvent::Notice(protocol::ProviderNotice {
+                level: protocol::NoticeLevel::Warning,
+                message: "Usage reached 80%".into(),
+            }),
+            protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 7 },
+        );
+        let server = thread::spawn(move || {
+            let mut catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+            catalog.notice = Some(protocol::ProviderNotice {
+                level: protocol::NoticeLevel::Warning,
+                message: "Usage reached 80%".into(),
+            });
+            let (_stream, _reader, _) =
+                serve_initial_durable_snapshot(&listener, catalog, Some(replay));
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        assert!(
+            runtime.ui_state_for_open_connection().notice.is_none(),
+            "the durable replay and legacy snapshot notice would be shown twice"
+        );
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        let MachineUpdate::DurableNotice(notice) =
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap()
+        else {
+            panic!("expected the retained durable notice");
+        };
+        assert_eq!(notice.delivery.notice_id, "usage-80");
+
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
+        finish.send(()).unwrap();
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn initial_current_warning_remains_visible_without_a_durable_replay() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let mut catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+            catalog.notice = Some(protocol::ProviderNotice {
+                level: protocol::NoticeLevel::Warning,
+                message: "Usage reached 50%".into(),
+            });
+            let (_stream, _reader, _) = serve_initial_durable_snapshot(&listener, catalog, None);
+            finished.recv().unwrap();
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        assert_eq!(
+            runtime.ui_state_for_open_connection().notice.as_deref(),
+            Some("Usage reached 50%")
+        );
+        finish.send(()).unwrap();
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn durable_provider_suppresses_later_legacy_snapshot_warning_updates() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (trigger, triggered) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+            let (mut stream, mut reader, _) =
+                serve_initial_durable_snapshot(&listener, catalog, None);
+            triggered.recv().unwrap();
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(
+                &mut stream,
+                &protocol::EventEnvelope::with_delivery(
+                    protocol::ProviderEvent::Notice(protocol::ProviderNotice {
+                        level: protocol::NoticeLevel::Warning,
+                        message: "Usage reached 80%".into(),
+                    }),
+                    protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 1 },
+                ),
+            );
+            let mut refreshed = snapshot(2, "Machine", protocol::MachineStatus::Running);
+            refreshed.notice = Some(protocol::ProviderNotice {
+                level: protocol::NoticeLevel::Warning,
+                message: "Usage reached 80%".into(),
+            });
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, refreshed.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
+            finished.recv().unwrap();
+        });
+
+        let runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        trigger.send(()).unwrap();
+        let mut saw_durable = false;
+        let mut saw_refresh = false;
+        for _ in 0..2 {
+            match receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                MachineUpdate::DurableNotice(notice) => {
+                    assert_eq!(notice.delivery.notice_id, "usage-80");
+                    saw_durable = true;
+                }
+                MachineUpdate::Ui(ui) => {
+                    assert!(
+                        ui.notice.is_none(),
+                        "legacy snapshot warning duplicated the durable event"
+                    );
+                    saw_refresh = true;
+                }
+            }
+        }
+        assert!(saw_durable && saw_refresh);
+
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
+        finish.send(()).unwrap();
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn reconnect_reuses_the_process_stable_notice_consumer_id() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (consumers, consumer_ids) = mpsc::channel();
+        let (reconnect, reconnect_now) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            for revision in [1, 2] {
+                let catalog = snapshot(revision, "Machine", protocol::MachineStatus::Running);
+                let (stream, reader, consumer_id) =
+                    serve_initial_durable_snapshot(&listener, catalog, None);
+                consumers.send(consumer_id).unwrap();
+                if revision == 2 {
+                    finished.recv().unwrap();
+                } else {
+                    reconnect_now.recv().unwrap();
+                }
+                drop(reader);
+                drop(stream);
+            }
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let first = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+        reconnect.send(()).unwrap();
+        runtime.reconnect_control().unwrap();
+        let second = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first, runtime.notice_consumer_id);
+        finish.send(()).unwrap();
+        drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn snapshot_event_replaces_dynamic_ui_with_stable_machine_key() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
@@ -3782,7 +4224,7 @@ mod tests {
         let (receiver, stop, worker) = updates.into_parts();
         trigger.send(()).unwrap();
 
-        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
         assert_eq!(update.snapshot.active, Some(original_key));
         assert_eq!(update.snapshot.machines[0].key, original_key);
         assert_eq!(update.snapshot.machines[0].name, "Renamed machine");
@@ -3857,9 +4299,9 @@ mod tests {
         drop(runtime);
         server.join().unwrap();
 
-        let update = received.expect(
+        let update = expect_ui_update(received.expect(
             "subscription must perform an authoritative refresh after registering for events",
-        );
+        ));
         assert_eq!(update.snapshot.machines[0].name, "After subscription");
         assert_eq!(update.snapshot.machines[0].status, MachineStatus::Sleeping);
     }
@@ -3923,7 +4365,7 @@ mod tests {
         let updates = runtime.subscribe_ui_updates().unwrap();
         let (receiver, stop, worker) = updates.into_parts();
         trigger.send(()).unwrap();
-        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
         stop.store(true, Ordering::Release);
         drop(receiver);
         worker.join().unwrap();
@@ -4044,7 +4486,7 @@ mod tests {
         let (receiver, stop, worker) = updates.into_parts();
         trigger.send(()).unwrap();
 
-        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
         stop.store(true, Ordering::Release);
         drop(receiver);
         worker.join().unwrap();
@@ -4085,7 +4527,7 @@ mod tests {
         let (receiver, stop, worker) = updates.into_parts();
         disconnect.send(()).unwrap();
 
-        let update = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
         assert_eq!(update.request, Some(MachineRequest::ReconnectProvider));
         assert_eq!(
             update.notice.as_deref(),

@@ -24,6 +24,7 @@ pub const EXTERNAL_MACHINE_CONNECT_CAPABILITY: &str = "connect-external-machine-
 pub const MACHINE_LIFECYCLE_CAPABILITY: &str = "machine-lifecycle-v1";
 pub const WORKSPACE_LIFECYCLE_CAPABILITY: &str = "workspace-lifecycle-v1";
 pub const WORKSPACE_MIRROR_AUTHORITY_CAPABILITY: &str = "workspace-mirror-authority-v1";
+pub const DURABLE_NOTICES_CAPABILITY: &str = "durable-notices-v1";
 pub const MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES: usize = 32;
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
@@ -224,6 +225,8 @@ impl RequestEnvelope {
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 pub enum ProviderRequest {
     Hello(HelloParams),
+    SubscribeNotices(SubscribeNoticesParams),
+    AcknowledgeNotice(AcknowledgeNoticeParams),
     Snapshot(SnapshotParams),
     OpenMachine(OpenMachineParams),
     SelectScope(SelectScopeParams),
@@ -366,13 +369,19 @@ pub enum ProviderResponse<T> {
 pub struct EventEnvelope {
     pub protocol: Protocol,
     pub version: Version,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<NoticeDelivery>,
     #[serde(flatten)]
     pub event: ProviderEvent,
 }
 
 impl EventEnvelope {
     pub fn new(event: ProviderEvent) -> Self {
-        Self { protocol: Protocol, version: Version, event }
+        Self { protocol: Protocol, version: Version, delivery: None, event }
+    }
+
+    pub fn with_delivery(event: ProviderEvent, delivery: NoticeDelivery) -> Self {
+        Self { protocol: Protocol, version: Version, delivery: Some(delivery), event }
     }
 }
 
@@ -405,6 +414,31 @@ pub struct HelloResult {
     pub provider_id: OpaqueId,
     pub provider_name: String,
     pub negotiated_version: Version,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubscribeNoticesParams {
+    pub consumer_id: OpaqueId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubscribeNoticesResult {
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcknowledgeNoticeParams {
+    pub notice_id: OpaqueId,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcknowledgeNoticeResult {
+    pub sequence: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -856,6 +890,13 @@ pub struct ProviderNotice {
     pub message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoticeDelivery {
+    pub notice_id: OpaqueId,
+    pub sequence: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeLevel {
@@ -1050,6 +1091,56 @@ mod tests {
     }
 
     #[test]
+    fn durable_notice_requests_match_the_v1_golden_documents() {
+        let subscribe = RequestEnvelope::new(
+            id("subscribe-1"),
+            ProviderRequest::SubscribeNotices(SubscribeNoticesParams {
+                consumer_id: id("cmux-process-1"),
+            }),
+        );
+        let subscribe_document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "subscribe-1",
+            "method": "subscribe_notices",
+            "params": {
+                "consumer_id": "cmux-process-1"
+            }
+        });
+        assert_eq!(serde_json::to_value(&subscribe).unwrap(), subscribe_document);
+        assert_eq!(
+            serde_json::from_value::<RequestEnvelope>(subscribe_document).unwrap(),
+            subscribe
+        );
+
+        let acknowledge = RequestEnvelope::new(
+            id("ack-1"),
+            ProviderRequest::AcknowledgeNotice(AcknowledgeNoticeParams {
+                notice_id: id("usage-warning-80"),
+                sequence: 42,
+            }),
+        );
+        let acknowledge_document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "ack-1",
+            "method": "acknowledge_notice",
+            "params": {
+                "notice_id": "usage-warning-80",
+                "sequence": 42
+            }
+        });
+        assert_eq!(serde_json::to_value(&acknowledge).unwrap(), acknowledge_document);
+        assert_eq!(
+            serde_json::from_value::<RequestEnvelope>(acknowledge_document).unwrap(),
+            acknowledge
+        );
+
+        assert_response_round_trip(SubscribeNoticesResult { sequence: 41 });
+        assert_response_round_trip(AcknowledgeNoticeResult { sequence: 42 });
+    }
+
+    #[test]
     fn snapshot_response_round_trips_the_full_provider_model() {
         let snapshot = SnapshotResult {
             revision: 13,
@@ -1193,6 +1284,99 @@ mod tests {
                 "params": { "revision": 14 }
             })
         );
+    }
+
+    #[test]
+    fn durable_notice_metadata_is_additive_to_the_legacy_notice_event() {
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct LegacyEventEnvelope {
+            protocol: Protocol,
+            version: Version,
+            #[serde(flatten)]
+            event: ProviderEvent,
+        }
+
+        let event = EventEnvelope::with_delivery(
+            ProviderEvent::Notice(ProviderNotice {
+                level: NoticeLevel::Warning,
+                message: "Trial compute is almost exhausted".into(),
+            }),
+            NoticeDelivery { notice_id: id("usage-warning-80"), sequence: 42 },
+        );
+        let document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "delivery": {
+                "notice_id": "usage-warning-80",
+                "sequence": 42
+            },
+            "event": "notice",
+            "params": {
+                "level": "warning",
+                "message": "Trial compute is almost exhausted"
+            }
+        });
+        assert_eq!(serde_json::to_value(&event).unwrap(), document);
+        assert_eq!(serde_json::from_value::<EventEnvelope>(document.clone()).unwrap(), event);
+
+        let legacy: LegacyEventEnvelope = serde_json::from_value(document).unwrap();
+        assert_eq!(legacy.protocol, Protocol);
+        assert_eq!(legacy.version, Version);
+        assert_eq!(legacy.event, event.event);
+
+        let legacy_event = EventEnvelope::new(ProviderEvent::Notice(ProviderNotice {
+            level: NoticeLevel::Info,
+            message: "Legacy notice".into(),
+        }));
+        assert_eq!(
+            serde_json::to_value(legacy_event).unwrap(),
+            json!({
+                "protocol": "cmux.machine-provider",
+                "version": 1,
+                "event": "notice",
+                "params": {
+                    "level": "info",
+                    "message": "Legacy notice"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn durable_notice_metadata_is_strict_while_event_metadata_remains_additive() {
+        let future_metadata = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "delivery": {
+                "notice_id": "usage-warning-80",
+                "sequence": 42
+            },
+            "future_trace": "trace-1",
+            "event": "notice",
+            "params": {
+                "level": "warning",
+                "message": "Trial compute is almost exhausted"
+            }
+        });
+        assert!(serde_json::from_value::<EventEnvelope>(future_metadata).is_ok());
+
+        for invalid_delivery in [
+            json!({ "notice_id": "usage-warning-80" }),
+            json!({ "notice_id": "usage-warning-80", "sequence": 42, "future": true }),
+            json!({ "notice_id": "", "sequence": 42 }),
+        ] {
+            let document = json!({
+                "protocol": "cmux.machine-provider",
+                "version": 1,
+                "delivery": invalid_delivery,
+                "event": "notice",
+                "params": {
+                    "level": "warning",
+                    "message": "Trial compute is almost exhausted"
+                }
+            });
+            assert!(serde_json::from_value::<EventEnvelope>(document).is_err());
+        }
     }
 
     #[test]

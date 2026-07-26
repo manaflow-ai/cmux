@@ -20,6 +20,7 @@ use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::app::{App, Hit};
+use crate::machine::DurableNoticeLevel;
 
 pub(crate) use scrollbar::thumb_geometry;
 
@@ -51,6 +52,38 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     {
         frame.set_cursor_position(Position::new(x, y));
     }
+    draw_durable_notice_banner(app, frame);
+}
+
+fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
+    let area = frame.area();
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let Some(notice) = app.durable_notice().cloned() else {
+        return;
+    };
+    let (marker, color) = match notice.level {
+        DurableNoticeLevel::Info => ("i ", app.config.theme.notification_info),
+        DurableNoticeLevel::Warning => ("! ", app.config.theme.notification_warning),
+        DurableNoticeLevel::Error => ("x ", app.config.theme.notification_error),
+    };
+    let message = notice
+        .message
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect::<String>();
+    let text = format!("{marker}{message}");
+    let style = Style::default()
+        .fg(color)
+        .bg(app.chrome.status_bg)
+        .add_modifier(Modifier::BOLD | Modifier::REVERSED);
+    let y = area.height - 1;
+    for x in 0..area.width {
+        frame.buffer_mut()[(x, y)].set_symbol(" ").set_style(style);
+    }
+    frame.buffer_mut().set_stringn(0, y, text, area.width as usize, style);
+    app.record_durable_notice_painted(notice.delivery);
 }
 
 /// Status bar: the active workspace's screens, one clickable segment per
