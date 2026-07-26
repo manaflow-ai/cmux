@@ -1808,9 +1808,6 @@ final class WindowBrowserPortal: NSObject {
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var geometryObservers: [NSObjectProtocol] = []
-    // Keep generations monotonic even if a pending entry is cleared during hide/detach churn.
-    private var nextHostedWebViewRefreshGeneration: UInt64 = 0
-    private var pendingHostedWebViewRefreshes: [ObjectIdentifier: PendingHostedWebViewRefresh] = [:]
 
     private struct Entry {
         weak var webView: WKWebView?
@@ -1828,10 +1825,6 @@ final class WindowBrowserPortal: NSObject {
         var transientRecoveryRetriesRemaining: Int
     }
 
-    private struct PendingHostedWebViewRefresh {
-        let generation: UInt64
-        let workItem: DispatchWorkItem
-    }
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
@@ -2475,10 +2468,6 @@ final class WindowBrowserPortal: NSObject {
 #endif
     }
 
-    private func cancelPendingHostedWebViewRefreshes(for webViewId: ObjectIdentifier) {
-        guard let pending = pendingHostedWebViewRefreshes.removeValue(forKey: webViewId) else { return }
-        pending.workItem.cancel()
-    }
 
     private func invalidateHostedWebViewGeometry(
         _ webView: WKWebView,
@@ -2500,32 +2489,13 @@ final class WindowBrowserPortal: NSObject {
         reason: String
     ) {
         guard !containerView.isHidden else { return }
-        let webViewId = ObjectIdentifier(webView)
-
-        // Bind/reveal/fullscreen refreshes can stack up during one layout churn.
-        // Keep only the latest next-turn pass so WebKit reattach work is committed
-        // once, after AppKit has coalesced the current geometry changes.
-        cancelPendingHostedWebViewRefreshes(for: webViewId)
-        nextHostedWebViewRefreshGeneration &+= 1
-        let generation = nextHostedWebViewRefreshGeneration
-
-        let workItem = DispatchWorkItem { [weak self, weak webView, weak containerView] in
-            guard let self, let webView, let containerView else { return }
-            guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            self.pendingHostedWebViewRefreshes.removeValue(forKey: webViewId)
-            self.runHostedWebViewRefreshPass(
-                webView,
-                in: containerView,
-                reason: reason,
-                phase: "coalesced",
-                reattachRenderingState: true
-            )
-        }
-        pendingHostedWebViewRefreshes[webViewId] = PendingHostedWebViewRefresh(
-            generation: generation,
-            workItem: workItem
+        runHostedWebViewRefreshPass(
+            webView,
+            in: containerView,
+            reason: reason,
+            phase: "presentation",
+            reattachRenderingState: true
         )
-        DispatchQueue.main.async(execute: workItem)
     }
 
     private enum HostedWebViewPresentationUpdateKind {
@@ -2604,7 +2574,6 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func detachWebView(withId webViewId: ObjectIdentifier) {
-        cancelPendingHostedWebViewRefreshes(for: webViewId)
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -2637,7 +2606,6 @@ final class WindowBrowserPortal: NSObject {
         source: String,
         preserveCurrentSuperview: Bool
     ) {
-        cancelPendingHostedWebViewRefreshes(for: webViewId)
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -2848,24 +2816,10 @@ final class WindowBrowserPortal: NSObject {
 
     func forceRefreshWebView(withId webViewId: ObjectIdentifier, reason: String) {
         guard ensureInstalled() else { return }
-        let refreshSource = "forceRefresh:\(reason)"
         synchronizeWebView(
             withId: webViewId,
-            source: refreshSource,
+            source: "forceRefresh:\(reason)",
             forcePresentationRefresh: true
-        )
-        guard let entry = entriesByWebViewId[webViewId],
-              let webView = entry.webView,
-              let containerView = entry.containerView,
-              !containerView.isHidden else {
-            return
-        }
-        // Portal-host replacement/fullscreen churn relies on forceRefresh to kick
-        // WebKit even when synchronizeWebView short-circuits or skips its refresh path.
-        refreshHostedWebViewPresentation(
-            webView,
-            in: containerView,
-            reason: refreshSource
         )
     }
 
@@ -3124,7 +3078,6 @@ final class WindowBrowserPortal: NSObject {
         }
         let previousTransientRecoveryReason = entry.transientRecoveryReason
         func hideContainerView(reason: String) {
-            cancelPendingHostedWebViewRefreshes(for: webViewId)
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
             containerView.setDesignComposer(nil)
