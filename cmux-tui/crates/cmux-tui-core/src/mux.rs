@@ -24,8 +24,8 @@ use crate::layout::{
 #[cfg(test)]
 use crate::model::ViewportColumn;
 use crate::model::{
-    LayoutColumn, LayoutMutationKey, LayoutUndoConfirmation, Node, Pane, ProjectedSplitRatioUpdate,
-    Screen, State, Workspace,
+    LayoutColumn, LayoutMutationKey, LayoutResizeOwner, LayoutUndoConfirmation, Node, Pane,
+    ProjectedSplitRatioUpdate, Screen, State, Workspace,
 };
 use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
@@ -6599,14 +6599,34 @@ impl Mux {
         client: u64,
         transaction: u64,
     ) -> Result<(), LayoutRatioError> {
-        self.set_split_ratio_inner(split, ratio, Some((client, transaction)))
+        self.set_split_ratio_inner(
+            split,
+            ratio,
+            Some((LayoutResizeOwner::ControlClient(client), transaction)),
+        )
+    }
+
+    /// Set one in-process transactional split ratio without sharing the
+    /// control-client ownership namespace.
+    pub fn set_split_ratio_in_process_transaction_checked(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        owner: u64,
+        transaction: u64,
+    ) -> Result<(), LayoutRatioError> {
+        self.set_split_ratio_inner(
+            split,
+            ratio,
+            Some((LayoutResizeOwner::InProcess(owner), transaction)),
+        )
     }
 
     fn set_split_ratio_inner(
         &self,
         split: SplitId,
         ratio: f32,
-        transaction: Option<(u64, u64)>,
+        transaction: Option<(LayoutResizeOwner, u64)>,
     ) -> Result<(), LayoutRatioError> {
         let ratio = clamp_split_ratio(ratio);
         let changed_screen = {
@@ -6630,7 +6650,7 @@ impl Mux {
                 return Ok(());
             }
             let coalesce = transaction
-                .map(|(client, transaction)| LayoutMutationKey::Resize { client, transaction });
+                .map(|(owner, transaction)| LayoutMutationKey::Resize { owner, transaction });
             let before = screen.layout_snapshot_for_coalescing_change(coalesce);
             let changed = if screen.layout_columns_active() {
                 match screen.set_projected_viewport_split_ratio(split, ratio) {
@@ -6710,14 +6730,34 @@ impl Mux {
         client: u64,
         transaction: u64,
     ) -> Result<(), ViewportWidthError> {
-        self.set_viewport_pane_width_inner(pane, width, Some((client, transaction)))
+        self.set_viewport_pane_width_inner(
+            pane,
+            width,
+            Some((LayoutResizeOwner::ControlClient(client), transaction)),
+        )
+    }
+
+    /// Set one in-process transactional viewport width without sharing the
+    /// control-client ownership namespace.
+    pub fn set_viewport_pane_width_in_process_transaction_checked(
+        &self,
+        pane: PaneId,
+        width: f32,
+        owner: u64,
+        transaction: u64,
+    ) -> Result<(), ViewportWidthError> {
+        self.set_viewport_pane_width_inner(
+            pane,
+            width,
+            Some((LayoutResizeOwner::InProcess(owner), transaction)),
+        )
     }
 
     fn set_viewport_pane_width_inner(
         &self,
         pane: PaneId,
         width: f32,
-        transaction: Option<(u64, u64)>,
+        transaction: Option<(LayoutResizeOwner, u64)>,
     ) -> Result<(), ViewportWidthError> {
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
@@ -6742,7 +6782,7 @@ impl Mux {
                 return Ok(());
             }
             let coalesce = transaction
-                .map(|(client, transaction)| LayoutMutationKey::Resize { client, transaction });
+                .map(|(owner, transaction)| LayoutMutationKey::Resize { owner, transaction });
             let before = screen.layout_snapshot_for_coalescing_change(coalesce);
             screen.layout_columns[column_index].width = width;
             screen.sync_layout_column_width_projection();
@@ -10502,7 +10542,7 @@ mod tests {
             assert!(
                 screen
                     .layout_snapshot_for_coalescing_change(Some(LayoutMutationKey::Resize {
-                        client: 7,
+                        owner: LayoutResizeOwner::ControlClient(7),
                         transaction: 11,
                     }))
                     .is_none(),
@@ -10663,7 +10703,10 @@ mod tests {
 
         // These model independent in-process and control-client entrypoints
         // that happen to allocate the same numeric owner and transaction ids.
-        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 1, 1));
+        assert!(
+            mux.set_viewport_pane_width_in_process_transaction_checked(right_pane, 0.6, 1, 1)
+                .is_ok()
+        );
         assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 1, 1));
 
         assert!(matches!(

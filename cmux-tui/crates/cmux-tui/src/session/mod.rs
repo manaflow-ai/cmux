@@ -889,10 +889,10 @@ impl Session {
         &self,
         split: SplitId,
         ratio: f32,
-        client: u64,
+        owner: u64,
         transaction: u64,
     ) -> anyhow::Result<()> {
-        self.set_split_ratio_inner(split, ratio, Some((client, transaction)))
+        self.set_split_ratio_inner(split, ratio, Some((owner, transaction)))
     }
 
     fn set_split_ratio_inner(
@@ -905,11 +905,11 @@ impl Session {
             Session::Local(mux) => transaction
                 .map_or_else(
                     || mux.set_split_ratio_checked(split, ratio),
-                    |(client, transaction)| {
-                        mux.set_split_ratio_in_transaction_checked(
+                    |(owner, transaction)| {
+                        mux.set_split_ratio_in_process_transaction_checked(
                             split,
                             ratio,
-                            client,
+                            owner,
                             transaction,
                         )
                     },
@@ -931,10 +931,10 @@ impl Session {
         &self,
         pane: PaneId,
         width: f32,
-        client: u64,
+        owner: u64,
         transaction: u64,
     ) -> anyhow::Result<()> {
-        self.set_viewport_pane_width_inner(pane, width, Some((client, transaction)))
+        self.set_viewport_pane_width_inner(pane, width, Some((owner, transaction)))
     }
 
     fn set_viewport_pane_width_inner(
@@ -948,11 +948,11 @@ impl Session {
             Session::Local(mux) => transaction
                 .map_or_else(
                     || mux.set_viewport_pane_width_checked(pane, width),
-                    |(client, transaction)| {
-                        mux.set_viewport_pane_width_in_transaction_checked(
+                    |(owner, transaction)| {
+                        mux.set_viewport_pane_width_in_process_transaction_checked(
                             pane,
                             width,
-                            client,
+                            owner,
                             transaction,
                         )
                     },

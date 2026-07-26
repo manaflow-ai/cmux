@@ -86,7 +86,7 @@ const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
 const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
 const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
 const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
-static NEXT_LOCAL_RESIZE_CLIENT: AtomicU64 = AtomicU64::new(1);
+static NEXT_IN_PROCESS_RESIZE_OWNER: AtomicU64 = AtomicU64::new(1);
 
 pub enum AppEvent {
     SessionScoped {
@@ -929,7 +929,7 @@ pub struct OrderedSession {
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
-    layout_resize_client: u64,
+    layout_resize_owner: u64,
     layout_resize_transaction: Arc<AtomicU64>,
     #[cfg(test)]
     surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
@@ -973,7 +973,7 @@ impl OrderedSession {
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
-            layout_resize_client: NEXT_LOCAL_RESIZE_CLIENT.fetch_add(1, Ordering::Relaxed),
+            layout_resize_owner: NEXT_IN_PROCESS_RESIZE_OWNER.fetch_add(1, Ordering::Relaxed),
             layout_resize_transaction: Arc::new(AtomicU64::new(1)),
             #[cfg(test)]
             surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
@@ -2052,25 +2052,23 @@ impl OrderedSession {
     }
 
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
-        let client = self.layout_resize_client;
+        let owner = self.layout_resize_owner;
         let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
         self.enqueue_coalescing_session_mutation(
             localization::catalog().layout.resize_exact_split_operation,
             (localization::catalog().layout.split_id_subject, split),
-            move |session| {
-                session.set_split_ratio_in_transaction(split, ratio, client, transaction)
-            },
+            move |session| session.set_split_ratio_in_transaction(split, ratio, owner, transaction),
         );
     }
 
     fn set_viewport_pane_width_deferred(&self, pane: PaneId, width: f32) {
-        let client = self.layout_resize_client;
+        let owner = self.layout_resize_owner;
         let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
         self.enqueue_coalescing_session_mutation(
             localization::catalog().layout.resize_viewport_pane_operation,
             (localization::catalog().layout.viewport_pane_subject, pane),
             move |session| {
-                session.set_viewport_pane_width_in_transaction(pane, width, client, transaction)
+                session.set_viewport_pane_width_in_transaction(pane, width, owner, transaction)
             },
         );
     }

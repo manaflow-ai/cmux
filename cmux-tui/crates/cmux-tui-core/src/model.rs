@@ -38,8 +38,14 @@ pub(crate) struct ScreenLayoutSnapshot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LayoutResizeOwner {
+    InProcess(u64),
+    ControlClient(u64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayoutMutationKey {
-    Resize { client: u64, transaction: u64 },
+    Resize { owner: LayoutResizeOwner, transaction: u64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
