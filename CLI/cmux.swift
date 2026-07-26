@@ -2153,16 +2153,27 @@ final class SocketClient {
             }
         }
 
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+        let connectErrno: Int32
+        if let deadline {
+            connectErrno = connectSocket(deadline: deadline) {
+                withUnsafePointer(to: &addr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                    }
+                }
             }
+        } else {
+            let result = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            connectErrno = result == 0 ? 0 : errno
         }
-        if result == 0 {
+        if connectErrno == 0 {
             return
         }
 
-        let connectErrno = errno
         Darwin.close(socketFD)
         socketFD = -1
         throw SocketConnectError(path: path, errnoValue: connectErrno)
@@ -2283,7 +2294,13 @@ final class SocketClient {
 
         let connectErrno: Int32
         if let deadline {
-            connectErrno = connectRelaySocket(address: &address, deadline: deadline)
+            connectErrno = connectSocket(deadline: deadline) {
+                withUnsafePointer(to: &address) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                        Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+                    }
+                }
+            }
         } else {
             let result = withUnsafePointer(to: &address) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
@@ -2311,7 +2328,7 @@ final class SocketClient {
         }
     }
 
-    private func connectRelaySocket(address: inout sockaddr_in, deadline: Date) -> Int32 {
+    private func connectSocket(deadline: Date, operation: () -> Int32) -> Int32 {
         let originalFlags = fcntl(socketFD, F_GETFL, 0)
         guard originalFlags >= 0 else { return errno }
         guard fcntl(socketFD, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
@@ -2323,14 +2340,14 @@ final class SocketClient {
             }
         }
 
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
-            }
-        }
+        let result = operation()
         if result == 0 { return 0 }
         let connectErrno = errno
-        guard connectErrno == EINPROGRESS || connectErrno == EALREADY else {
+        guard connectErrno == EINPROGRESS
+            || connectErrno == EALREADY
+            || connectErrno == EAGAIN
+            || connectErrno == EWOULDBLOCK
+        else {
             return connectErrno
         }
 
