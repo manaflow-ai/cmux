@@ -91,6 +91,19 @@ struct PasteboardTextContentsTests {
         #expect(service.stringContents(from: scratch.pasteboard) == nil)
     }
 
+    @Test func imageWithPreformattedWhitespaceHTMLReturnsNil() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        scratch.pasteboard.declareTypes([.png, .html], owner: nil)
+        scratch.pasteboard.setData(try tinyPNGData(), forType: .png)
+        scratch.pasteboard.setString(
+            "<pre>&nbsp; \n&#160;\t</pre>",
+            forType: .html
+        )
+
+        #expect(service.stringContents(from: scratch.pasteboard) == nil)
+    }
+
     @Test func convertsHTMLToPlainTextWithoutAppKitImporting() {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
