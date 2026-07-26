@@ -369,8 +369,8 @@ struct BrowserWorkerErrorState {
 struct ActivePointerPress {
     input_owner: BrowserPointerOwner,
     capture_generation: u64,
-    last_x: f64,
-    last_y: f64,
+    last_target_x: f64,
+    last_target_y: f64,
     click_count: Option<u32>,
     legacy_expires_at: Option<Instant>,
     release_retry_at: Option<Instant>,
@@ -387,8 +387,8 @@ impl ActivePointerPress {
         Self {
             input_owner,
             capture_generation,
-            last_x: x,
-            last_y: y,
+            last_target_x: x,
+            last_target_y: y,
             click_count,
             legacy_expires_at: (input_owner == BrowserPointerOwner::Legacy)
                 .then(|| Instant::now() + LEGACY_POINTER_PRESS_LEASE),
@@ -396,9 +396,9 @@ impl ActivePointerPress {
         }
     }
 
-    fn refresh_legacy_lease(&mut self, x: f64, y: f64) {
-        self.last_x = x;
-        self.last_y = y;
+    fn refresh_legacy_lease(&mut self, target_x: f64, target_y: f64) {
+        self.last_target_x = target_x;
+        self.last_target_y = target_y;
         if self.input_owner == BrowserPointerOwner::Legacy {
             self.legacy_expires_at = Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE);
         }
@@ -2129,7 +2129,10 @@ impl BrowserSurface {
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Failed(message.clone());
-        Self::invalidate_pointer_frame_locked(&mut state, true);
+        // A transport timeout revokes admission for new input, but it does not
+        // prove that the document or its coordinate mapping changed. Preserve
+        // an accepted press long enough to deliver its balancing release.
+        Self::invalidate_pointer_frame_locked(&mut state, false);
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
         Self::mark_state_dirty_locked(&mut state);
@@ -2997,8 +3000,8 @@ impl BrowserSurface {
                 captured_press = Some(ActivePointerPress::new(
                     dispatch.input_owner,
                     generation,
-                    dispatch.x,
-                    dispatch.y,
+                    point.0,
+                    point.1,
                     dispatch.click_count,
                 ));
                 Some(point)
@@ -3030,8 +3033,9 @@ impl BrowserSurface {
                         active_pointer_presses.remove(button);
                     } else if press.input_owner == dispatch.input_owner
                         && let Some(press) = active_pointer_presses.get_mut(button)
+                        && let Some((target_x, target_y)) = point
                     {
-                        press.refresh_legacy_lease(dispatch.x, dispatch.y);
+                        press.refresh_legacy_lease(target_x, target_y);
                     }
                     point
                 } else {
@@ -3055,8 +3059,8 @@ impl BrowserSurface {
         if let Err(error) = result {
             if is_cdp_timeout_error(&error.to_string()) {
                 if captured_release && let Some(press) = active_pointer_presses.get_mut(button) {
-                    press.last_x = dispatch.x;
-                    press.last_y = dispatch.y;
+                    press.last_target_x = x;
+                    press.last_target_y = y;
                     if dispatch.click_count.is_some() {
                         press.click_count = dispatch.click_count;
                     }
@@ -3089,17 +3093,12 @@ impl BrowserSurface {
         button: &str,
         press: ActivePointerPress,
     ) -> anyhow::Result<()> {
-        let Some((x, y)) =
-            self.scale_captured_input_point(press.capture_generation, press.last_x, press.last_y)
-        else {
-            return Ok(());
-        };
         let session = self.require_live_session()?;
         session.runtime.client.dispatch_mouse_event(
             &session.session_id,
             "mouseReleased",
-            x,
-            y,
+            press.last_target_x,
+            press.last_target_y,
             Some(button),
             press.click_count,
         )
@@ -6278,8 +6277,12 @@ mod tests {
         );
         browser.mark_failed("browser is not responding".to_string());
         assert!(
-            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_none(),
-            "the not-responding transition must revoke ordinary pointer coordinates"
+            browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none(),
+            "the not-responding transition must revoke admission for new pointer input"
+        );
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "the not-responding transition must preserve an accepted release capture"
         );
 
         let mut failures =

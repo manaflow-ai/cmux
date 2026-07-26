@@ -1232,6 +1232,7 @@ struct ClientRecord {
     name: Option<String>,
     kind: Option<String>,
     capabilities: HashSet<String>,
+    browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
     announced_attached: bool,
     writer: MessageWriter,
@@ -1263,6 +1264,7 @@ impl ClientRegistry {
                 name: None,
                 kind: None,
                 capabilities: HashSet::new(),
+                browser_pointer_owner: None,
                 attached: BTreeMap::new(),
                 announced_attached: false,
                 writer,
@@ -1305,10 +1307,11 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
-            record.capabilities = capabilities
-                .into_iter()
-                .filter(|capability| capability == GUARDED_BROWSER_POINTER_CAPABILITY)
-                .collect();
+            record.capabilities.extend(
+                capabilities
+                    .into_iter()
+                    .filter(|capability| capability == GUARDED_BROWSER_POINTER_CAPABILITY),
+            );
         }
         Ok((record.name.clone(), record.kind.clone()))
     }
@@ -1320,6 +1323,24 @@ impl ClientRegistry {
             .clients
             .get(&client)
             .is_some_and(|record| record.capabilities.contains(capability))
+    }
+
+    fn browser_pointer_owner(&self, client: u64) -> anyhow::Result<BrowserPointerOwner> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if let Some(owner) = record.browser_pointer_owner {
+            return Ok(owner);
+        }
+        let owner = if record.capabilities.contains(GUARDED_BROWSER_POINTER_CAPABILITY) {
+            BrowserPointerOwner::Client(client)
+        } else {
+            BrowserPointerOwner::Legacy
+        };
+        record.browser_pointer_owner = Some(owner);
+        Ok(owner)
     }
 
     pub(crate) fn begin_daemon_handoff(
@@ -1977,7 +1998,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
-    if record.capabilities.contains(GUARDED_BROWSER_POINTER_CAPABILITY) {
+    if matches!(record.browser_pointer_owner, Some(BrowserPointerOwner::Client(_))) {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;
         // wake all browser workers after registry removal instead of polling
@@ -2565,12 +2586,7 @@ fn handle_browser_mouse_command(
     // Capability-aware clients keep a connection-scoped capture owner. Legacy
     // one-shot calls share a bounded compatibility owner so down/move/up calls
     // issued through separate short-lived sockets remain wire-compatible.
-    let input_owner =
-        if mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY) {
-            BrowserPointerOwner::Client(client)
-        } else {
-            BrowserPointerOwner::Legacy
-        };
+    let input_owner = mux.control_clients.browser_pointer_owner(client)?;
     surface.browser_mouse_event_for_frame_from(BrowserMouseDispatch {
         input_owner,
         event_type,
@@ -5485,6 +5501,10 @@ mod tests {
         assert!(
             mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
         );
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(client).unwrap(),
+            BrowserPointerOwner::Client(client)
+        );
         assert!(handle_message(
             &mux,
             client,
@@ -5499,6 +5519,33 @@ mod tests {
         assert!(
             mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY),
             "connection-scoped pointer capability must not be withdrawn after admission"
+        );
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(client).unwrap(),
+            BrowserPointerOwner::Client(client),
+            "metadata replacement must not change an already claimed pointer owner"
+        );
+
+        let legacy = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(legacy).unwrap(),
+            BrowserPointerOwner::Legacy
+        );
+        assert!(handle_message(
+            &mux,
+            legacy,
+            &json!({
+                "id": 3,
+                "cmd": "set-client-info",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(legacy).unwrap(),
+            BrowserPointerOwner::Legacy,
+            "a connection cannot change pointer identity after its first pointer command"
         );
 
         let source = include_str!("server.rs");
