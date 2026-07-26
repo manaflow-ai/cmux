@@ -17830,6 +17830,7 @@ mod tests {
             Some(localization::catalog().sidebar.connect_prompt)
         );
         app.prompt.as_mut().unwrap().input.insert_str("PAIR 4J7K");
+        app.machine_ui.as_mut().unwrap().connect_accepts_pairing_code = false;
         app.commit_prompt();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
@@ -17850,6 +17851,7 @@ mod tests {
             Some(localization::catalog().sidebar.connect_host_prompt)
         );
         app.prompt.as_mut().unwrap().input.insert_str("mini.local");
+        app.machine_ui.as_mut().unwrap().connect_accepts_pairing_code = true;
         app.commit_prompt();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
