@@ -864,6 +864,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             defer { closeWindow(withId: windowId) }
 
             guard let window = window(withId: windowId),
+                  let manager =
+                    appDelegate.tabManagerFor(windowId: windowId),
+                  let context =
+                    appDelegate.mainWindowContext(for: manager),
                   let event = makeKeyDownEvent(
                     key: "-",
                     modifiers: [.command, .control],
@@ -875,10 +879,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
 #if DEBUG
-            appDelegate
+            context
                 .debugWorkspaceTerminalFontSizeEnqueueResultOverride = false
             defer {
-                appDelegate
+                context
                     .debugWorkspaceTerminalFontSizeEnqueueResultOverride = nil
             }
             XCTAssertTrue(

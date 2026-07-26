@@ -2,68 +2,6 @@ public import CmuxTerminalCore
 public import Foundation
 public import GhosttyKit
 
-fileprivate final class TerminalSurfaceRegistryWeakNode {
-    let identity: ObjectIdentifier
-    weak var surface: (any TerminalSurfacing)?
-    weak var previous: TerminalSurfaceRegistryWeakNode?
-    var next: TerminalSurfaceRegistryWeakNode?
-    var isRegistered = true
-
-    init(
-        surface: any TerminalSurfacing,
-        next: TerminalSurfaceRegistryWeakNode?
-    ) {
-        identity = ObjectIdentifier(surface)
-        self.surface = surface
-        self.next = next
-    }
-}
-
-/// A weak, incremental view of registered surfaces.
-///
-/// Each call retains only the returned surface for that call. Surfaces
-/// registered after traversal starts are excluded by its fixed head snapshot,
-/// while closed or deallocated surfaces are skipped without materializing the
-/// registry.
-public final class TerminalSurfaceRegistryIncrementalTraversal {
-    fileprivate let registry: TerminalSurfaceRegistry
-    fileprivate var cursor: TerminalSurfaceRegistryWeakNode?
-    fileprivate var isFinished = false
-
-    fileprivate init(
-        registry: TerminalSurfaceRegistry,
-        cursor: TerminalSurfaceRegistryWeakNode?
-    ) {
-        self.registry = registry
-        self.cursor = cursor
-    }
-
-    /// Visits exactly one registry node, including a released weak node.
-    public func nextVisit()
-        -> TerminalSurfaceRegistryIncrementalVisit? {
-        registry.nextVisit(for: self)
-    }
-
-    /// Convenience iteration over live surfaces.
-    public func next() -> (any TerminalSurfacing)? {
-        while let visit = nextVisit() {
-            if let surface = visit.surface {
-                return surface
-            }
-        }
-        return nil
-    }
-}
-
-/// One bounded registry visit. `surface` is nil when its weak owner closed.
-public struct TerminalSurfaceRegistryIncrementalVisit {
-    public let surface: (any TerminalSurfacing)?
-
-    fileprivate init(surface: (any TerminalSurfacing)?) {
-        self.surface = surface
-    }
-}
-
 /// The process-wide registry of live terminal surfaces and the runtime
 /// surface pointers they own.
 ///
@@ -81,17 +19,23 @@ public struct TerminalSurfaceRegistryIncrementalVisit {
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all registry collections are guarded by `lock`; callers arrive on the main
-    // actor and from nonisolated `deinit` paths.
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
+    // SAFETY: synchronous `deinit` callers cannot await an actor; `lock`
+    // serializes every access from those callers and the main actor.
     nonisolated(unsafe) private var incrementalTraversalHead:
         TerminalSurfaceRegistryWeakNode?
+    // SAFETY: synchronous `deinit` callers cannot await an actor; `lock`
+    // serializes every access from those callers and the main actor.
     nonisolated(unsafe) private var incrementalTraversalNodes:
         [ObjectIdentifier: TerminalSurfaceRegistryWeakNode] = [:]
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every read and write is guarded by `lock`.
     nonisolated(unsafe) private var generation: UInt64 = 0
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private weak var routeRetirer: (any MainWindowRouteRetiring)?
 
     /// Creates an empty registry.
@@ -290,7 +234,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return node.surface === surface
     }
 
-    fileprivate func nextVisit(
+    func nextVisit(
         for traversal:
             TerminalSurfaceRegistryIncrementalTraversal
     ) -> TerminalSurfaceRegistryIncrementalVisit? {

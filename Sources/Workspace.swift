@@ -2244,6 +2244,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// request spans multiple event-loop turns.
     var activeTerminalFontSizeChangeInheritanceContext:
         TerminalFontSizeChangeInheritanceContext?
+    /// Dependency wiring only. The observer forwards a coordinator replacement
+    /// to an already-created Dock; it does not publish workspace model state.
     weak var terminalFontSizeChangeCoordinator:
         WorkspaceTerminalFontSizeCoordinator? {
         didSet {

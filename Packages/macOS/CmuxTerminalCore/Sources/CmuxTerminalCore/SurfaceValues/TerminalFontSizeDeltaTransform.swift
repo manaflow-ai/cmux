@@ -34,7 +34,10 @@ public struct TerminalFontSizeDeltaTransform: Equatable, Sendable {
     public mutating func append(_ deltaRuntimePoints: Float32) {
         guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return }
 
-        offset = Self.saturatedSum(offset, deltaRuntimePoints)
+        offset = terminalFontSizeSaturatedSum(
+            offset,
+            deltaRuntimePoints
+        )
 
         let policy = TerminalFontSizePolicy()
         minimumResult = policy.clampedRuntimePoints(
@@ -49,7 +52,10 @@ public struct TerminalFontSizeDeltaTransform: Equatable, Sendable {
     public mutating func append(
         contentsOf transform: TerminalFontSizeDeltaTransform
     ) {
-        offset = Self.saturatedSum(offset, transform.offset)
+        offset = terminalFontSizeSaturatedSum(
+            offset,
+            transform.offset
+        )
         minimumResult = transform.applying(to: minimumResult)
         maximumResult = transform.applying(to: maximumResult)
     }
@@ -63,11 +69,15 @@ public struct TerminalFontSizeDeltaTransform: Equatable, Sendable {
         return min(maximumResult, max(minimumResult, translated))
     }
 
-    private static func saturatedSum(_ lhs: Float32, _ rhs: Float32) -> Float32 {
-        let sum = lhs + rhs
-        guard !sum.isFinite else { return sum }
-        return rhs > 0
-            ? Float32.greatestFiniteMagnitude
-            : -Float32.greatestFiniteMagnitude
-    }
+}
+
+private func terminalFontSizeSaturatedSum(
+    _ lhs: Float32,
+    _ rhs: Float32
+) -> Float32 {
+    let sum = lhs + rhs
+    guard !sum.isFinite else { return sum }
+    return rhs > 0
+        ? Float32.greatestFiniteMagnitude
+        : -Float32.greatestFiniteMagnitude
 }

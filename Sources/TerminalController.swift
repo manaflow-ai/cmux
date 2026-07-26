@@ -1163,13 +1163,18 @@ class TerminalController {
         ).isEmpty else {
             return "ERROR: Usage: reload_config"
         }
-        let semaphore = DispatchSemaphore(value: 0)
-        Task { @MainActor in
-            self.controlSidebarReloadConfig {
-                semaphore.signal()
+        let didComplete: Void? = socketAwaitCallback(
+            timeout: 30
+        ) { completion in
+            Task { @MainActor in
+                self.controlSidebarReloadConfig {
+                    completion(())
+                }
             }
         }
-        semaphore.wait()
+        guard didComplete != nil else {
+            return "ERROR: reload_config timed out"
+        }
         return "OK Reloaded config"
     }
 

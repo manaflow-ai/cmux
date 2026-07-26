@@ -39,7 +39,14 @@ public protocol TerminalEngineHosting: AnyObject {
     ) -> Bool
 }
 
+/// Default behavior for engine hosts without a configuration-reload barrier.
 public extension TerminalEngineHosting {
+    /// Runs immediately when the engine does not provide a reload barrier.
+    ///
+    /// Concrete engine owners override this default to defer creation while a
+    /// replacement runtime configuration is being committed.
+    ///
+    /// - Returns: Always `false`, indicating that `action` was not deferred.
     func deferRuntimeSurfaceCreationForConfigurationReload(
         _ action: @escaping @MainActor () -> Void
     ) -> Bool {

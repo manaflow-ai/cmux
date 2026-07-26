@@ -4,11 +4,6 @@ import CmuxTerminal
 import CmuxTerminalCore
 import OSLog
 
-struct WorkspaceTerminalFontConfigurationSnapshot: Equatable {
-    let configuredRuntimePoints: Float32
-    let magnificationPercent: Int
-}
-
 @MainActor
 final class WorkspaceTerminalFontSizeCoordinator {
     typealias Arbiter = WorkspaceTerminalFontSizeArbiter

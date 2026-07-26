@@ -2,141 +2,6 @@ public import CmuxTerminalCore
 public import Foundation
 internal import GhosttyKit
 
-/// Result of one terminal font-size mutation.
-///
-/// `alreadySatisfied` is successful provenance even though it did not mutate
-/// the surface. `failed` must remain eligible for a later reconciliation pass.
-public enum TerminalFontSizeMutationOutcome: Sendable, Equatable {
-    case applied
-    case alreadySatisfied
-    case failed
-
-    public var didChange: Bool {
-        self == .applied
-    }
-
-    public var didSucceed: Bool {
-        self != .failed
-    }
-}
-
-/// Durable font ownership captured before Ghostty replaces app configuration.
-///
-/// Callers keep this value opaque and return it to the same surface after the
-/// native config update. This prevents post-reload runtime points from being
-/// mistaken for an externally adjusted durable base.
-public struct TerminalFontSizeConfigurationReloadState: Sendable {
-    fileprivate struct ResolvedTarget {
-        let lineage: TerminalFontSizeLineage
-        let durableRuntimePoints: Float32
-        let retainsExplicitBase: Bool
-    }
-
-    fileprivate let transactionId: UUID
-    fileprivate let surfaceId: UUID
-    fileprivate let lineage: TerminalFontSizeLineage?
-    fileprivate var inheritanceLineage:
-        TerminalFontSizeLineage?
-    fileprivate let followsConfiguredFontSize: Bool
-    fileprivate let targetConfiguredRuntimePoints: Float32?
-    fileprivate let targetMagnificationPercent: Int?
-    fileprivate var localRuntimePointDelta: Float32 = 0
-    fileprivate var localInputUsesConfiguredBase = false
-    fileprivate var localInputIsExplicitOverride: Bool?
-
-    mutating func recordLocalFontInput(
-        runtimePointDelta: Float32,
-        usesConfiguredBase: Bool,
-        isExplicitOverride: Bool
-    ) {
-        if usesConfiguredBase {
-            localInputUsesConfiguredBase = true
-            localRuntimePointDelta = 0
-        }
-        localRuntimePointDelta += runtimePointDelta
-        localInputIsExplicitOverride = isExplicitOverride
-        inheritanceLineage = resolvedTargetLineage()
-    }
-
-    fileprivate func resolvedTargetLineage()
-        -> TerminalFontSizeLineage? {
-        guard let targetConfiguredRuntimePoints,
-              targetConfiguredRuntimePoints.isFinite,
-              targetConfiguredRuntimePoints > 0,
-              let targetMagnificationPercent else {
-            return inheritanceLineage
-        }
-        return resolvedTarget(
-            configuredRuntimePoints:
-                targetConfiguredRuntimePoints,
-            magnificationPercent:
-                targetMagnificationPercent
-        ).lineage
-    }
-
-    fileprivate func resolvedTarget(
-        configuredRuntimePoints: Float32,
-        magnificationPercent: Int
-    ) -> ResolvedTarget {
-        let policy = TerminalFontSizePolicy()
-        let configuredRuntimePoints = policy.clampedRuntimePoints(
-            configuredRuntimePoints
-        )
-        let originallyRetainsExplicitBase =
-            lineage?.isExplicitOverride
-            ?? !followsConfiguredFontSize
-        let startsFromConfiguredBase =
-            localInputUsesConfiguredBase
-            || !originallyRetainsExplicitBase
-        let baselineRuntimePoints: Float32
-        if startsFromConfiguredBase {
-            baselineRuntimePoints = configuredRuntimePoints
-        } else if let lineage {
-            baselineRuntimePoints = policy.clampedRuntimePoints(
-                CmuxSurfaceConfigTemplate.runtimeFontSize(
-                    fromBasePoints: lineage.basePoints,
-                    percent: magnificationPercent
-                )
-            )
-        } else {
-            baselineRuntimePoints = configuredRuntimePoints
-        }
-        let runtimePoints = policy.clampedRuntimePoints(
-            baselineRuntimePoints + localRuntimePointDelta
-        )
-        let isExplicitOverride =
-            localInputIsExplicitOverride
-            ?? (
-                !startsFromConfiguredBase
-                || abs(localRuntimePointDelta) > 0.000_1
-            )
-        let targetLineage: TerminalFontSizeLineage
-        if isExplicitOverride,
-           !localInputUsesConfiguredBase,
-           abs(localRuntimePointDelta) <= 0.000_1,
-           let lineage {
-            targetLineage = TerminalFontSizeLineage(
-                basePoints: lineage.basePoints,
-                isExplicitOverride: true
-            )
-        } else {
-            targetLineage = TerminalFontSizeLineage(
-                basePoints:
-                    CmuxSurfaceConfigTemplate.baseFontSize(
-                        fromRuntimePoints: runtimePoints,
-                        percent: magnificationPercent
-                    ),
-                isExplicitOverride: isExplicitOverride
-            )
-        }
-        return ResolvedTarget(
-            lineage: targetLineage,
-            durableRuntimePoints: runtimePoints,
-            retainsExplicitBase: isExplicitOverride
-        )
-    }
-}
-
 extension TerminalSurface {
     @MainActor
     private static var activeTransferReconciliationTokens: Set<UUID> = []
@@ -172,6 +37,8 @@ extension TerminalSurface {
         transferReconciledFontSizeChangeTokens.insert(token)
     }
 
+    /// Removes transient transfer provenance from this surface after its
+    /// coordinating request retires.
     @MainActor
     public func clearFontSizeChangeReconciledForTransfer(token: UUID) {
         transferReconciledFontSizeChangeTokens.remove(token)

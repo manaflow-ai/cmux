@@ -1,63 +1,5 @@
 import Foundation
 
-/// Stable currency carried by a terminal while accepted font mutations cross
-/// container and window coordinators.
-@MainActor
-final class WorkspaceTerminalFontSizePanelTransfer {
-    fileprivate let id = UUID()
-    let panelId: UUID
-    fileprivate weak var arbiter:
-        WorkspaceTerminalFontSizeArbiter?
-
-    fileprivate init(
-        panelId: UUID,
-        arbiter: WorkspaceTerminalFontSizeArbiter
-    ) {
-        self.panelId = panelId
-        self.arbiter = arbiter
-    }
-
-    func attach(to workspace: Workspace) {
-        arbiter?.associatePanelTransfer(
-            self,
-            with: workspace
-        )
-    }
-
-    func attach(to windowDock: DockSplitStore) {
-        arbiter?.associatePanelTransfer(
-            self,
-            with: windowDock
-        )
-    }
-
-    var isActive: Bool {
-        arbiter?.isPanelTransferActive(self) == true
-    }
-}
-
-/// An event that joins two independently busy coordinators waits here
-/// until either prior owner becomes available. The remaining owner then
-/// appends it to its ledger, preserving both resource orderings.
-private struct DeferredCoordinatorJoin {
-    let workspaceId: UUID
-    let workspaceReference: WorkspaceTerminalFontSizeCoordinator.WeakWorkspaceReference
-    let windowDockSlot: WorkspaceTerminalFontSizeCoordinator.WindowDockSlot
-    let preferredCoordinator:
-        WorkspaceTerminalFontSizeCoordinator
-    var change: WorkspaceTerminalFontSizeChange
-    var deferFlush: Bool
-
-    func matches(
-        workspace: Workspace,
-        windowDockSlot: WorkspaceTerminalFontSizeCoordinator.WindowDockSlot
-    ) -> Bool {
-        workspaceId == workspace.id
-            && workspaceReference.value === workspace
-            && self.windowDockSlot === windowDockSlot
-    }
-}
-
 /// App-lifecycle owner for ordering work that spans window coordinators.
 /// Production injects one instance into every window. Unit tests receive a
 /// fresh instance by default unless they intentionally model two windows.
@@ -140,10 +82,10 @@ final class WorkspaceTerminalFontSizeArbiter {
 
     private let maximumDeferredCoordinatorJoinCount: Int
     private var deferredCoordinatorJoins:
-        [DeferredCoordinatorJoin] = []
+        [DeferredWorkspaceTerminalFontSizeCoordinatorJoin] = []
     private var deferredCoordinatorJoinHead = 0
     private var deferredCoordinatorJoinsAfterFontSizeWorkIdle:
-        [DeferredCoordinatorJoin] = []
+        [DeferredWorkspaceTerminalFontSizeCoordinatorJoin] = []
     private var isPromotingDeferredCoordinatorJoins = false
     private var isCancellingWindowOwnedWork = false
     private var isDeferredCoordinatorJoinPromotionScheduled = false
@@ -428,7 +370,7 @@ final class WorkspaceTerminalFontSizeArbiter {
         deferFlush: Bool
     ) -> Bool {
         appendDeferredCoordinatorJoin(
-            DeferredCoordinatorJoin(
+            DeferredWorkspaceTerminalFontSizeCoordinatorJoin(
                 workspaceId: workspace.id,
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
@@ -454,7 +396,7 @@ final class WorkspaceTerminalFontSizeArbiter {
     ) -> Bool? {
         guard hasFontSizeWorkIdleBarrier else { return nil }
         let accepted = appendDeferredCoordinatorJoin(
-            DeferredCoordinatorJoin(
+            DeferredWorkspaceTerminalFontSizeCoordinatorJoin(
                 workspaceId: workspace.id,
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
@@ -592,7 +534,8 @@ final class WorkspaceTerminalFontSizeArbiter {
     }
 
     private func removeDeferredCoordinatorJoins(
-        where shouldRemove: (DeferredCoordinatorJoin) -> Bool
+        where shouldRemove:
+            (DeferredWorkspaceTerminalFontSizeCoordinatorJoin) -> Bool
     ) {
         let remaining = deferredCoordinatorJoins[
             deferredCoordinatorJoinHead...
@@ -672,7 +615,7 @@ final class WorkspaceTerminalFontSizeArbiter {
 
     @discardableResult
     private func appendDeferredCoordinatorJoin(
-        _ join: DeferredCoordinatorJoin,
+        _ join: DeferredWorkspaceTerminalFontSizeCoordinatorJoin,
         afterFontSizeWorkIdle: Bool
     ) -> Bool {
         if afterFontSizeWorkIdle {

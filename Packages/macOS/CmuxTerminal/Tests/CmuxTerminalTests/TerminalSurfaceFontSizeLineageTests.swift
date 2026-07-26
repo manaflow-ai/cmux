@@ -1346,12 +1346,3 @@ private func setFontBindingResult(_ result: Bool)
         )
     }
 }
-
-private final class MutableFontMagnificationPercent:
-    @unchecked Sendable {
-    var value: Int
-
-    init(_ value: Int) {
-        self.value = value
-    }
-}

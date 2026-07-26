@@ -39,60 +39,6 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
-struct WorkspaceTerminalFontSizeDrainBudget {
-    static let maximumPanelVisitsPerDrain = 8
-    static let maximumLiveActionsPerDrain = 8
-    static let maximumRequestVisitsPerDrain = 8
-
-    private(set) var panelVisitCount = 0
-    private(set) var liveActionUpperBound = 0
-    private(set) var requestVisitCount = 0
-
-    mutating func reserve(
-        panelHasLiveSurface: Bool,
-        nativeActionUpperBound: Int
-    ) -> Bool {
-        guard nativeActionUpperBound >= 0,
-              panelVisitCount < Self.maximumPanelVisitsPerDrain,
-              !panelHasLiveSurface
-                || liveActionUpperBound + nativeActionUpperBound
-                    <= Self.maximumLiveActionsPerDrain else {
-            return false
-        }
-        panelVisitCount += 1
-        if panelHasLiveSurface {
-            liveActionUpperBound += nativeActionUpperBound
-        }
-        return true
-    }
-
-    mutating func reservePanelVisit() -> Bool {
-        guard panelVisitCount < Self.maximumPanelVisitsPerDrain else {
-            return false
-        }
-        panelVisitCount += 1
-        return true
-    }
-
-    mutating func reserveLiveActions(_ nativeActionUpperBound: Int) -> Bool {
-        guard nativeActionUpperBound >= 0,
-              liveActionUpperBound + nativeActionUpperBound
-                <= Self.maximumLiveActionsPerDrain else {
-            return false
-        }
-        liveActionUpperBound += nativeActionUpperBound
-        return true
-    }
-
-    mutating func reserveRequestVisit() -> Bool {
-        guard requestVisitCount < Self.maximumRequestVisitsPerDrain else {
-            return false
-        }
-        requestVisitCount += 1
-        return true
-    }
-}
-
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -567,13 +513,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
-    /// App-lifecycle ordering owner shared by every window's font-size queue.
-    /// Window coordinators receive it explicitly instead of using global state.
+    /// Composition-root lifetime owner shared by every window's font-size
+    /// queue. Window coordinators receive this dependency explicitly; no
+    /// coordinator reaches back through `AppDelegate.shared`.
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
-#if DEBUG
-    var debugWorkspaceTerminalFontSizeEnqueueResultOverride: Bool?
-#endif
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -623,6 +567,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 arbiter: workspaceTerminalFontSizeArbiter
             )
+#if DEBUG
+        var debugWorkspaceTerminalFontSizeEnqueueResultOverride: Bool?
+#endif
 
         init(
             windowId: UUID,
@@ -14401,8 +14348,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 #if DEBUG
-        if let debugWorkspaceTerminalFontSizeEnqueueResultOverride {
-            return debugWorkspaceTerminalFontSizeEnqueueResultOverride
+        if let override =
+                context
+                    .debugWorkspaceTerminalFontSizeEnqueueResultOverride {
+            return override
         }
 #endif
         return context.workspaceTerminalFontSizeCoordinator.enqueue(
@@ -15220,25 +15169,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // synthetic NSEvents.
     func debugHandleCustomShortcut(event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
-    }
-
-    func debugFlushPendingWorkspaceTerminalFontSizeChanges() {
-        for context in mainWindowContexts.values {
-            context.workspaceTerminalFontSizeCoordinator.debugFlushOneDrain()
-        }
-    }
-
-    func debugDrainAllPendingWorkspaceTerminalFontSizeChanges() {
-        for context in mainWindowContexts.values {
-            context.workspaceTerminalFontSizeCoordinator.debugDrainAll()
-        }
-    }
-
-    var debugPendingWorkspaceTerminalFontSizeChangeCount: Int {
-        mainWindowContexts.values.reduce(into: 0) {
-            $0 += $1.workspaceTerminalFontSizeCoordinator
-                .debugPendingRequestCount
-        }
     }
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).

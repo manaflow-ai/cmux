@@ -453,28 +453,8 @@ class GhosttyApp {
     private var reloadConfigurationDepth = 0
     typealias ConfigurationReloadCompletion =
         @MainActor () -> Void
-    private struct PendingConfigurationReload {
-        var soft: Bool
-        var source: String
-        var reloadSettingsFromFile: Bool
-        var preferredColorScheme:
-            GhosttyConfig.ColorSchemePreference?
-        var completions: [ConfigurationReloadCompletion]
-
-        mutating func merge(_ newer: PendingConfigurationReload) {
-            soft = soft && newer.soft
-            source = newer.source
-            reloadSettingsFromFile =
-                reloadSettingsFromFile
-                || newer.reloadSettingsFromFile
-            preferredColorScheme = newer.preferredColorScheme
-            completions.append(
-                contentsOf: newer.completions
-            )
-        }
-    }
     private var pendingConfigurationReload:
-        PendingConfigurationReload?
+        TerminalPendingConfigurationReload?
     private let terminalFontConfigurationReloadReconciler =
         TerminalFontConfigurationReloadReconciler()
     private var isWaitingForFontSizeWorkBeforeConfigurationReload =
@@ -1820,7 +1800,7 @@ class GhosttyApp {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
         completion: @escaping ConfigurationReloadCompletion = {}
     ) {
-        let request = PendingConfigurationReload(
+        let request = TerminalPendingConfigurationReload(
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
@@ -1840,7 +1820,7 @@ class GhosttyApp {
 
     @MainActor
     private func enqueueConfigurationReload(
-        _ request: PendingConfigurationReload
+        _ request: TerminalPendingConfigurationReload
     ) {
         guard reloadConfigurationDepth == 0 else {
             logThemeAction(
@@ -1912,7 +1892,7 @@ class GhosttyApp {
 
     @MainActor
     private func performConfigurationReload(
-        _ request: PendingConfigurationReload,
+        _ request: TerminalPendingConfigurationReload,
         completion: @escaping @MainActor () -> Void
     ) {
         let requestedSoft = request.soft
@@ -2140,8 +2120,8 @@ class GhosttyApp {
                         source:
                             "reloadConfiguration:\(source):resolved"
                     )
-                    DispatchQueue.main.async {
-                        self.applyBackgroundToKeyWindow()
+                    Task { @MainActor [weak self] in
+                        self?.applyBackgroundToKeyWindow()
                     }
                 }
             ) { [weak self] in
