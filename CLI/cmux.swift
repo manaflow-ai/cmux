@@ -2016,7 +2016,8 @@ final class SocketClient {
         try writeAll(
             Data(payload.utf8),
             timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            failureMessage: "Failed to write to socket",
+            deadline: deadline
         )
 
         var data = Data()
@@ -2426,7 +2427,8 @@ final class SocketClient {
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
-            failureMessage: "Failed to write to relay socket"
+            failureMessage: "Failed to write to relay socket",
+            deadline: deadline
         )
 
         let authResponseLine = try readLine(
@@ -2457,7 +2459,8 @@ final class SocketClient {
     private func writeAll(
         _ data: Data,
         timeoutMessage: String,
-        failureMessage: String
+        failureMessage: String,
+        deadline: Date? = nil
     ) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
@@ -2465,6 +2468,14 @@ final class SocketClient {
             }
             var offset = 0
             while offset < data.count {
+                if let deadline {
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else {
+                        close()
+                        throw CLIError(message: timeoutMessage)
+                    }
+                    try configureSocketWriteSafety(remaining)
+                }
                 let written = Darwin.write(socketFD, baseAddress.advanced(by: offset), data.count - offset)
                 if written < 0 {
                     let errorCode = errno
