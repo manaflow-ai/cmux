@@ -44,6 +44,19 @@ def send_line(sock: socket.socket, payload: dict) -> None:
     sock.sendall((json.dumps(payload) + "\n").encode())
 
 
+def send_browser_attach_handshake(sock: socket.socket, surface: int) -> None:
+    send_line(
+        sock,
+        {
+            "id": 0,
+            "cmd": "set-client-info",
+            "kind": "measure-frames",
+            "capabilities": ["browser-pointer-frame-guard-v1"],
+        },
+    )
+    send_line(sock, {"id": 1, "cmd": "attach-surface", "surface": surface})
+
+
 def percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
@@ -134,7 +147,7 @@ def main() -> int:
         attach.connect(args.socket)
         attach.settimeout(0.5)
         reader = LineReader(attach)
-        send_line(attach, {"id": 1, "cmd": "attach-surface", "surface": surface})
+        send_browser_attach_handshake(attach, surface)
         got_state = False
         got_response = False
         initial_seq = None

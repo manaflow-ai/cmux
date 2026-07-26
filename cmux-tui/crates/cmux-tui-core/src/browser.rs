@@ -227,6 +227,7 @@ struct PointerFrameInvalidation {
 enum BrowserCommand {
     WakeLatest,
     Mouse {
+        input_owner: u64,
         event_type: String,
         x: f64,
         y: f64,
@@ -303,13 +304,14 @@ impl BrowserCommandOrder {
     }
 }
 
-struct BrowserMouseDispatch<'a> {
-    event_type: &'a str,
-    x: f64,
-    y: f64,
-    button: Option<&'a str>,
-    click_count: Option<u32>,
-    frame_seq: Option<u64>,
+pub(crate) struct BrowserMouseDispatch<'a> {
+    pub(crate) input_owner: u64,
+    pub(crate) event_type: &'a str,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) button: Option<&'a str>,
+    pub(crate) click_count: Option<u32>,
+    pub(crate) frame_seq: Option<u64>,
 }
 
 impl BrowserCommand {
@@ -323,8 +325,13 @@ impl BrowserCommand {
         )
     }
 
-    fn is_mouse_move(&self) -> bool {
-        matches!(self, BrowserCommand::Mouse { event_type, .. } if event_type == "mouseMoved")
+    fn mouse_move_owner(&self) -> Option<u64> {
+        match self {
+            BrowserCommand::Mouse { input_owner, event_type, .. } if event_type == "mouseMoved" => {
+                Some(*input_owner)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -346,7 +353,13 @@ fn reject_reconfigure(mut command: BrowserCommand) -> Option<QueuedBrowserGeomet
 #[derive(Default)]
 struct BrowserWorkerErrorState {
     consecutive_timeouts: u8,
-    active_pointer_presses: HashMap<String, u64>,
+    active_pointer_presses: HashMap<String, ActivePointerPress>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ActivePointerPress {
+    input_owner: u64,
+    capture_generation: u64,
 }
 
 pub struct BrowserRuntime {
@@ -1218,7 +1231,10 @@ fn take_latest_worker_commands(
 fn coalesce_worker_mouse_moves(batch: &mut Vec<SequencedBrowserCommand>) {
     let mut index = 0;
     while index + 1 < batch.len() {
-        if batch[index].command.is_mouse_move() && batch[index + 1].command.is_mouse_move() {
+        if batch[index].command.mouse_move_owner().is_some()
+            && batch[index].command.mouse_move_owner()
+                == batch[index + 1].command.mouse_move_owner()
+        {
             batch.remove(index);
         } else {
             index += 1;
@@ -1248,24 +1264,46 @@ fn run_browser_worker_command(
         BrowserCommand::Reconfigure { queued, .. } => Some(*queued),
         _ => None,
     };
+    if matches!(&command, BrowserCommand::Mouse { .. })
+        && let Some(mux) = mux.upgrade()
+    {
+        failures.active_pointer_presses.retain(|_, press| {
+            press.input_owner == 0 || mux.control_clients.contains(press.input_owner)
+        });
+        if matches!(
+            &command,
+            BrowserCommand::Mouse { input_owner, .. }
+                if *input_owner != 0 && !mux.control_clients.contains(*input_owner)
+        ) {
+            return;
+        }
+    }
     let result = {
         let Some(browser) = surface.as_browser() else {
             return;
         };
         match command {
             BrowserCommand::WakeLatest => Ok(()),
-            BrowserCommand::Mouse { event_type, x, y, button, click_count, frame_seq } => browser
-                .mouse_event_blocking(
-                    BrowserMouseDispatch {
-                        event_type: &event_type,
-                        x,
-                        y,
-                        button: button.as_deref(),
-                        click_count,
-                        frame_seq,
-                    },
-                    &mut failures.active_pointer_presses,
-                ),
+            BrowserCommand::Mouse {
+                input_owner,
+                event_type,
+                x,
+                y,
+                button,
+                click_count,
+                frame_seq,
+            } => browser.mouse_event_blocking(
+                BrowserMouseDispatch {
+                    input_owner,
+                    event_type: &event_type,
+                    x,
+                    y,
+                    button: button.as_deref(),
+                    click_count,
+                    frame_seq,
+                },
+                &mut failures.active_pointer_presses,
+            ),
             BrowserCommand::Wheel { x, y, delta_y, frame_seq } => {
                 browser.wheel_blocking(x, y, delta_y, frame_seq)
             }
@@ -2729,15 +2767,34 @@ impl BrowserSurface {
         click_count: Option<u32>,
         frame_seq: Option<u64>,
     ) -> anyhow::Result<()> {
-        let command = BrowserCommand::Mouse {
-            event_type: event_type.to_string(),
+        self.mouse_event_for_frame_from(BrowserMouseDispatch {
+            input_owner: 0,
+            event_type,
             x,
             y,
-            button: button.map(ToOwned::to_owned),
+            button,
             click_count,
             frame_seq,
+        })
+    }
+
+    /// Queue guarded mouse input owned by one control connection. Owner zero
+    /// is reserved for the in-process TUI; socket clients use their registry
+    /// id so one client cannot consume another client's captured press.
+    pub(crate) fn mouse_event_for_frame_from(
+        &self,
+        dispatch: BrowserMouseDispatch<'_>,
+    ) -> anyhow::Result<()> {
+        let command = BrowserCommand::Mouse {
+            input_owner: dispatch.input_owner,
+            event_type: dispatch.event_type.to_string(),
+            x: dispatch.x,
+            y: dispatch.y,
+            button: dispatch.button.map(ToOwned::to_owned),
+            click_count: dispatch.click_count,
+            frame_seq: dispatch.frame_seq,
         };
-        if event_type == "mouseReleased" {
+        if dispatch.event_type == "mouseReleased" {
             self.enqueue_pointer_release(command)
         } else {
             self.enqueue_bounded(command)
@@ -2747,13 +2804,24 @@ impl BrowserSurface {
     fn mouse_event_blocking(
         &self,
         dispatch: BrowserMouseDispatch<'_>,
-        active_pointer_presses: &mut HashMap<String, u64>,
+        active_pointer_presses: &mut HashMap<String, ActivePointerPress>,
     ) -> anyhow::Result<()> {
+        let button = dispatch.button.unwrap_or("none");
+        if let Some(press) = active_pointer_presses.get(button).copied()
+            && press.input_owner != dispatch.input_owner
+        {
+            if self
+                .scale_captured_input_point(press.capture_generation, dispatch.x, dispatch.y)
+                .is_some()
+            {
+                return Ok(());
+            }
+            active_pointer_presses.remove(button);
+        }
         let session = self.require_live_session()?;
         if dispatch.event_type == "mousePressed" {
             self.maybe_nudge_stalled_external(&session);
         }
-        let button = dispatch.button.unwrap_or("none");
         let mut captured_press = None;
         let mut captured_release = false;
         let point = match (dispatch.event_type, dispatch.frame_seq) {
@@ -2763,14 +2831,21 @@ impl BrowserSurface {
                 else {
                     return Ok(());
                 };
-                captured_press = Some(generation);
+                captured_press = Some(ActivePointerPress {
+                    input_owner: dispatch.input_owner,
+                    capture_generation: generation,
+                });
                 Some(point)
             }
             ("mouseReleased", Some(_)) => {
-                let Some(generation) = active_pointer_presses.get(button).copied() else {
+                let Some(press) = active_pointer_presses.get(button).copied() else {
                     return Ok(());
                 };
-                let point = self.scale_captured_input_point(generation, dispatch.x, dispatch.y);
+                let point = self.scale_captured_input_point(
+                    press.capture_generation,
+                    dispatch.x,
+                    dispatch.y,
+                );
                 if point.is_some() {
                     captured_release = true;
                 } else {
@@ -2779,8 +2854,12 @@ impl BrowserSurface {
                 point
             }
             ("mouseMoved", Some(_)) => {
-                if let Some(generation) = active_pointer_presses.get(button).copied() {
-                    let point = self.scale_captured_input_point(generation, dispatch.x, dispatch.y);
+                if let Some(press) = active_pointer_presses.get(button).copied() {
+                    let point = self.scale_captured_input_point(
+                        press.capture_generation,
+                        dispatch.x,
+                        dispatch.y,
+                    );
                     if point.is_none() {
                         active_pointer_presses.remove(button);
                     }
@@ -5644,6 +5723,7 @@ mod tests {
 
         let result = browser.mouse_event_blocking(
             super::BrowserMouseDispatch {
+                input_owner: 0,
                 event_type: "mousePressed",
                 x: 1.0,
                 y: 1.0,
@@ -5746,11 +5826,14 @@ mod tests {
         });
         browser.store_frame(test_frame(1));
         let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
-        let mut active_pointer_presses =
-            std::collections::HashMap::from([("left".to_string(), capture_generation)]);
+        let mut active_pointer_presses = std::collections::HashMap::from([(
+            "left".to_string(),
+            super::ActivePointerPress { input_owner: 0, capture_generation },
+        )]);
 
         let result = browser.mouse_event_blocking(
             super::BrowserMouseDispatch {
+                input_owner: 0,
                 event_type: "mouseReleased",
                 x: 1.0,
                 y: 1.0,

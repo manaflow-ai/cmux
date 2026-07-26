@@ -631,6 +631,13 @@ impl CdpClient {
     }
 
     pub fn snapshot_main_frame(&self, session_id: &str) -> anyhow::Result<(String, String)> {
+        let (frame_epoch, observed_epoch) = {
+            let frame_epochs = self.inner.frame_epochs.lock().unwrap();
+            let frame_session = frame_epochs.get(session_id).ok_or_else(|| {
+                anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
+            })?;
+            (frame_session.epoch.clone(), frame_session.epoch.current())
+        };
         let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
         let frame = result
             .get("frameTree")
@@ -644,12 +651,14 @@ impl CdpClient {
             .get("loaderId")
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("Page.getFrameTree root frame missing loaderId"))?;
-        let mut frame_epochs = self.inner.frame_epochs.lock().unwrap();
-        let frame_session = frame_epochs
-            .get_mut(session_id)
-            .ok_or_else(|| anyhow::anyhow!("missing frame epoch for CDP session {session_id}"))?;
-        frame_session.main_frame_id = Some(frame_id.to_string());
-        frame_session.main_loader_id = Some(loader_id.to_string());
+        commit_main_frame_snapshot(
+            &self.inner,
+            session_id,
+            &frame_epoch,
+            observed_epoch,
+            frame_id,
+            loader_id,
+        );
         Ok((frame_id.to_string(), loader_id.to_string()))
     }
 
@@ -1281,6 +1290,28 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             );
         }
     }
+}
+
+fn commit_main_frame_snapshot(
+    inner: &Inner,
+    session_id: &str,
+    frame_epoch: &Arc<FrameEpoch>,
+    observed_epoch: u64,
+    frame_id: &str,
+    loader_id: &str,
+) -> bool {
+    let mut frame_epochs = inner.frame_epochs.lock().unwrap();
+    let Some(frame_session) = frame_epochs.get_mut(session_id) else {
+        return false;
+    };
+    if !Arc::ptr_eq(&frame_session.epoch, frame_epoch)
+        || frame_session.epoch.current() != observed_epoch
+    {
+        return false;
+    }
+    frame_session.main_frame_id = Some(frame_id.to_string());
+    frame_session.main_loader_id = Some(loader_id.to_string());
+    true
 }
 
 fn main_frame_navigation_epoch(

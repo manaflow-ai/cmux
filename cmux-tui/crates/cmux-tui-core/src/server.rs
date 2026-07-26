@@ -42,7 +42,7 @@ use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
-use crate::browser::BrowserFrameUpdate;
+use crate::browser::{BrowserFrameUpdate, BrowserMouseDispatch};
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
@@ -2531,6 +2531,7 @@ struct BrowserMouseCommand<'a> {
 
 fn handle_browser_mouse_command(
     mux: &Mux,
+    client: u64,
     command: BrowserMouseCommand<'_>,
 ) -> anyhow::Result<Value> {
     let frame_seq = command
@@ -2544,14 +2545,24 @@ fn handle_browser_mouse_command(
         "move" => "mouseMoved",
         other => anyhow::bail!("bad browser mouse kind {other:?}"),
     };
-    surface.browser_mouse_event_for_frame(
+    // Capability-aware clients keep a connection-scoped capture owner. Keep
+    // owner zero for legacy one-shot control calls so a down/move/up sequence
+    // issued through separate short-lived sockets remains wire-compatible.
+    let input_owner =
+        if mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY) {
+            client
+        } else {
+            0
+        };
+    surface.browser_mouse_event_for_frame_from(BrowserMouseDispatch {
+        input_owner,
         event_type,
-        command.x_px,
-        command.y_px,
-        command.button,
-        command.click_count,
-        Some(frame_seq),
-    )?;
+        x: command.x_px,
+        y: command.y_px,
+        button: command.button,
+        click_count: command.click_count,
+        frame_seq: Some(frame_seq),
+    })?;
     Ok(json!({}))
 }
 
@@ -3644,6 +3655,7 @@ fn handle_command(
         Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
             handle_browser_mouse_command(
                 mux,
+                client,
                 BrowserMouseCommand {
                     surface,
                     kind: &kind,
@@ -3665,6 +3677,7 @@ fn handle_command(
             frame_seq,
         } => handle_browser_mouse_command(
             mux,
+            client,
             BrowserMouseCommand {
                 surface,
                 kind: &kind,

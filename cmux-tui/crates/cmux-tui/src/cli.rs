@@ -3,7 +3,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::platform::transport;
+use cmux_tui_core::{platform::transport, server::GUARDED_BROWSER_POINTER_CAPABILITY};
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
@@ -612,7 +612,7 @@ fn run_command(args: CliArgs) -> i32 {
             }
         }
     }
-    if let Err(err) = write_json_line(reader.get_mut(), &request) {
+    if let Err(err) = write_socket_request_sequence(reader.get_mut(), &request) {
         eprintln!("transport error: {err}");
         return 3;
     }
@@ -626,6 +626,21 @@ fn run_command(args: CliArgs) -> i32 {
 fn write_json_line(writer: &mut dyn Write, value: &Value) -> io::Result<()> {
     serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
     writer.write_all(b"\n")
+}
+
+fn write_socket_request_sequence(writer: &mut dyn Write, request: &Value) -> io::Result<()> {
+    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
+        write_json_line(
+            writer,
+            &json!({
+                "id": CAPABILITY_REQUEST_ID,
+                "cmd": "set-client-info",
+                "kind": "cli",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            }),
+        )?;
+    }
+    write_json_line(writer, request)
 }
 
 fn server_supports_capability(

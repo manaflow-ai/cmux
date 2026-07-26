@@ -29,7 +29,9 @@ use crate::{Mux, MuxEvent, SurfaceId};
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
-use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
+use crate::browser::{
+    BrowserMouseDispatch, BrowserResizeWaiter, BrowserSurface, PendingBrowserResize,
+};
 #[cfg(unix)]
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
@@ -2425,6 +2427,16 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.mouse_event_for_frame(event_type, x, y, button, click_count, frame_seq)
+    }
+
+    pub(crate) fn browser_mouse_event_for_frame_from(
+        &self,
+        dispatch: BrowserMouseDispatch<'_>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.mouse_event_for_frame_from(dispatch)
     }
 
     pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {

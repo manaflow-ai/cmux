@@ -122,7 +122,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v10 plus `browser-pointer-frame-guard-v1`. It rejects protocol-v9 servers because v9 client-sizing requests do not identify the terminal surface they affect, and it rejects protocol-v10 servers without guarded browser pointer input before loading their workspace tree.
+The remote TUI requires protocol v10 plus `browser-pointer-frame-guard-v1`. It rejects protocol-v9 servers because v9 client-sizing requests do not identify the terminal surface they affect, and it rejects protocol-v10 servers without guarded browser pointer input before loading their workspace tree. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server. Protocol v10 requires `surface` on every `set-client-sizing` request and moves `size_participating` into each `list-clients.sizes` entry.
 

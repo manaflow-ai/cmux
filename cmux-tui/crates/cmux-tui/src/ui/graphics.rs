@@ -9,6 +9,8 @@ use cmux_tui_core::{Rect, SurfaceId};
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
 const PLACEMENT_ID: u32 = 1;
+pub(crate) const PRESENTATION_FENCE_ID_BASE: u32 = 2_000_000_001;
+const PRESENTATION_FENCE_ID_COUNT: u64 = 2_000_000_000;
 
 #[derive(Debug, Clone)]
 pub struct GraphicPlacement {
@@ -103,6 +105,17 @@ pub fn place_image(surface: SurfaceId, rect: Rect) -> Vec<u8> {
 pub fn delete_image(surface: SurfaceId) -> Vec<u8> {
     let id = image_id(surface);
     format!("{ESC}_Ga=d,d=i,i={id},q=2;{ESC}\\").into_bytes()
+}
+
+pub(crate) fn presentation_fence_id(submission: u64) -> u32 {
+    PRESENTATION_FENCE_ID_BASE + (submission.wrapping_sub(1) % PRESENTATION_FENCE_ID_COUNT) as u32
+}
+
+/// Append a side-effect-free graphics query after one submitted frame. Its
+/// reply is the presentation fence: the host has processed every preceding
+/// Kitty graphics command before pointer routing may use that frame.
+pub(crate) fn presentation_fence(id: u32) -> Vec<u8> {
+    format!("{ESC}_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA{ESC}\\").into_bytes()
 }
 
 pub fn probe_kitty_graphics() -> bool {
@@ -276,6 +289,16 @@ mod tests {
     fn deletes_by_image_id_quietly() {
         let bytes = String::from_utf8(delete_image(41)).unwrap();
         assert_eq!(bytes, "\x1b_Ga=d,d=i,i=42,q=2;\x1b\\");
+    }
+
+    #[test]
+    fn presentation_fence_uses_reserved_query_id() {
+        let id = presentation_fence_id(7);
+        assert!(id >= PRESENTATION_FENCE_ID_BASE);
+        assert_eq!(
+            String::from_utf8(presentation_fence(id)).unwrap(),
+            format!("\x1b_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")
+        );
     }
 
     #[test]

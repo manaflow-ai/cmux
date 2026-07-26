@@ -1,15 +1,22 @@
 use std::io::Write;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use cmux_tui_core::{Rect, SurfaceId};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use parking_lot::ReentrantMutex;
 
-use super::graphics::{GraphicPlacement, GraphicsState};
+use super::graphics::{
+    GraphicPlacement, GraphicsState, PRESENTATION_FENCE_ID_BASE, presentation_fence,
+    presentation_fence_id,
+};
 
 pub type StdoutLock = ReentrantMutex<()>;
+const PRESENTATION_FENCE_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_GRAPHICS_RESPONSE_EVENTS: usize = 128;
 
 struct GraphicsSubmission {
     id: u64,
@@ -37,6 +44,211 @@ pub enum GraphicsCompletion {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GraphicsFenceResponse {
+    id: u32,
+    ok: bool,
+}
+
+pub struct GraphicsFenceWaiter {
+    responses: Receiver<GraphicsFenceResponse>,
+    expected: Arc<AtomicU32>,
+}
+
+#[derive(Clone)]
+pub struct GraphicsFenceNotifier {
+    responses: SyncSender<GraphicsFenceResponse>,
+    expected: Arc<AtomicU32>,
+}
+
+pub fn graphics_fence_channel() -> (GraphicsFenceWaiter, GraphicsFenceNotifier) {
+    let (responses, pending) = sync_channel(4);
+    let expected = Arc::new(AtomicU32::new(0));
+    (
+        GraphicsFenceWaiter { responses: pending, expected: expected.clone() },
+        GraphicsFenceNotifier { responses, expected },
+    )
+}
+
+impl GraphicsFenceWaiter {
+    fn prepare(&self, expected: u32) {
+        self.expected.store(expected, Ordering::Release);
+    }
+
+    fn cancel(&self, expected: u32) {
+        let _ = self.expected.compare_exchange(expected, 0, Ordering::AcqRel, Ordering::Acquire);
+    }
+
+    fn wait_for(&self, expected: u32) -> std::io::Result<()> {
+        let result = self.responses.recv_timeout(PRESENTATION_FENCE_TIMEOUT).map_err(|error| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("graphics presentation fence timed out: {error}"),
+            )
+        });
+        self.cancel(expected);
+        let response = result?;
+        if response.id != expected {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "graphics presentation fence replied out of order: expected {expected}, got {}",
+                    response.id
+                ),
+            ));
+        }
+        if !response.ok {
+            return Err(std::io::Error::other(format!(
+                "host rejected graphics presentation fence {expected}"
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl GraphicsFenceNotifier {
+    fn expected(&self) -> u32 {
+        self.expected.load(Ordering::Acquire)
+    }
+
+    fn notify(&self, response: GraphicsFenceResponse) {
+        if self
+            .expected
+            .compare_exchange(response.id, 0, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            let _ = self.responses.try_send(response);
+        }
+    }
+}
+
+struct BufferedGraphicsResponse {
+    events: Vec<Event>,
+    payload: String,
+}
+
+/// Crossterm exposes an APC reply as Alt+_ followed by ordinary key events and
+/// Alt+\. Reassemble only complete Kitty graphics responses and leave every
+/// other host input unchanged.
+pub struct GraphicsResponseFilter {
+    notifier: GraphicsFenceNotifier,
+    buffered: Option<BufferedGraphicsResponse>,
+}
+
+impl GraphicsResponseFilter {
+    pub fn new(notifier: GraphicsFenceNotifier) -> Self {
+        Self { notifier, buffered: None }
+    }
+
+    pub fn filter(&mut self, event: Event) -> Vec<Event> {
+        if self.buffered.is_none() {
+            if self.notifier.expected() != 0 && is_apc_boundary(&event, '_') {
+                self.buffered =
+                    Some(BufferedGraphicsResponse { events: vec![event], payload: String::new() });
+                return Vec::new();
+            }
+            return vec![event];
+        }
+
+        if is_apc_boundary(&event, '_') {
+            let replay = self.buffered.take().unwrap().events;
+            self.buffered =
+                Some(BufferedGraphicsResponse { events: vec![event], payload: String::new() });
+            return replay;
+        }
+
+        if is_apc_boundary(&event, '\\') {
+            let mut buffered = self.buffered.take().unwrap();
+            buffered.events.push(event);
+            if let Some(response) = parse_graphics_response(&buffered.payload)
+                && response.id >= PRESENTATION_FENCE_ID_BASE
+                && response.id == self.notifier.expected()
+            {
+                self.notifier.notify(response);
+                return Vec::new();
+            }
+            return buffered.events;
+        }
+
+        let Some(ch) = graphics_response_char(&event) else {
+            let mut replay = self.buffered.take().unwrap().events;
+            replay.push(event);
+            return replay;
+        };
+        let buffered = self.buffered.as_mut().unwrap();
+        buffered.events.push(event);
+        if buffered.events.len() > MAX_GRAPHICS_RESPONSE_EVENTS {
+            return self.buffered.take().unwrap().events;
+        }
+        buffered.payload.push(ch);
+        Vec::new()
+    }
+}
+
+fn is_apc_boundary(event: &Event, boundary: char) -> bool {
+    matches!(
+        event,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char(ch),
+            modifiers,
+            kind: KeyEventKind::Press,
+            ..
+        }) if *ch == boundary && *modifiers == KeyModifiers::ALT
+    )
+}
+
+fn graphics_response_char(event: &Event) -> Option<char> {
+    let Event::Key(KeyEvent {
+        code: KeyCode::Char(ch), modifiers, kind: KeyEventKind::Press, ..
+    }) = event
+    else {
+        return None;
+    };
+    (*ch)
+        .is_ascii()
+        .then_some(*ch)
+        .filter(|_| modifiers.is_empty() || *modifiers == KeyModifiers::SHIFT)
+}
+
+fn parse_graphics_response(payload: &str) -> Option<GraphicsFenceResponse> {
+    let (control, message) = payload.strip_prefix('G')?.split_once(';')?;
+    let id = control.split(',').find_map(|field| field.strip_prefix("i="))?.parse::<u32>().ok()?;
+    Some(GraphicsFenceResponse { id, ok: message == "OK" })
+}
+
+trait PresentationFence: Send + 'static {
+    fn prepare(&mut self, _id: u32) {}
+    fn cancel(&mut self, _id: u32) {}
+    fn wait(&mut self, id: u32) -> std::io::Result<()>;
+}
+
+impl PresentationFence for GraphicsFenceWaiter {
+    fn prepare(&mut self, id: u32) {
+        GraphicsFenceWaiter::prepare(self, id);
+    }
+
+    fn cancel(&mut self, id: u32) {
+        GraphicsFenceWaiter::cancel(self, id);
+    }
+
+    fn wait(&mut self, id: u32) -> std::io::Result<()> {
+        self.wait_for(id)
+    }
+}
+
+#[cfg(test)]
+struct ClosurePresentationFence<F>(F);
+
+#[cfg(test)]
+impl<F> PresentationFence for ClosurePresentationFence<F>
+where
+    F: FnMut() -> std::io::Result<()> + Send + 'static,
+{
+    fn wait(&mut self, _id: u32) -> std::io::Result<()> {
+        (self.0)()
+    }
+}
+
 pub struct GraphicsWriter {
     slot: Arc<Mutex<Option<GraphicsSubmission>>>,
     completion: Arc<Mutex<Option<GraphicsCompletion>>>,
@@ -48,14 +260,40 @@ pub struct GraphicsWriter {
 impl GraphicsWriter {
     pub fn spawn(
         stdout_lock: Arc<StdoutLock>,
+        presentation_fence: GraphicsFenceWaiter,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
-        Self::spawn_with_output(stdout_lock, std::io::stdout(), on_ready)
+        Self::spawn_with_fence(stdout_lock, std::io::stdout(), presentation_fence, on_ready)
     }
 
+    #[cfg(test)]
     fn spawn_with_output(
         stdout_lock: Arc<StdoutLock>,
         output: impl Write + Send + 'static,
+        on_ready: impl Fn() + Send + 'static,
+    ) -> std::io::Result<Self> {
+        Self::spawn_with_output_and_fence(stdout_lock, output, || Ok(()), on_ready)
+    }
+
+    #[cfg(test)]
+    fn spawn_with_output_and_fence(
+        stdout_lock: Arc<StdoutLock>,
+        output: impl Write + Send + 'static,
+        presentation_fence: impl FnMut() -> std::io::Result<()> + Send + 'static,
+        on_ready: impl Fn() + Send + 'static,
+    ) -> std::io::Result<Self> {
+        Self::spawn_with_fence(
+            stdout_lock,
+            output,
+            ClosurePresentationFence(presentation_fence),
+            on_ready,
+        )
+    }
+
+    fn spawn_with_fence(
+        stdout_lock: Arc<StdoutLock>,
+        output: impl Write + Send + 'static,
+        presentation_fence: impl PresentationFence,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
         let (tx, rx) = sync_channel(1);
@@ -65,7 +303,18 @@ impl GraphicsWriter {
         let handle = std::thread::Builder::new().name("mux-graphics-writer".into()).spawn({
             let slot = slot.clone();
             let completion = completion.clone();
-            move || writer_loop(slot, completion, rx, stdout_lock, output, on_ready, done_tx)
+            move || {
+                writer_loop(WriterLoop {
+                    slot,
+                    completion,
+                    rx,
+                    stdout_lock,
+                    output,
+                    presentation_fence_waiter: presentation_fence,
+                    on_ready,
+                    done_tx,
+                });
+            }
         })?;
         Ok(Self { slot, completion, notify: Some(tx), done: Some(done_rx), handle: Some(handle) })
     }
@@ -121,16 +370,34 @@ fn submit_snapshot(
     }
 }
 
-fn writer_loop(
+struct WriterLoop<W, P, F> {
     slot: Arc<Mutex<Option<GraphicsSubmission>>>,
     completion: Arc<Mutex<Option<GraphicsCompletion>>>,
     rx: Receiver<()>,
     stdout_lock: Arc<StdoutLock>,
-    mut output: impl Write,
-    on_ready: impl Fn(),
-    done: SyncSender<()>,
-) {
-    let _done = DoneOnDrop(done);
+    output: W,
+    presentation_fence_waiter: P,
+    on_ready: F,
+    done_tx: SyncSender<()>,
+}
+
+fn writer_loop<W, P, F>(worker: WriterLoop<W, P, F>)
+where
+    W: Write,
+    P: PresentationFence,
+    F: Fn(),
+{
+    let WriterLoop {
+        slot,
+        completion,
+        rx,
+        stdout_lock,
+        mut output,
+        mut presentation_fence_waiter,
+        on_ready,
+        done_tx,
+    } = worker;
+    let _done = DoneOnDrop(done_tx);
     let mut graphics = GraphicsState::default();
     while rx.recv().is_ok() {
         loop {
@@ -145,15 +412,34 @@ fn writer_loop(
                     seq: placement.seq,
                 })
                 .collect();
-            for batch in
-                graphics.frame_batches(submission.session_generation, &submission.placements)
-            {
+            let batches =
+                graphics.frame_batches(submission.session_generation, &submission.placements);
+            let fence_id = presentation_fence_id(submission.id);
+            presentation_fence_waiter.prepare(fence_id);
+            let presented = {
                 let _guard = stdout_lock.lock();
-                if output.write_all(&batch).and_then(|_| output.flush()).is_err() {
-                    *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
-                    on_ready();
-                    return;
+                let mut result = Ok(());
+                for batch in batches {
+                    if result.is_ok() {
+                        result = output.write_all(&batch);
+                    }
                 }
+                if result.is_ok() {
+                    result = output.write_all(&presentation_fence(fence_id));
+                }
+                if result.is_ok() {
+                    result = output.flush();
+                }
+                if result.is_ok() {
+                    result = presentation_fence_waiter.wait(fence_id);
+                }
+                result
+            };
+            if presented.is_err() {
+                presentation_fence_waiter.cancel(fence_id);
+                *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
+                on_ready();
+                return;
             }
             *completion.lock().unwrap() =
                 Some(GraphicsCompletion::Presented(GraphicsPresentation {
@@ -189,6 +475,43 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    fn key(ch: char, modifiers: KeyModifiers) -> Event {
+        Event::Key(KeyEvent::new(KeyCode::Char(ch), modifiers))
+    }
+
+    #[test]
+    fn kitty_graphics_response_completes_matching_presentation_fence() {
+        let (waiter, notifier) = graphics_fence_channel();
+        let mut filter = GraphicsResponseFilter::new(notifier);
+        let id = presentation_fence_id(11);
+        waiter.prepare(id);
+        let response = format!("Gi={id};OK");
+        let wire_events = std::iter::once(key('_', KeyModifiers::ALT))
+            .chain(response.chars().map(|ch| {
+                key(ch, if ch.is_uppercase() { KeyModifiers::SHIFT } else { KeyModifiers::NONE })
+            }))
+            .chain(std::iter::once(key('\\', KeyModifiers::ALT)));
+
+        assert!(wire_events.flat_map(|event| filter.filter(event)).next().is_none());
+        waiter.wait_for(id).unwrap();
+    }
+
+    #[test]
+    fn non_graphics_apc_input_is_replayed_losslessly() {
+        let (_waiter, notifier) = graphics_fence_channel();
+        let mut filter = GraphicsResponseFilter::new(notifier);
+        let events = vec![
+            key('_', KeyModifiers::ALT),
+            key('x', KeyModifiers::NONE),
+            key('\\', KeyModifiers::ALT),
+        ];
+
+        let replayed =
+            events.clone().into_iter().flat_map(|event| filter.filter(event)).collect::<Vec<_>>();
+
+        assert_eq!(replayed, events);
     }
 
     #[test]
@@ -233,7 +556,8 @@ mod tests {
         assert!(rx.try_recv().is_err());
 
         let lock = Arc::new(StdoutLock::new(()));
-        let mut writer = GraphicsWriter::spawn(lock, || {}).unwrap();
+        let (fence, _notifier) = graphics_fence_channel();
+        let mut writer = GraphicsWriter::spawn(lock, fence, || {}).unwrap();
         writer.shutdown(Duration::from_secs(1));
         assert!(writer.handle.as_ref().is_none_or(|handle| handle.is_finished()));
     }

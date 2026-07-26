@@ -64,7 +64,8 @@ use crate::session::{
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::{
-    GraphicsCompletion, GraphicsPresentation, GraphicsWriter, StdoutLock,
+    GraphicsCompletion, GraphicsPresentation, GraphicsResponseFilter, GraphicsWriter, StdoutLock,
+    graphics_fence_channel,
 };
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
@@ -4897,15 +4898,19 @@ pub fn run_with_machine_updates(
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
     let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
+    let (graphics_fence_waiter, graphics_fence_notifier) = graphics_fence_channel();
 
     // Crossterm input → app channel. Start this after startup terminal
     // probes so DA / window-size responses are not consumed as key input.
     let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn({
         move || {
-            while let Ok(event) = crossterm::event::read() {
-                if input_tx.send(AppEvent::Input(event)).is_err() {
-                    break;
+            let mut graphics_responses = GraphicsResponseFilter::new(graphics_fence_notifier);
+            'input: while let Ok(event) = crossterm::event::read() {
+                for event in graphics_responses.filter(event) {
+                    if input_tx.send(AppEvent::Input(event)).is_err() {
+                        break 'input;
+                    }
                 }
             }
         }
@@ -4930,7 +4935,7 @@ pub fn run_with_machine_updates(
     };
     let graphics_writer = if graphics_supported {
         let graphics_ready = tx.clone();
-        Some(GraphicsWriter::spawn(stdout_lock.clone(), move || {
+        Some(GraphicsWriter::spawn(stdout_lock.clone(), graphics_fence_waiter, move || {
             // Latency hint only. The completion stays in GraphicsWriter, and
             // the event loop drains it after every event batch and timeout.
             let _ = graphics_ready.try_send(AppEvent::GraphicsWriterReady);

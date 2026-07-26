@@ -29,7 +29,7 @@ Browser tabs are created inside an existing pane when one is active. If the sess
 
 The browser runtime creates a target, attaches with CDP, enables the page domain, sets device metrics from the pane's cell size and detected cell pixels, and starts `Page.screencastFrame`.
 
-The TUI draws the latest PNG frame with the kitty graphics protocol after each Ratatui frame. If a context menu or prompt overlaps the pane, the graphics placement is omitted for that frame so the terminal UI stays readable.
+The TUI draws the latest PNG frame with the kitty graphics protocol after each Ratatui frame. Pointer routing remains stale until the host replies to a graphics query ordered after that placement, so flushing bytes into the PTY cannot authorize clicks against an image the host has not processed. If a context menu or prompt overlaps the pane, the graphics placement is omitted for that frame so the terminal UI stays readable.
 
 If the host terminal does not support kitty graphics, the pane displays `terminal has no kitty graphics support`. If the browser frame has not arrived yet, it displays a loading message.
 
