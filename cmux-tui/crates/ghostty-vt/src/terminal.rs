@@ -2009,8 +2009,22 @@ impl Terminal {
         let Some(preserve_from_y) = preserve_from_y else {
             return ClearHistoryOutcome::Unchanged;
         };
-        if self.history_rows() > 0
-            && ((cursor_is_at_prompt && prompt_start_y.is_none())
+        let history_rows = self.history_rows();
+        let prompt_may_begin_in_history = cursor_is_at_prompt
+            && match prompt_start_y {
+                None => true,
+                // Some shells mark every hard-newline prompt row. Row zero is
+                // only a true boundary when the adjacent history row is not
+                // another prompt row.
+                Some(0) if history_rows > 0 => self
+                    .history_row_prompt_semantic(history_rows - 1)
+                    .map(|semantic| semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE)
+                    .unwrap_or(true),
+                Some(0) => false,
+                Some(_) => false,
+            };
+        if history_rows > 0
+            && (prompt_may_begin_in_history
                 || (preserve_from_y == 0
                     && !cursor_is_at_prompt
                     && self.active_row_wrap_continuation(0).unwrap_or(true)))
@@ -2077,7 +2091,19 @@ impl Terminal {
     }
 
     fn active_row_prompt_semantic(&self, y: u16) -> Option<sys::GhosttyRowSemanticPrompt> {
-        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
+        self.row_prompt_semantic(sys::GHOSTTY_POINT_TAG_ACTIVE, u64::from(y))
+    }
+
+    fn history_row_prompt_semantic(&self, y: u32) -> Option<sys::GhosttyRowSemanticPrompt> {
+        self.row_prompt_semantic(sys::GHOSTTY_POINT_TAG_HISTORY, u64::from(y))
+    }
+
+    fn row_prompt_semantic(
+        &self,
+        tag: sys::GhosttyPointTag,
+        y: u64,
+    ) -> Option<sys::GhosttyRowSemanticPrompt> {
+        let grid_ref = self.grid_ref(tag, 0, y)?;
         let mut row = sys::GhosttyRow::default();
         check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
         let mut semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
@@ -2940,6 +2966,34 @@ mod tests {
         assert!(history_before > 0);
         assert_eq!(terminal.history_rows(), history_before);
         assert_eq!(terminal.plain_text().unwrap(), contents_before);
+    }
+
+    #[test]
+    fn clear_history_accepts_row_zero_prompt_after_output_history() {
+        let mut terminal = Terminal::new(32, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(
+            b"\x1b]133;A\x07prompt-one\r\n\
+              \x1b]133;A\x07prompt-two\r\n\
+              \x1b]133;A\x07prompt-three\r\n\
+              \x1b]133;A\x07prompt-four\x1b]133;B\x07pending",
+        );
+        let history_before = terminal.history_rows();
+        let viewport_before = terminal.viewport_text().unwrap();
+        let cursor_before = terminal.cursor_position();
+        let cursor_y = cursor_before.unwrap().1;
+        assert!(terminal.cursor_is_at_prompt());
+        assert_eq!(terminal.active_prompt_start_row(cursor_y), Some(0));
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Cleared(b"\x1b[3J".to_vec()));
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+        assert_eq!(terminal.cursor_position(), cursor_before);
     }
 
     #[test]
