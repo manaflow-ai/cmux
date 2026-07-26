@@ -389,6 +389,9 @@ extension TerminalSurface {
         runtimePoints: Float32,
         lineage: TerminalFontSizeLineage
     )? {
+        rebaseStaleConfigurationFollowingLineageIfNeeded(
+            magnificationPercent: percent
+        )
         if let runtimeSurface = liveSurfaceForGhosttyAccess(
             reason: "fontSize.adjustBaseline"
         ),
@@ -814,6 +817,9 @@ extension TerminalSurface {
             return pendingFontSizeConfigurationReloadState
                 .inheritanceLineage
         }
+        rebaseStaleConfigurationFollowingLineageIfNeeded(
+            magnificationPercent: magnificationPercent
+        )
         guard let runtimeSurface = liveSurfaceForGhosttyAccess(
             reason: "fontSizeLineage.snapshot"
         ) else {
@@ -896,6 +902,8 @@ extension TerminalSurface {
     /// config when its own runtime is recreated.
     @MainActor
     func recordCurrentFontSizeLineage(_ lineage: TerminalFontSizeLineage) {
+        fontSizeLineageConfigurationGeneration =
+            engine.terminalFontConfigurationGeneration
         if lineage.isExplicitOverride {
             followsConfiguredFontSize = false
         }
@@ -925,6 +933,7 @@ extension TerminalSurface {
     /// terminals follow the then-current terminal config.
     @MainActor
     func runtimeCreationConfigTemplate() -> CmuxSurfaceConfigTemplate {
+        rebaseStaleConfigurationFollowingLineageIfNeeded()
         var template = configTemplate ?? CmuxSurfaceConfigTemplate()
         template.fontSizeChangeToken = lastAppliedFontSizeChangeToken
         template.fontSizeChangeTokens =
@@ -939,6 +948,48 @@ extension TerminalSurface {
             template.fontSizeLineage = lastKnownFontSizeLineage
         }
         return template
+    }
+
+    /// Rebases a config-following seed that missed an incremental reload walk.
+    ///
+    /// The engine generation advances when the replacement config becomes
+    /// active. A dormant surface created after the walk's fixed cutoff keeps
+    /// its old seed until this boundary, then adopts the applied configured
+    /// value before it can start a runtime or seed a descendant.
+    @MainActor
+    private func rebaseStaleConfigurationFollowingLineageIfNeeded(
+        magnificationPercent: Int? = nil
+    ) {
+        guard pendingFontSizeConfigurationReloadState == nil,
+              lastKnownFontSizeLineage?
+                .isExplicitOverride == false else {
+            return
+        }
+        let appliedGeneration =
+            engine.terminalFontConfigurationGeneration
+        guard fontSizeLineageConfigurationGeneration
+                != appliedGeneration else {
+            return
+        }
+        let percent =
+            magnificationPercent
+            ?? globalFontMagnificationPercent()
+        let configuredRuntimePoints =
+            TerminalFontSizePolicy().clampedRuntimePoints(
+                engine.terminalFontConfigurationRuntimePoints
+            )
+        followsConfiguredFontSize = true
+        recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints:
+                    CmuxSurfaceConfigTemplate.baseFontSize(
+                        fromRuntimePoints:
+                            configuredRuntimePoints,
+                        percent: percent
+                    ),
+                isExplicitOverride: false
+            )
+        )
     }
 
     /// Returns the explicit unscaled font override to persist in a session snapshot.

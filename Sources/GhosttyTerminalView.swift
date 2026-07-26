@@ -475,6 +475,7 @@ class GhosttyApp {
         false
     private(set) var appliedGlobalFontMagnificationPercent =
         GlobalFontMagnification.storedPercent
+    private(set) var terminalFontConfigurationGeneration: UInt64 = 0
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private(set) var hasUserGhosttyCommand = false
@@ -2078,6 +2079,7 @@ class GhosttyApp {
                     ghostty_app_update_config(app, newConfig)
                     self.appliedGlobalFontMagnificationPercent =
                         reloadMagnificationPercent
+                    self.terminalFontConfigurationGeneration &+= 1
                     DispatchQueue.main.async {
                         self.applyBackgroundToKeyWindow()
                     }

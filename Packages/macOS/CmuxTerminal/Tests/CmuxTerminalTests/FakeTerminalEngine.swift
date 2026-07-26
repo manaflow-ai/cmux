@@ -9,7 +9,7 @@ final class FakeTerminalEngine: TerminalEngineHosting {
     var hasUserGhosttyCommand: Bool { false }
     var resolvedUserShell: String? { nil }
     var terminalFontConfigurationGeneration: UInt64 = 0
-    var terminalFontConfigurationRuntimePoints: Float32?
+    var terminalFontConfigurationRuntimePoints: Float32 = 12
     var shouldDeferRuntimeSurfaceCreationForConfigurationReload =
         false
     private(set) var deferredRuntimeSurfaceCreationActions:

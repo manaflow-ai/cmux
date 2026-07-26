@@ -23,6 +23,13 @@ public protocol TerminalEngineHosting: AnyObject {
     /// The executable user shell resolved before Ghostty config finalization.
     var resolvedUserShell: String? { get }
 
+    /// Monotonic generation of the terminal font configuration currently
+    /// applied to the runtime.
+    var terminalFontConfigurationGeneration: UInt64 { get }
+
+    /// Current configured runtime font size, including global magnification.
+    var terminalFontConfigurationRuntimePoints: Float32 { get }
+
     /// Defers native surface creation until an in-flight engine configuration
     /// reload has applied its replacement config.
     ///

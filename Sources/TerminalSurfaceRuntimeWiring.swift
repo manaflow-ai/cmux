@@ -16,6 +16,10 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 extension GhosttyApp: TerminalEngineHosting {
     var runtimeApp: ghostty_app_t? { app }
     var runtimeConfig: ghostty_config_t? { config }
+    var terminalFontConfigurationRuntimePoints: Float32 {
+        terminalFontConfigurationSnapshot()
+            .configuredRuntimePoints
+    }
     // `userGhosttyShellIntegrationMode` already matches the seam requirement.
 }
 

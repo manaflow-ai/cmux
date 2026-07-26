@@ -158,6 +158,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastAppliedFontSizeChangeToken: UUID?
     var transferReconciledFontSizeChangeTokens: Set<UUID> = []
     var lastPrunedFontSizeTransferRetirementGeneration: UInt64 = 0
+    var fontSizeLineageConfigurationGeneration: UInt64
     /// Whether runtime creation should ignore inherited lineage and follow current config.
     var followsConfiguredFontSize: Bool
     let workingDirectory: String?
@@ -494,6 +495,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             configTemplate?.fontSizeChangeToken
         self.transferReconciledFontSizeChangeTokens =
             configTemplate?.fontSizeChangeTokens ?? []
+        self.fontSizeLineageConfigurationGeneration =
+            dependencies.engine
+                .terminalFontConfigurationGeneration
         self.followsConfiguredFontSize = configTemplate?.fontSizeLineage == nil
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal
