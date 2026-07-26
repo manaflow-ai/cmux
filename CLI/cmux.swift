@@ -2397,10 +2397,10 @@ final class SocketClient {
         responseTimeout: TimeInterval,
         deadline: Date? = nil
     ) throws {
-        let challengeLine = try readLine(responseTimeout: remainingSocketTimeout(
+        let challengeLine = try readLine(
             responseTimeout: responseTimeout,
             deadline: deadline
-        ))
+        )
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -2429,10 +2429,10 @@ final class SocketClient {
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine(responseTimeout: remainingSocketTimeout(
+        let authResponseLine = try readLine(
             responseTimeout: responseTimeout,
             deadline: deadline
-        ))
+        )
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -2597,11 +2597,25 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024, responseTimeout: TimeInterval? = nil) throws -> String {
+    private func readLine(
+        maxBytes: Int = 16 * 1024,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
-            try configureReceiveTimeout(responseTimeout ?? Self.responseTimeoutSeconds)
+            let timeout: TimeInterval
+            if let deadline {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    throw CLIError(message: "Relay command timed out")
+                }
+                timeout = min(responseTimeout ?? Self.responseTimeoutSeconds, remaining)
+            } else {
+                timeout = responseTimeout ?? Self.responseTimeoutSeconds
+            }
+            try configureReceiveTimeout(timeout)
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
