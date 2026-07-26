@@ -224,6 +224,74 @@ fn short_lived_terminal_launch_returns_its_final_snapshot() {
 }
 
 #[test]
+fn hosted_exit_detaches_existing_and_later_render_streams() {
+    let harness = RecoveryHarness::start("hosted-exit-detaches-render");
+    let marker = format!("hosted-exit-marker-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                format!("IFS= read -r trigger; printf '{marker}\\n'"),
+            ],
+            "new_workspace": true,
+            "name": "hosted-exit-detach",
+        }),
+    );
+    let surface = created["surface"].as_u64().expect("hosted command returned a surface");
+
+    let attached = transport::connect(&harness.socket).unwrap();
+    attached.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut attached_writer = attached.try_clone_box().unwrap();
+    let mut attached_reader = BufReader::new(attached);
+    writeln!(
+        attached_writer,
+        "{}",
+        serde_json::json!({
+            "id": 2,
+            "cmd": "attach-surface",
+            "surface": surface,
+            "mode": "render",
+        })
+    )
+    .unwrap();
+    wait_for_attach_response(&mut attached_reader, 2);
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "send",
+            "surface": surface,
+            "text": "go\n",
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    wait_for_detached(&mut attached_reader, surface);
+
+    let later = transport::connect(&harness.socket).unwrap();
+    later.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut later_writer = later.try_clone_box().unwrap();
+    let mut later_reader = BufReader::new(later);
+    writeln!(
+        later_writer,
+        "{}",
+        serde_json::json!({
+            "id": 4,
+            "cmd": "attach-surface",
+            "surface": surface,
+            "mode": "render",
+        })
+    )
+    .unwrap();
+    wait_for_attach_response(&mut later_reader, 4);
+    wait_for_detached(&mut later_reader, surface);
+}
+
+#[test]
 fn terminal_host_survives_daemon_process_group_hangup() {
     let mut harness = RecoveryHarness::start_in_own_session("session-hangup");
     let daemon_pid = harness.child.as_ref().unwrap().id() as libc::pid_t;
@@ -2242,6 +2310,33 @@ fn attach_state(path: &Path, surface: u64) -> serde_json::Value {
     let state: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(state["event"], "vt-state", "unexpected attach probe: {state}");
     state
+}
+
+fn wait_for_attach_response(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    request_id: u64,
+) {
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("attach stream closed before response");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == request_id {
+            assert_eq!(value["ok"], true, "attach failed: {value}");
+            return;
+        }
+    }
+}
+
+fn wait_for_detached(reader: &mut BufReader<Box<dyn transport::Stream>>, surface: u64) {
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("timed out waiting for hosted detach");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["event"] == "detached" {
+            assert_eq!(value["surface"], surface);
+            return;
+        }
+    }
 }
 
 fn wait_for_host_cursor_snapshot(
