@@ -301,6 +301,7 @@ fn legacy_server_process_helper() {
             | "applied-close-error"
             | "applied-close-disconnect"
             | "persistent-close-error"
+            | "browser-surface"
     ) {
         let descendant =
             Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
@@ -469,6 +470,7 @@ fn legacy_server_process_helper() {
                 | "persistent-close-error"
                 | "zombie-child"
                 | "reparent-on-close"
+                | "browser-surface"
         ));
         let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
             ("zombie-child", _) => &[],
@@ -478,7 +480,13 @@ fn legacy_server_process_helper() {
         };
         let tabs = surfaces
             .iter()
-            .map(|surface| serde_json::json!({"surface": surface}))
+            .map(|surface| {
+                if scenario == "browser-surface" {
+                    serde_json::json!({"surface": surface, "kind": "browser"})
+                } else {
+                    serde_json::json!({"surface": surface, "kind": "pty"})
+                }
+            })
             .collect::<Vec<_>>();
         writeln!(
             stream,
@@ -1480,6 +1488,26 @@ fn server_stop_does_not_signal_an_older_server_when_pane_cleanup_fails() {
     );
     assert!(server.child.try_wait().unwrap().is_none());
     assert!(process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_refuses_an_older_browser_without_target_confirmation() {
+    let mut server = LegacyServerProcess::start("legacy-server-browser", "browser-surface", None);
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(server.child.try_wait().unwrap().is_none());
 }
 
 #[cfg(unix)]

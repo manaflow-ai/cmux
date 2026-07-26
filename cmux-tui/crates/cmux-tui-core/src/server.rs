@@ -733,6 +733,10 @@ trait MessageSink: Send + Sync {
     fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_control(&self, value: &Value) -> std::io::Result<()>;
+    #[cfg(test)]
+    fn send_control_confirmed(&self, value: &Value, _timeout: Duration) -> std::io::Result<()> {
+        self.send_control(value)
+    }
     fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
@@ -5121,6 +5125,89 @@ mod tests {
         assert!(mux.surface(surface.id).is_none());
         let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response, json!({"id": 7, "ok": true, "data": {}}));
+    }
+
+    struct ConfirmedControlSink {
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        open: AtomicBool,
+    }
+
+    impl MessageSink for ConfirmedControlSink {
+        fn send_initial(&self, _value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_stream(&self, _value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_control(&self, _value: &Value) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn send_control_confirmed(
+            &self,
+            _value: &Value,
+            _timeout: Duration,
+        ) -> std::io::Result<()> {
+            self.entered
+                .send(())
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "test closed"))?;
+            self.release
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "test closed"))
+        }
+
+        fn send_terminal(&self, _value: &Value, _stream: &OutboundStream) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn is_open(&self) -> bool {
+            self.open.load(Ordering::Acquire)
+        }
+
+        fn close(&self) {
+            self.open.store(false, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn local_shutdown_waits_for_the_acknowledgement_write() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(ConfirmedControlSink {
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+            open: AtomicBool::new(true),
+        });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let request = std::thread::spawn({
+            let mux = mux.clone();
+            let writer = writer.clone();
+            move || {
+                done_tx
+                    .send(handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer))
+                    .unwrap();
+            }
+        });
+
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("shutdown did not use the confirmed control path");
+        assert!(!mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+        assert!(done_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+        release_tx.send(()).unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        request.join().unwrap();
+        assert!(mux.shutdown_requested());
     }
 
     #[test]

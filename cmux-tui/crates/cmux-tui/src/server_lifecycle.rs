@@ -779,4 +779,24 @@ mod tests {
 
         assert_eq!(legacy_surface_ids(&data), [11, 12, 13]);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn response_deadline_overrides_a_longer_stream_timeout() {
+        let (client, _server) = std::os::unix::net::UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        let mut reader = BufReader::new(Box::new(client) as Box<dyn transport::Stream>);
+        let started = Instant::now();
+
+        let error =
+            read_matching_response_with_timeout(&mut reader, 7, false, Duration::from_millis(50))
+                .unwrap_err();
+
+        assert!(
+            started.elapsed() < Duration::from_millis(250),
+            "response deadline was hidden by the stream timeout: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(error.to_string(), crate::localization::catalog().server.transport_failed);
+    }
 }

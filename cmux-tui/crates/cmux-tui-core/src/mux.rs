@@ -10150,6 +10150,25 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_surface_close_does_not_retry_unrelated_retained_owners() {
+        let mux = test_mux();
+        let retained = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let retained_owner = mux.surface(retained.id).unwrap();
+        let attempts = retained_owner.count_server_shutdown_attempts_for_test();
+
+        assert!(mux.close_surface(retained.id).unwrap());
+        assert_eq!(attempts.load(Ordering::Acquire), 1);
+
+        let current = mux.new_workspace(None, Some((80, 24))).unwrap();
+        assert!(mux.close_surface(current.id).unwrap());
+        assert_eq!(
+            attempts.load(Ordering::Acquire),
+            1,
+            "an unrelated close retried retained shutdown ownership"
+        );
+    }
+
+    #[test]
     fn server_shutdown_cannot_pass_an_in_flight_surface_retirement() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
