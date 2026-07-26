@@ -1395,7 +1395,7 @@ mod tests {
 
         assert_eq!(
             controller.perform(MachineRequest::Create).unwrap().ui.notice.as_deref(),
-            Some("このマシンカタログでは仮想マシンを作成できません")
+            Some("このマシンカタログではマシンを作成できません")
         );
         assert_eq!(
             controller

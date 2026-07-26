@@ -106,7 +106,7 @@ impl AttachMessages {
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
-    pub new_vm: &'static str,
+    pub new_machine: &'static str,
     pub connect_machine: &'static str,
     pub no_machines: &'static str,
     pub recoverable_machine: &'static str,
@@ -304,7 +304,7 @@ edits shell files. Authenticate with the configured host before retrying.
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
-        new_vm: "new VM",
+        new_machine: "new machine",
         connect_machine: "connect machine",
         no_machines: "no machines",
         recoverable_machine: "recoverable",
@@ -362,7 +362,7 @@ edits shell files. Authenticate with the configured host before retrying.
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
         machine_managed_authority_unsupported: "This provider cannot authorize managed workspace mirrors; upgrade the machine provider",
         machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
-        machine_catalog_create_unsupported: "This machine catalog cannot create VMs",
+        machine_catalog_create_unsupported: "This machine catalog cannot create machines",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
         machine_catalog_updates_failed: "Machine catalog updates could not start",
         machine_catalog_restart_failed: "Machine switched without live catalog updates",
@@ -446,7 +446,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
-        new_vm: "新規 VM",
+        new_machine: "新規マシン",
         connect_machine: "マシンを接続",
         no_machines: "マシンがありません",
         recoverable_machine: "復元可能",
@@ -504,7 +504,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
         machine_managed_authority_unsupported: "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください",
         machine_managed_authority_invalid: "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました",
-        machine_catalog_create_unsupported: "このマシンカタログでは仮想マシンを作成できません",
+        machine_catalog_create_unsupported: "このマシンカタログではマシンを作成できません",
         machine_catalog_provider_actions_unsupported: "このマシンカタログにはプロバイダーアクションがありません",
         machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",
         machine_catalog_restart_failed: "マシンは切り替わりましたが、カタログのライブ更新を再開できませんでした",
@@ -632,8 +632,8 @@ mod tests {
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_vm, "new machine");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_vm, "新規マシン");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new machine");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規マシン");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"
