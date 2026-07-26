@@ -244,8 +244,8 @@ jobs:
       # provisioning profile step can use it). The manual demo variant ships the
       # same main head as a separate app so demos are isolated from the internal
       # firehose (and its per-app upload limit).
-      IOS_BETA_BUNDLE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
-      IOS_BETA_DISPLAY_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
+      IOS_BETA_BUNDLE_ID: ${{ github.event.inputs.marketing_version_override != '' && 'dev.cmux.app.beta' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}
+      IOS_BETA_DISPLAY_NAME: ${{ github.event.inputs.marketing_version_override != '' && 'cmux BETA' || github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'demo' && 'cmux DEMO' || 'cmux INTERNAL' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
