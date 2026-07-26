@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
@@ -31,6 +32,8 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const SHUTDOWN_TRANSPORT_MARGIN: Duration = Duration::from_secs(5);
 const SHUTDOWN_RESPONSE_TIMEOUT: Duration =
     SERVER_SHUTDOWN_TIMEOUT.saturating_add(SHUTDOWN_TRANSPORT_MARGIN);
+const LAUNCHER_COMMAND_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
+const MAX_LAUNCHER_COMMAND_BYTES: usize = 4096;
 
 type TransportReader = BufReader<Box<dyn transport::Stream>>;
 
@@ -482,8 +485,23 @@ pub(crate) fn incompatible_server_message(identity: &ServerIdentity, path: &Path
 }
 
 fn current_launcher_command() -> String {
-    std::env::args_os()
-        .next()
+    let override_command = std::env::var_os(LAUNCHER_COMMAND_ENV);
+    let argv0 = std::env::args_os().next();
+    launcher_command_from(override_command.as_deref(), argv0.as_deref())
+}
+
+fn launcher_command_from(override_command: Option<&OsStr>, argv0: Option<&OsStr>) -> String {
+    if let Some(command) =
+        override_command.and_then(OsStr::to_str).map(str::trim).filter(|command| {
+            !command.is_empty()
+                && command.len() <= MAX_LAUNCHER_COMMAND_BYTES
+                && !command.chars().any(char::is_control)
+        })
+    {
+        return command.to_string();
+    }
+
+    argv0
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .map(|path| shell_quote(&path))
@@ -659,18 +677,12 @@ mod tests {
 
     #[test]
     fn replayable_launcher_override_survives_one_shot_package_shims() {
-        let argv0 = std::ffi::OsStr::new("/tmp/ephemeral/bin/cmux");
+        let argv0 = OsStr::new("/tmp/ephemeral/bin/cmux");
 
+        assert_eq!(launcher_command_from(Some(OsStr::new("npx cmux")), Some(argv0)), "npx cmux");
+        assert_eq!(launcher_command_from(Some(OsStr::new("uvx cmux")), Some(argv0)), "uvx cmux");
         assert_eq!(
-            launcher_command_from(Some(std::ffi::OsStr::new("npx cmux")), Some(argv0)),
-            "npx cmux"
-        );
-        assert_eq!(
-            launcher_command_from(Some(std::ffi::OsStr::new("uvx cmux")), Some(argv0)),
-            "uvx cmux"
-        );
-        assert_eq!(
-            launcher_command_from(Some(std::ffi::OsStr::new("bad\ncommand")), Some(argv0)),
+            launcher_command_from(Some(OsStr::new("bad\ncommand")), Some(argv0)),
             "/tmp/ephemeral/bin/cmux"
         );
     }

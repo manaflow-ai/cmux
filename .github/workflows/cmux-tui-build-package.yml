@@ -136,6 +136,24 @@ jobs:
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
           ls -la dist
 
+      - name: Verify native binary identity
+        if: matrix.cross == false
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ (inputs.package_npm || inputs.package_pypi) && inputs.version || '' }}
+        run: |
+          if [[ -z "$EXPECTED_VERSION" ]]; then
+            EXPECTED_VERSION="$(
+              cargo metadata --manifest-path cmux-tui/Cargo.toml --no-deps --format-version 1 |
+                python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "cmux-tui"))'
+            )"
+          fi
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary "dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}" \
+            --version "$EXPECTED_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git -C ghostty rev-parse HEAD)"
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -258,6 +276,15 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-gnu
           path: dist/binaries
 
+      - name: Verify downloaded binary identity
+        run: |
+          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary dist/binaries/cmux-tui-x86_64-unknown-linux-gnu \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
@@ -308,9 +335,14 @@ jobs:
               if not binary.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{binary} is not executable")
           PY
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
+          mkdir -p dist/npm-smoke/node_modules
+          cp -R dist/npm-packages/cmux dist/npm-smoke/node_modules/cmux
+          cp -R dist/npm-packages/cmux-tui-linux-x64 dist/npm-smoke/node_modules/cmux-tui-linux-x64
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary dist/npm-smoke/node_modules/cmux/bin/cmux.js \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
 
       - name: Archive npm package directories with executable modes
         if: inputs.package_npm
@@ -326,13 +358,13 @@ jobs:
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
           done
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
-          /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
-          grep -i usage /tmp/cmux-help.txt
+          python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
+            --binary /tmp/cmux-tui-wheel-smoke/bin/cmux \
+            --version "$NPM_VERSION" \
+            --build-commit "$(git rev-parse HEAD)" \
+            --ghostty-commit "$(git rev-parse HEAD:ghostty)"
 
       - name: Upload npm package directories
         if: inputs.package_npm

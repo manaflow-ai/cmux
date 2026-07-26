@@ -28,6 +28,7 @@ if (!pkg) {
 }
 
 const binName = process.platform === "win32" ? "cmux-tui.exe" : "cmux-tui";
+const launcherCommand = process.env.npm_command === "exec" ? "npx cmux" : "cmux";
 
 let binPath;
 try {
@@ -42,6 +43,10 @@ try {
 
 const result = spawnSync(binPath, process.argv.slice(2), {
   argv0: "cmux",
+  env: {
+    ...process.env,
+    CMUX_TUI_LAUNCHER_COMMAND: launcherCommand,
+  },
   stdio: "inherit",
 });
 

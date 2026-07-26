@@ -91,11 +91,27 @@ def wheel_bytes(version: str, tag: str, binary: bytes) -> list[tuple[str, bytes,
 
 import os
 import pathlib
+import shlex
 import sys
+
+
+def _launcher_command(argv0: str) -> str:
+    parts = pathlib.PurePath(argv0).parts
+    for index, part in enumerate(parts):
+        if part != "uv":
+            continue
+        if any(
+            candidate.startswith("archive-v")
+            and candidate.removeprefix("archive-v").isdigit()
+            for candidate in parts[index + 1 :]
+        ):
+            return "uvx cmux"
+    return shlex.quote(argv0) if argv0 else "cmux"
 
 
 def main() -> None:
     binary = pathlib.Path(__file__).resolve().parent / "bin" / "cmux-tui"
+    os.environ.setdefault("CMUX_TUI_LAUNCHER_COMMAND", _launcher_command(sys.argv[0]))
     os.execv(str(binary), ["cmux", *sys.argv[1:]])
 """
             ),
