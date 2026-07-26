@@ -56,6 +56,8 @@ const SHUTDOWN_RECONCILE_MAX_DELAY: Duration = Duration::from_secs(1);
 const SHUTDOWN_OWNER_CAPACITY: usize = 4_096;
 #[cfg(unix)]
 const TERMINAL_ADOPTION_QUEUE_CAPACITY: usize = SHUTDOWN_OWNER_CAPACITY;
+#[cfg(unix)]
+const TERMINAL_ADOPTION_WORKERS: usize = 4;
 #[cfg(not(test))]
 const SHUTDOWN_RECONCILE_MAX_ATTEMPTS: usize = 8;
 #[cfg(test)]
@@ -76,7 +78,8 @@ struct TerminalAdoptionQueueState {
     rescan_required: bool,
     next_rescan: Option<Instant>,
     rescan_delay: Duration,
-    worker_running: bool,
+    workers_running: usize,
+    stopping: bool,
 }
 
 #[cfg(unix)]
@@ -87,7 +90,8 @@ impl Default for TerminalAdoptionQueueState {
             rescan_required: false,
             next_rescan: None,
             rescan_delay: Duration::from_millis(100),
-            worker_running: false,
+            workers_running: 0,
+            stopping: false,
         }
     }
 }
@@ -103,6 +107,27 @@ struct TerminalAdoptionCoordinator {
 enum ShutdownOwnerKey {
     Surface(SurfaceId),
     Hosted { terminal_id: String, incarnation: String },
+}
+
+enum ShutdownOwnerWork {
+    Single((ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)),
+    BrowserBatch {
+        runtime: Arc<BrowserRuntime>,
+        owners: Vec<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)>,
+    },
+}
+
+impl ShutdownOwnerWork {
+    fn record_failed_keys(&self, failed: &mut HashSet<ShutdownOwnerKey>) {
+        match self {
+            Self::Single((key, _)) => {
+                failed.insert(key.clone());
+            }
+            Self::BrowserBatch { owners, .. } => {
+                failed.extend(owners.iter().map(|(key, _)| key.clone()));
+            }
+        }
+    }
 }
 
 fn shutdown_owner_key(surface: SurfaceId, owner: &SurfaceShutdownOwner) -> ShutdownOwnerKey {
@@ -1638,7 +1663,7 @@ impl Mux {
         #[cfg(unix)]
         {
             if mux.surface_options.lock().unwrap().terminal_host_root.is_some() {
-                mux.ensure_terminal_adoption_worker()?;
+                mux.ensure_terminal_adoption_workers()?;
             }
             mux.adopt_terminal_hosts()?;
         }
@@ -2089,31 +2114,52 @@ impl Mux {
     }
 
     #[cfg(unix)]
-    fn ensure_terminal_adoption_worker(self: &Arc<Self>) -> std::io::Result<()> {
+    fn ensure_terminal_adoption_workers(self: &Arc<Self>) -> std::io::Result<()> {
         let coordinator = self.terminal_adoption_coordinator.clone();
-        {
+        let (existing, missing) = {
             let mut state = coordinator.state.lock().unwrap();
-            if state.worker_running {
+            if state.stopping {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "terminal adoption is stopping",
+                ));
+            }
+            if state.workers_running >= TERMINAL_ADOPTION_WORKERS {
                 return Ok(());
             }
-            state.worker_running = true;
-        }
-        let mux = Arc::downgrade(self);
-        let worker_coordinator = coordinator.clone();
-        match std::thread::Builder::new().name("terminal-adoption-coordinator".into()).spawn(
-            move || {
-                #[cfg(test)]
-                if let Some(mux) = mux.upgrade() {
-                    mux.terminal_adoption_workers_started.fetch_add(1, Ordering::AcqRel);
+            let existing = state.workers_running;
+            let missing = TERMINAL_ADOPTION_WORKERS - existing;
+            state.workers_running += missing;
+            (existing, missing)
+        };
+        let mut started = 0;
+        let mut first_error = None;
+        for worker in 0..missing {
+            let worker = existing + worker;
+            let mux = Arc::downgrade(self);
+            let worker_coordinator = coordinator.clone();
+            match std::thread::Builder::new().name(format!("terminal-adoption-{worker}")).spawn(
+                move || {
+                    #[cfg(test)]
+                    if let Some(mux) = mux.upgrade() {
+                        mux.terminal_adoption_workers_started.fetch_add(1, Ordering::AcqRel);
+                    }
+                    Self::run_terminal_adoption_worker(mux, worker_coordinator);
+                },
+            ) {
+                Ok(_) => started += 1,
+                Err(error) => {
+                    let mut state = coordinator.state.lock().unwrap();
+                    state.workers_running = state.workers_running.saturating_sub(1);
+                    coordinator.wake.notify_all();
+                    first_error.get_or_insert(error);
                 }
-                Self::run_terminal_adoption_worker(mux, worker_coordinator);
-            },
-        ) {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                coordinator.state.lock().unwrap().worker_running = false;
-                Err(error)
             }
+        }
+        if existing + started > 0 {
+            Ok(())
+        } else {
+            Err(first_error.expect("at least one worker spawn failed"))
         }
     }
 
@@ -2151,7 +2197,7 @@ impl Mux {
             delay: Duration::from_millis(100),
         });
         self.terminal_adoption_coordinator.wake.notify_one();
-        if self.ensure_terminal_adoption_worker().is_err() {
+        if self.ensure_terminal_adoption_workers().is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&terminal_id);
             let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
             state.tasks.retain(|task| task.record.terminal_id != terminal_id);
@@ -2187,15 +2233,19 @@ impl Mux {
         coordinator: Arc<TerminalAdoptionCoordinator>,
     ) {
         loop {
+            let stopping = coordinator.state.lock().unwrap().stopping;
+            if stopping {
+                Self::terminal_adoption_worker_stopped(&coordinator);
+                return;
+            }
             let Some(mux) = mux.upgrade() else {
-                coordinator.state.lock().unwrap().worker_running = false;
+                Self::terminal_adoption_worker_stopped(&coordinator);
                 return;
             };
             if mux.shutting_down.load(Ordering::Acquire) {
                 mux.terminal_adoptions.lock().unwrap().clear();
-                let mut state = coordinator.state.lock().unwrap();
-                state.tasks.clear();
-                state.worker_running = false;
+                drop(mux);
+                Self::terminal_adoption_worker_stopped(&coordinator);
                 return;
             }
 
@@ -2225,6 +2275,8 @@ impl Mux {
                 if complete {
                     mux.terminal_adoptions.lock().unwrap().remove(&task.record.terminal_id);
                     coordinator.wake.notify_one();
+                } else if mux.shutting_down.load(Ordering::Acquire) {
+                    mux.terminal_adoptions.lock().unwrap().remove(&task.record.terminal_id);
                 } else {
                     task.delay = (task.delay * 2).min(Duration::from_secs(5));
                     task.next_attempt = Instant::now() + task.delay;
@@ -2243,6 +2295,39 @@ impl Mux {
             drop(mux);
             let _ = coordinator.wake.wait_timeout(state, wait).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    fn terminal_adoption_worker_stopped(coordinator: &TerminalAdoptionCoordinator) {
+        let mut state = coordinator.state.lock().unwrap();
+        state.workers_running = state.workers_running.saturating_sub(1);
+        coordinator.wake.notify_all();
+    }
+
+    #[cfg(unix)]
+    fn request_terminal_adoption_stop(&self) {
+        self.terminal_adoptions.lock().unwrap().clear();
+        let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
+        state.stopping = true;
+        state.tasks.clear();
+        self.terminal_adoption_coordinator.wake.notify_all();
+    }
+
+    #[cfg(unix)]
+    fn wait_for_terminal_adoption_workers_until(&self, deadline: Instant) -> bool {
+        let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
+        while state.workers_running != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) =
+                self.terminal_adoption_coordinator.wake.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.workers_running != 0 {
+                return false;
+            }
+        }
+        true
     }
 
     #[cfg(unix)]
@@ -2319,18 +2404,20 @@ impl Mux {
         };
         let id = self.next_id();
         #[cfg(test)]
-        let adopted =
-            if let Some(factory) = self.terminal_adoption_surface_factory.lock().unwrap().clone() {
-                factory(id)
-            } else {
-                Surface::adopt_hosted(
-                    id,
-                    task.options.clone(),
-                    Arc::downgrade(self),
-                    task.record.clone(),
-                    task.record_path.clone(),
-                )
-            };
+        let adoption_surface_factory =
+            self.terminal_adoption_surface_factory.lock().unwrap().clone();
+        #[cfg(test)]
+        let adopted = if let Some(factory) = adoption_surface_factory {
+            factory(id)
+        } else {
+            Surface::adopt_hosted(
+                id,
+                task.options.clone(),
+                Arc::downgrade(self),
+                task.record.clone(),
+                task.record_path.clone(),
+            )
+        };
         #[cfg(not(test))]
         let adopted = Surface::adopt_hosted(
             id,
@@ -2341,7 +2428,9 @@ impl Mux {
         );
         let Ok(surface) = adopted else { return false };
         #[cfg(test)]
-        if let Some(hook) = self.terminal_adoption_after_attach.lock().unwrap().clone() {
+        let after_attach = self.terminal_adoption_after_attach.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some(hook) = after_attach {
             hook();
         }
         if self
@@ -4602,18 +4691,62 @@ impl Mux {
             deadline,
         )
         .ok();
+        let mut single_work = Vec::new();
+        let mut browser_batches = HashMap::<
+            *const BrowserRuntime,
+            (Arc<BrowserRuntime>, Vec<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)>),
+        >::new();
+        for (key, owner) in &owners {
+            if let Some(runtime) = owner.browser_runtime() {
+                browser_batches
+                    .entry(Arc::as_ptr(runtime))
+                    .or_insert_with(|| (runtime.clone(), Vec::new()))
+                    .1
+                    .push((key.clone(), owner.clone()));
+            } else {
+                single_work.push(ShutdownOwnerWork::Single((key.clone(), owner.clone())));
+            }
+        }
+        // Start each high-fan-in browser batch before individual process work,
+        // so a saturated fanout cannot strand every target behind the deadline.
+        let mut work = browser_batches
+            .into_values()
+            .map(|(runtime, owners)| ShutdownOwnerWork::BrowserBatch { runtime, owners })
+            .collect::<Vec<_>>();
+        work.extend(single_work);
+
         let failed = Mutex::new(HashSet::new());
-        let started = bounded_shutdown_fanout(&owners, deadline, |(key, owner), deadline| {
-            #[cfg(unix)]
-            let terminated = owner.terminate_until_in_batch(deadline, process_snapshot.as_ref());
-            #[cfg(not(unix))]
-            let terminated = owner.terminate_until(deadline);
-            if !terminated {
-                failed.lock().unwrap().insert(key.clone());
+        let started = bounded_shutdown_fanout(&work, deadline, |work, deadline| match work {
+            ShutdownOwnerWork::Single((key, owner)) => {
+                #[cfg(unix)]
+                let terminated =
+                    owner.terminate_until_in_batch(deadline, process_snapshot.as_ref());
+                #[cfg(not(unix))]
+                let terminated = owner.terminate_until(deadline);
+                if !terminated {
+                    failed.lock().unwrap().insert(key.clone());
+                }
+            }
+            ShutdownOwnerWork::BrowserBatch { runtime, owners } => {
+                let browser_owners = owners
+                    .iter()
+                    .map(|(_, owner)| {
+                        owner.browser_shutdown_owner().expect("browser batch has browser owners")
+                    })
+                    .collect::<Vec<_>>();
+                let outcomes = runtime.close_owners_for_shutdown(&browser_owners, deadline);
+                let mut failed = failed.lock().unwrap();
+                for (index, (key, _)) in owners.iter().enumerate() {
+                    if !outcomes.get(index).copied().unwrap_or(false) {
+                        failed.insert(key.clone());
+                    }
+                }
             }
         });
         let mut failed = failed.into_inner().unwrap();
-        failed.extend(owners[started..].iter().map(|(key, _)| key.clone()));
+        for work in &work[started..] {
+            work.record_failed_keys(&mut failed);
+        }
         let confirmed =
             owners.into_iter().filter(|(key, _)| !failed.contains(key)).collect::<Vec<_>>();
         self.shutdown_owners.remove_confirmed(&confirmed);
@@ -4637,11 +4770,13 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         #[cfg(unix)]
-        self.terminal_adoption_coordinator.wake.notify_all();
+        self.request_terminal_adoption_stop();
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
         let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else { return };
         let _ = self.surface_creations.stop_and_wait_until(deadline);
         let _ = self.async_surface_creations.stop_and_wait_until(deadline);
+        #[cfg(unix)]
+        let _ = self.wait_for_terminal_adoption_workers_until(deadline);
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in &surfaces {
             surface.disconnect_for_daemon_shutdown();
@@ -4701,12 +4836,16 @@ impl Mux {
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
         self.shutting_down.store(true, Ordering::Release);
         #[cfg(unix)]
-        self.terminal_adoption_coordinator.wake.notify_all();
+        self.request_terminal_adoption_stop();
         if !self.surface_creations.stop_and_wait_until(deadline) {
             anyhow::bail!("surface creation did not stop before the shutdown deadline");
         }
         if !self.async_surface_creations.stop_and_wait_until(deadline) {
             anyhow::bail!("browser bootstrap did not stop before the shutdown deadline");
+        }
+        #[cfg(unix)]
+        if !self.wait_for_terminal_adoption_workers_until(deadline) {
+            anyhow::bail!("terminal adoption did not stop before the shutdown deadline");
         }
 
         #[cfg(unix)]
@@ -4931,7 +5070,7 @@ impl Mux {
         self.async_surface_creations.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
         #[cfg(unix)]
-        self.terminal_adoption_coordinator.wake.notify_all();
+        self.request_terminal_adoption_stop();
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
@@ -11432,7 +11571,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn terminal_adoption_overflow_uses_one_shared_worker() {
+    fn terminal_adoption_overflow_uses_one_bounded_worker_pool() {
         let options = SurfaceOptions::default();
         let mux = Mux::new_for_test("adoption-worker-bound", options.clone());
         let root =
@@ -11459,17 +11598,27 @@ mod tests {
             );
         }
 
-        let deadline = Instant::now() + Duration::from_millis(250);
-        while mux.terminal_adoption_workers_started.load(Ordering::Acquire) < 3
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_adoption_workers_started.load(Ordering::Acquire)
+            < TERMINAL_ADOPTION_WORKERS
             && Instant::now() < deadline
         {
             std::thread::sleep(Duration::from_millis(10));
         }
         let workers = mux.terminal_adoption_workers_started.load(Ordering::Acquire);
+        let workers_running =
+            mux.terminal_adoption_coordinator.state.lock().unwrap().workers_running;
         mux.request_daemon_shutdown();
         let _ = std::fs::remove_dir_all(root);
 
-        assert!(workers <= 1, "overflow adoption started {workers} retry threads");
+        assert_eq!(
+            workers, TERMINAL_ADOPTION_WORKERS,
+            "adoption did not preflight its fixed worker pool"
+        );
+        assert!(
+            workers_running <= TERMINAL_ADOPTION_WORKERS,
+            "overflow adoption retained {workers_running} concurrent retry threads"
+        );
     }
 
     #[cfg(unix)]
@@ -11540,7 +11689,6 @@ mod tests {
         *mux.terminal_adoption_surface_factory.lock().unwrap() = Some(Arc::new({
             let mux = Arc::downgrade(&mux);
             let options = options.clone();
-            let calls = calls.clone();
             move |id| {
                 let call = calls.fetch_add(1, Ordering::AcqRel);
                 if call == 0 {

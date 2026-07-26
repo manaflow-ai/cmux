@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
@@ -276,12 +276,6 @@ struct SurfaceRouteState {
 struct QueuedSurfaceEvent {
     event: CdpEvent,
     retained_bytes: usize,
-}
-
-enum ExternalTargetShutdown {
-    Closed,
-    StillOpen,
-    Unreachable,
 }
 
 impl SurfaceRoute {
@@ -562,64 +556,128 @@ impl BrowserRuntime {
         session_id: &str,
         deadline: Instant,
     ) -> bool {
-        self.unregister(target_id, session_id);
-        if !self.is_closed() {
-            match Self::close_external_target_until(&self.client, target_id, deadline) {
-                ExternalTargetShutdown::Closed => return true,
-                ExternalTargetShutdown::StillOpen => return false,
-                ExternalTargetShutdown::Unreachable => {}
-            }
+        self.close_surfaces_for_shutdown(&[(target_id, session_id)], deadline)
+            .into_iter()
+            .next()
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn close_owners_for_shutdown(
+        &self,
+        owners: &[&BrowserShutdownOwner],
+        deadline: Instant,
+    ) -> Vec<bool> {
+        debug_assert!(owners.iter().all(|owner| std::ptr::eq(self, owner.runtime().as_ref())));
+        let surfaces = owners
+            .iter()
+            .map(|owner| (owner.0.target_id.as_str(), owner.0.session_id.as_str()))
+            .collect::<Vec<_>>();
+        self.close_surfaces_for_shutdown(&surfaces, deadline)
+    }
+
+    fn close_surfaces_for_shutdown(
+        &self,
+        surfaces: &[(&str, &str)],
+        deadline: Instant,
+    ) -> Vec<bool> {
+        for (target_id, session_id) in surfaces {
+            self.unregister(target_id, session_id);
         }
+        if surfaces.is_empty() {
+            return Vec::new();
+        }
+        let targets = surfaces.iter().map(|(target_id, _)| *target_id).collect::<Vec<_>>();
+        let mut outcomes = if self.is_closed() {
+            vec![None; targets.len()]
+        } else {
+            Self::close_external_targets_until(&self.client, &targets, deadline)
+        };
+        let unresolved = outcomes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, outcome)| outcome.is_none().then_some(index))
+            .collect::<Vec<_>>();
+        if unresolved.is_empty() {
+            return outcomes.into_iter().map(|outcome| outcome.unwrap_or(false)).collect();
+        }
+
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return false;
+            return outcomes.into_iter().map(|outcome| outcome.unwrap_or(false)).collect();
         };
         let (event_tx, _event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
         let Ok(client) = self.client.reconnect_with_timeout(event_tx, remaining) else {
-            return false;
+            return outcomes.into_iter().map(|outcome| outcome.unwrap_or(false)).collect();
         };
-        matches!(
-            Self::close_external_target_until(&client, target_id, deadline),
-            ExternalTargetShutdown::Closed
-        )
+        let retry_targets = unresolved.iter().map(|index| targets[*index]).collect::<Vec<_>>();
+        let retry_outcomes = Self::close_external_targets_until(&client, &retry_targets, deadline);
+        for (index, outcome) in unresolved.into_iter().zip(retry_outcomes) {
+            outcomes[index] = outcome;
+        }
+        outcomes.into_iter().map(|outcome| outcome.unwrap_or(false)).collect()
     }
 
-    fn close_external_target_until(
+    fn close_external_targets_until(
         client: &CdpClient,
-        target_id: &str,
+        target_ids: &[&str],
         deadline: Instant,
-    ) -> ExternalTargetShutdown {
+    ) -> Vec<Option<bool>> {
+        let mut outcomes = vec![None; target_ids.len()];
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return ExternalTargetShutdown::Unreachable;
+            return outcomes;
         };
         let query_timeout = remaining / 3;
         if query_timeout.is_zero() {
-            return ExternalTargetShutdown::Unreachable;
+            return outcomes;
         }
-        match client.target_exists_with_timeout(target_id, query_timeout) {
-            Ok(false) => return ExternalTargetShutdown::Closed,
-            Ok(true) => {}
-            Err(_) => return ExternalTargetShutdown::Unreachable,
+        let Ok(open_targets) = client.target_ids_with_timeout(query_timeout) else {
+            return outcomes;
+        };
+        let open_targets = open_targets.into_iter().collect::<HashSet<_>>();
+        let pending = target_ids
+            .iter()
+            .enumerate()
+            .filter_map(|(index, target_id)| {
+                if open_targets.contains(*target_id) {
+                    Some(index)
+                } else {
+                    outcomes[index] = Some(true);
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut ambiguous = Vec::new();
+        for (position, index) in pending.iter().copied().enumerate() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                ambiguous.extend_from_slice(&pending[position..]);
+                break;
+            };
+            let slots = u32::try_from(pending.len() - position + 1).unwrap_or(u32::MAX);
+            let close_timeout = remaining / slots;
+            if close_timeout.is_zero() {
+                ambiguous.push(index);
+                continue;
+            }
+            if client.close_target_with_timeout(target_ids[index], close_timeout).is_ok() {
+                outcomes[index] = Some(true);
+            } else {
+                ambiguous.push(index);
+            }
+        }
+        if ambiguous.is_empty() {
+            return outcomes;
         }
 
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return ExternalTargetShutdown::StillOpen;
+            return outcomes;
         };
-        let close_timeout = remaining / 3;
-        if close_timeout.is_zero() {
-            return ExternalTargetShutdown::StillOpen;
-        }
-        if client.close_target_with_timeout(target_id, close_timeout).is_ok() {
-            return ExternalTargetShutdown::Closed;
-        }
-
-        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return ExternalTargetShutdown::Unreachable;
+        let Ok(open_targets) = client.target_ids_with_timeout(remaining) else {
+            return outcomes;
         };
-        match client.target_exists_with_timeout(target_id, remaining) {
-            Ok(false) => ExternalTargetShutdown::Closed,
-            Ok(true) => ExternalTargetShutdown::StillOpen,
-            Err(_) => ExternalTargetShutdown::Unreachable,
+        let open_targets = open_targets.into_iter().collect::<HashSet<_>>();
+        for index in ambiguous {
+            outcomes[index] = Some(!open_targets.contains(target_ids[index]));
         }
+        outcomes
     }
 
     pub fn shutdown(&self) {

@@ -547,6 +547,10 @@ impl CdpClient {
         target_id: &str,
         timeout: Duration,
     ) -> anyhow::Result<bool> {
+        Ok(self.target_ids_with_timeout(timeout)?.iter().any(|candidate| candidate == target_id))
+    }
+
+    pub fn target_ids_with_timeout(&self, timeout: Duration) -> anyhow::Result<Vec<String>> {
         let result = self.call_with_timeout("Target.getTargets", json!({}), None, timeout)?;
         let targets = result
             .get("targetInfos")
@@ -554,7 +558,8 @@ impl CdpClient {
             .ok_or_else(|| anyhow::anyhow!("Target.getTargets response missing targetInfos"))?;
         Ok(targets
             .iter()
-            .any(|target| target.get("targetId").and_then(Value::as_str) == Some(target_id)))
+            .filter_map(|target| target.get("targetId").and_then(Value::as_str).map(str::to_string))
+            .collect())
     }
 
     pub fn close_target_detached(&self, target_id: &str) -> anyhow::Result<()> {

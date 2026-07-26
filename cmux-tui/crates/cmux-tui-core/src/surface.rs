@@ -755,6 +755,15 @@ impl SurfaceShutdownOwner {
         }
     }
 
+    pub(crate) fn browser_shutdown_owner(&self) -> Option<&BrowserShutdownOwner> {
+        match &self.kind {
+            SurfaceShutdownOwnerKind::Browser(owner) => Some(owner),
+            SurfaceShutdownOwnerKind::Local(_) => None,
+            #[cfg(unix)]
+            SurfaceShutdownOwnerKind::Hosted(_) => None,
+        }
+    }
+
     #[cfg(unix)]
     pub(crate) fn hosted(
         record: crate::terminal_host_runtime::TerminalHostRecord,
