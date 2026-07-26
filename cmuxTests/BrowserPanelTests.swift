@@ -2955,6 +2955,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
     }
 
+    private func waitForNextMainTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+    }
+
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
         let candidates = slot.subviews + (slot.superview?.subviews ?? [])
         return candidates.first(where: {
@@ -3969,7 +3977,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(overlay.isHidden, "Restoring visibility should restore the active drop-zone overlay")
     }
 
-    func testPortalRevealRefreshesHostedWebViewSynchronouslyOnceWithoutFrameDelta() {
+    func testPortalRevealRefreshesHostedWebViewSynchronouslyOnceWithoutFrameDelta() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -3990,14 +3998,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        await waitForNextMainTurn()
         let initialDisplayCount = webView.displayIfNeededCount
         let initialEnterInWindowCount = webView.enterInWindowCount
         let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        await waitForNextMainTurn()
         let hiddenDisplayCount = webView.displayIfNeededCount
         let hiddenEnterInWindowCount = webView.enterInWindowCount
         let hiddenEndDeferringCount = webView.endDeferringViewInWindowChangesCount
@@ -4036,7 +4044,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
         )
 
-        advanceAnimations()
+        await waitForNextMainTurn()
 
         XCTAssertEqual(
             webView.enterInWindowCount,
@@ -4050,7 +4058,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testForcedPortalRefreshRunsSynchronouslyOnce() {
+    func testForcedPortalRefreshRunsSynchronouslyOnce() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -4072,7 +4080,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let webViewId = ObjectIdentifier(webView)
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        await waitForNextMainTurn()
         let initialEnterInWindowCount = webView.enterInWindowCount
         let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
 
@@ -4091,10 +4099,59 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "A forced refresh should invoke the WebKit deferred-window selector once in the portal sync"
         )
 
-        advanceAnimations()
+        await waitForNextMainTurn()
 
         XCTAssertEqual(webView.enterInWindowCount, refreshedEnterInWindowCount)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
+    }
+
+    func testRegistryBindOwnsOneSynchronousPresentationRefresh() async {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            window.orderOut(nil)
+            window.close()
+        }
+        let initialEnterInWindowCount = webView.enterInWindowCount
+        let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+
+        BrowserWindowPortalRegistry.bind(
+            webView: webView,
+            to: anchor,
+            visibleInUI: true
+        )
+        let boundEnterInWindowCount = webView.enterInWindowCount
+        let boundEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+
+        XCTAssertEqual(
+            boundEnterInWindowCount - initialEnterInWindowCount,
+            1,
+            "Registry bind should own one synchronous WebKit window-entry refresh"
+        )
+        XCTAssertEqual(
+            boundEndDeferringCount - initialEndDeferringCount,
+            1,
+            "Registry bind should own one synchronous deferred-window refresh"
+        )
+
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(webView.enterInWindowCount, boundEnterInWindowCount)
+        XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, boundEndDeferringCount)
     }
 
     func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() {

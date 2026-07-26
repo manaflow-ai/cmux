@@ -209,11 +209,20 @@ struct BrowserPortalFirstRevealScrollTests {
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(fixture.anchor)
-        await waitForNextMainTurn()
 
         let slot = try #require(webView.superview as? WindowBrowserSlotView)
         let revealedSize = slot.bounds.size
         let nudgedSize = NSSize(width: revealedSize.width, height: max(1, revealedSize.height - 1))
+
+        #expect(
+            webView.frameSizeCalls.filter { size($0, approximatelyEquals: nudgedSize) }.count == 1,
+            "Portal bind should apply one first-sized nudge synchronously against settled slot bounds."
+        )
+        #expect(
+            size(webView.frame.size, approximatelyEquals: nudgedSize),
+            "The first-sized nudge should remain pending only until the causal next main turn."
+        )
+        await waitForNextMainTurn()
 
         #expect(webView.frameSizeCalls.filter { size($0, approximatelyEquals: nudgedSize) }.count == 1)
         #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: revealedSize) })
