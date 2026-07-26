@@ -3166,6 +3166,41 @@ mod tests {
     }
 
     #[test]
+    fn provider_disconnect_during_external_connect_refresh_falls_back_to_local_validation() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                snapshot(1, "Existing", protocol::MachineStatus::Running),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            drop(stream);
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+        };
+        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
+        else {
+            panic!("refresh-disconnected provider unexpectedly handled external connect");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "machine address must be a host or user@host without whitespace"
+        );
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn local_overlay_appends_disjoint_machines_and_owns_active_session() {
         let snapshot = snapshot(1, "Cloud machine", protocol::MachineStatus::Running);
         let lifecycle = machine_lifecycle_snapshot(&snapshot);
