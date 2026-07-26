@@ -270,14 +270,12 @@ impl ServerLifecycle {
                 &json!({"id": request_id, "cmd": "close-surface", "surface": surface}),
             )
             .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-            let response = read_response(&mut self.reader, request_id)?;
-            if response.get("ok").and_then(Value::as_bool) != Some(true) {
-                let error =
-                    response.get("error").and_then(Value::as_str).unwrap_or("close-surface failed");
-                if !error.starts_with("unknown surface ") {
-                    anyhow::bail!(crate::localization::catalog().server.legacy_close_failed);
-                }
-            }
+            let _response = read_response(&mut self.reader, request_id)?;
+            // Older servers can commit topology removal, then report a late
+            // runtime-cleanup error. Reconcile every close response against
+            // subsequent authoritative workspace snapshots. A genuinely
+            // failed close remains present for all bounded rounds, so the
+            // server is still never signaled on ambiguity.
         }
         Ok(surfaces.len())
     }
