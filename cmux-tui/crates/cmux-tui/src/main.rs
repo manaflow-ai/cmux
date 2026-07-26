@@ -297,6 +297,7 @@ CLI VERBS
   list-workspaces, export-layout, apply-layout, send,
   read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, new-pane, new-pane-right, split, set-ratio, set-split-ratio,
+  set-viewport-pane-width,
   pane-neighbor, focus-direction,
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,

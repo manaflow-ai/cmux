@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -60,7 +60,7 @@ fn submit_snapshot(
     tx: &SyncSender<()>,
     placements: Vec<GraphicPlacement>,
 ) {
-    *slot.lock().unwrap() = Some(placements);
+    *lock_recover(slot) = Some(placements);
     match tx.try_send(()) {
         Ok(()) | Err(TrySendError::Full(())) => {}
         Err(TrySendError::Disconnected(())) => {}
@@ -77,10 +77,10 @@ fn writer_loop(
     let mut graphics = GraphicsState::default();
     while rx.recv().is_ok() {
         loop {
-            let next = slot.lock().unwrap().take();
+            let next = lock_recover(&slot).take();
             let Some(placements) = next else { break };
             for batch in graphics.frame_batches(&placements) {
-                let _guard = stdout_lock.lock().unwrap();
+                let _guard = lock_recover(&stdout_lock);
                 let mut stdout = std::io::stdout();
                 if stdout.write_all(&batch).and_then(|_| stdout.flush()).is_err() {
                     return;
@@ -88,6 +88,10 @@ fn writer_loop(
             }
         }
     }
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 struct DoneOnDrop(SyncSender<()>);

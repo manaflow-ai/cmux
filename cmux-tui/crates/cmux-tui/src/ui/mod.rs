@@ -16,6 +16,7 @@ pub(crate) mod terminal_grid;
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
 
@@ -50,6 +51,19 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         && let Some((x, y)) = pane_cursors.input.or(sidebar_input_cursor).or(pane_cursors.terminal)
     {
         frame.set_cursor_position(Position::new(x, y));
+    }
+    sanitize_render_buffer(frame.buffer_mut());
+}
+
+fn sanitize_render_buffer(buffer: &mut Buffer) {
+    // Ratatui rejects control bytes while diffing a frame. Keep the
+    // component-level text sanitizers for useful output, then enforce this
+    // final invariant across titles, plugin UI, browser text, and future
+    // renderers so one malformed cell cannot take down the frontend.
+    for cell in &mut buffer.content {
+        if cell.symbol().chars().any(char::is_control) {
+            cell.set_symbol(" ");
+        }
     }
 }
 
@@ -188,7 +202,10 @@ pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::middle_truncate;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    use super::{middle_truncate, sanitize_render_buffer};
 
     #[test]
     fn middle_truncates_for_narrow_columns() {
@@ -196,5 +213,19 @@ mod tests {
         assert_eq!(middle_truncate("abcdefghi", 3), "...");
         assert_eq!(middle_truncate("abc", 3), "abc");
         assert_eq!(middle_truncate("abc", 0), "");
+    }
+
+    #[test]
+    fn render_buffer_rejects_control_bytes_from_every_ui_source() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 3, 1));
+        buffer[(0, 0)].set_symbol("\u{1b}");
+        buffer[(1, 0)].set_symbol("bad\ncell");
+        buffer[(2, 0)].set_symbol("ok");
+
+        sanitize_render_buffer(&mut buffer);
+
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
+        assert_eq!(buffer[(1, 0)].symbol(), " ");
+        assert_eq!(buffer[(2, 0)].symbol(), "ok");
     }
 }

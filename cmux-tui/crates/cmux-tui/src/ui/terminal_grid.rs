@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
 use ghostty_vt::{Cell as VtCell, ColorSpec, Rgb};
 use ratatui::Frame;
@@ -330,11 +332,7 @@ fn apply_cell(
     selected: Option<&Theme>,
 ) {
     target.reset();
-    if cell.text.is_empty() {
-        target.set_symbol(" ");
-    } else {
-        target.set_symbol(&cell.text);
-    }
+    target.set_symbol(&renderable_cell_text(&cell.text));
 
     let mut style = Style::default();
     style = style.fg(colors.resolve_fg(cell.fg));
@@ -375,12 +373,30 @@ fn apply_cell(
     target.set_style(style);
 }
 
+fn renderable_cell_text(text: &str) -> Cow<'_, str> {
+    if text.is_empty() {
+        return Cow::Borrowed(" ");
+    }
+    if !text.chars().any(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+    let sanitized = text.chars().filter(|character| !character.is_control()).collect::<String>();
+    if sanitized.is_empty() { Cow::Borrowed(" ") } else { Cow::Owned(sanitized) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
+
+    #[test]
+    fn terminal_cells_drop_control_characters_before_ratatui_diffing() {
+        assert_eq!(renderable_cell_text("\r").as_ref(), " ");
+        assert_eq!(renderable_cell_text("a\x1bb").as_ref(), "ab");
+        assert_eq!(renderable_cell_text("plain").as_ref(), "plain");
+    }
 
     fn render_frame(cols: u16, rows: u16) -> SurfaceRenderFrame {
         let mut terminal = Terminal::new(cols, rows, 0, Callbacks::default()).unwrap();

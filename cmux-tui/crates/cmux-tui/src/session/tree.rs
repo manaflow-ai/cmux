@@ -39,6 +39,7 @@ pub struct ScreenView {
     pub layout: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
+    pub viewport_base_width: Option<f32>,
     pub viewport_splits: BTreeMap<SplitId, f32>,
     pub panes: Vec<PaneView>,
 }
@@ -239,6 +240,7 @@ pub fn tree_from_state_with_notifications(
                             layout: screen.root.clone(),
                             active_pane: screen.active_pane,
                             zoomed_pane: screen.zoomed_pane,
+                            viewport_base_width: screen.viewport_base_width,
                             viewport_splits: screen.viewport_splits.clone(),
                             panes: pane_ids.iter().filter_map(pane_view).collect(),
                         }
@@ -349,6 +351,10 @@ fn parse_screen(value: &Value) -> Option<ScreenView> {
         layout: value.get("layout").and_then(parse_layout)?,
         active_pane: value.get("active_pane").and_then(|v| v.as_u64()).unwrap_or(0),
         zoomed_pane: value.get("zoomed_pane").and_then(|v| v.as_u64()),
+        viewport_base_width: value
+            .get("viewport_base_width")
+            .and_then(Value::as_f64)
+            .map(|width| width as f32),
         viewport_splits: value
             .get("viewport_splits")
             .and_then(Value::as_array)
@@ -423,6 +429,7 @@ mod tests {
             layout: Node::Leaf(1),
             active_pane: 1,
             zoomed_pane: None,
+            viewport_base_width: None,
             viewport_splits: BTreeMap::new(),
             panes: Vec::new(),
         };

@@ -98,6 +98,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
 | `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
+| `set-viewport-pane-width` | implemented; `viewport-column-resize-v1` | `--pane <id> --width <fraction>` | none | none |
 | `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
 | `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
 | `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |

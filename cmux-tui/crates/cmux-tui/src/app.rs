@@ -8,18 +8,20 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, MuxEvent, Node,
-    PairingChallenge, PaneId, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
-    WorkspaceId, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, MAX_VIEWPORT_PANE_WIDTH,
+    MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId, Rect, ScreenId, SplitDir,
+    SplitEdge, SplitId, SurfaceId, SurfaceKind, ViewportColumn, WorkspaceId,
+    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
@@ -90,6 +92,7 @@ pub enum AppEvent {
     MuxRecoveryComplete {
         recovery_generation: u64,
     },
+    HostInputFailed(String),
     Input(Event),
     BrowserResizeFailed(BrowserResizeFailure),
     PtyFailuresReady,
@@ -1876,11 +1879,24 @@ impl OrderedSession {
         self.settle_split_ratio();
     }
 
+    pub fn set_viewport_pane_width(&self, pane: PaneId, width: f32) {
+        self.set_viewport_pane_width_deferred(pane, width);
+        self.settle_split_ratio();
+    }
+
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
         self.enqueue_coalescing_session_mutation(
             "resize exact pane split",
             ("split id", split),
             move |session| session.set_split_ratio(split, ratio),
+        );
+    }
+
+    fn set_viewport_pane_width_deferred(&self, pane: PaneId, width: f32) {
+        self.enqueue_coalescing_session_mutation(
+            "resize viewport pane",
+            ("viewport pane", pane),
+            move |session| session.set_viewport_pane_width(pane, width),
         );
     }
 
@@ -2229,6 +2245,35 @@ impl PaneArea {
             clip.rect_source_x.saturating_add(self.rect.width) >= clip.full_rect_width
         })
     }
+}
+
+fn viewport_column_rects(
+    root: &Node,
+    viewport_splits: &std::collections::BTreeMap<SplitId, f32>,
+    panes: &[(PaneId, Rect)],
+) -> Vec<(ViewportColumn, PaneId, Rect)> {
+    let mut columns = Vec::<(ViewportColumn, PaneId, Rect)>::new();
+    for (pane, rect) in panes.iter().copied().filter(|(_, rect)| rect.width > 0) {
+        let Some(owner) = root.viewport_column_owner(pane, viewport_splits) else {
+            continue;
+        };
+        if let Some((_, _, column)) =
+            columns.iter_mut().find(|(candidate, _, _)| *candidate == owner)
+        {
+            let right =
+                column.x.saturating_add(column.width).max(rect.x.saturating_add(rect.width));
+            let bottom =
+                column.y.saturating_add(column.height).max(rect.y.saturating_add(rect.height));
+            column.x = column.x.min(rect.x);
+            column.y = column.y.min(rect.y);
+            column.width = right.saturating_sub(column.x);
+            column.height = bottom.saturating_sub(column.y);
+        } else {
+            columns.push((owner, pane, rect));
+        }
+    }
+    columns.sort_by_key(|(_, _, rect)| rect.x);
+    columns
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4017,8 +4062,9 @@ pub fn run_with_machine_updates(
 
     // Crossterm input → app channel.
     enable_raw_mode()?;
+    let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
     if let Err(e) = (|| -> anyhow::Result<()> {
-        let _guard = stdout_lock.lock().unwrap();
+        let _guard = lock_stdout(&stdout_lock);
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
@@ -4030,8 +4076,7 @@ pub fn run_with_machine_updates(
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
-        let _ = restore_terminal(Some(&stdout_lock));
-        return Err(e);
+        return Err(terminal_restore.restore_after_error(e));
     }
 
     let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
@@ -4043,33 +4088,36 @@ pub fn run_with_machine_updates(
     // Crossterm input → app channel. Start this after startup terminal
     // probes so DA / window-size responses are not consumed as key input.
     let input_tx = tx.clone();
-    std::thread::Builder::new().name("input".into()).spawn({
-        move || {
-            while let Ok(event) = crossterm::event::read() {
-                if input_tx.send(AppEvent::Input(event)).is_err() {
-                    break;
-                }
-            }
-        }
-    })?;
-    // Restore the host terminal even if we panic mid-frame.
-    let default_hook = std::panic::take_hook();
-    let restore_lock = stdout_lock.clone();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock));
-        default_hook(info);
-    }));
+    if let Err(error) = std::thread::Builder::new()
+        .name("input".into())
+        .spawn(move || forward_host_input(crossterm::event::read, &input_tx))
+    {
+        return Err(terminal_restore.restore_after_error(error.into()));
+    }
 
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
-            let _ = restore_terminal(Some(&stdout_lock));
-            return Err(e.into());
+            return Err(terminal_restore.restore_after_error(e.into()));
         }
     };
-    let graphics_writer =
-        if graphics_supported { Some(GraphicsWriter::spawn(stdout_lock.clone())?) } else { None };
+    let graphics_writer = if graphics_supported {
+        match GraphicsWriter::spawn(stdout_lock.clone()) {
+            Ok(writer) => Some(writer),
+            Err(error) => return Err(terminal_restore.restore_after_error(error.into())),
+        }
+    } else {
+        None
+    };
+
+    // Restore the host terminal even if we panic mid-frame.
+    let default_hook = std::panic::take_hook();
+    let restore_lock = stdout_lock.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal_after_panic(&restore_lock);
+        default_hook(info);
+    }));
 
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -4098,7 +4146,7 @@ pub fn run_with_machine_updates(
         applied_outer_cursor: None,
         graphics_writer,
         graphics_supported,
-        stdout_lock: stdout_lock.clone(),
+        stdout_lock,
         pane_areas: Vec::new(),
         viewport_layout: Vec::new(),
         viewport_states: HashMap::new(),
@@ -4185,8 +4233,7 @@ pub fn run_with_machine_updates(
             writer.shutdown(Duration::from_millis(200));
         }
         let _ = std::panic::take_hook();
-        let _ = restore_terminal(Some(&stdout_lock));
-        return Err(error);
+        return Err(terminal_restore.restore_after_error(error));
     }
 
     let result = app.event_loop(&mut terminal, rx);
@@ -4198,8 +4245,16 @@ pub fn run_with_machine_updates(
         writer.shutdown(Duration::from_millis(200));
     }
     let _ = std::panic::take_hook();
-    restore_terminal(Some(&stdout_lock))?;
-    result?;
+    let restore_result = terminal_restore.restore();
+    match (result, restore_result) {
+        (Ok(()), Ok(())) => {}
+        (Ok(()), Err(error)) | (Err(error), Ok(())) => return Err(error),
+        (Err(error), Err(restore_error)) => {
+            return Err(anyhow::anyhow!(
+                "{error:#}; host terminal restoration also failed: {restore_error:#}"
+            ));
+        }
+    }
     let outcome = app
         .machine_ui
         .and_then(|machine| machine.request)
@@ -4208,8 +4263,58 @@ pub fn run_with_machine_updates(
     Ok(outcome)
 }
 
+struct TerminalRestoreGuard {
+    stdout_lock: Arc<Mutex<()>>,
+    armed: bool,
+}
+
+impl TerminalRestoreGuard {
+    fn new(stdout_lock: Arc<Mutex<()>>) -> Self {
+        Self { stdout_lock, armed: true }
+    }
+
+    fn restore(&mut self) -> anyhow::Result<()> {
+        if !self.armed {
+            return Ok(());
+        }
+        self.armed = false;
+        restore_terminal(Some(&self.stdout_lock))
+    }
+
+    fn restore_after_error(&mut self, error: anyhow::Error) -> anyhow::Error {
+        match self.restore() {
+            Ok(()) => error,
+            Err(restore_error) => anyhow::anyhow!(
+                "{error:#}; host terminal restoration also failed: {restore_error:#}"
+            ),
+        }
+    }
+}
+
+impl Drop for TerminalRestoreGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.armed = false;
+            restore_terminal_after_panic(&self.stdout_lock);
+        }
+    }
+}
+
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
-    let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
+    let _guard = stdout_lock.map(|lock| lock_stdout(lock));
+    restore_terminal_unlocked()
+}
+
+fn restore_terminal_after_panic(stdout_lock: &Arc<Mutex<()>>) {
+    // A render panic can occur while the main thread owns this lock. Panic
+    // cleanup must never wait for a non-reentrant lock held by that same
+    // thread. The render boundary catches the panic and performs the normal,
+    // serialized restore after unwinding releases the guard.
+    let Some(_guard) = try_lock_stdout(stdout_lock) else { return };
+    let _ = restore_terminal_unlocked();
+}
+
+fn restore_terminal_unlocked() -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
@@ -4224,6 +4329,48 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
     let _ = stdout.execute(LeaveAlternateScreen);
     disable_raw_mode()?;
     Ok(())
+}
+
+fn lock_stdout(stdout_lock: &Mutex<()>) -> MutexGuard<'_, ()> {
+    stdout_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn try_lock_stdout(stdout_lock: &Mutex<()>) -> Option<MutexGuard<'_, ()>> {
+    match stdout_lock.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(TryLockError::WouldBlock) => None,
+    }
+}
+
+fn forward_host_input(
+    mut read: impl FnMut() -> std::io::Result<Event>,
+    input_tx: &SyncSender<AppEvent>,
+) {
+    loop {
+        match read() {
+            Ok(event) => {
+                if input_tx.send(AppEvent::Input(event)).is_err() {
+                    return;
+                }
+            }
+            Err(error) => {
+                let _ = input_tx.send(AppEvent::HostInputFailed(error.to_string()));
+                return;
+            }
+        }
+    }
+}
+
+fn catch_renderer_panic<T>(render: impl FnOnce() -> T) -> anyhow::Result<T> {
+    std::panic::catch_unwind(AssertUnwindSafe(render)).map_err(|payload| {
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or("unknown panic");
+        anyhow::anyhow!("terminal renderer panicked: {message}")
+    })
 }
 
 impl App {
@@ -5327,8 +5474,8 @@ impl App {
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
     ) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
-        terminal.draw(|f| crate::ui::draw(self, f))?;
+        let _guard = lock_stdout(&lock);
+        catch_renderer_panic(|| terminal.draw(|f| crate::ui::draw(self, f)))??;
         if let Some(sequence) =
             outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
         {
@@ -5493,7 +5640,7 @@ impl App {
 
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock_stdout(&lock);
         let mut stdout = std::io::stdout();
         stdout.write_all(&cmux_tui_core::server::window_title_osc(title))?;
         stdout.flush()?;
@@ -5612,6 +5759,7 @@ impl App {
                 &screen.layout,
                 area,
                 Some(screen.active_pane),
+                screen.viewport_base_width.unwrap_or(1.0),
                 &screen.viewport_splits,
             )
         } else {
@@ -6306,6 +6454,9 @@ impl App {
                     }
                 }
                 Ok(RenderAction::Draw)
+            }
+            AppEvent::HostInputFailed(error) => {
+                anyhow::bail!("host terminal input failed: {error}")
             }
             AppEvent::Input(Event::Key(key)) => self.handle_key(key),
             AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
@@ -9646,7 +9797,7 @@ impl App {
         self.pointer_shape = want_pointer;
         let shape = if want_pointer { "pointer" } else { "default" };
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock_stdout(&lock);
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]22;{shape}\x07");
         let _ = stdout.flush();
@@ -10262,7 +10413,7 @@ impl App {
     fn copy_text_to_clipboard(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock_stdout(&lock);
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
@@ -10355,6 +10506,25 @@ impl App {
     fn resize_focused_split(&mut self, delta: f32) {
         let Some(pane) = self.active_pane() else { return };
         let Some(screen) = self.tree.active_screen() else { return };
+        if screen.zoomed_pane.is_none()
+            && !screen.viewport_splits.is_empty()
+            && let Some(owner) = screen.layout.viewport_column_owner(pane, &screen.viewport_splits)
+        {
+            let current = match owner {
+                ViewportColumn::Base => screen.viewport_base_width.unwrap_or(1.0),
+                ViewportColumn::Split(split) => {
+                    let Some(width) = screen.viewport_splits.get(&split).copied() else {
+                        return;
+                    };
+                    width
+                }
+            };
+            let width = (current + delta).clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
+            if (width - current).abs() >= f32::EPSILON && self.prepare_pty_input_before_mutation() {
+                self.session.set_viewport_pane_width(pane, width);
+            }
+            return;
+        }
         let Some(area) = self.pane_areas.iter().find(|area| area.pane == pane) else {
             return;
         };
@@ -10382,6 +10552,7 @@ impl App {
                         Some(screen.active_pane),
                         pane,
                         split_edge,
+                        screen.viewport_base_width.unwrap_or(1.0),
                         &screen.viewport_splits,
                     )
                 }
@@ -10430,7 +10601,67 @@ impl App {
         }
     }
 
+    fn resize_viewport_column_at_edge(&mut self, pane: PaneId, edge: PaneEdge, x: u16) -> bool {
+        if !matches!(edge, PaneEdge::Left | PaneEdge::Right) || self.content_area.width == 0 {
+            return false;
+        }
+        let Some(screen) = self.tree.active_screen() else {
+            return false;
+        };
+        if screen.zoomed_pane.is_some() || screen.viewport_splits.is_empty() {
+            return false;
+        }
+        let layout = layout_screen_with_viewport(
+            &screen.layout,
+            self.content_area,
+            Some(screen.active_pane),
+            screen.viewport_base_width.unwrap_or(1.0),
+            &screen.viewport_splits,
+        );
+        let Some(pane_rect) = layout.rect_of(pane) else {
+            return false;
+        };
+        let Some(owner) = screen.layout.viewport_column_owner(pane, &screen.viewport_splits) else {
+            return false;
+        };
+        let columns = viewport_column_rects(&screen.layout, &screen.viewport_splits, &layout.panes);
+        let Some(index) = columns.iter().position(|(candidate, _, _)| *candidate == owner) else {
+            return false;
+        };
+        let current = columns[index];
+        let target = match edge {
+            PaneEdge::Right
+                if pane_rect.x.saturating_add(pane_rect.width)
+                    == current.2.x.saturating_add(current.2.width) =>
+            {
+                Some(current)
+            }
+            PaneEdge::Left if pane_rect.x == current.2.x && index > 0 => Some(columns[index - 1]),
+            _ => None,
+        };
+        let Some((_, representative, column)) = target else {
+            return false;
+        };
+        let virtual_x = self
+            .content_area
+            .x
+            .saturating_add(self.viewport_offset)
+            .saturating_add(x.saturating_sub(self.content_area.x));
+        let boundary =
+            if edge == PaneEdge::Right { virtual_x.saturating_add(1) } else { virtual_x };
+        let cells = boundary.saturating_sub(column.x);
+        let width = (f32::from(cells) / f32::from(self.content_area.width))
+            .clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
+        if self.prepare_pty_input_before_mutation() {
+            self.session.set_viewport_pane_width_deferred(representative, width);
+        }
+        true
+    }
+
     fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {
+        if self.resize_viewport_column_at_edge(pane, edge, x) {
+            return;
+        }
         let Some(screen) = self.tree.active_screen() else { return };
         let split_edge = match edge {
             PaneEdge::Left => SplitEdge::Left,
@@ -10453,6 +10684,7 @@ impl App {
                 Some(screen.active_pane),
                 pane,
                 split_edge,
+                screen.viewport_base_width.unwrap_or(1.0),
                 &screen.viewport_splits,
             )
         };
@@ -11047,11 +11279,12 @@ mod tests {
         SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
         VIEWPORT_ANIMATION_DURATION, ViewportMotion, WorkspaceRailSelection,
         browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item, forward_host_input,
+        forward_mux_event, forward_mux_events, lock_stdout, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
         record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session, try_lock_stdout,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -11094,6 +11327,36 @@ mod tests {
     use crate::session::{
         ClientInfo, ClientSizeInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
     };
+
+    #[test]
+    fn panic_cleanup_never_waits_for_the_renderers_stdout_lock() {
+        let lock = Mutex::new(());
+        let guard = lock_stdout(&lock);
+        assert!(try_lock_stdout(&lock).is_none());
+        drop(guard);
+        assert!(try_lock_stdout(&lock).is_some());
+    }
+
+    #[test]
+    fn renderer_panics_become_frontend_errors() {
+        let error = catch_renderer_panic(|| -> () { panic!("invalid render cell") }).unwrap_err();
+        assert_eq!(error.to_string(), "terminal renderer panicked: invalid render cell");
+    }
+
+    #[test]
+    fn host_input_failure_is_forwarded_to_the_event_loop() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        forward_host_input(
+            || -> std::io::Result<Event> {
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "revoked tty"))
+            },
+            &tx,
+        );
+        match rx.recv().unwrap() {
+            AppEvent::HostInputFailed(error) => assert_eq!(error, "revoked tty"),
+            _ => panic!("expected host input failure"),
+        }
+    }
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
@@ -11310,6 +11573,105 @@ mod tests {
         app.handle_left_up(track.x + track.width - 1, track.y).unwrap();
         assert!(app.drag.is_none());
         assert_eq!(app.viewport_states[&screen_id].offset(), 53);
+
+        assert!(app.set_viewport_target(0, false));
+        app.sync_layout((80, 25));
+        let mut baseline = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        baseline.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let expected = (4..12)
+            .map(|x| baseline.backend().buffer()[(x, 0)].symbol().to_string())
+            .collect::<Vec<_>>();
+        assert!(expected.iter().any(|symbol| symbol != "─"));
+
+        assert!(app.set_viewport_target(4, false));
+        app.sync_layout((80, 25));
+        let clipped = app.pane_areas.iter().find(|area| area.pane == left).unwrap();
+        assert_eq!(clipped.viewport.unwrap().rect_source_x, 4);
+        let mut cropped = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        cropped.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let actual = (0..8)
+            .map(|x| cropped.backend().buffer()[(x, 0)].symbol().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "the tab bar must move through the viewport as one surface");
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn viewport_columns_resize_with_shortcuts_and_mouse_drag() {
+        let mux = Mux::new("viewport-pane-resize-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let base = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        let appended_surface = mux
+            .new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
+            .unwrap();
+        let appended = mux.with_state(|state| state.pane_of(appended_surface.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.viewport.animation = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+
+        app.resize_focused_split(-0.05);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let screen = app.tree.active_screen().unwrap();
+        let appended_split =
+            match screen.layout.viewport_column_owner(appended, &screen.viewport_splits).unwrap() {
+                cmux_tui_core::ViewportColumn::Split(split) => split,
+                cmux_tui_core::ViewportColumn::Base => {
+                    panic!("appended pane must be its own column")
+                }
+            };
+        assert!(
+            (screen.viewport_splits[&appended_split]
+                - (cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH - 0.05))
+                .abs()
+                < f32::EPSILON
+        );
+
+        app.sync_layout((80, 25));
+        let appended_area = *app.pane_areas.iter().find(|area| area.pane == appended).unwrap();
+        let drag_x = appended_area.rect.x.saturating_sub(8).max(app.content_area.x);
+        let virtual_boundary = app
+            .content_area
+            .x
+            .saturating_add(app.viewport_offset)
+            .saturating_add(drag_x.saturating_sub(app.content_area.x));
+        let expected_base_width =
+            f32::from(virtual_boundary - app.content_area.x) / f32::from(app.content_area.width);
+        let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let handle = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::PaneResize {
+                        horizontal: Some((pane, PaneEdge::Left)),
+                        vertical: None,
+                    } if *pane == appended
+                )
+                .then_some(*rect)
+            })
+            .expect("the viewport divider must expose a drag handle");
+        app.handle_left_down(handle.x, handle.y, KeyModifiers::NONE).unwrap();
+        assert!(matches!(app.drag, Some(Drag::ResizeSplit { .. })));
+        app.handle_left_drag(drag_x, handle.y).unwrap();
+        app.handle_left_up(drag_x, handle.y).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(
+            (app.tree.active_screen().unwrap().viewport_base_width.unwrap() - expected_base_width)
+                .abs()
+                < 0.001
+        );
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -15325,6 +15687,7 @@ mod tests {
                     layout: Node::Leaf(2),
                     active_pane: 2,
                     zoomed_pane: None,
+                    viewport_base_width: None,
                     viewport_splits: BTreeMap::new(),
                     panes: vec![PaneView {
                         id: 2,
@@ -17572,6 +17935,7 @@ mod tests {
                     layout: Node::Leaf(2),
                     active_pane: 2,
                     zoomed_pane: None,
+                    viewport_base_width: None,
                     viewport_splits: BTreeMap::new(),
                     panes: vec![PaneView {
                         id: 2,

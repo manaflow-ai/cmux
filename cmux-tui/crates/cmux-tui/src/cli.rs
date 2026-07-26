@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
+use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
@@ -247,6 +248,12 @@ const VERBS: &[VerbSpec] = &[
         help: "Set a split ratio by stable split id.",
         allowed: &["split", "ratio"],
         kind: socket(build_set_split_ratio, print_empty, false),
+    },
+    VerbSpec {
+        name: "set-viewport-pane-width",
+        help: "Set the viewport width of the column containing a pane.",
+        allowed: &["pane", "width"],
+        kind: socket(build_set_viewport_pane_width, print_empty, false),
     },
     VerbSpec {
         name: "pane-neighbor",
@@ -587,6 +594,24 @@ fn run_command(args: CliArgs) -> i32 {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     }
     let mut reader = BufReader::new(stream);
+    let required_capability = match request.get("cmd").and_then(Value::as_str) {
+        Some("new-pane-right") => Some(VIEWPORT_SPLITS_CAPABILITY),
+        Some("set-viewport-pane-width") => Some(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+        _ => None,
+    };
+    if let Some(capability) = required_capability {
+        match server_supports_capability(&mut reader, capability) {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("{} is not supported by this server", args.verb.name);
+                return 1;
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                return 3;
+            }
+        }
+    }
     if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
         && request.get("cols").is_some()
     {
@@ -1066,7 +1091,7 @@ fn build_new_pane(flags: &FlagMap) -> Result<Value, UsageError> {
 fn build_new_pane_right(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = build_new_pane(flags)?;
     if flags.optional("width").is_some() {
-        value["width"] = json!(flags.required_f32("width")?);
+        value["width"] = json!(required_viewport_width(flags)?);
     }
     Ok(value)
 }
@@ -1105,6 +1130,23 @@ fn build_set_split_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
         "split": flags.required_u64("split")?,
         "ratio": flags.required_f32("ratio")?,
     }))
+}
+
+fn build_set_viewport_pane_width(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({
+        "pane": flags.required_u64("pane")?,
+        "width": required_viewport_width(flags)?,
+    }))
+}
+
+fn required_viewport_width(flags: &FlagMap) -> Result<f32, UsageError> {
+    let width = flags.required_f32("width")?;
+    if !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
+        .contains(&width)
+    {
+        return Err(UsageError("viewport pane width must be between 0.1 and 1.0".to_string()));
+    }
+    Ok(width)
 }
 
 fn build_pane_direction(flags: &FlagMap) -> Result<Value, UsageError> {
@@ -1258,9 +1300,14 @@ impl FlagMap {
     }
 
     fn required_f32(&self, name: &str) -> Result<f32, UsageError> {
-        self.required(name)?
+        let value = self
+            .required(name)?
             .parse::<f32>()
-            .map_err(|_| UsageError(format!("--{name} must be a number")))
+            .map_err(|_| UsageError(format!("--{name} must be a number")))?;
+        if !value.is_finite() {
+            return Err(UsageError(format!("--{name} must be a finite number")));
+        }
+        Ok(value)
     }
 
     fn required_dir(&self) -> Result<String, UsageError> {
@@ -1751,6 +1798,21 @@ mod tests {
             build_new_pane_right(&flags).unwrap(),
             json!({"pane": 7, "width": 0.75, "cols": 60, "rows": 20})
         );
+    }
+
+    #[test]
+    fn viewport_width_builders_reject_nonfinite_and_out_of_range_values() {
+        for width in ["NaN", "inf", "0.09", "1.01"] {
+            let flags = FlagMap {
+                values: BTreeMap::from([
+                    ("pane".to_string(), "7".to_string()),
+                    ("width".to_string(), width.to_string()),
+                ]),
+                ..Default::default()
+            };
+            assert!(build_new_pane_right(&flags).is_err(), "accepted width {width}");
+            assert!(build_set_viewport_pane_width(&flags).is_err(), "accepted width {width}");
+        }
     }
 
     #[test]

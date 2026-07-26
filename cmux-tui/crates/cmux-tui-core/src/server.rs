@@ -57,6 +57,7 @@ use crate::{
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
+pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -455,6 +456,10 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+    },
+    SetViewportPaneWidth {
+        pane: PaneId,
+        width: f32,
     },
     PaneNeighbor {
         pane: PaneId,
@@ -2114,11 +2119,8 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     };
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
-    Ok(json!({
+    let mut value = json!({
         "layout": node_json(&screen.root, screen.active_pane),
-        "viewport_splits": screen.viewport_splits.iter().map(|(split, width)| {
-            json!({"split": split, "width": width})
-        }).collect::<Vec<_>>(),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
                 .panes
@@ -2127,7 +2129,20 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
                 .unwrap_or_default();
             json!({ "pane": pane_id, "surfaces": surfaces })
         }).collect::<Vec<_>>(),
-    }))
+    });
+    if !screen.viewport_splits.is_empty() {
+        value["viewport_splits"] = json!(
+            screen
+                .viewport_splits
+                .iter()
+                .map(|(split, width)| json!({"split": split, "width": width}))
+                .collect::<Vec<_>>()
+        );
+        if let Some(width) = screen.viewport_base_width {
+            value["viewport_base_width"] = json!(width);
+        }
+    }
+    Ok(value)
 }
 
 fn pane_json(
@@ -2188,7 +2203,7 @@ fn screen_json(
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
-    json!({
+    let mut value = json!({
         "id": screen.id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
@@ -2196,11 +2211,21 @@ fn screen_json(
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
         "layout": node_json(&screen.root, screen.active_pane),
-        "viewport_splits": screen.viewport_splits.iter().map(|(split, width)| {
-            json!({"split": split, "width": width})
-        }).collect::<Vec<_>>(),
         "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
-    })
+    });
+    if !screen.viewport_splits.is_empty() {
+        value["viewport_splits"] = json!(
+            screen
+                .viewport_splits
+                .iter()
+                .map(|(split, width)| json!({"split": split, "width": width}))
+                .collect::<Vec<_>>()
+        );
+        if let Some(width) = screen.viewport_base_width {
+            value["viewport_base_width"] = json!(width);
+        }
+    }
+    value
 }
 
 fn workspaces_json(
@@ -2952,6 +2977,7 @@ fn handle_command(
                     ATTACH_INITIAL_SIZE_CAPABILITY,
                     WORKSPACE_REGISTRY_CAPABILITY,
                     VIEWPORT_SPLITS_CAPABILITY,
+                    VIEWPORT_COLUMN_RESIZE_CAPABILITY,
                     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
                 ],
                 "session": mux.session,
@@ -3691,6 +3717,18 @@ fn handle_command(
         Command::SetSplitRatio { split, ratio } => {
             if !mux.set_split_ratio(split, ratio) {
                 anyhow::bail!("unknown split {split}");
+            }
+            Ok(json!({}))
+        }
+        Command::SetViewportPaneWidth { pane, width } => {
+            if !width.is_finite()
+                || !(crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH)
+                    .contains(&width)
+            {
+                anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
+            }
+            if !mux.set_viewport_pane_width(pane, width) {
+                anyhow::bail!("pane {pane} has no resizable viewport column");
             }
             Ok(json!({}))
         }
@@ -6465,6 +6503,7 @@ mod tests {
             "attach-initial-size",
             "workspace-registry-v1",
             VIEWPORT_SPLITS_CAPABILITY,
+            VIEWPORT_COLUMN_RESIZE_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));

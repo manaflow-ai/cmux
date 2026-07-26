@@ -63,12 +63,15 @@ object{
   active_pane:Id,
   zoomed_pane:Id|null,
   layout:Layout,
+  viewport_base_width?:float32,
   viewport_splits?:array<object{split:Id,width:float32}>,
   panes:array<Pane>
 }
 ```
 
-Servers advertising `viewport-splits-v1` include `viewport_splits`. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Clients that do not implement the capability may ignore the field and render the split's fallback ratio.
+Servers advertising `viewport-splits-v1` include `viewport_splits` when a screen uses horizontal viewport columns. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Ordinary screens omit the field. Clients that do not implement the capability may ignore it and render the split's fallback ratio.
+
+Servers advertising `viewport-column-resize-v1` include `viewport_base_width` when horizontal viewport layout is active. It is the width of the first column as a fraction of the frontend viewport. A missing value defaults to `1.0`.
 
 `Layout`:
 
@@ -185,7 +188,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -207,7 +210,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","viewport-column-resize-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -556,7 +559,7 @@ Params:
 Result:
 
 ```text
-object{layout:Layout,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
+object{layout:Layout,viewport_base_width?:float32,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
 ```
 
 Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
@@ -1126,7 +1129,7 @@ Example:
 | status | implemented |
 | since | protocol 9 additive capability `viewport-splits-v1` |
 
-Creates and focuses one PTY pane to the right of the entire screen. Supporting frontends keep the existing split tree at one viewport width and append the new pane at `width` times the viewport width. The default is two thirds. The shared split tree stores the equivalent proportional fallback ratio for clients that ignore viewport metadata. The new surface inherits the active surface working directory of `pane` when available.
+Creates and focuses one PTY column immediately to the right of the horizontal viewport column containing `pane`. Supporting frontends keep each existing column at its independent viewport-relative width and insert the new pane at `width` times the viewport width. The default is two thirds. The shared split tree stores equivalent proportional fallback ratios for clients that ignore viewport metadata. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 
@@ -1157,7 +1160,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `new-pane-right` |
-| Flags | `--pane <id> [--cols <n> --rows <n>]` |
+| Flags | `--pane <id> [--width <fraction>] [--cols <n> --rows <n>]` |
 | Plain stdout | new surface id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -1167,6 +1170,50 @@ Example:
 ```json
 {"id":11,"cmd":"new-pane-right","pane":2}
 {"id":11,"ok":true,"data":{"surface":15}}
+```
+
+### set-viewport-pane-width
+
+| Field | Value |
+| --- | --- |
+| name | `set-viewport-pane-width` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-column-resize-v1` |
+
+Sets the width of the horizontal viewport column containing `pane`. Every pane nested inside that column keeps its internal split ratios. The command updates proportional fallback ratios for clients that ignore viewport metadata.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `width` | `float32` | required | Finite value from 0.1 through 1.0 |
+
+Result: empty object.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is non-finite or outside the supported range |
+| `pane <id> has no resizable viewport column` | Pane is unknown or its screen has no viewport columns |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-viewport-pane-width` |
+| Flags | `--pane <id> --width <fraction>` |
+| Plain stdout | empty |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":12,"cmd":"set-viewport-pane-width","pane":15,"width":0.5}
+{"id":12,"ok":true,"data":{}}
 ```
 
 ### split
@@ -3078,3 +3125,5 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.
 
 `viewport-splits-v1` is additive within protocol v9. Clients must require the capability before sending `new-pane-right` or interpreting `Screen.viewport_splits`.
+
+`viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.

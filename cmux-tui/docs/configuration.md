@@ -194,7 +194,7 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | --- | --- | --- | --- |
 | `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
 
-`Ctrl-b g` appends a terminal to the right at two thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. Set `{"viewport":{"animation":false}}` to make those viewport moves immediate.
+`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. Set `{"viewport":{"animation":false}}` to make those viewport moves immediate.
 
 ## Server
 
@@ -235,7 +235,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
 | `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
-| `keys.new-pane-right` | chord string or array or `"none"` | `"g"` | Append a two-thirds-width terminal to the right |
+| `keys.new-pane-right` | chord string or array or `"none"` | `"g"` | Insert a two-thirds-width terminal after the focused horizontal column |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |

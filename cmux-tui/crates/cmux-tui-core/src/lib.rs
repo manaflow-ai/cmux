@@ -28,12 +28,12 @@ pub mod terminal_host_runtime;
 pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
-    DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, LayoutResult, Rect, SplitEdge, SplitResize,
-    directional_neighbor, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport,
-    layout_screen, layout_screen_with_viewport, split_for_pane_edge, split_sides,
-    zellij_default_pane_layout,
+    DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, LayoutResult, MAX_VIEWPORT_PANE_WIDTH,
+    MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize, directional_neighbor,
+    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
-pub use model::{Node, Pane, Screen, State, Workspace};
+pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,

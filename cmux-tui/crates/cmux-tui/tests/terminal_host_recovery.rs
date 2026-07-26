@@ -19,7 +19,7 @@ use cmux_tui_core::terminal_host_protocol::{
     PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
-    TerminalHostLiveness, adopt_terminal_host, decode_terminal_color_overrides,
+    TerminalHostLiveness, TerminalHostRecord, adopt_terminal_host, decode_terminal_color_overrides,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_record_liveness,
     terminal_host_root,
 };
@@ -398,16 +398,7 @@ fn new_host_rolls_back_when_surface_setup_fails_after_connect() {
     let response = request_thread.join().unwrap();
     assert_eq!(response["ok"], false);
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if terminal_host_record_liveness(&record_path, &record).unwrap()
-            == TerminalHostLiveness::Dead
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline, "rolled-back host remained alive");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_terminal_host_dead(&record_path, &record);
     wait_for_no_host_records(&harness.host_root());
     wait_for_process_and_group_absent(shell_pid);
 }
@@ -439,10 +430,7 @@ fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
-    assert_eq!(
-        terminal_host_record_liveness(&record_path, &record).unwrap(),
-        TerminalHostLiveness::Dead,
-    );
+    wait_for_terminal_host_dead(&record_path, &record);
     wait_for_process_and_group_absent(shell_pid);
 }
 
@@ -498,10 +486,7 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
-    assert_eq!(
-        terminal_host_record_liveness(&record_path, &record).unwrap(),
-        TerminalHostLiveness::Dead,
-    );
+    wait_for_terminal_host_dead(&record_path, &record);
     wait_for_process_and_group_absent(direct_pid);
     wait_for_process_and_group_absent(descendant_pid);
 }
@@ -2098,10 +2083,7 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
     last
 }
 
-fn wait_for_host_records(
-    root: &Path,
-    expected: usize,
-) -> Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)> {
+fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, TerminalHostRecord)> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let records = load_terminal_host_records(root).unwrap();
@@ -2122,6 +2104,17 @@ fn wait_for_no_host_records(root: &Path) {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("terminal host record was not removed after close");
+}
+
+fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if terminal_host_record_liveness(path, record).unwrap() == TerminalHostLiveness::Dead {
+            return;
+        }
+        assert!(Instant::now() < deadline, "terminal host remained alive after termination");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn wait_for_pid_file(path: &Path) -> libc::pid_t {
@@ -2232,7 +2225,7 @@ fn attach_state(path: &Path, surface: u64) -> serde_json::Value {
 }
 
 fn wait_for_host_cursor_snapshot(
-    record: &cmux_tui_core::terminal_host_runtime::TerminalHostRecord,
+    record: &TerminalHostRecord,
     style: ghostty_vt::CursorShape,
     blink: bool,
 ) {

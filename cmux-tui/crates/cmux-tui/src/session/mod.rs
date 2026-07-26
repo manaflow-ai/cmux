@@ -14,7 +14,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use cmux_tui_core::server::{
-    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+    VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
@@ -763,6 +764,35 @@ impl Session {
             Session::Remote(remote) => remote
                 .request(json!({"cmd": "set-split-ratio", "split": split, "ratio": ratio}))
                 .map(|_| ()),
+        }
+    }
+
+    pub fn set_viewport_pane_width(&self, pane: PaneId, width: f32) -> anyhow::Result<()> {
+        if !width.is_finite()
+            || !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
+                .contains(&width)
+        {
+            anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
+        }
+        match self {
+            Session::Local(mux) => mux
+                .set_viewport_pane_width(pane, width)
+                .then_some(())
+                .ok_or_else(|| anyhow::anyhow!("pane {pane} has no resizable viewport column")),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(VIEWPORT_COLUMN_RESIZE_CAPABILITY) {
+                    anyhow::bail!(
+                        "remote cmux server does not support viewport pane resizing; upgrade the server"
+                    );
+                }
+                remote
+                    .request(json!({
+                        "cmd": "set-viewport-pane-width",
+                        "pane": pane,
+                        "width": width,
+                    }))
+                    .map(|_| ())
+            }
         }
     }
 

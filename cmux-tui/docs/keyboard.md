@@ -49,8 +49,8 @@ These defaults come from `Keys::default`.
 | `Alt-k` or `Alt-Up` | Focus up |
 | `Ctrl-b j` or `Ctrl-b Down` | Focus down |
 | `Alt-j` or `Alt-Down` | Focus down |
-| `Alt-=` | Grow the focused split |
-| `Alt--` | Shrink the focused split |
+| `Alt-=` | Grow the focused split, or its horizontal viewport column |
+| `Alt--` | Shrink the focused split, or its horizontal viewport column |
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
@@ -59,6 +59,8 @@ These defaults come from `Keys::default`.
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
 When a screen is wider than the viewport, `h`/`l`, Left/Right, and their modeless Alt bindings reveal the focused pane. The viewport movement is animated unless `viewport.animation` is false.
+
+On a screen created with `Ctrl-b g`, `Alt-=` and `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
 
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 

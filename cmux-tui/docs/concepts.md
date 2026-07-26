@@ -32,13 +32,11 @@ Pane names still exist in the control socket through `rename-pane`. They are sep
 
 ## Smart Split
 
-The modeless `Alt-n` binding creates a new pane with smart split direction. The TUI first tries the focused pane. If that pane cannot split in the chosen direction, it tries the largest pane that can.
-
-Direction follows a zellij-style rule using the terminal cell ratio. Tall enough panes split down. Wide enough panes split right. Panes below the configured size thresholds do not split.
+The modeless `Alt-n` binding creates a new pane and reapplies Zellij's default distribution to the complete screen. It preserves pane creation order across swaps and manual splits. On a horizontal viewport layout, this whole-screen action returns the screen to ordinary tiled layout.
 
 ## Viewport Panes
 
-`Ctrl-b g` wraps the current screen tree in a shared right split and creates a terminal whose width is two thirds of each frontend's viewport. Supporting frontends keep the existing tree at its current width, append the terminal, and expose the overflow through a horizontal scrollbar. Ordinary split and startup behavior remain tiled.
+`Ctrl-b g` creates a terminal immediately after the horizontal column containing the focused pane. Its default width is two thirds of each frontend's viewport. Supporting frontends retain each column's independent width and expose overflow through a horizontal scrollbar. Ordinary split and startup behavior remain tiled.
 
 ## Collapse Behavior
 

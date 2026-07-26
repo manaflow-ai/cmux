@@ -6,6 +6,8 @@ use std::collections::{BTreeMap, HashSet};
 use crate::{Node, PaneId, SplitDir, SplitId};
 
 pub const DEFAULT_VIEWPORT_PANE_WIDTH: f32 = 2.0 / 3.0;
+pub const MIN_VIEWPORT_PANE_WIDTH: f32 = 0.1;
+pub const MAX_VIEWPORT_PANE_WIDTH: f32 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Rect {
@@ -240,12 +242,19 @@ pub fn layout_screen_with_viewport(
     root: &Node,
     area: Rect,
     active_pane: Option<PaneId>,
+    base_width: f32,
     viewport_splits: &BTreeMap<SplitId, f32>,
 ) -> LayoutResult {
     let mut result = LayoutResult::default();
-    let end = walk_viewport(root, area, area.width, active_pane, viewport_splits, &mut result);
+    let base_area = Rect { width: viewport_column_cells(area.width, base_width), ..area };
+    let end = walk_viewport(root, base_area, area.width, active_pane, viewport_splits, &mut result);
     result.virtual_width = end.saturating_sub(area.x).max(area.width);
     result
+}
+
+fn viewport_column_cells(viewport_width: u16, width: f32) -> u16 {
+    let width = width.clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
+    ((f32::from(viewport_width) * width).round() as u16).clamp(1, viewport_width.max(1))
 }
 
 /// Reproduce Zellij's default auto-layout sequence for panes in creation
@@ -371,9 +380,7 @@ fn walk_viewport(
         }
         Node::Split { id, dir: SplitDir::Right, a, b, .. } if viewport_splits.contains_key(id) => {
             let a_end = walk_viewport(a, area, viewport_width, active_pane, viewport_splits, out);
-            let fraction = viewport_splits[id].clamp(0.1, 1.0);
-            let width = ((f32::from(viewport_width) * fraction).round() as u16)
-                .clamp(1, viewport_width.max(1));
+            let width = viewport_column_cells(viewport_width, viewport_splits[id]);
             walk_viewport(
                 b,
                 Rect { x: a_end, width, ..area },
@@ -494,14 +501,17 @@ pub fn exact_split_for_pane_edge_with_viewport(
     active_pane: Option<PaneId>,
     pane: PaneId,
     edge: SplitEdge,
+    base_width: f32,
     viewport_splits: &BTreeMap<SplitId, f32>,
 ) -> Option<ExactSplitResize> {
     let pane_rect =
-        layout_screen_with_viewport(root, area, active_pane, viewport_splits).rect_of(pane)?;
+        layout_screen_with_viewport(root, area, active_pane, base_width, viewport_splits)
+            .rect_of(pane)?;
     let mut best = None;
+    let base_area = Rect { width: viewport_column_cells(area.width, base_width), ..area };
     exact_split_for_pane_edge_viewport_walk(
         root,
-        area,
+        base_area,
         area.width,
         active_pane,
         viewport_splits,
@@ -534,9 +544,7 @@ fn exact_split_for_pane_edge_viewport_walk(
         let mut ignored = LayoutResult::default();
         let a_end =
             walk_viewport(a, area, viewport_width, active_pane, viewport_splits, &mut ignored);
-        let fraction = viewport_splits[id].clamp(0.1, 1.0);
-        let width =
-            ((f32::from(viewport_width) * fraction).round() as u16).clamp(1, viewport_width.max(1));
+        let width = viewport_column_cells(viewport_width, viewport_splits[id]);
         let b_rect = Rect { x: a_end, width, ..area };
         (
             area,
@@ -771,6 +779,7 @@ mod tests {
             &root,
             Rect { x: 7, y: 3, width: 80, height: 24 },
             Some(1),
+            1.0,
             &viewport_splits,
         );
 
@@ -804,6 +813,7 @@ mod tests {
                 Some(2),
                 2,
                 SplitEdge::Right,
+                1.0,
                 &viewport_splits,
             ),
             Some(ExactSplitResize { area: Rect { x: 80, y: 0, width: 53, height: 24 }, split: 20 })
@@ -831,6 +841,7 @@ mod tests {
             &root,
             Rect { x: 0, y: 0, width: 100, height: 40 },
             Some(2),
+            1.0,
             &viewport_splits,
         );
 

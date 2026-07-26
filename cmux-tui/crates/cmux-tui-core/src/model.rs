@@ -7,6 +7,12 @@ use std::sync::Arc;
 
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewportColumn {
+    Base,
+    Split(SplitId),
+}
+
 /// Pane membership for a stack. Construction rejects empty stacks so layout
 /// and protocol consumers never need to assume a member exists.
 #[derive(Debug, Clone)]
@@ -210,6 +216,69 @@ impl Node {
                 true
             }
             Node::Stack { .. } => false,
+        }
+    }
+
+    pub fn viewport_column_owner(
+        &self,
+        target: PaneId,
+        viewport_splits: &BTreeMap<SplitId, f32>,
+    ) -> Option<ViewportColumn> {
+        match self {
+            Node::Split { id, a, b, .. } if viewport_splits.contains_key(id) => {
+                if b.contains(target) {
+                    Some(ViewportColumn::Split(*id))
+                } else {
+                    a.viewport_column_owner(target, viewport_splits)
+                }
+            }
+            node => node.contains(target).then_some(ViewportColumn::Base),
+        }
+    }
+
+    /// Insert a new viewport column immediately after the column containing
+    /// `target`, preserving all earlier and later column identities.
+    pub(crate) fn insert_viewport_after(
+        &mut self,
+        target: PaneId,
+        viewport_splits: &BTreeMap<SplitId, f32>,
+        split_id: SplitId,
+        fallback_ratio: f32,
+        new_pane: PaneId,
+    ) -> bool {
+        let target_is_right_column = matches!(
+            self,
+            Node::Split { id, b, .. }
+                if viewport_splits.contains_key(id) && b.contains(target)
+        );
+        if target_is_right_column {
+            let previous = std::mem::replace(self, Node::Leaf(new_pane));
+            *self = Node::Split {
+                id: split_id,
+                dir: SplitDir::Right,
+                ratio: fallback_ratio,
+                a: Box::new(previous),
+                b: Box::new(Node::Leaf(new_pane)),
+            };
+            return true;
+        }
+
+        match self {
+            Node::Split { id, a, .. } if viewport_splits.contains_key(id) => {
+                a.insert_viewport_after(target, viewport_splits, split_id, fallback_ratio, new_pane)
+            }
+            node if node.contains(target) => {
+                let previous = std::mem::replace(node, Node::Leaf(new_pane));
+                *node = Node::Split {
+                    id: split_id,
+                    dir: SplitDir::Right,
+                    ratio: fallback_ratio,
+                    a: Box::new(previous),
+                    b: Box::new(Node::Leaf(new_pane)),
+                };
+                true
+            }
+            _ => false,
         }
     }
 
@@ -421,11 +490,17 @@ pub struct Screen {
     /// Horizontal splits created as viewport columns. The value is the
     /// right-hand column width as a fraction of the frontend viewport.
     pub viewport_splits: BTreeMap<SplitId, f32>,
+    /// Width of the first viewport column. `None` when horizontal viewport
+    /// layout has not been activated for this screen.
+    pub viewport_base_width: Option<f32>,
 }
 
 impl Screen {
     pub(crate) fn retain_viewport_splits(&mut self) {
         self.viewport_splits.retain(|split, _| self.root.contains_split(*split));
+        if self.viewport_splits.is_empty() {
+            self.viewport_base_width = None;
+        }
     }
 }
 
