@@ -12,7 +12,7 @@ import Foundation
 /// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` so end-to-end tests can substitute a
 /// shim that strips the ssh framing and execs the remote command locally —
 /// the full mirror stack then runs hermetically (no sshd, no network).
-struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
+struct RemoteTmuxHost: Sendable, Equatable, Identifiable, Codable {
     /// The ssh executable used when the caller doesn't inject one (the
     /// connection and transport inits both take `sshExecutablePath`).
     ///
