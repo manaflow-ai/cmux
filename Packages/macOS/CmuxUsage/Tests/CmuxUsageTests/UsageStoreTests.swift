@@ -97,4 +97,49 @@ struct UsageStoreTests {
         await store.refresh(.codex, force: true)   // force bypasses interval
         #expect(await counter.count == 2)
     }
+
+    @Test func honorsRateLimitedUntilBeyondMinInterval() async {
+        let now = Date(timeIntervalSince1970: 5000)
+        let counter = CallCounter()
+        // Adapter throws rateLimited → fetcher maps to .rateLimited(until: now + 1800s).
+        let fetcher = UsageFetcher(
+            adapterFor: { p in FakeAdapter(provider: p, counter: counter, result: .failure(.rateLimited)) },
+            now: { now }
+        )
+        // minInterval 0 so the ONLY thing that can block the 2nd refresh is the
+        // rateLimited(until:) fence — proving the store honors it, not just minInterval.
+        let store = UsageStore(fetcher: fetcher, minInterval: 0, now: { now })
+
+        await store.refresh(.codex)
+        #expect(await counter.count == 1)
+        if case .rateLimited = store.snapshot(for: .codex)?.freshness {} else {
+            Issue.record("expected rateLimited snapshot")
+        }
+        await store.refresh(.codex)   // blocked by `until`, not re-poked
+        #expect(await counter.count == 1)
+        await store.refresh(.codex, force: true)   // force still overrides
+        #expect(await counter.count == 2)
+    }
+
+    @Test func cancelledFetchDoesNotPolluteSnapshotOrBlockRetry() async {
+        let now = Date(timeIntervalSince1970: 5000)
+        let counter = CallCounter()
+        let fetcher = UsageFetcher(
+            adapterFor: { p in FakeAdapter(provider: p, counter: counter, result: .success(sampleSnapshot(p))) },
+            now: { now }
+        )
+        // Large minInterval: if a cancelled attempt wrongly counted, the retry below
+        // would be blocked and the snapshot would stay nil / stale.
+        let store = UsageStore(fetcher: fetcher, minInterval: 9999, now: { now })
+
+        let task = Task { await store.refresh(.codex) }
+        task.cancel()   // flag set before the MainActor task body can run
+        await task.value
+
+        // Cancelled fetch must not have written a snapshot…
+        #expect(store.snapshot(for: .codex) == nil)
+        // …and must not have consumed the min-interval budget: a real refresh succeeds.
+        await store.refresh(.codex)
+        #expect(store.snapshot(for: .codex)?.windows.first?.usedPercent == 42)
+    }
 }

@@ -34,15 +34,30 @@ public final class UsageStore: ObservableObject {
     /// than throwing.
     public func refresh(_ provider: UsageProvider, force: Bool = false) async {
         guard !inFlight.contains(provider) else { return }
-        if !force, let last = lastAttemptAt[provider],
-           now().timeIntervalSince(last) < minInterval {
-            return
+        if !force {
+            if let last = lastAttemptAt[provider], now().timeIntervalSince(last) < minInterval {
+                return
+            }
+            // Honor a provider's rate-limit backoff. `.rateLimited(until:)` is a real
+            // fence, not a decorative label: re-poking a throttled endpoint before `until`
+            // is itself the abuse the provider is guarding against (the check is the poke).
+            if case .rateLimited(let until)? = snapshots[provider]?.freshness, now() < until {
+                return
+            }
         }
         inFlight.insert(provider)
         lastAttemptAt[provider] = now()
         defer { inFlight.remove(provider) }
 
         let snapshot = await fetcher.fetch(provider, lastKnown: snapshots[provider])
+        // A cancelled fetch (view disappeared / sidebar rebuilt) is silence, not a
+        // provider state. Do not stamp `.unsupported`/last-known over the cache, and
+        // clear the attempt marker so the next appearance can retry immediately instead
+        // of being blocked by `minInterval` for a fetch that never actually happened.
+        if Task.isCancelled {
+            lastAttemptAt[provider] = nil
+            return
+        }
         snapshots[provider] = snapshot
     }
 

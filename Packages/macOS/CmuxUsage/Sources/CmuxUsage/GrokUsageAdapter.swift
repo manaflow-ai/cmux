@@ -100,18 +100,25 @@ public struct GrokUsageAdapter: ProviderUsageAdapter {
         let userId: String?
     }
 
+    /// auth.json is keyed by "<issuer>::<id>" → object carrying `.key` / `.user_id`.
+    /// Strict `Decodable` shape (fail-closed on drift), size-capped, and — when more than
+    /// one issuer entry is present — deterministic: entries are selected in sorted-key
+    /// order so the chosen account never depends on dictionary iteration order.
+    private struct AuthEntry: Decodable {
+        let key: String?
+        let user_id: String?
+    }
+
     static func readAuth(fromFileAt url: URL) throws -> GrokAuth {
-        guard let data = try? Data(contentsOf: url) else {
+        guard let data = readCappedCredentialData(at: url) else {
             throw UsageAdapterError.notInstalled
         }
-        // auth.json is keyed by "<issuer>::<id>" → object with .key / .user_id.
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let root = try? JSONDecoder().decode([String: AuthEntry].self, from: data) else {
             throw UsageAdapterError.signedOut
         }
-        for value in root.values {
-            if let entry = value as? [String: Any],
-               let key = entry["key"] as? String, !key.isEmpty {
-                return GrokAuth(key: key, userId: entry["user_id"] as? String)
+        for issuerKey in root.keys.sorted() {
+            if let entry = root[issuerKey], let key = entry.key, !key.isEmpty {
+                return GrokAuth(key: key, userId: entry.user_id)
             }
         }
         throw UsageAdapterError.signedOut

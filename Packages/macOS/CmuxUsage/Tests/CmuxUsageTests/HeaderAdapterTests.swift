@@ -65,6 +65,15 @@ struct ClaudeUsageAdapterTests {
         #expect(ClaudeUsageAdapter.tokenFromEnvFile(quoted) == Self.fakeToken)
     }
 
+    @Test func envFileStripsTrailingCommentButKeepsBareHash() {
+        // ` # …` is a shell comment, not part of the value.
+        let commented = Data("export CLAUDE_CODE_OAUTH_TOKEN=\(Self.fakeToken) # my token\n".utf8)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(commented) == Self.fakeToken)
+        // A bare '#' with no preceding space is part of the value (shell semantics).
+        let hashy = Data("CLAUDE_CODE_OAUTH_TOKEN=abc#def\n".utf8)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(hashy) == "abc#def")
+    }
+
     @Test func envFileFailsClosedOnAbsentOrEmpty() {
         #expect(ClaudeUsageAdapter.tokenFromEnvFile(nil) == nil)
         #expect(ClaudeUsageAdapter.tokenFromEnvFile(Data("OTHER=x\n".utf8)) == nil)
@@ -180,5 +189,20 @@ struct GrokUsageAdapterTests {
         let auth = try GrokUsageAdapter.readAuth(fromFileAt: file)
         #expect(auth.key == "grok-key-xyz")
         #expect(auth.userId == "u-123")
+    }
+
+    @Test func readAuthPicksDeterministicallyAcrossMultipleEntries() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-multi-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("auth.json")
+        // Two issuer entries — selection must be sorted-key deterministic, never
+        // dictionary-iteration order ("aaa::1" < "zzz::2").
+        try #"{"zzz::2":{"key":"key-Z","user_id":"z"},"aaa::1":{"key":"key-A","user_id":"a"}}"#
+            .data(using: .utf8)!.write(to: file)
+        let auth = try GrokUsageAdapter.readAuth(fromFileAt: file)
+        #expect(auth.key == "key-A")
+        #expect(auth.userId == "a")
     }
 }

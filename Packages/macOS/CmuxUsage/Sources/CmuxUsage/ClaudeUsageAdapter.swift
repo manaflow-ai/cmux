@@ -89,6 +89,11 @@ public struct ClaudeUsageAdapter: ProviderUsageAdapter {
             if let quote = value.first, quote == "\"" || quote == "'",
                value.count >= 2, value.last == quote {
                 value = String(value.dropFirst().dropLast())
+            } else if let hashRange = value.range(of: " #") {
+                // Strip an unquoted trailing shell comment (` # …`), which is not part of
+                // the value — otherwise the comment rides into the Bearer header. Only a
+                // space-hash starts a comment; a bare '#' inside the token is preserved.
+                value = String(value[..<hashRange.lowerBound])
             }
             value = value.trimmingCharacters(in: .whitespaces)
             if !value.isEmpty { return value }

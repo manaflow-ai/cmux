@@ -125,6 +125,14 @@ public struct CodexUsageAdapter: ProviderUsageAdapter {
             windows.append(UsageWindow(kind: .credits, creditsRemaining: balance))
         }
 
+        // Degrade a response that carried no usage structure at all rather than
+        // reporting it as `.live` with an empty gauge (matches Claude/Grok fail-closed
+        // on empty). A recognized-but-window-less response (e.g. an unlimited plan) is
+        // still a valid live state, so only truly structureless payloads are rejected.
+        if windows.isEmpty, wire.rate_limit == nil, wire.credits == nil {
+            throw UsageAdapterError.malformedResponse
+        }
+
         let account = ProviderAccount(
             provider: .codex,
             accountId: wire.account_id ?? fallbackAccountId
@@ -154,7 +162,7 @@ public struct CodexUsageAdapter: ProviderUsageAdapter {
     }
 
     static func readAuth(fromFileAt url: URL) throws -> CodexAuth {
-        guard let data = try? Data(contentsOf: url) else {
+        guard let data = readCappedCredentialData(at: url) else {
             throw UsageAdapterError.notInstalled
         }
         guard let file = try? JSONDecoder().decode(AuthFile.self, from: data),

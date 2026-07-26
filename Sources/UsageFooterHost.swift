@@ -203,9 +203,12 @@ enum UsageDisplay {
             return ""
         case .quota:
             if let remaining = window.remaining {
+                // String(format:) with a localized format string — NOT an interpolated
+                // `defaultValue`, which does not reliably bind its argument to the
+                // catalog value looked up by key (would render a literal "%@" in ja).
                 return String(
-                    localized: "usage.detail.remaining",
-                    defaultValue: "\(compactNumber(remaining)) left"
+                    format: String(localized: "usage.detail.remaining", defaultValue: "%@ left"),
+                    compactNumber(remaining)
                 )
             }
             return ""
@@ -219,7 +222,10 @@ enum UsageDisplay {
         fmt.unitsStyle = .abbreviated
         fmt.maximumUnitCount = 1
         let duration = fmt.string(from: seconds) ?? ""
-        return String(localized: "usage.detail.resetsIn", defaultValue: "resets in \(duration)")
+        return String(
+            format: String(localized: "usage.detail.resetsIn", defaultValue: "resets in %@"),
+            duration
+        )
     }
 
     private static func statusLabel(for snapshot: UsageSnapshot) -> String {

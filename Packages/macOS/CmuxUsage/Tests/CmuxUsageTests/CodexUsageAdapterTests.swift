@@ -124,4 +124,13 @@ struct CodexUsageAdapterTests {
             _ = try CodexUsageAdapter.readAuth(fromFileAt: missing)
         }
     }
+
+    @Test func parseUsageDegradesWhenNoUsageStructure() {
+        // Valid JSON but no rate_limit and no credits → not a live gauge; must degrade
+        // (fail-closed) rather than masquerade as `.live` with an empty window set.
+        let data = Data(#"{"account_id":"a","plan_type":"plus"}"#.utf8)
+        #expect(throws: UsageAdapterError.malformedResponse) {
+            _ = try CodexUsageAdapter.parseUsage(data, fallbackAccountId: "a", now: Date())
+        }
+    }
 }
