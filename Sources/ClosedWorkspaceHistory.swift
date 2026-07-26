@@ -26,10 +26,11 @@ extension AppDelegate {
     /// Restores the newest restorable workspace record without consuming tab or window history.
     @discardableResult
     func reopenMostRecentlyClosedWorkspace(
-        from historyStore: ClosedItemHistoryStore = .shared,
+        from historyStore: ClosedItemHistoryStore? = nil,
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
+        let historyStore = historyStore ?? .shared
         historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
             let manager =
                 preferredTabManager
@@ -60,8 +61,9 @@ extension TabManager {
     /// Reopens the newest closed workspace additively in this manager.
     @discardableResult
     func reopenMostRecentlyClosedWorkspace(
-        from historyStore: ClosedItemHistoryStore = .shared
+        from historyStore: ClosedItemHistoryStore? = nil
     ) -> Bool {
+        let historyStore = historyStore ?? .shared
         historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
             restoreClosedWorkspace(workspaceEntry)
         }
