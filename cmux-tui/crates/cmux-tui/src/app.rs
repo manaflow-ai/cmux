@@ -13686,7 +13686,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_fallback_payload_counts_toward_the_queue_budget() {
+    fn clear_history_fallback_operations_coalesce_per_surface() {
         let (mux, surface) = test_mux("clear-history-fallback-budget-test", None);
         let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -13700,7 +13700,9 @@ mod tests {
 
         let fallback_key = KeyInput { utf8: "x".repeat(1024), ..Default::default() };
         let retained_bytes = fallback_key.utf8.capacity();
-        app.session.clear_history_or_send_key(surface.id, fallback_key);
+        for _ in 0..8 {
+            app.session.clear_history_or_send_key(surface.id, fallback_key.clone());
+        }
 
         assert_eq!(app.session.operations.queued_bytes_for_test(), retained_bytes);
         unblock_tx.send(()).unwrap();

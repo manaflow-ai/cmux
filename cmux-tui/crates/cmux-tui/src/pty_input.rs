@@ -1674,8 +1674,12 @@ mod tests {
         assert!([first.label, second.label].contains(&"queued close"));
         assert!(first.lane_failed);
         assert!(second.lane_failed);
-        assert_eq!(first.delivery, PtyOperationDelivery::KnownNotDelivered);
-        assert_eq!(second.delivery, PtyOperationDelivery::KnownNotDelivered);
+        let remote_failure =
+            [&first, &second].into_iter().find(|failure| failure.label == "remote input").unwrap();
+        let canceled_failure =
+            [&first, &second].into_iter().find(|failure| failure.label == "queued close").unwrap();
+        assert_eq!(remote_failure.delivery, PtyOperationDelivery::Ambiguous);
+        assert_eq!(canceled_failure.delivery, PtyOperationDelivery::KnownNotDelivered);
         assert!(!ran.load(std::sync::atomic::Ordering::Acquire));
 
         sender.enqueue_session_mutation("later resize", true, || Ok(()));
