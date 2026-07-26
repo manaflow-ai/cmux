@@ -3506,15 +3506,75 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
+        assert_eq!(browser.latest_frame_seq(), Some(1));
 
         handle_frame_navigated(
             browser,
             json!({"frame": {"url": "https://next.test", "name": "next"}}),
         );
 
+        assert_eq!(
+            browser.latest_frame().map(|frame| frame.seq),
+            Some(1),
+            "navigation keeps the last image available for rendering"
+        );
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "the retained image must not remain pointer-admissible"
+        );
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
         browser.store_frame(test_frame(2));
+        assert_eq!(browser.latest_frame_seq(), Some(2));
         assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
+    }
+
+    #[test]
+    fn pointer_admission_changes_are_broadcast_to_attach_clients() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_snapshot, stream) = browser.attach_frames();
+
+        let invalidation = browser.invalidate_pointer_frame();
+        stream
+            .notify
+            .recv_timeout(Duration::from_secs(1))
+            .expect("pointer invalidation must wake attached clients");
+        assert!(
+            stream.slot.lock().unwrap().state.take().is_some(),
+            "pointer invalidation must publish browser state"
+        );
+
+        browser.restore_pointer_frame_after_failed_command(invalidation);
+        stream
+            .notify
+            .recv_timeout(Duration::from_secs(1))
+            .expect("failed-command rollback must wake attached clients");
+        assert!(
+            stream.slot.lock().unwrap().state.take().is_some(),
+            "failed-command rollback must publish browser state"
+        );
+    }
+
+    #[test]
+    fn geometry_pointer_admission_invalidation_is_broadcast_to_attach_clients() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_snapshot, stream) = browser.attach_frames();
+
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        browser.confirm_reconfigure(queued);
+
+        stream
+            .notify
+            .recv_timeout(Duration::from_secs(1))
+            .expect("geometry invalidation must wake attached clients");
+        assert!(
+            stream.slot.lock().unwrap().state.take().is_some(),
+            "geometry invalidation must publish browser state"
+        );
     }
 
     #[test]
@@ -3911,6 +3971,40 @@ mod tests {
 
         browser.kill();
         assert!(stream.notify.recv_timeout(Duration::from_secs(1)).is_err());
+    }
+
+    #[test]
+    fn pointer_admission_barriers_order_pending_attach_frames() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_snapshot, stream) = browser.attach_frames();
+
+        browser.store_frame(test_frame(2));
+        let invalidation = browser.invalidate_pointer_frame();
+        stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
+        let invalidated = std::mem::take(&mut *stream.slot.lock().unwrap());
+        assert!(
+            invalidated.state.is_some(),
+            "invalidation state must supersede the pending frame"
+        );
+        assert!(
+            invalidated.frame.is_none(),
+            "a pre-invalidation frame must not be delivered after the barrier"
+        );
+
+        browser.restore_pointer_frame_after_failed_command(invalidation);
+        stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
+        let restored = std::mem::take(&mut *stream.slot.lock().unwrap());
+        assert!(
+            restored.state.is_some(),
+            "rollback state must restore pointer admission"
+        );
+        assert_eq!(
+            restored.frame.map(|frame| frame.seq),
+            Some(2),
+            "rollback must resend the retained frame after discarding it at the barrier"
+        );
     }
 
     #[test]

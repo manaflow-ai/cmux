@@ -4708,6 +4708,33 @@ mod tests {
     }
 
     #[test]
+    fn browser_state_json_exposes_pointer_admission_separately_from_the_retained_frame() {
+        let state = crate::BrowserAttachState {
+            url: "https://example.test".to_string(),
+            title: "example".to_string(),
+            cols: 10,
+            rows: 5,
+            status: crate::BrowserStatus::Live,
+            frame: Some(crate::BrowserFrame {
+                session_id: "session-test".to_string(),
+                data_b64: "AAAA".to_string(),
+                css_width: 80,
+                css_height: 48,
+                seq: 7,
+            }),
+            frames_stalled: false,
+        };
+
+        let value = browser_state_json(1, &state, true);
+        assert_eq!(
+            value.get("pointer_frame_seq"),
+            Some(&Value::Null),
+            "a retained image can remain renderable while pointer admission is invalid"
+        );
+        assert_eq!(value["frame"]["seq"], 7);
+    }
+
+    #[test]
     fn stack_json_uses_the_stored_expansion_while_focus_is_elsewhere() {
         let stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 

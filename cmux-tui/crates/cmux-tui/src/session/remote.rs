@@ -2499,12 +2499,31 @@ mod tests {
             "title": "next",
             "status": "live",
             "frames_stalled": false,
+            "pointer_frame_seq": null,
         }));
 
         let frame = surface.browser_frame().expect("cached frame");
         assert_eq!(frame.seq, 9);
         assert_eq!(frame.data_b64, "Zmlyc3Q=");
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "cached display frames must not imply pointer admission"
+        );
         assert_eq!(surface.browser_url().as_deref(), Some("https://next.test"));
+
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            Some(9),
+            "an explicit admission update must restore cached-frame input"
+        );
     }
 
     #[cfg(unix)]
