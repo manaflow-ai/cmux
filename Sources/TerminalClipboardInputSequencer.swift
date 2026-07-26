@@ -17,7 +17,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
     private var nextBufferedEventIndex = 0
     private var isReplaying = false
 
-    init(maximumBufferedEvents: Int) {
+    nonisolated init(maximumBufferedEvents: Int) {
         self.maximumBufferedEvents = max(0, maximumBufferedEvents)
     }
 

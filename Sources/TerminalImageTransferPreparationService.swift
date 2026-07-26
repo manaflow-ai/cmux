@@ -34,8 +34,9 @@ actor TerminalImageTransferPreparationService {
             try await ContinuousClock().sleep(for: duration)
         },
         operation: Operation? = nil,
-        cleanup: @escaping Cleanup = TerminalImageTransferPreparationService
-            .cleanupSynchronously,
+        cleanup: @escaping Cleanup = { result in
+            result.cleanupTransferredTemporaryFiles()
+        },
         failureSignal: @escaping FailureSignal = { _ in NSSound.beep() }
     ) {
         self.deadline = deadline
@@ -262,11 +263,5 @@ actor TerminalImageTransferPreparationService {
     ) async {
         guard failure != .cancelled else { return }
         await failureSignal(failure)
-    }
-
-    private nonisolated static func cleanupSynchronously(
-        _ result: TerminalPastePreparationResult
-    ) {
-        result.cleanupTransferredTemporaryFiles()
     }
 }
