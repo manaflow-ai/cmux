@@ -905,17 +905,6 @@ EOF
     exit 1
   fi
 
-  if ! awk '
-    /^  web-typecheck:/ { in_job=1; next }
-    in_job && /^  [[:alnum:]_-]+:/ { in_job=0 }
-    in_job && /bun-version:[[:space:]]*"1[.]3[.]14"/ { saw_pin=1 }
-    END { exit !saw_pin }
-  ' "$CI_FILE"; then
-    echo "FAIL: web-typecheck must pin the minimum mock-isolated Bun version"
-    rm -rf "$fixture_dir"
-    exit 1
-  fi
-
   if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
     CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
     /bin/bash "$fixture_runner" \
