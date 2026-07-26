@@ -376,7 +376,7 @@ struct ActivePointerPress {
     last_target_x: f64,
     last_target_y: f64,
     click_count: Option<u32>,
-    remote_expires_at: Option<Instant>,
+    compatibility_expires_at: Option<Instant>,
     release_retry_at: Option<Instant>,
 }
 
@@ -394,24 +394,20 @@ impl ActivePointerPress {
             last_target_x: x,
             last_target_y: y,
             click_count,
-            remote_expires_at: match input_owner {
-                BrowserPointerOwner::Local => None,
+            compatibility_expires_at: match input_owner {
+                BrowserPointerOwner::Local | BrowserPointerOwner::Client(_) => None,
                 BrowserPointerOwner::Legacy => Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE),
-                BrowserPointerOwner::Client(_) => {
-                    Some(Instant::now() + NEGOTIATED_POINTER_PRESS_LEASE)
-                }
             },
             release_retry_at: None,
         }
     }
 
-    fn refresh_remote_lease(&mut self, target_x: f64, target_y: f64) {
+    fn refresh_pointer_position(&mut self, target_x: f64, target_y: f64) {
         self.last_target_x = target_x;
         self.last_target_y = target_y;
-        self.remote_expires_at = match self.input_owner {
-            BrowserPointerOwner::Local => None,
+        self.compatibility_expires_at = match self.input_owner {
+            BrowserPointerOwner::Local | BrowserPointerOwner::Client(_) => None,
             BrowserPointerOwner::Legacy => Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE),
-            BrowserPointerOwner::Client(_) => Some(Instant::now() + NEGOTIATED_POINTER_PRESS_LEASE),
         };
     }
 }
@@ -574,7 +570,6 @@ const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(5);
-const NEGOTIATED_POINTER_PRESS_LEASE: Duration = Duration::from_secs(15);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
@@ -1301,7 +1296,7 @@ fn next_pointer_lifecycle_deadline(failures: &BrowserWorkerErrorState) -> Option
     failures
         .active_pointer_presses
         .values()
-        .filter_map(|press| match (press.remote_expires_at, press.release_retry_at) {
+        .filter_map(|press| match (press.compatibility_expires_at, press.release_retry_at) {
             (Some(lease), Some(retry)) => Some(lease.min(retry)),
             (Some(lease), None) => Some(lease),
             (None, Some(retry)) => Some(retry),
@@ -1338,14 +1333,13 @@ fn release_abandoned_pointer_presses(
         .iter()
         .filter(|(_, press)| {
             let retry_due = press.release_retry_at.is_some_and(|deadline| deadline <= now);
-            let remote_lease_expired =
-                press.remote_expires_at.is_some_and(|deadline| deadline <= now);
+            let compatibility_lease_expired =
+                press.compatibility_expires_at.is_some_and(|deadline| deadline <= now);
             match press.input_owner {
                 BrowserPointerOwner::Local => retry_due,
-                BrowserPointerOwner::Legacy => retry_due || remote_lease_expired,
+                BrowserPointerOwner::Legacy => retry_due || compatibility_lease_expired,
                 BrowserPointerOwner::Client(client) => {
                     retry_due
-                        || remote_lease_expired
                         || active_clients
                             .as_ref()
                             .is_none_or(|mux| !mux.control_clients.contains(client))
@@ -2146,16 +2140,20 @@ impl BrowserSurface {
         Ok(())
     }
 
-    pub fn mark_failed(&self, message: String) {
-        let mut state = self.state.lock().unwrap();
-        state.status = BrowserStatus::Failed(message.clone());
+    fn mark_failed_locked(state: &mut BrowserState, message: &str) {
+        state.status = BrowserStatus::Failed(message.to_string());
         // A transport timeout revokes admission for new input, but it does not
         // prove that the document or its coordinate mapping changed. Preserve
         // an accepted press long enough to deliver its balancing release.
-        Self::invalidate_pointer_frame_locked(&mut state, false);
+        Self::invalidate_pointer_frame_locked(state, false);
         state.pending_navigation_rollback = None;
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
+    }
+
+    pub fn mark_failed(&self, message: String) {
+        let mut state = self.state.lock().unwrap();
+        Self::mark_failed_locked(&mut state, &message);
         Self::mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
     }
@@ -2640,7 +2638,7 @@ impl BrowserSurface {
         }
     }
 
-    fn release_failed_document_authority(&self, navigation_epoch: u64) {
+    fn fail_document_authority(&self, navigation_epoch: u64, error: &anyhow::Error) {
         let mut state = self.state.lock().unwrap();
         if state.pending_document_epoch != Some(navigation_epoch) {
             return;
@@ -2651,7 +2649,12 @@ impl BrowserSurface {
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
         state.pending_navigation_rollback = None;
+        Self::mark_failed_locked(
+            &mut state,
+            &format!("could not verify new page pixels: {error}; reload to retry"),
+        );
         Self::mark_state_dirty_locked(&mut state);
+        self.dirty.store(true, Ordering::Release);
     }
 
     fn release_failed_same_document_authority(&self) {
@@ -3017,8 +3020,8 @@ impl BrowserSurface {
     }
 
     /// Queue guarded mouse input under one capture owner. Local in-process
-    /// input has a reserved stable owner. Remote sockets use a bounded lease;
-    /// negotiated sockets additionally use their connection registry id.
+    /// input has a reserved stable owner. Legacy remote sockets use a bounded
+    /// compatibility lease; negotiated sockets use their connection registry id.
     pub(crate) fn mouse_event_for_frame_from(
         &self,
         dispatch: BrowserMouseDispatch<'_>,
@@ -3107,7 +3110,7 @@ impl BrowserSurface {
                         && let Some(press) = active_pointer_presses.get_mut(button)
                         && let Some((target_x, target_y)) = point
                     {
-                        press.refresh_remote_lease(target_x, target_y);
+                        press.refresh_pointer_position(target_x, target_y);
                     }
                     point
                 } else {
@@ -3301,8 +3304,9 @@ impl BrowserSurface {
                 }
             }
         }
-        self.release_failed_document_authority(navigation_epoch);
-        Err(last_error.expect("authority capture attempts must record an error"))
+        let error = last_error.expect("authority capture attempts must record an error");
+        self.fail_document_authority(navigation_epoch, &error);
+        Err(error)
     }
 
     fn authorize_same_document_paint_blocking(
@@ -5614,7 +5618,7 @@ mod tests {
             1.0,
             Some(1),
         );
-        press.remote_expires_at = Some(now);
+        press.compatibility_expires_at = Some(now);
         let mut failures = super::BrowserWorkerErrorState::default();
         failures.active_pointer_presses.insert("left".to_string(), press);
 

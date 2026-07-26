@@ -37,6 +37,11 @@ const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(not(test))]
+const GUARDED_POINTER_REQUEST_TIMEOUT: Duration = REMOTE_REQUEST_TIMEOUT;
+#[cfg(test)]
+const GUARDED_POINTER_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
 
 fn zeroize_string(value: &mut str) {
     // NUL is valid UTF-8, so the serialized request can be cleared in place
@@ -1342,7 +1347,11 @@ impl RemoteSession {
         self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
     }
 
-    pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
+    pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
+        self.request_with_timeout(cmd, REMOTE_REQUEST_TIMEOUT)
+    }
+
+    fn request_with_timeout(&self, mut cmd: Value, timeout: Duration) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
         let mut message = serde_json::to_string(&cmd)
@@ -1370,7 +1379,7 @@ impl RemoteSession {
             return Err(RemoteRequestError::Shutdown.into());
         }
 
-        let response = match rx.recv_timeout(Duration::from_secs(10)) {
+        let response = match rx.recv_timeout(timeout) {
             Ok(response) => response,
             Err(_) => {
                 // Drop the pending entry so a half-open session does not
@@ -1389,6 +1398,22 @@ impl RemoteSession {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
             Err(RemoteRequestError::Rejected(error.to_string()).into())
         }
+    }
+
+    pub(super) fn request_guarded_pointer(&self, cmd: Value) -> anyhow::Result<Value> {
+        let result = self.request_with_timeout(cmd, GUARDED_POINTER_REQUEST_TIMEOUT);
+        if result
+            .as_ref()
+            .err()
+            .and_then(|error| error.downcast_ref::<RemoteRequestError>())
+            .is_some_and(RemoteRequestError::is_timeout)
+        {
+            // The server may have accepted a press whose reply was lost.
+            // Closing the connection removes this client from the server
+            // registry and wakes every browser worker to balance its capture.
+            self.disconnect_transport();
+        }
+        result
     }
 
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
@@ -2397,21 +2422,18 @@ mod tests {
 
     #[test]
     fn guarded_pointer_timeout_uses_transport_disconnect_lifecycle() {
-        let source = include_str!("remote.rs");
-        let production =
-            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production remote source");
-        let guarded_request = production
-            .split("fn request_guarded_pointer")
-            .nth(1)
-            .expect("guarded pointer request helper")
-            .split("\n    }")
-            .next()
-            .expect("guarded pointer request body");
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
 
         assert!(
-            guarded_request.contains("disconnect_transport"),
-            "an ambiguous guarded-pointer timeout must close the connection so the server balances its capture"
+            session
+                .request_guarded_pointer(json!({"cmd": "browser-mouse-guarded"}))
+                .unwrap_err()
+                .downcast_ref::<RemoteRequestError>()
+                .is_some_and(RemoteRequestError::is_timeout)
         );
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(closed.load(Ordering::Acquire));
     }
 
     #[test]

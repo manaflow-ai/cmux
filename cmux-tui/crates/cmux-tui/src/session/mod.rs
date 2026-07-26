@@ -1550,7 +1550,7 @@ impl SurfaceHandle {
                     _ => anyhow::bail!("bad browser mouse event type {event_type:?}"),
                 };
                 session
-                    .request(json!({
+                    .request_guarded_pointer(json!({
                         "cmd": "browser-mouse-guarded",
                         "surface": surface.id,
                         "kind": kind,
