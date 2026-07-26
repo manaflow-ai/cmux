@@ -135,6 +135,9 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         ownedTemporaryImageNames: [String],
         workingDirectory: URL
     ) throws -> TerminalPastePreparationResult {
+        // URLs outside this private directory are pre-existing pasteboard file
+        // URLs and intentionally retain their identity. Every worker-created
+        // output must be directory-local and exactly covered by the owned set.
         let workerFileURLs = result.transferredFileURLs.filter {
             $0.standardizedFileURL.deletingLastPathComponent()
                 == workingDirectory.standardizedFileURL

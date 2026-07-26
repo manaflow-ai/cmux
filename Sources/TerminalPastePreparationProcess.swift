@@ -26,6 +26,9 @@ actor TerminalPastePreparationProcess {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
+                // Install before launch: every successful launch, including an
+                // immediate exit, completes through this handler. Launch
+                // failures resume explicitly in the catch path below.
                 process.terminationHandler = { [weak self] process in
                     let status = process.terminationStatus
                     Task {

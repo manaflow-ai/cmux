@@ -6,6 +6,10 @@ import Foundation
 /// main thread. `XMLDocument` stays on the caller's executor, repairs malformed
 /// markup, and decodes standard HTML entities without loading external content.
 struct HTMLPlainTextParser: Sendable {
+    /// Keeps synchronous drop inspection bounded before Foundation builds a DOM.
+    static let maximumInputByteCount = 4 * 1024 * 1024
+    private static let maximumOutputCharacterCount = 4 * 1024 * 1024
+
     private static let hiddenBlockTags: Set<String> = [
         "head",
         "noscript",
@@ -60,6 +64,9 @@ struct HTMLPlainTextParser: Sendable {
     ]
 
     func plainText(from html: String) -> String? {
+        guard html.utf8.count <= Self.maximumInputByteCount else {
+            return nil
+        }
         guard let document = try? XMLDocument(
             xmlString: html,
             options: [
@@ -73,6 +80,9 @@ struct HTMLPlainTextParser: Sendable {
     }
 
     func plainText(from data: Data) -> String? {
+        guard data.count <= Self.maximumInputByteCount else {
+            return nil
+        }
         guard let document = try? XMLDocument(
             data: data,
             options: [
@@ -91,15 +101,20 @@ struct HTMLPlainTextParser: Sendable {
     ) -> String? {
         guard let root = document.rootElement() else { return nil }
         var output = ""
+        var outputCharacterCount = 0
         output.reserveCapacity(min(sourceLength, 16_384))
-        appendVisibleText(
+        guard appendVisibleText(
             from: root,
             preservingWhitespace: false,
-            to: &output
-        )
+            to: &output,
+            outputCharacterCount: &outputCharacterCount
+        ) else {
+            return nil
+        }
 
         while output.last == "\n" {
             output.removeLast()
+            outputCharacterCount -= 1
         }
         return output.isEmpty ? nil : output
     }
@@ -107,57 +122,79 @@ struct HTMLPlainTextParser: Sendable {
     private func appendVisibleText(
         from node: XMLNode,
         preservingWhitespace: Bool,
-        to output: inout String
-    ) {
+        to output: inout String,
+        outputCharacterCount: inout Int
+    ) -> Bool {
         switch node.kind {
         case .text:
-            guard let text = node.stringValue else { return }
-            appendText(
+            guard let text = node.stringValue else { return true }
+            return appendText(
                 text,
                 preservingWhitespace: preservingWhitespace,
-                to: &output
+                to: &output,
+                outputCharacterCount: &outputCharacterCount
             )
         case .element:
             let name = node.name?.lowercased() ?? ""
-            guard !Self.hiddenBlockTags.contains(name) else { return }
+            guard !Self.hiddenBlockTags.contains(name) else { return true }
 
             if name == "br" {
-                appendBlockBoundary(to: &output)
-                return
+                return appendBlockBoundary(
+                    to: &output,
+                    outputCharacterCount: &outputCharacterCount
+                )
             }
 
             let isBlock = Self.blockBoundaryTags.contains(name)
             if isBlock {
-                appendBlockBoundary(to: &output)
+                guard appendBlockBoundary(
+                    to: &output,
+                    outputCharacterCount: &outputCharacterCount
+                ) else {
+                    return false
+                }
             }
             let childPreservesWhitespace =
                 preservingWhitespace || Self.preformattedTags.contains(name)
             for child in node.children ?? [] {
-                appendVisibleText(
+                guard appendVisibleText(
                     from: child,
                     preservingWhitespace: childPreservesWhitespace,
-                    to: &output
-                )
+                    to: &output,
+                    outputCharacterCount: &outputCharacterCount
+                ) else {
+                    return false
+                }
             }
             if isBlock {
-                appendBlockBoundary(
+                return appendBlockBoundary(
                     to: &output,
-                    trimmingTrailingSpaces: !childPreservesWhitespace
+                    trimmingTrailingSpaces: !childPreservesWhitespace,
+                    outputCharacterCount: &outputCharacterCount
                 )
             }
+            return true
         default:
-            return
+            return true
         }
     }
 
     private func appendText(
         _ text: String,
         preservingWhitespace: Bool,
-        to output: inout String
-    ) {
+        to output: inout String,
+        outputCharacterCount: inout Int
+    ) -> Bool {
         if preservingWhitespace {
+            let textCharacterCount = text.count
+            guard textCharacterCount
+                    <= Self.maximumOutputCharacterCount
+                        - outputCharacterCount else {
+                return false
+            }
             output.append(contentsOf: text)
-            return
+            outputCharacterCount += textCharacterCount
+            return true
         }
 
         for character in text {
@@ -165,26 +202,45 @@ struct HTMLPlainTextParser: Sendable {
                 if !output.isEmpty,
                    output.last != " ",
                    output.last != "\n" {
+                    guard outputCharacterCount
+                            < Self.maximumOutputCharacterCount else {
+                        return false
+                    }
                     output.append(" ")
+                    outputCharacterCount += 1
                 }
             } else {
+                guard outputCharacterCount
+                        < Self.maximumOutputCharacterCount else {
+                    return false
+                }
                 output.append(character)
+                outputCharacterCount += 1
             }
         }
+        return true
     }
 
     private func appendBlockBoundary(
         to output: inout String,
-        trimmingTrailingSpaces: Bool = true
-    ) {
-        guard !output.isEmpty, output.last != "\n" else { return }
+        trimmingTrailingSpaces: Bool = true,
+        outputCharacterCount: inout Int
+    ) -> Bool {
+        guard !output.isEmpty, output.last != "\n" else { return true }
         if trimmingTrailingSpaces {
             while output.last == " " {
                 output.removeLast()
+                outputCharacterCount -= 1
             }
         }
         if !output.isEmpty {
+            guard outputCharacterCount
+                    < Self.maximumOutputCharacterCount else {
+                return false
+            }
             output.append("\n")
+            outputCharacterCount += 1
         }
+        return true
     }
 }
