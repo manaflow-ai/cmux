@@ -33976,6 +33976,16 @@ export default CMUXSessionRestore;
 
         var ownedClient: SocketClient?
         defer { ownedClient?.close() }
+        let clientDeadline = Date().addingTimeInterval(Self.feedHookClientDeadlineSeconds)
+
+        func remainingResponseTime() throws -> TimeInterval {
+            let remaining = clientDeadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Feed hook response deadline exceeded")
+            }
+            return remaining
+        }
+
         let activeClient: SocketClient
         if let client {
             activeClient = client
@@ -33986,7 +33996,8 @@ export default CMUXSessionRestore;
                 try authenticateClientIfNeeded(
                     feedClient,
                     explicitPassword: socketPassword,
-                    socketPath: socketPath
+                    socketPath: socketPath,
+                    responseTimeout: try remainingResponseTime()
                 )
             } catch {
                 feedClient.close()
@@ -34004,7 +34015,7 @@ export default CMUXSessionRestore;
         do {
             response = try activeClient.send(
                 command: line,
-                responseTimeout: Self.feedHookResponseTimeoutSeconds
+                responseTimeout: try remainingResponseTime()
             )
         } catch {
             print("{}")

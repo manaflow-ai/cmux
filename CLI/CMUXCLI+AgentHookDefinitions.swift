@@ -6,8 +6,8 @@ extension CMUXCLI {
 
     // The client deadline must fire before the generated agent-hook timeout.
     static let feedHookProcessTimeoutMilliseconds = 120_000
-    static let feedHookResponseTimeoutSeconds = Double(feedHookProcessTimeoutMilliseconds) / 1_000 - 2
-    static let feedHookDecisionWaitSeconds = feedHookResponseTimeoutSeconds - 3
+    static let feedHookClientDeadlineSeconds = Double(feedHookProcessTimeoutMilliseconds) / 1_000 - 2
+    static let feedHookDecisionWaitSeconds = feedHookClientDeadlineSeconds - 3
     /// Configuration for a hook-based agent integration.
     struct AgentHookDef {
         let name: String            // CLI name: "cursor", "gemini", etc.
