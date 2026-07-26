@@ -3337,6 +3337,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             transaction.targetMagnificationPercent,
             200
         )
+        XCTAssertTrue(
+            transaction.magnificationDidChange,
+            "A soft reload must promote to a full config rebuild when its imported scale changed"
+        )
     }
 
     func testConfigurationRefreshWakesParkedFontMutation() {
