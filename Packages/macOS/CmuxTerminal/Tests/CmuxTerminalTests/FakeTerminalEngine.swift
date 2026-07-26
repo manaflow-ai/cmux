@@ -8,6 +8,7 @@ final class FakeTerminalEngine: TerminalEngineHosting {
     var userGhosttyShellIntegrationMode: String { "none" }
     var hasUserGhosttyCommand: Bool { false }
     var resolvedUserShell: String? { nil }
+    var terminalFontConfigurationGeneration: UInt64 = 0
     var shouldDeferRuntimeSurfaceCreationForConfigurationReload =
         false
     private(set) var deferredRuntimeSurfaceCreationActions:
