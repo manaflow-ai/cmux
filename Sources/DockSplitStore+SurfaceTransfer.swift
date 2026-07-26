@@ -167,6 +167,14 @@ extension DockSplitStore {
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveDock(
+                    terminalPanel,
+                    dock: self,
+                    preservingTransfer: true
+                )
+        }
 
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,

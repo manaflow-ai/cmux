@@ -378,8 +378,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     /// fresh instance by default unless they intentionally model two windows.
     @MainActor
     final class Arbiter {
-        private static let maximumDeferredCoordinatorJoinCount = 256
-
+        private let maximumDeferredCoordinatorJoinCount: Int
         private var deferredCoordinatorJoins:
             [DeferredCoordinatorJoin] = []
         private var deferredCoordinatorJoinHead = 0
@@ -388,7 +387,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
         private var retainedCoordinators:
             [ObjectIdentifier: WorkspaceTerminalFontSizeCoordinator] = [:]
 
-        nonisolated init() {}
+        nonisolated init(
+            maximumDeferredCoordinatorJoinCount: Int = 256
+        ) {
+            precondition(maximumDeferredCoordinatorJoinCount > 0)
+            self.maximumDeferredCoordinatorJoinCount =
+                maximumDeferredCoordinatorJoinCount
+        }
 
         fileprivate func retain(
             _ coordinator: WorkspaceTerminalFontSizeCoordinator
@@ -436,7 +441,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             // transforms at the limit.
             guard deferredCoordinatorJoins.count
                     - deferredCoordinatorJoinHead
-                    < Self.maximumDeferredCoordinatorJoinCount else {
+                    < maximumDeferredCoordinatorJoinCount else {
                 return false
             }
             deferredCoordinatorJoins.append(
@@ -489,7 +494,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     return
                 }
 
-                popDeferredCoordinatorJoin()
                 let eventCoordinator =
                     workspaceCoordinator
                     ?? windowDockCoordinator
@@ -497,15 +501,19 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 eventCoordinator.signalMutationRetry(
                     scheduleIfOutstanding: false
                 )
-                eventCoordinator.claimWorkspace(workspace)
-                eventCoordinator.claimWindowDockSlot(
-                    join.windowDockSlot
-                )
-                eventCoordinator.appendEvent(
+                guard eventCoordinator.appendEvent(
                     join.change,
                     workspaceId: join.workspaceId,
                     workspaceReference: join.workspaceReference,
                     windowDockSlot: join.windowDockSlot
+                ) else {
+                    eventCoordinator.scheduleOutstandingContinuation()
+                    return
+                }
+                popDeferredCoordinatorJoin()
+                eventCoordinator.claimWorkspace(workspace)
+                eventCoordinator.claimWindowDockSlot(
+                    join.windowDockSlot
                 )
                 eventCoordinator.flushOrSchedule(
                     deferFlush: join.deferFlush
@@ -700,6 +708,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         MutationRetryDisposition = .ready
     private var automaticMutationRetryAvailable = true
     private let arbiter: Arbiter
+    private let maximumOutstandingRequestCount: Int
     private let schedule: DrainScheduler
     private let applyChange: ChangeApplier
     private var cancelScheduledDrain: DrainCancellation?
@@ -707,6 +716,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     init(
         tabManager: TabManager,
         arbiter: Arbiter = Arbiter(),
+        maximumOutstandingRequestCount: Int = 256,
         schedule: @escaping DrainScheduler = { delay, action in
             let boundedDelay = max(0, delay)
             let maximumDelay =
@@ -743,8 +753,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
         }
     ) {
+        precondition(maximumOutstandingRequestCount >= 2)
         self.tabManager = tabManager
         self.arbiter = arbiter
+        self.maximumOutstandingRequestCount =
+            maximumOutstandingRequestCount
         self.schedule = schedule
         self.applyChange = applyChange
     }
@@ -776,14 +789,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
         windowDockSlot.pendingInheritanceContext = nil
     }
 
+    @discardableResult
     func enqueue(
         _ change: WorkspaceTerminalFontSizeChange,
         workspaceId: UUID,
         deferFlush: Bool
-    ) {
+    ) -> Bool {
         guard !change.isNoOp,
               let workspace = tabManager?.workspacesById[workspaceId] else {
-            return
+            return false
         }
         arbiter.promoteDeferredCoordinatorJoins()
         workspace.terminalFontSizeChangeCoordinator?
@@ -794,14 +808,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
             targeting: workspace,
             or: windowDockSlot
         ) {
-            deferCoordinatorJoin(
+            return deferCoordinatorJoin(
                 change,
                 workspace: workspace,
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
                 deferFlush: deferFlush
             )
-            return
         }
         let workspaceCoordinator =
             coordinatorOwningWork(for: workspace)
@@ -810,14 +823,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
         if let workspaceCoordinator,
            let windowDockCoordinator,
            workspaceCoordinator !== windowDockCoordinator {
-            deferCoordinatorJoin(
+            return deferCoordinatorJoin(
                 change,
                 workspace: workspace,
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
                 deferFlush: deferFlush
             )
-            return
         }
         let eventCoordinator =
             workspaceCoordinator
@@ -826,15 +838,19 @@ final class WorkspaceTerminalFontSizeCoordinator {
         eventCoordinator.signalMutationRetry(
             scheduleIfOutstanding: false
         )
-        eventCoordinator.claimWorkspace(workspace)
-        eventCoordinator.claimWindowDockSlot(windowDockSlot)
-        eventCoordinator.appendEvent(
+        guard eventCoordinator.appendEvent(
             change,
             workspaceId: workspaceId,
             workspaceReference: workspaceReference,
             windowDockSlot: windowDockSlot
-        )
+        ) else {
+            eventCoordinator.scheduleOutstandingContinuation()
+            return false
+        }
+        eventCoordinator.claimWorkspace(workspace)
+        eventCoordinator.claimWindowDockSlot(windowDockSlot)
         eventCoordinator.flushOrSchedule(deferFlush: deferFlush)
+        return true
     }
 
     func cancelAll() {
@@ -952,10 +968,25 @@ final class WorkspaceTerminalFontSizeCoordinator {
             + sealedWorkspaceCount
             + activeWorkspaceCount
     }
+
+    var debugOutstandingRequestCount: Int {
+        outstandingRequestCount
+    }
 #endif
 
     private var hasPendingRequests: Bool {
         pendingEventBatch != nil || !sealedRequests.isEmpty
+    }
+
+    private var pendingEventRequestCount: Int {
+        guard let pendingEventBatch else { return 0 }
+        return 1 + pendingEventBatch.workspaceRequests.count
+    }
+
+    private var outstandingRequestCount: Int {
+        (activeRequest == nil ? 0 : 1)
+            + sealedRequests.count
+            + pendingEventRequestCount
     }
 
     private func retainWhileOutstanding() {
@@ -1027,7 +1058,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         workspaceReference: WeakWorkspaceReference,
         windowDockSlot: WindowDockSlot,
         deferFlush: Bool
-    ) {
+    ) -> Bool {
         arbiter.deferCoordinatorJoin(
             change,
             workspace: workspace,
@@ -1222,7 +1253,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
         workspaceId: UUID,
         workspaceReference: WeakWorkspaceReference,
         windowDockSlot: WindowDockSlot
-    ) {
+    ) -> Bool {
+        let additionalRequestCount: Int
+        if let pendingEventBatch,
+           pendingEventBatch.windowDockSlotIdentity
+                == ObjectIdentifier(windowDockSlot) {
+            additionalRequestCount =
+                pendingEventBatch.workspaceRequests[workspaceId] == nil
+                ? 1
+                : 0
+        } else {
+            additionalRequestCount = 2
+        }
+        guard outstandingRequestCount + additionalRequestCount
+                <= maximumOutstandingRequestCount else {
+            return false
+        }
+
         retainWhileOutstanding()
         let windowDockSlotIdentity = ObjectIdentifier(windowDockSlot)
         if let pendingEventBatch,
@@ -1257,7 +1304,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
         }
 
-        guard var batch = pendingEventBatch else { return }
+        guard var batch = pendingEventBatch else { return false }
         if var existing = batch.workspaceRequests[workspaceId] {
             append(change, to: &existing)
             existing.windowDockPrefixChange =
@@ -1281,6 +1328,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
         }
         pendingEventBatch = batch
+        return true
     }
 
     private func append(
@@ -1528,6 +1576,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
         )
     }
 
+    func terminalDidLeaveWorkspace(
+        _ terminalPanel: TerminalPanel,
+        workspace: Workspace,
+        preservingTransfer: Bool = false
+    ) {
+        guard workspace.terminalFontSizeChangeCoordinator === self else {
+            return
+        }
+        terminalDidLeave(
+            terminalPanel,
+            preservingTransfer: preservingTransfer
+        )
+    }
+
     func terminalWillLeaveDock(
         _ terminalPanel: TerminalPanel,
         dock: DockSplitStore
@@ -1572,6 +1634,43 @@ final class WorkspaceTerminalFontSizeCoordinator {
             resourceKey: resourceKey,
             processImmediately: true
         )
+    }
+
+    func terminalDidLeaveDock(
+        _ terminalPanel: TerminalPanel,
+        dock: DockSplitStore,
+        preservingTransfer: Bool = false
+    ) {
+        if let workspace = dock.terminalFontSizeOwningWorkspace {
+            terminalDidLeaveWorkspace(
+                terminalPanel,
+                workspace: workspace,
+                preservingTransfer: preservingTransfer
+            )
+            return
+        }
+        guard dock.terminalFontSizeChangeCoordinator === self else {
+            return
+        }
+        terminalDidLeave(
+            terminalPanel,
+            preservingTransfer: preservingTransfer
+        )
+    }
+
+    private func terminalDidLeave(
+        _ terminalPanel: TerminalPanel,
+        preservingTransfer: Bool
+    ) {
+        if !preservingTransfer {
+            let abandonedObligations = transferObligations.filter {
+                $0.panelId == terminalPanel.id
+            }
+            for obligation in abandonedObligations {
+                removeTransferObligation(obligation)
+            }
+        }
+        signalMutationRetry()
     }
 
     private func registerTransfer(
@@ -1995,6 +2094,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 }
             }
         }
+        arbiter.promoteDeferredCoordinatorJoins()
 
         let batchLineage = request.batchLineage
         guard batchLineage.remainingRequestTokens.remove(request.token)

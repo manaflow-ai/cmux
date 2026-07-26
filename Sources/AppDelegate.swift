@@ -13947,7 +13947,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
             let routedManager = routedContext?.tabManager ?? tabManager
             if let selectedWorkspace = routedManager?.selectedWorkspace {
-                enqueueWorkspaceTerminalFontSizeChange(
+                return enqueueWorkspaceTerminalFontSizeChange(
                     workspaceTerminalFontSizeAction,
                     workspace: selectedWorkspace,
                     tabManager: routedManager,
@@ -14255,9 +14255,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspace: Workspace,
         tabManager: TabManager?,
         deferFlush: Bool
-    ) {
+    ) -> Bool {
         if action == .resetWorkspaceTerminalFontSize, deferFlush {
-            return
+            return true
         }
         let change: WorkspaceTerminalFontSizeChange
         if action == .resetWorkspaceTerminalFontSize {
@@ -14269,9 +14269,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let tabManager,
               let context = mainWindowContext(for: tabManager) else {
-            return
+            return true
         }
-        context.workspaceTerminalFontSizeCoordinator.enqueue(
+        return context.workspaceTerminalFontSizeCoordinator.enqueue(
             change,
             workspaceId: workspace.id,
             deferFlush: deferFlush
