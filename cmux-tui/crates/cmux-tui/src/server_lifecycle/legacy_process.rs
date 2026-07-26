@@ -1,7 +1,10 @@
 use std::collections::HashSet;
 use std::io;
+use std::time::{Duration, Instant};
 
 const PROCESS_TREE_MAX_ROUNDS: usize = 64;
+const PROCESS_TREE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+const PROCESS_TREE_RETRY_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ProcessIdentity {
@@ -60,7 +63,27 @@ enum ExactSignalResult {
 }
 
 pub(super) fn terminate_process_tree(process: ProcessIdentity) -> io::Result<()> {
-    FrozenProcessTree::freeze(process).and_then(FrozenProcessTree::kill)
+    let deadline = Instant::now() + PROCESS_TREE_RETRY_TIMEOUT;
+    loop {
+        let error = match FrozenProcessTree::freeze(process) {
+            Ok(tree) => return tree.kill(),
+            Err(error) => error,
+        };
+        match ProcessIdentity::capture(process.pid) {
+            Ok(None) => return Ok(()),
+            Ok(Some(current)) if current != process => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "server process identity changed during termination",
+                ));
+            }
+            Ok(Some(_)) | Err(_) => {}
+        }
+        if Instant::now() >= deadline {
+            return Err(error);
+        }
+        std::thread::sleep(PROCESS_TREE_RETRY_INTERVAL);
+    }
 }
 
 struct FrozenProcessTree {
