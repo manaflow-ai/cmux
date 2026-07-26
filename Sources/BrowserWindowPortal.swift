@@ -3058,9 +3058,9 @@ final class WindowBrowserPortal: NSObject {
             "reason=\(reason) remaining=\(entry.transientRecoveryRetriesRemaining)"
         )
 #endif
-        if entry.transientRecoveryRetriesRemaining > 0 {
-            scheduleDeferredFullSynchronizeAll()
-        }
+        // Schedule once more after consuming the final retry so the next pass
+        // observes exhaustion and hides a still-detached visible entry.
+        scheduleDeferredFullSynchronizeAll()
         return true
     }
 
