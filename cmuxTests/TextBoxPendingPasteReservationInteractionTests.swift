@@ -101,6 +101,29 @@ struct TextBoxPendingPasteReservationInteractionTests {
         #expect(textView.string == "firstsecond")
     }
 
+    @Test("typing at a pending insertion anchor stays after the paste")
+    func typingAtPendingInsertionAnchorStaysAfterPaste() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        textView.string = ""
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let pasteID = UUID()
+        #expect(textView.beginPendingPasteReservation(id: pasteID))
+        textView.insertText(
+            "typed",
+            replacementRange: textView.selectedRange()
+        )
+
+        #expect(
+            textView.commitPendingPasteReservation(
+                id: pasteID,
+                withText: "pasted"
+            )
+        )
+        #expect(textView.string == "pastedtyped")
+    }
+
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 30)

@@ -287,6 +287,8 @@ extension TextBoxInputTextView {
         for (id, var reservation) in pendingPasteReservations
         where !reservation.usesMarker {
             let anchor = reservation.replacementRange.location
+            // An edit beginning at the anchor was issued after the paste
+            // command, so the paste must remain ordered before that edit.
             guard affectedRange.location < anchor else { continue }
             if NSMaxRange(affectedRange) > anchor {
                 cancelledIDs.append(id)
