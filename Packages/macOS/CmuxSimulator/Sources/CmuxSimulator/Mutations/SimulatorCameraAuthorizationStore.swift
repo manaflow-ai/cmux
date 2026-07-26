@@ -17,17 +17,21 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
     ) {
         if let directory {
             self.directory = directory
-            self.legacyDirectory = legacyDirectory
+            self.legacyDirectory = legacyDirectory?.standardizedFileURL
+                == directory.standardizedFileURL ? nil : legacyDirectory
         } else {
-            self.directory = fileManager.urls(
+            let directory = fileManager.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
             ).first?
                 .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
                 .appendingPathComponent("camera-authorizations", isDirectory: true)
-            self.legacyDirectory = legacyDirectory ?? fileManager.temporaryDirectory
+            let legacyDirectory = legacyDirectory ?? fileManager.temporaryDirectory
                 .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
                 .appendingPathComponent("camera-authorizations", isDirectory: true)
+            self.directory = directory
+            self.legacyDirectory = legacyDirectory.standardizedFileURL
+                == directory?.standardizedFileURL ? nil : legacyDirectory
         }
         journalMutationGate = SimulatorMutationGate()
     }
