@@ -4154,7 +4154,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, boundEndDeferringCount)
     }
 
-    func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() {
+    func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -4196,11 +4196,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugEntryCount(), 1)
 
         let displayCountBeforeRebind = webView.displayIfNeededCount
+        let enterInWindowCountBeforeRebind = webView.enterInWindowCount
+        let endDeferringCountBeforeRebind = webView.endDeferringViewInWindowChangesCount
         let anchor2 = NSView(frame: anchorFrame)
         contentView.addSubview(anchor2)
         portal.bind(webView: webView, to: anchor2, visibleInUI: true)
-        portal.synchronizeWebViewForAnchor(anchor2)
-        advanceAnimations()
+        let enterInWindowCountAfterRebind = webView.enterInWindowCount
+        let endDeferringCountAfterRebind = webView.endDeferringViewInWindowChangesCount
 
         XCTAssertTrue(webView.superview === slot, "Rebinding after transient anchor removal should reuse the existing portal slot")
         XCTAssertFalse(slot.isHidden)
@@ -4210,6 +4212,21 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             displayCountBeforeRebind,
             "Anchor rebinds should refresh hosted browser presentation even when geometry is unchanged"
         )
+        XCTAssertEqual(
+            enterInWindowCountAfterRebind - enterInWindowCountBeforeRebind,
+            1,
+            "Anchor rebind should invoke one synchronous WebKit window-entry refresh"
+        )
+        XCTAssertEqual(
+            endDeferringCountAfterRebind - endDeferringCountBeforeRebind,
+            1,
+            "Anchor rebind should invoke one synchronous deferred-window refresh"
+        )
+
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
+        XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
     }
 
     func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() {
@@ -4327,7 +4344,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
     }
 
-    func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() {
+    func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -4375,12 +4392,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let displayCountBeforeRebind = webView.displayIfNeededCount
         let redrawCountBeforeRebind = webView.setNeedsDisplayCount
-        let reattachCountBeforeRebind = webView.reattachRenderingStateCount
+        let enterInWindowCountBeforeRebind = webView.enterInWindowCount
+        let endDeferringCountBeforeRebind = webView.endDeferringViewInWindowChangesCount
         let newAnchor = NSView(frame: anchorFrame)
         contentView.addSubview(newAnchor)
         portal.bind(webView: webView, to: newAnchor, visibleInUI: true)
-        portal.synchronizeWebViewForAnchor(newAnchor)
-        advanceAnimations()
+        let enterInWindowCountAfterRebind = webView.enterInWindowCount
+        let endDeferringCountAfterRebind = webView.endDeferringViewInWindowChangesCount
 
         XCTAssertTrue(
             webView.superview === slot,
@@ -4393,16 +4411,26 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             redrawCountBeforeRebind,
             "Workspace rebind should invalidate the preserved browser for redraw"
         )
-        XCTAssertGreaterThan(
-            webView.reattachRenderingStateCount,
-            reattachCountBeforeRebind,
-            "Workspace rebind should repair the preserved browser's rendering state"
+        XCTAssertEqual(
+            enterInWindowCountAfterRebind - enterInWindowCountBeforeRebind,
+            1,
+            "Workspace rebind should invoke one synchronous WebKit window-entry refresh"
+        )
+        XCTAssertEqual(
+            endDeferringCountAfterRebind - endDeferringCountBeforeRebind,
+            1,
+            "Workspace rebind should invoke one synchronous deferred-window refresh"
         )
         XCTAssertEqual(
             webView.displayIfNeededCount,
             displayCountBeforeRebind,
             "Workspace rebind must not synchronously flush WebKit display"
         )
+
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
+        XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
     }
 }
 
