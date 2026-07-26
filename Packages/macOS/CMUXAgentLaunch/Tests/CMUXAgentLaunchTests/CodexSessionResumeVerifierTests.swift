@@ -60,6 +60,32 @@ struct CodexSessionResumeVerifierTests {
         ) == nil)
     }
 
+    @Test func verifierSeesThreadInsertedAfterEarlierMiss() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019f9bc6-f62f-7d60-ba26-463faf7f8b19"
+        let verifier = CodexSessionResumeVerifier()
+        #expect(verifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) == nil)
+
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        try fixture.insertThread(sessionId: sessionId, rolloutPath: rollout.path)
+
+        #expect(verifier.evidence(
+            sessionId: sessionId,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) == CodexSessionResumeEvidence(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            source: .threadIndex
+        ))
+    }
+
     @Test func indexedSubagentResolvesToUserOwnedParent() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
