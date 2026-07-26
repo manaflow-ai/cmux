@@ -1723,6 +1723,16 @@ mod tests {
     }
 
     #[test]
+    fn client_sizing_builder_restores_all_clients_without_a_selector() {
+        let flags = FlagMap {
+            values: BTreeMap::from([("enabled".to_string(), "true".to_string())]),
+            ..Default::default()
+        };
+
+        assert_eq!(build_set_client_sizing(&flags).unwrap(), json!({"enabled": true}));
+    }
+
+    #[test]
     fn run_workspace_key_requires_atomic_workspace_creation() {
         let flags = FlagMap {
             values: BTreeMap::from([

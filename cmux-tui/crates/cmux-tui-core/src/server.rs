@@ -5031,6 +5031,20 @@ mod tests {
     }
 
     #[test]
+    fn rejected_provider_command_scrubs_its_authority() {
+        let mux = provider_test_mux();
+        let mut command =
+            Command::MarkWorkspacesProviderManaged { authority: "rejected-authority".into() };
+
+        let error = authorize_command_profile(&mux, 0, &mut command).unwrap_err();
+        assert_eq!(error.to_string(), "invalid provider workspace authority");
+        let Command::MarkWorkspacesProviderManaged { authority } = &mut command else {
+            unreachable!();
+        };
+        assert!(authority.as_bytes().iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
     fn stack_json_uses_the_stored_expansion_while_focus_is_elsewhere() {
         let stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 
@@ -5492,6 +5506,38 @@ mod tests {
                 "create-terminal cols and rows must be supplied together"
             );
         }
+    }
+
+    #[test]
+    fn create_terminal_rejects_unpaired_mutation_identity_before_creation() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+        let before = mux.terminal_registry_snapshot().unwrap().revision;
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::CreateTerminal {
+                workspace: Some(workspace),
+                key: None,
+                argv: Some(vec!["/usr/bin/true".into()]),
+                command: None,
+                cwd: None,
+                name: None,
+                cols: None,
+                rows: None,
+                terminal_id: None,
+                mutation: MutationRequest {
+                    origin: Some("sdk-test".into()),
+                    ..MutationRequest::default()
+                },
+            },
+            &test_writer(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "origin and mutation_id must be provided together");
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before);
     }
 
     #[test]

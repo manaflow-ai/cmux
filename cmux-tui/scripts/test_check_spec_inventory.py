@@ -174,6 +174,24 @@ impl Action {
                 CHECKER.TUI = original_tui
 
 
+class DocumentationConsistencyTests(unittest.TestCase):
+    def test_python_browser_attach_uses_the_protocol_six_floor(self) -> None:
+        style = (CHECKER.TUI / "bindings/styles/python.md").read_text()
+        self.assertIn("browser attach streams from protocol 6", style)
+        self.assertNotIn("browser attach streams from protocol 9", style)
+
+    def test_subscribe_belongs_to_the_frontend_profile(self) -> None:
+        spec = (CHECKER.SPEC / "programmability.md").read_text()
+        control_row = next(
+            line for line in spec.splitlines() if line.startswith("| `control` |")
+        )
+        frontend_row = next(
+            line for line in spec.splitlines() if line.startswith("| `frontend` |")
+        )
+        self.assertNotIn("subscriptions", control_row)
+        self.assertIn("subscriptions", frontend_row)
+
+
 class SchemaValidationTests(unittest.TestCase):
     SCHEMA = {
         "type": "object",
