@@ -5415,6 +5415,45 @@ mod tests {
     }
 
     #[test]
+    fn disconnected_client_pointer_capture_is_balanced() {
+        let (runtime, server) = runtime_accepting_mouse_dispatches(vec!["mouseReleased"]);
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let press = super::ActivePointerPress::new(
+            super::BrowserPointerOwner::Client(41),
+            capture_generation,
+            1.0,
+            1.0,
+            Some(1),
+        );
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert("left".to_string(), press);
+        let mux = Mux::new("disconnected-pointer-owner-test", SurfaceOptions::default());
+
+        super::expire_legacy_pointer_presses(
+            &surface,
+            &Arc::downgrade(&mux),
+            surface.id,
+            &mut failures,
+            Instant::now(),
+        );
+
+        assert!(
+            failures.active_pointer_presses.is_empty(),
+            "a disconnected client must lose capture through a balancing release"
+        );
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn canonicalized_same_document_url_still_requests_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -5508,7 +5547,7 @@ mod tests {
                             "id": request["id"],
                             "error": {
                                 "code": -32000,
-                                "message": "injected persistent capture failure"
+                            "message": "CDP call Page.captureScreenshot timed out"
                             }
                         })
                     }
@@ -5548,7 +5587,10 @@ mod tests {
         runtime.shutdown();
         let capture_attempts = server.join().unwrap();
         assert!(capture.is_err());
-        assert_eq!(capture_attempts, AUTHORITY_CAPTURE_ATTEMPTS);
+        assert_eq!(
+            capture_attempts, 1,
+            "a timeout must stop the retry batch before monopolizing the browser worker"
+        );
         assert!(
             !retry_needed,
             "an exhausted recovery epoch must not start another frame-rate capture batch"

@@ -516,6 +516,27 @@ mod tests {
     }
 
     #[test]
+    fn canceled_processing_fence_replays_buffered_apc_input() {
+        let (waiter, notifier) = graphics_fence_channel();
+        let mut filter = GraphicsResponseFilter::new(notifier);
+        let id = processing_fence_id(12);
+        waiter.prepare(id);
+        let boundary = key('_', KeyModifiers::ALT);
+        let buffered = key('x', KeyModifiers::NONE);
+        assert!(filter.filter(boundary.clone()).is_empty());
+        assert!(filter.filter(buffered.clone()).is_empty());
+
+        waiter.cancel(id);
+        let following = key('z', KeyModifiers::NONE);
+
+        assert_eq!(
+            filter.filter(following.clone()),
+            vec![boundary, buffered, following],
+            "canceling a fence must stop its partial APC from consuming later input"
+        );
+    }
+
+    #[test]
     fn kitty_query_acknowledges_processing_not_presentation() {
         let production = |source: &'static str| {
             source.split("\n#[cfg(test)]\nmod tests {").next().expect("production graphics source")
@@ -619,6 +640,10 @@ mod tests {
 
         drop(held);
         fence_entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            lock.try_lock().is_some(),
+            "waiting for a graphics response must not monopolize terminal output"
+        );
         assert_eq!(
             writer.take_completion(),
             None,
