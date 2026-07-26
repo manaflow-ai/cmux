@@ -3433,6 +3433,34 @@ mod tests {
         (runtime, server)
     }
 
+    fn runtime_accepting_mouse_dispatches(
+        expected_types: Vec<&'static str>,
+    ) -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            for expected_type in expected_types {
+                let mouse = read_ws_json(&mut ws);
+                assert_eq!(mouse["method"], "Input.dispatchMouseEvent");
+                assert_eq!(mouse["params"]["type"], expected_type);
+                write_ws_json(&mut ws, json!({"id": mouse["id"], "result": {}}));
+            }
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        (runtime, server)
+    }
+
     fn serve_json_version_until_stopped(
         listener: TcpListener,
         ready_tx: mpsc::Sender<()>,
@@ -5631,6 +5659,77 @@ mod tests {
             active_pointer_presses.contains_key("left"),
             "a timed-out press may have reached Chrome and still owns its balancing release"
         );
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn guarded_press_capture_cannot_be_stolen_by_another_input_client() {
+        let (runtime, server) =
+            runtime_accepting_mouse_dispatches(vec!["mousePressed", "mouseReleased"]);
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let mut active_pointer_presses = std::collections::HashMap::new();
+
+        for dispatch in [
+            super::BrowserMouseDispatch {
+                input_owner: 41,
+                event_type: "mousePressed",
+                x: 1.0,
+                y: 1.0,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: Some(1),
+            },
+            super::BrowserMouseDispatch {
+                input_owner: 42,
+                event_type: "mousePressed",
+                x: 2.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: Some(1),
+            },
+            super::BrowserMouseDispatch {
+                input_owner: 42,
+                event_type: "mouseReleased",
+                x: 2.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: Some(1),
+            },
+        ] {
+            browser.mouse_event_blocking(dispatch, &mut active_pointer_presses).unwrap();
+        }
+        assert_eq!(
+            active_pointer_presses.get("left").map(|press| press.input_owner),
+            Some(41),
+            "a competing client must not overwrite or consume the original press capture"
+        );
+
+        browser
+            .mouse_event_blocking(
+                super::BrowserMouseDispatch {
+                    input_owner: 41,
+                    event_type: "mouseReleased",
+                    x: 1.0,
+                    y: 1.0,
+                    button: Some("left"),
+                    click_count: Some(1),
+                    frame_seq: Some(1),
+                },
+                &mut active_pointer_presses,
+            )
+            .unwrap();
+        assert!(active_pointer_presses.is_empty());
+
         runtime.shutdown();
         server.join().unwrap();
     }

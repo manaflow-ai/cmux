@@ -239,13 +239,24 @@ mod tests {
     }
 
     #[test]
-    fn presentation_is_reported_only_after_the_snapshot_is_written() {
+    fn presentation_waits_for_host_fence_after_stdout_flush() {
         let lock = Arc::new(StdoutLock::new(()));
         let held = lock.lock();
         let (presented_tx, presented_rx) = std::sync::mpsc::channel();
-        let mut writer = GraphicsWriter::spawn_with_output(lock.clone(), Vec::new(), move || {
-            presented_tx.send(()).unwrap();
-        })
+        let (fence_entered_tx, fence_entered_rx) = std::sync::mpsc::channel();
+        let (fence_release_tx, fence_release_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            lock.clone(),
+            Vec::new(),
+            move || {
+                fence_entered_tx.send(()).unwrap();
+                fence_release_rx.recv().unwrap();
+                Ok(())
+            },
+            move || {
+                presented_tx.send(()).unwrap();
+            },
+        )
         .unwrap();
 
         assert!(writer.submit(
@@ -264,6 +275,18 @@ mod tests {
         );
 
         drop(held);
+        fence_entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            writer.take_completion(),
+            None,
+            "stdout flush must not make a frame pointer-visible before the host fence replies"
+        );
+        assert!(
+            presented_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "the app must remain stale while the host has not acknowledged the frame"
+        );
+
+        fence_release_tx.send(()).unwrap();
         presented_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(
             writer.take_completion(),

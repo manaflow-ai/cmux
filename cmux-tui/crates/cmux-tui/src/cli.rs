@@ -1761,6 +1761,32 @@ mod tests {
     }
 
     #[test]
+    fn attach_surface_advertises_guarded_pointer_input_on_the_same_socket() {
+        let request = json!({"id": 1, "cmd": "attach-surface", "surface": 9});
+        let mut wire = Vec::new();
+
+        write_socket_request_sequence(&mut wire, &request).unwrap();
+
+        let messages = String::from_utf8(wire)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            messages,
+            vec![
+                json!({
+                    "id": 0,
+                    "cmd": "set-client-info",
+                    "kind": "cli",
+                    "capabilities": ["browser-pointer-frame-guard-v1"],
+                }),
+                request,
+            ]
+        );
+    }
+
+    #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
         let plugin = verb_by_name("plugin").expect("plugin verb registered");
         assert!(matches!(plugin.kind, VerbKind::Local(_)));

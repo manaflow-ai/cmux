@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import socket
 import unittest
 from pathlib import Path
 
@@ -11,6 +13,28 @@ SPEC.loader.exec_module(measure_frames)
 
 
 class PointerAuthorityTests(unittest.TestCase):
+    def test_attach_handshake_advertises_guarded_pointer_input(self) -> None:
+        sender, receiver = socket.socketpair()
+        try:
+            measure_frames.send_browser_attach_handshake(sender, 17)
+            stream = receiver.makefile("r", encoding="utf-8")
+            self.assertEqual(
+                json.loads(stream.readline()),
+                {
+                    "id": 0,
+                    "cmd": "set-client-info",
+                    "kind": "measure-frames",
+                    "capabilities": ["browser-pointer-frame-guard-v1"],
+                },
+            )
+            self.assertEqual(
+                json.loads(stream.readline()),
+                {"id": 1, "cmd": "attach-surface", "surface": 17},
+            )
+        finally:
+            sender.close()
+            receiver.close()
+
     def test_frame_authority_requires_explicit_live_metadata(self) -> None:
         self.assertEqual(
             measure_frames.pointer_frame_seq_from_event(

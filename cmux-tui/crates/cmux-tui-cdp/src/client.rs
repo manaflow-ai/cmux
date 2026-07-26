@@ -1887,6 +1887,54 @@ mod tests {
     }
 
     #[test]
+    fn stale_frame_tree_snapshot_cannot_overwrite_newer_navigation() {
+        let (inner, _outbound_rx) = test_inner();
+        let frame_epoch = Arc::new(FrameEpoch::default());
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession {
+                epoch: frame_epoch.clone(),
+                main_frame_id: None,
+                main_loader_id: None,
+                pending_document: None,
+                minimum_screencast_timestamp: None,
+                timestampless_authority_epoch: None,
+                suppressed_timestampless_epoch: None,
+            },
+        );
+        let observed_epoch = frame_epoch.current();
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.frameNavigated",
+                "sessionId": "session-1",
+                "params": {
+                    "frame": {
+                        "id": "new-frame",
+                        "loaderId": "new-loader",
+                        "url": "https://new.example.test"
+                    }
+                }
+            })
+            .to_string(),
+        );
+
+        assert!(!commit_main_frame_snapshot(
+            &inner,
+            "session-1",
+            &frame_epoch,
+            observed_epoch,
+            "stale-frame",
+            "stale-loader",
+        ));
+        let frame_sessions = inner.frame_epochs.lock().unwrap();
+        let frame_session = frame_sessions.get("session-1").unwrap();
+        assert_eq!(frame_session.main_frame_id.as_deref(), Some("new-frame"));
+        assert_eq!(frame_session.main_loader_id.as_deref(), Some("new-loader"));
+    }
+
+    #[test]
     fn replayed_load_lifecycle_reconciles_pending_document_authority() {
         let (inner, _outbound_rx) = test_inner();
         inner.frame_epochs.lock().unwrap().insert(
