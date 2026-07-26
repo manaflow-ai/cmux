@@ -108,14 +108,17 @@ def _launcher_command(argv0: str) -> str:
             for candidate in parts[index + 1 :]
         ):
             return "uvx cmux==" + PACKAGE_VERSION
+    pipx_seen = False
     for index, part in enumerate(parts):
-        if part != "pipx" or index + 2 >= len(parts):
+        if part == "pipx":
+            pipx_seen = True
             continue
-        cache_key = parts[index + 1]
         if (
-            len(cache_key) == 15
-            and all(character in "0123456789abcdef" for character in cache_key)
-            and parts[index + 2] == "bin"
+            pipx_seen
+            and len(part) == 15
+            and all(character in "0123456789abcdef" for character in part)
+            and index + 1 < len(parts)
+            and parts[index + 1] == "bin"
         ):
             return "pipx run --spec cmux==" + PACKAGE_VERSION + " cmux"
     return shlex.quote(argv0) if argv0 else "cmux"
