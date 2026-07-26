@@ -6,11 +6,14 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import type { RenderGraphicImage } from "cmux/browser";
 import { useDecodedRenderGraphicImages } from "../hooks/useDecodedRenderGraphicImages";
 import type { RenderGraphicsModel } from "../lib/renderModel";
 import {
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   RENDER_GRAPHIC_CANVAS_COUNT_CAP,
+  RENDER_GRAPHIC_DECODED_BYTE_CAP,
+  renderGraphicRgbaByteLength,
   resolveRenderGraphicPlacement,
   type DecodedRenderGraphicImage,
   type ResolvedRenderGraphicPlacement,
@@ -26,17 +29,31 @@ interface RenderGraphicCanvasProps {
   placement: ResolvedRenderGraphicPlacement;
 }
 
-interface RenderedPlacement {
-  decoded: DecodedRenderGraphicImage;
+interface RenderGraphicCandidate {
+  image: RenderGraphicImage;
   placement: ResolvedRenderGraphicPlacement;
   order: number;
+  decodedBytes: number;
 }
 
-const EMPTY_SELECTION: ReadonlySet<string> = new Set();
+interface GraphicsSelection {
+  placements: ReadonlySet<RenderGraphicCandidate>;
+  images: ReadonlySet<RenderGraphicImage>;
+}
 
-class CanvasBudgetRegistry {
-  private readonly candidates = new Map<symbol, readonly RenderedPlacement[]>();
-  private readonly selections = new Map<symbol, ReadonlySet<string>>();
+interface RenderedPlacement extends RenderGraphicCandidate {
+  decoded: DecodedRenderGraphicImage;
+}
+
+const EMPTY_IMAGES: readonly RenderGraphicImage[] = [];
+const EMPTY_SELECTION: GraphicsSelection = {
+  placements: new Set(),
+  images: new Set(),
+};
+
+class GraphicsBudgetRegistry {
+  private readonly candidates = new Map<symbol, readonly RenderGraphicCandidate[]>();
+  private readonly selections = new Map<symbol, GraphicsSelection>();
   private readonly listeners = new Set<() => void>();
   private revision = 0;
 
@@ -47,11 +64,11 @@ class CanvasBudgetRegistry {
 
   readonly snapshot = (): number => this.revision;
 
-  selected(owner: symbol): ReadonlySet<string> {
+  selected(owner: symbol): GraphicsSelection {
     return this.selections.get(owner) ?? EMPTY_SELECTION;
   }
 
-  update(owner: symbol, candidates: readonly RenderedPlacement[]): void {
+  update(owner: symbol, candidates: readonly RenderGraphicCandidate[]): void {
     this.candidates.set(owner, candidates);
     this.recalculate();
   }
@@ -64,7 +81,7 @@ class CanvasBudgetRegistry {
   private recalculate(): void {
     const ranked: Array<{
       owner: symbol;
-      candidate: RenderedPlacement;
+      candidate: RenderGraphicCandidate;
       sequence: number;
     }> = [];
     let sequence = 0;
@@ -80,35 +97,55 @@ class CanvasBudgetRegistry {
       || left.sequence - right.sequence
     );
 
-    const next = new Map<symbol, Set<string>>();
-    for (const owner of this.candidates.keys()) next.set(owner, new Set());
+    const nextPlacements = new Map<symbol, Set<RenderGraphicCandidate>>();
+    const nextImages = new Map<symbol, Set<RenderGraphicImage>>();
+    for (const owner of this.candidates.keys()) {
+      nextPlacements.set(owner, new Set());
+      nextImages.set(owner, new Set());
+    }
     let admitted = 0;
     let backingBytes = 0;
+    let decodedBytes = 0;
     for (const { owner, candidate } of ranked) {
       if (admitted >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) break;
       if (candidate.placement.backingBytes
         > RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) continue;
-      next.get(owner)!.add(candidate.placement.key);
+      const images = nextImages.get(owner)!;
+      if (!images.has(candidate.image)
+        && candidate.decodedBytes > RENDER_GRAPHIC_DECODED_BYTE_CAP - decodedBytes) continue;
+      nextPlacements.get(owner)!.add(candidate);
+      if (!images.has(candidate.image)) {
+        images.add(candidate.image);
+        decodedBytes += candidate.decodedBytes;
+      }
       backingBytes += candidate.placement.backingBytes;
       admitted += 1;
     }
 
+    const next = new Map<symbol, GraphicsSelection>();
+    for (const [owner, placements] of nextPlacements) {
+      next.set(owner, { placements, images: nextImages.get(owner)! });
+    }
     const changed = next.size !== this.selections.size
-      || [...next].some(([owner, selected]) => {
+      || [...next].some(([owner, selection]) => {
         const previous = this.selections.get(owner);
         return previous === undefined
-          || previous.size !== selected.size
-          || [...selected].some((key) => !previous.has(key));
+          || previous.placements.size !== selection.placements.size
+          || previous.images.size !== selection.images.size
+          || [...selection.placements].some((candidate) =>
+            !previous.placements.has(candidate)
+          )
+          || [...selection.images].some((image) => !previous.images.has(image));
       });
     if (!changed) return;
     this.selections.clear();
-    for (const [owner, selected] of next) this.selections.set(owner, selected);
+    for (const [owner, selection] of next) this.selections.set(owner, selection);
     this.revision += 1;
     for (const listener of this.listeners) listener();
   }
 }
 
-const canvasBudget = new CanvasBudgetRegistry();
+const graphicsBudget = new GraphicsBudgetRegistry();
 
 function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
   const canvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
@@ -151,29 +188,44 @@ function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
 }
 
 export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
-  const decodedImages = useDecodedRenderGraphicImages(graphics?.images ?? []);
   const owner = useRef(Symbol("render-graphics")).current;
+  const images = graphics?.images ?? EMPTY_IMAGES;
+  const imageById = useMemo(
+    () => new Map(images.map((image) => [image.id, image])),
+    [images],
+  );
   const candidates = useMemo(() => {
-    const rendered: RenderedPlacement[] = [];
+    const rendered: RenderGraphicCandidate[] = [];
     for (const [order, candidate] of (graphics?.placements ?? []).entries()) {
-      const decoded = decodedImages.get(candidate.image_id);
-      if (decoded === undefined) continue;
-      const placement = resolveRenderGraphicPlacement(decoded.image, candidate);
-      if (placement !== null) rendered.push({ decoded, placement, order });
+      const image = imageById.get(candidate.image_id);
+      if (image === undefined) continue;
+      const decodedBytes = renderGraphicRgbaByteLength(image);
+      if (decodedBytes === null) continue;
+      const placement = resolveRenderGraphicPlacement(image, candidate);
+      if (placement !== null) rendered.push({ image, placement, order, decodedBytes });
     }
     return rendered.sort((left, right) =>
       right.placement.z - left.placement.z || right.order - left.order
     );
-  }, [decodedImages, graphics?.placements]);
+  }, [graphics?.placements, imageById]);
   const budgetRevision = useSyncExternalStore(
-    canvasBudget.subscribe,
-    canvasBudget.snapshot,
-    canvasBudget.snapshot,
+    graphicsBudget.subscribe,
+    graphicsBudget.snapshot,
+    graphicsBudget.snapshot,
   );
-  const selected = canvasBudget.selected(owner);
+  const selected = graphicsBudget.selected(owner);
+  const admittedImages = useMemo(
+    () => images.filter((image) => selected.images.has(image)),
+    [budgetRevision, images, selected],
+  );
+  const decodedImages = useDecodedRenderGraphicImages(admittedImages);
   const placements = useMemo(() => {
     const rendered = candidates
-      .filter((candidate) => selected.has(candidate.placement.key))
+      .filter((candidate) => selected.placements.has(candidate))
+      .flatMap((candidate): RenderedPlacement[] => {
+        const decoded = decodedImages.get(candidate.image.id);
+        return decoded === undefined ? [] : [{ ...candidate, decoded }];
+      })
       .sort((left, right) =>
         left.placement.z - right.placement.z || left.order - right.order
       );
@@ -183,11 +235,11 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
       (candidate.placement.layer === "below" ? below : above).push(candidate);
     }
     return { below, above };
-  }, [budgetRevision, candidates, selected]);
+  }, [budgetRevision, candidates, decodedImages, selected]);
   const registerBudget = useCallback((element: HTMLDivElement | null) => {
     if (element === null) return;
-    canvasBudget.update(owner, candidates);
-    return () => canvasBudget.remove(owner);
+    graphicsBudget.update(owner, candidates);
+    return () => graphicsBudget.remove(owner);
   }, [candidates, owner]);
 
   return (
@@ -197,14 +249,22 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
         className="render-graphics-layer render-graphics-below"
         ref={registerBudget}
       >
-        {placements.below.map(({ decoded, placement }) => (
-          <RenderGraphicCanvas decoded={decoded} key={placement.key} placement={placement} />
+        {placements.below.map(({ decoded, placement, order }) => (
+          <RenderGraphicCanvas
+            decoded={decoded}
+            key={`${placement.key}:${order}`}
+            placement={placement}
+          />
         ))}
       </div>
       {children}
       <div aria-hidden="true" className="render-graphics-layer render-graphics-above">
-        {placements.above.map(({ decoded, placement }) => (
-          <RenderGraphicCanvas decoded={decoded} key={placement.key} placement={placement} />
+        {placements.above.map(({ decoded, placement, order }) => (
+          <RenderGraphicCanvas
+            decoded={decoded}
+            key={`${placement.key}:${order}`}
+            placement={placement}
+          />
         ))}
       </div>
     </>

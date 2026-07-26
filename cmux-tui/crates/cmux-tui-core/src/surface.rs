@@ -979,7 +979,8 @@ impl Surface {
         #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
+            let cell_pixels =
+                mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
             let attachment = match terminal_id {
                 Some(terminal_id) => {
                     crate::terminal_host_runtime::launch_terminal_host_with_identity(
@@ -1000,7 +1001,8 @@ impl Surface {
             return Self::spawn_hosted(id, opts, mux, attachment, true);
         }
         let _ = terminal_id;
-        let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
+        let cell_pixels =
+            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
@@ -1269,15 +1271,18 @@ impl Surface {
             return;
         }
         let next = PtyGeometry { cell_width: expected.0, cell_height: expected.1, ..*geometry };
-        match pty.commit_geometry(&mut geometry, next, false) {
-            Ok(true) => {
+        let committed = pty.commit_geometry(&mut geometry, next, false);
+        drop(geometry);
+        match committed {
+            Ok(changed) => {
                 if let Some(mux) = pty.mux.upgrade() {
-                    mux.emit(MuxEvent::SurfaceOutput(self.id));
+                    if changed {
+                        mux.emit(MuxEvent::SurfaceOutput(self.id));
+                    }
+                    mux.reconcile_deferred_cell_pixel_ack(self.id, expected);
                 }
             }
-            Ok(false) => {}
             Err(_) => {
-                drop(geometry);
                 if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
                     host.disconnect();
                 }
@@ -1889,7 +1894,8 @@ impl Surface {
         let title_changed = Arc::new(AtomicBool::new(false));
         let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
-        let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
+        let cell_pixels =
+            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         let mut term = Terminal::new(cols, rows, opts.scrollback, callbacks)?;
         term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         if let Some(mux) = mux.upgrade() {
@@ -1958,7 +1964,8 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let cell_pixels = mux.upgrade().map(|mux| mux.cell_pixel_size()).unwrap_or((8, 16));
+        let cell_pixels =
+            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,

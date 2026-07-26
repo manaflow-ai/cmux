@@ -6,6 +6,7 @@ import {
   decodeRenderGraphicImage,
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   RENDER_GRAPHIC_CANVAS_COUNT_CAP,
+  RENDER_GRAPHIC_DECODED_BYTE_CAP,
 } from "../src/lib/renderGraphics";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
 import type {
@@ -352,6 +353,95 @@ describe("RenderGraphics canvas resource policy", () => {
       expect(container.querySelectorAll("[data-graphic-placement]"))
         .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
     });
+  });
+
+  it("counts duplicate placement identities as distinct canvas allocations", async () => {
+    const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
+    const duplicate = placement(1, 1, 1);
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: "AAAAAA==",
+      }],
+      placements: Array.from({ length: placementCount }, () => ({ ...duplicate })),
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]"))
+        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+    });
+  });
+
+  it("admits decoded image buffers under one browser-wide byte cap", async () => {
+    let requestedImages = 0;
+    class RecordingWorker {
+      onmessage: ((event: MessageEvent<RenderGraphicsDecodeResponse>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      private terminated = false;
+
+      postMessage(request: RenderGraphicsDecodeRequest): void {
+        requestedImages += request.images.length;
+        setTimeout(() => {
+          if (this.terminated) return;
+          this.onmessage?.(new MessageEvent("message", {
+            data: {
+              requestId: request.requestId,
+              results: request.images.map((image) => ({
+                id: image.id,
+                generation: image.generation,
+                pixels: null,
+              })),
+            },
+          }));
+        }, 0);
+      }
+
+      terminate(): void {
+        this.terminated = true;
+      }
+    }
+    vi.stubGlobal("Worker", RecordingWorker);
+    const decodedBytes = 10_000_000;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: decodedBytes / 4,
+        height: 1,
+        format: "rgba",
+        data: zeroBytesBase64(decodedBytes),
+      }],
+      placements: [placement(1, 1, 1)],
+    };
+    const surfaceCount = Math.floor(RENDER_GRAPHIC_DECODED_BYTE_CAP / decodedBytes) + 1;
+
+    render(
+      <>
+        {Array.from({ length: surfaceCount }, (_, index) => (
+          <RenderGraphics graphics={graphics} key={index}>
+            <div>terminal {index}</div>
+          </RenderGraphics>
+        ))}
+      </>,
+    );
+
+    await waitFor(() => {
+      expect(requestedImages).toBe(Math.floor(RENDER_GRAPHIC_DECODED_BYTE_CAP / decodedBytes));
+    });
+    expect(surfaceCount * decodedBytes).toBeGreaterThan(RENDER_GRAPHIC_DECODED_BYTE_CAP);
   });
 
   it("cancels a superseded decode before publishing stale pixels", async () => {

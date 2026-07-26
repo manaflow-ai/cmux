@@ -715,9 +715,13 @@ const _: () = assert!(
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
-const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
+// The synchronous `vt-state` command returns the same bounded replay as an
+// attach, encoded as base64 inside its response envelope.
+const OUTBOUND_CONTROL_BYTE_RESERVE: usize = RENDER_ATTACH_MAX_BYTES;
 const OUTBOUND_GLOBAL_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 4;
 const OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY: usize = OUTBOUND_CONTROL_BYTE_RESERVE * 4;
+const _: () =
+    assert!(crate::surface::VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < OUTBOUND_CONTROL_BYTE_RESERVE);
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -5807,6 +5811,28 @@ mod tests {
         assert!(serialized.starts_with(r#"{"event":"vt-state","surface":7,"#), "{}", &**serialized);
         let decoded: Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(replay));
+    }
+
+    #[test]
+    fn maximum_vt_state_command_response_fits_the_control_reserve() {
+        let encoded_replay_bytes = crate::surface::VT_REPLAY_MAX_BYTES.div_ceil(3) * 4;
+        let response = json!({
+            "id": 1,
+            "ok": true,
+            "data": {
+                "cols": 80,
+                "rows": 24,
+                "data": "A".repeat(encoded_replay_bytes),
+                "kitty_image_aliases": [],
+            },
+        });
+        let service = RenderService::new();
+        let outbound = BoundedOutbound::default();
+
+        let serialized = service.serialize_control(&response).unwrap();
+        assert!(serialized.len() < OUTBOUND_CONTROL_BYTE_RESERVE);
+        outbound.push_control(serialized).unwrap();
+        assert!(outbound.try_pop().is_some());
     }
 
     #[test]

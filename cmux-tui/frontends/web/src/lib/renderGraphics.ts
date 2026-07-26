@@ -16,6 +16,10 @@ export const RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP = 64 * 1024 * 1024;
 // pixel backing is tiny. Bound that fixed overhead independently of bytes.
 export const RENDER_GRAPHIC_CANVAS_COUNT_CAP = 512;
 
+// RGB images expand to RGBA in the decoder. Admit referenced image buffers
+// across the whole browser page before workers allocate them.
+export const RENDER_GRAPHIC_DECODED_BYTE_CAP = 64 * 1024 * 1024;
+
 // Browser canvas limits vary. Keep each intrinsic axis at or below this
 // conservative limit even when a thin image would fit the aggregate byte cap.
 export const RENDER_GRAPHIC_MAX_CANVAS_DIMENSION = 16_384;
@@ -64,6 +68,14 @@ export function renderGraphicDecodedByteLength(
       ? image.data.endsWith("=") && !image.data.endsWith("==")
       : image.data.endsWith("==");
   return hasExpectedPadding ? expectedBytes : null;
+}
+
+export function renderGraphicRgbaByteLength(
+  image: RenderGraphicImage,
+): number | null {
+  if (renderGraphicDecodedByteLength(image) === null) return null;
+  const rgbaBytes = image.width * image.height * 4;
+  return Number.isSafeInteger(rgbaBytes) ? rgbaBytes : null;
 }
 
 function hasCanonicalBase64Payload(data: string, decodedBytes: number): boolean {

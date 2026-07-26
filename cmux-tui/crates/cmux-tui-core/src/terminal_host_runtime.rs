@@ -283,6 +283,20 @@ pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<Termina
     Ok(TerminalColorOverrides { foreground, background, cursor, cursor_visual, palette })
 }
 
+#[derive(Debug)]
+pub(crate) struct DeferredCellPixelAck;
+
+impl std::fmt::Display for DeferredCellPixelAck {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "terminal host cell pixel acknowledgement is pending; \
+             the late response will reconcile the mirror",
+        )
+    }
+}
+
+impl std::error::Error for DeferredCellPixelAck {}
+
 #[cfg(unix)]
 mod unix {
     use std::collections::{HashMap, HashSet};
@@ -763,10 +777,7 @@ mod unix {
                         &receiver,
                     )? {
                         Some(response) => response,
-                        None => anyhow::bail!(
-                            "terminal host cell pixel acknowledgement is pending; \
-                             the late response will reconcile the mirror"
-                        ),
+                        None => return Err(DeferredCellPixelAck.into()),
                     }
                 }
                 Err(RecvTimeoutError::Disconnected) => {
@@ -3702,6 +3713,7 @@ mod unix {
             let error = attachment
                 .send_cell_pixel_size_until(9, 18, Instant::now() + Duration::from_millis(10))
                 .unwrap_err();
+            assert!(error.is::<DeferredCellPixelAck>());
             assert!(
                 error.to_string().contains("late response will reconcile the mirror"),
                 "{error:#}"

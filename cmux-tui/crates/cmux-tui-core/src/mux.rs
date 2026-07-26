@@ -211,6 +211,13 @@ pub struct CellPixelUpdateFailure {
     pub error: String,
 }
 
+#[derive(Debug)]
+struct PendingCellPixelUpdate {
+    target: (u16, u16),
+    failures: HashSet<SurfaceId>,
+    use_for_creation: bool,
+}
+
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
@@ -783,6 +790,7 @@ pub struct Mux {
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
+    pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
     #[cfg(test)]
     cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
     default_colors: Mutex<DefaultColors>,
@@ -1011,6 +1019,7 @@ impl Mux {
             browser_runtime: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
+            pending_cell_pixels: Mutex::new(None),
             #[cfg(test)]
             cell_pixel_before_publish: Mutex::new(None),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -2483,7 +2492,7 @@ impl Mux {
         }
         let opts = self.surface_options.lock().unwrap().clone();
         let size = self.resolve_client_size(size, (opts.cols, opts.rows));
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let cell_pixels = self.cell_pixel_creation_size();
         let surface =
             browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
@@ -3725,6 +3734,34 @@ impl Mux {
         *self.cell_pixels.lock().unwrap()
     }
 
+    pub(crate) fn cell_pixel_creation_size(&self) -> (u16, u16) {
+        if let Some(target) = self
+            .pending_cell_pixels
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|pending| pending.use_for_creation)
+            .map(|pending| pending.target)
+        {
+            return target;
+        }
+        self.cell_pixel_size()
+    }
+
+    pub(crate) fn reconcile_deferred_cell_pixel_ack(&self, surface: SurfaceId, target: (u16, u16)) {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let mut pending = self.pending_cell_pixels.lock().unwrap();
+        let Some(update) = pending.as_mut().filter(|update| update.target == target) else {
+            return;
+        };
+        update.failures.remove(&surface);
+        if !update.failures.is_empty() {
+            return;
+        }
+        *self.cell_pixels.lock().unwrap() = target;
+        *pending = None;
+    }
+
     pub fn set_cell_pixel_size_reporting(
         &self,
         width_px: u16,
@@ -3747,28 +3784,41 @@ impl Mux {
                 deadline,
                 Box::new(move |accepted| callback(id, size, accepted)),
             );
-            (id, size, result)
+            let deferred = result.as_ref().err().is_some_and(|error| {
+                error.downcast_ref::<crate::terminal_host_runtime::DeferredCellPixelAck>().is_some()
+            });
+            (id, size, result, deferred)
         });
         let mut update = CellPixelUpdate::default();
-        for (id, size, result) in results {
+        let mut deferred_failures = 0;
+        for (id, size, result, deferred) in results {
             match result {
                 Ok(Some(reservation_id)) => update.resizes.push((id, size, reservation_id)),
                 Ok(None) => {}
-                Err(error) => update
-                    .failures
-                    .push(CellPixelUpdateFailure { surface: id, error: error.to_string() }),
+                Err(error) => {
+                    deferred_failures += usize::from(deferred);
+                    update
+                        .failures
+                        .push(CellPixelUpdateFailure { surface: id, error: error.to_string() });
+                }
             }
         }
         #[cfg(test)]
         if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
             hook(self.cell_pixel_size());
         }
-        // Keep the creation default at the last fully converged value. A
-        // caller may retry the same measurement; surfaces that already
-        // committed treat it as a no-op while failed or uncertain hosted
-        // owners reconcile through a fresh acknowledgement.
+        // Keep the published value at the last fully converged metric. New
+        // surfaces use the pending target, and late hosted acknowledgements
+        // remove their exact failure before publishing it globally.
         if update.failures.is_empty() {
             *self.cell_pixels.lock().unwrap() = next;
+            *self.pending_cell_pixels.lock().unwrap() = None;
+        } else {
+            *self.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+                target: next,
+                failures: update.failures.iter().map(|failure| failure.surface).collect(),
+                use_for_creation: deferred_failures == update.failures.len(),
+            });
         }
         update
     }
@@ -4997,7 +5047,7 @@ impl Mux {
         let id = self.next_id();
         let opts = self.surface_options.lock().unwrap().clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let cell_pixels = self.cell_pixel_creation_size();
         let surface =
             browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
         let active_at = self.next_active_at();
@@ -8081,9 +8131,12 @@ mod tests {
         assert_eq!(
             mux.cell_pixel_size(),
             (8, 16),
-            "new surfaces must keep the last fully converged metric"
+            "published metric must remain at the last fully converged value"
         );
+        assert_eq!(mux.cell_pixel_creation_size(), (8, 16));
         assert_eq!(surface.test_cell_pixel_size(), (8, 16));
+        let created_while_pending = mux.new_workspace(None, Some((80, 24))).unwrap();
+        assert_eq!(created_while_pending.test_cell_pixel_size(), (8, 16));
         let master = surface.test_master_size();
         assert_eq!(
             (master.cols, master.rows, master.pixel_width, master.pixel_height),
@@ -8092,9 +8145,49 @@ mod tests {
 
         let retried = mux.set_cell_pixel_size(9, 18);
         assert!(retried.failures.is_empty());
-        assert_eq!(retried.resizes, vec![(surface.id, (80, 24), 0)]);
+        assert_eq!(
+            retried.resizes,
+            vec![(surface.id, (80, 24), 0), (created_while_pending.id, (80, 24), 0)]
+        );
         assert_eq!(mux.cell_pixel_size(), (9, 18));
         assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+    }
+
+    #[test]
+    fn late_cell_pixel_ack_publishes_the_pending_creation_metric() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.fail_next_test_master_resize();
+
+        let update = mux.set_cell_pixel_size(9, 18);
+        assert_eq!(update.failures.len(), 1);
+        assert_eq!(mux.cell_pixel_size(), (8, 16));
+        assert_eq!(mux.cell_pixel_creation_size(), (8, 16));
+
+        assert!(surface.set_cell_pixel_size(9, 18).unwrap());
+        mux.reconcile_deferred_cell_pixel_ack(surface.id, (9, 18));
+
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(mux.cell_pixel_creation_size(), (9, 18));
+        assert!(mux.pending_cell_pixels.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn deferred_cell_pixel_target_sizes_new_surfaces_before_the_ack_arrives() {
+        let mux = test_mux();
+        let pending_surface = 99_999;
+        *mux.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+            target: (9, 18),
+            failures: HashSet::from([pending_surface]),
+            use_for_creation: true,
+        });
+
+        let created = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        assert_eq!(mux.cell_pixel_size(), (8, 16));
+        assert_eq!(created.test_cell_pixel_size(), (9, 18));
+        mux.reconcile_deferred_cell_pixel_ack(pending_surface, (9, 18));
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
     }
 
     #[test]
