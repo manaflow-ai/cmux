@@ -117,6 +117,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    }\n"
                 "}\n"
             ),
+            "later-self-qualified-clock-member.swift": (
+                "struct Fixture {\n"
+                "    func verify() async throws {\n"
+                "        try await self.clock.sleep(until: deadline)\n"
+                "        #expect(finished)\n"
+                "    }\n"
+                "    let clock = ContinuousClock()\n"
+                "}\n"
+            ),
+            "later-unqualified-clock-member.swift": (
+                "struct Fixture {\n"
+                "    func verify() async throws {\n"
+                "        try await clock.sleep(until: deadline)\n"
+                "        #expect(finished)\n"
+                "    }\n"
+                "    let clock: SuspendingClock = .init()\n"
+                "}\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -492,6 +510,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 3
                 if relative_path
                 in (
+                    "later-self-qualified-clock-member.swift",
+                    "later-unqualified-clock-member.swift",
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
                     "shell-assert-multiline-substitution.sh",
@@ -557,6 +577,27 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    let clock = TestRelayClock()\n"
                     "    try await clock.sleep(until: deadline)\n"
                     "    #expect(await completed)\n"
+                    "}\n"
+                ),
+                "initializer-parameter-shadow.swift": (
+                    "struct Fixture {\n"
+                    "    let clock = ContinuousClock()\n"
+                    "    init(clock: TestRelayClock) async throws {\n"
+                    "        try await clock.sleep(until: deadline)\n"
+                    "        #expect(await completed)\n"
+                    "    }\n"
+                    "}\n"
+                ),
+                "subscript-parameter-shadow.swift": (
+                    "struct Fixture {\n"
+                    "    let clock = ContinuousClock()\n"
+                    "    subscript(clock: TestRelayClock) -> Bool {\n"
+                    "        get async throws {\n"
+                    "            try await clock.sleep(until: deadline)\n"
+                    "            #expect(await completed)\n"
+                    "            return true\n"
+                    "        }\n"
+                    "    }\n"
                     "}\n"
                 ),
                 "virtual.py": (
