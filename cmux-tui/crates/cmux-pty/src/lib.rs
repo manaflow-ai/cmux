@@ -122,6 +122,9 @@ mod platform {
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
+    use std::fs::File;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
     use super::*;
 
     #[test]
@@ -133,5 +136,29 @@ mod tests {
             let status = spawned.child.wait().unwrap();
             panic!("missing PTY program was published as child status {status:?}");
         }
+    }
+
+    #[test]
+    fn successful_exec_does_not_inherit_unmarked_parent_descriptors() {
+        let source = File::open("/dev/null").unwrap();
+        let descriptor = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
+        assert!(descriptor >= 200);
+        let inherited = unsafe { File::from_raw_fd(descriptor) };
+        let flags = unsafe { libc::fcntl(inherited.as_raw_fd(), libc::F_GETFD) };
+        assert_eq!(flags & libc::FD_CLOEXEC, 0);
+
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", &format!("test ! -e /dev/fd/{descriptor}")]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let status = spawned.child.wait().unwrap();
+
+        assert!(status.success(), "child inherited parent descriptor {descriptor}: {status:?}");
+        let parent_flags = unsafe { libc::fcntl(inherited.as_raw_fd(), libc::F_GETFD) };
+        assert_eq!(
+            parent_flags & libc::FD_CLOEXEC,
+            0,
+            "child cleanup changed the parent descriptor"
+        );
     }
 }

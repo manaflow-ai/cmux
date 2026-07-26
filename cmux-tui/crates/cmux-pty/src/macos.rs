@@ -64,8 +64,12 @@ pub(crate) fn spawn(
         .stdin(Stdio::from(slave.0.try_clone().context("failed to clone PTY slave for stdin")?))
         .stdout(Stdio::from(slave.0.try_clone().context("failed to clone PTY slave for stdout")?))
         .stderr(Stdio::from(slave.0.try_clone().context("failed to clone PTY slave for stderr")?));
+    let descriptor_limit = unsafe { libc::getdtablesize() };
+    if descriptor_limit < 3 {
+        bail!("failed to determine the process descriptor limit");
+    }
     unsafe {
-        process.pre_exec(|| {
+        process.pre_exec(move || {
             for signal in [
                 libc::SIGCHLD,
                 libc::SIGHUP,
@@ -91,13 +95,37 @@ pub(crate) fn spawn(
             if libc::ioctl(libc::STDIN_FILENO, libc::TIOCSCTTY as _, 0) == -1 {
                 return Err(io::Error::last_os_error());
             }
-            portable_pty::unix::close_random_fds();
+            mark_inherited_descriptors_close_on_exec(descriptor_limit)?;
             Ok(())
         });
     }
 
     let child = process.spawn().context("failed to spawn PTY command")?;
     Ok(Box::new(child))
+}
+
+fn mark_inherited_descriptors_close_on_exec(descriptor_limit: RawFd) -> io::Result<()> {
+    // `Command::spawn` installs a private CLOEXEC pipe so the child can
+    // report pre-exec and exec failures. Closing every descriptor here would
+    // close that pipe and make a failed exec look successful. Marking the
+    // child copies CLOEXEC preserves error reporting and still closes every
+    // inherited descriptor when exec succeeds.
+    for descriptor in 3..descriptor_limit {
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags == -1 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EBADF) {
+                continue;
+            }
+            return Err(error);
+        }
+        if flags & libc::FD_CLOEXEC == 0
+            && unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } == -1
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 struct MacOsMasterPty {
