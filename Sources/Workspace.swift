@@ -66,10 +66,7 @@ extension Workspace {
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         if let surfaceResumeBindingIndex {
-            reconcileSurfaceResumeBindings(
-                using: surfaceResumeBindingIndex,
-                restorableAgentIndex: restorableAgentIndex
-            )
+            reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -1276,8 +1273,7 @@ extension Workspace {
     }
 
     func reconcileSurfaceResumeBindings(
-        using surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        using surfaceResumeBindingIndex: SurfaceResumeBindingIndex
     ) {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
@@ -1292,17 +1288,11 @@ extension Workspace {
             guard let detectedBinding else {
                 if storedBinding.isProcessDetected {
                     surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-                } else if isStaleAgentHookBinding(
-                    storedBinding,
-                    panelId: panelId,
-                    restorableAgentIndex: restorableAgentIndex
-                ) {
-                    // Generalizes the tmux-only reconciliation above: a plain
-                    // (non-tmux) agent-hook binding whose session no longer
-                    // shows up as live gets dropped here too, instead of being
-                    // replayed as a resume on the next relaunch (#8446).
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 }
+                // An agent-hook binding is durable session identity. A process
+                // scan can decide `wasAgentRunning` and whether restore should
+                // launch it automatically, but an empty or ambiguous scan must
+                // not erase the command needed for a later resume.
                 continue
             }
             if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
