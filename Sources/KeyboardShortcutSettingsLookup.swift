@@ -8,21 +8,55 @@ extension KeyboardShortcutSettings {
         shortcutLookupObserver?(action)
         #endif
 
-        if settingsFileStore.isManagedByFile(action) {
-            return effectivePersistedShortcut(
-                settingsFileStore.override(for: action),
+        let managedBySettingsFile = settingsFileStore.isManagedByFile(action)
+        let configuredShortcut = explicitlyConfiguredShortcut(for: action)
+        let resolvedShortcut = effectivePersistedShortcut(
+            configuredShortcut,
+            for: action,
+            managedBySettingsFile: managedBySettingsFile
+        )
+
+        if action == .reopenClosedWorkspace,
+           resolvedShortcut == action.defaultShortcut,
+           configuredShortcut != resolvedShortcut {
+            return defaultShortcutResolvingLegacyConflicts(
                 for: action,
-                managedBySettingsFile: true
+                explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:)
             )
         }
 
-        let shortcut = UserDefaults.standard.data(forKey: action.defaultsKey)
-            .flatMap { try? JSONDecoder().decode(StoredShortcut.self, from: $0) }
-        return effectivePersistedShortcut(shortcut, for: action)
+        return resolvedShortcut
+    }
+
+    static func defaultShortcutResolvingLegacyConflicts(
+        for action: Action,
+        explicitlyConfiguredShortcut: (Action) -> StoredShortcut?
+    ) -> StoredShortcut? {
+        let defaultShortcut = action.defaultShortcut
+        if action == .reopenClosedWorkspace,
+           let legacyBrowserShortcut = explicitlyConfiguredShortcut(.reopenClosedBrowserPanel),
+           Action.reopenClosedBrowserPanel.conflicts(
+               with: defaultShortcut,
+               proposedAction: action,
+               configuredShortcut: legacyBrowserShortcut
+           ) {
+            return nil
+        }
+        return defaultShortcut.isUnbound ? nil : defaultShortcut
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
         shortcutIfBound(for: action) ?? .unbound
+    }
+
+    private static func explicitlyConfiguredShortcut(for action: Action) -> StoredShortcut? {
+        if settingsFileStore.isManagedByFile(action) {
+            return settingsFileStore.override(for: action)
+        }
+        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(StoredShortcut.self, from: data)
     }
 
     static func menuShortcut(for action: Action) -> StoredShortcut {
