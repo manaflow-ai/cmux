@@ -231,7 +231,6 @@ impl KeyEncoder {
 
     /// Encode `input` and append the resulting bytes to `out`.
     pub fn encode(&mut self, input: &KeyInput, out: &mut Vec<u8>) -> Result<()> {
-        let encoded_start = out.len();
         let action = match input.action.unwrap_or(KeyAction::Press) {
             KeyAction::Press => sys::GHOSTTY_KEY_ACTION_PRESS,
             KeyAction::Release => sys::GHOSTTY_KEY_ACTION_RELEASE,
@@ -290,13 +289,11 @@ impl KeyEncoder {
                     &mut written2,
                 )
             })?;
-            out.extend_from_slice(&big[..written2]);
-            preserve_reported_base_layout(input, out, encoded_start);
+            append_encoded_key(input, &big[..written2], out);
             return Ok(());
         }
         check(result)?;
-        out.extend_from_slice(&buf[..written]);
-        preserve_reported_base_layout(input, out, encoded_start);
+        append_encoded_key(input, &buf[..written], out);
         Ok(())
     }
 }
@@ -305,12 +302,14 @@ impl KeyEncoder {
 /// explicitly reported CSI-u base-layout codepoint. Its encoder can therefore
 /// omit a third alternate when it equals the shifted alternate. Restore that
 /// lossless identity only on CSI-u output that already reports one alternate.
-fn preserve_reported_base_layout(input: &KeyInput, out: &mut Vec<u8>, start: usize) {
+/// Decimal rendering stays on the stack and output is appended in one pass.
+fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
     if input.base_layout_codepoint == 0 {
+        out.extend_from_slice(encoded);
         return;
     }
-    let encoded = &out[start..];
     if !encoded.starts_with(b"\x1b[") || !encoded.ends_with(b"u") {
+        out.extend_from_slice(encoded);
         return;
     }
     let key_field_end = encoded.iter().position(|byte| *byte == b';').unwrap_or(encoded.len() - 1);
@@ -318,10 +317,29 @@ fn preserve_reported_base_layout(input: &KeyInput, out: &mut Vec<u8>, start: usi
     if key_field.iter().filter(|byte| **byte == b':').count() != 1
         || !key_field.iter().all(|byte| byte.is_ascii_digit() || *byte == b':')
     {
+        out.extend_from_slice(encoded);
         return;
     }
-    let base_layout = format!(":{}", input.base_layout_codepoint);
-    out.splice(start + key_field_end..start + key_field_end, base_layout.bytes());
+
+    let mut decimal = [0u8; 10];
+    let digits = decimal_u32(input.base_layout_codepoint, &mut decimal);
+    out.reserve(encoded.len() + 1 + digits.len());
+    out.extend_from_slice(&encoded[..key_field_end]);
+    out.push(b':');
+    out.extend_from_slice(digits);
+    out.extend_from_slice(&encoded[key_field_end..]);
+}
+
+fn decimal_u32(mut value: u32, buffer: &mut [u8; 10]) -> &[u8] {
+    let mut start = buffer.len();
+    loop {
+        start -= 1;
+        buffer[start] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            return &buffer[start..];
+        }
+    }
 }
 
 impl Drop for KeyEncoder {

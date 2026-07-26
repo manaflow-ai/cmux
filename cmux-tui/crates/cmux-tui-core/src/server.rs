@@ -273,6 +273,8 @@ pub struct ProtocolKeyInput {
     consumed_mods: ProtocolModifiers,
     utf8: String,
     unshifted_codepoint: Option<char>,
+    #[serde(default)]
+    base_layout_codepoint: Option<char>,
     action: Option<ProtocolKeyAction>,
     macos_option_as_alt: bool,
 }
@@ -307,12 +309,20 @@ impl TryFrom<&KeyInput> for ProtocolKeyInput {
                     .ok_or_else(|| anyhow::anyhow!("invalid unshifted key codepoint"))?,
             ),
         };
+        let base_layout_codepoint = match input.base_layout_codepoint {
+            0 => None,
+            codepoint => Some(
+                char::from_u32(codepoint)
+                    .ok_or_else(|| anyhow::anyhow!("invalid base-layout key codepoint"))?,
+            ),
+        };
         Ok(Self {
             key: ProtocolKey::try_from(input.key)?,
             mods: ProtocolModifiers::try_from_ghostty(input.mods)?,
             consumed_mods: ProtocolModifiers::try_from_ghostty(input.consumed_mods)?,
             utf8: input.utf8.clone(),
             unshifted_codepoint,
+            base_layout_codepoint,
             action: input.action.map(|action| match action {
                 KeyAction::Press => ProtocolKeyAction::Press,
                 KeyAction::Release => ProtocolKeyAction::Release,
@@ -344,10 +354,7 @@ impl TryFrom<ProtocolKeyInput> for KeyInput {
             consumed_mods,
             utf8: input.utf8,
             unshifted_codepoint: input.unshifted_codepoint.map_or(0, char::into),
-            // The clear-history fallback protocol predates nested CSI-u base
-            // identity and carries only Command-K, which does not need the
-            // duplicate third alternate.
-            base_layout_codepoint: 0,
+            base_layout_codepoint: input.base_layout_codepoint.map_or(0, char::into),
             action: input.action.map(|action| match action {
                 ProtocolKeyAction::Press => KeyAction::Press,
                 ProtocolKeyAction::Release => KeyAction::Release,
@@ -6843,6 +6850,10 @@ mod tests {
         invalid_codepoint["unshifted_codepoint"] = json!("ss");
         assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_codepoint).is_err());
 
+        let mut invalid_base_layout_codepoint = valid.clone();
+        invalid_base_layout_codepoint["base_layout_codepoint"] = json!("11");
+        assert!(serde_json::from_value::<ProtocolKeyInput>(invalid_base_layout_codepoint).is_err());
+
         let mut control_text = valid.clone();
         control_text["utf8"] = json!("\r");
         let control_text = serde_json::from_value::<ProtocolKeyInput>(control_text).unwrap();
@@ -6858,8 +6869,10 @@ mod tests {
         assert!(ProtocolKeyInput::try_from(&invalid_key).is_err());
         let invalid_mods = KeyInput { mods: Mods(u16::MAX), ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_mods).is_err());
-        let invalid_codepoint = KeyInput { unshifted_codepoint: 0xD800, ..input };
+        let invalid_codepoint = KeyInput { unshifted_codepoint: 0xD800, ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_codepoint).is_err());
+        let invalid_base_layout = KeyInput { base_layout_codepoint: 0xD800, ..input };
+        assert!(ProtocolKeyInput::try_from(&invalid_base_layout).is_err());
     }
 
     #[test]

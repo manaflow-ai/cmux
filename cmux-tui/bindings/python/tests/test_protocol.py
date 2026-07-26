@@ -148,6 +148,7 @@ class ProtocolTests(unittest.TestCase):
             key="k",
             mods=TerminalModifiers(super_key=True),
             unshifted_codepoint="k",
+            base_layout_codepoint="k",
             action="press",
         )
 

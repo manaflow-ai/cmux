@@ -275,6 +275,7 @@ pub struct TerminalKeyInput {
     pub consumed_mods: TerminalModifiers,
     pub utf8: String,
     pub unshifted_codepoint: Option<char>,
+    pub base_layout_codepoint: Option<char>,
     pub action: Option<TerminalKeyAction>,
     pub macos_option_as_alt: bool,
 }
@@ -1571,6 +1572,7 @@ mod tests {
             consumed_mods: TerminalModifiers::default(),
             utf8: String::new(),
             unshifted_codepoint: Some('k'),
+            base_layout_codepoint: Some('k'),
             action: Some(TerminalKeyAction::Press),
             macos_option_as_alt: true,
         };

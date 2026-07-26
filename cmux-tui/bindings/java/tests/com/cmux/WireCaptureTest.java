@@ -163,6 +163,7 @@ public final class WireCaptureTest {
             TerminalModifiers.none(),
             "",
             "k",
+            "k",
             TerminalKeyAction.PRESS,
             true
         );

@@ -9,6 +9,7 @@ public record TerminalKeyInput(
     TerminalModifiers consumedMods,
     String utf8,
     String unshiftedCodepoint,
+    String baseLayoutCodepoint,
     TerminalKeyAction action,
     boolean macosOptionAsAlt
 ) {
@@ -19,6 +20,7 @@ public record TerminalKeyInput(
         value.put("consumed_mods", consumedMods.toMap());
         value.put("utf8", utf8);
         value.put("unshifted_codepoint", unshiftedCodepoint);
+        value.put("base_layout_codepoint", baseLayoutCodepoint);
         value.put("action", action == null ? null : action.wireName());
         value.put("macos_option_as_alt", macosOptionAsAlt);
         return value;

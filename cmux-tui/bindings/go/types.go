@@ -171,13 +171,14 @@ const (
 )
 
 type TerminalKeyInput struct {
-	Key                TerminalKey        `json:"key"`
-	Mods               TerminalModifiers  `json:"mods"`
-	ConsumedMods       TerminalModifiers  `json:"consumed_mods"`
-	UTF8               string             `json:"utf8"`
-	UnshiftedCodepoint *string            `json:"unshifted_codepoint"`
-	Action             *TerminalKeyAction `json:"action"`
-	MacOSOptionAsAlt   bool               `json:"macos_option_as_alt"`
+	Key                 TerminalKey        `json:"key"`
+	Mods                TerminalModifiers  `json:"mods"`
+	ConsumedMods        TerminalModifiers  `json:"consumed_mods"`
+	UTF8                string             `json:"utf8"`
+	UnshiftedCodepoint  *string            `json:"unshifted_codepoint"`
+	BaseLayoutCodepoint *string            `json:"base_layout_codepoint"`
+	Action              *TerminalKeyAction `json:"action"`
+	MacOSOptionAsAlt    bool               `json:"macos_option_as_alt"`
 }
 
 type ResizeSurfaceResult struct {

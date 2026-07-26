@@ -280,6 +280,7 @@ def terminal_key_input(value: Any) -> Optional[TerminalKeyInput]:
         consumed_mods=TerminalModifiers.from_wire(value["consumed_mods"]),
         utf8=value["utf8"],
         unshifted_codepoint=value.get("unshifted_codepoint"),
+        base_layout_codepoint=value.get("base_layout_codepoint"),
         action=value.get("action"),
         macos_option_as_alt=value["macos_option_as_alt"],
     )

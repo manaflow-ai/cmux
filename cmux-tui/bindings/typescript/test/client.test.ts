@@ -45,6 +45,7 @@ const commandKFallback: TerminalKeyInput = {
   },
   utf8: "",
   unshifted_codepoint: "k",
+  base_layout_codepoint: "k",
   action: "press",
   macos_option_as_alt: true,
 };
@@ -297,7 +298,7 @@ test("clearHistory preserves the structured fallback key", async () => {
       id: 2,
       cmd: "clear-history",
       surface: 7,
-      fallback_key: { ...commandKFallback, base_layout_codepoint: "k" },
+      fallback_key: commandKFallback,
     });
     connection.emit({ id: request.id, ok: true, data: {} });
   });

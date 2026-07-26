@@ -725,6 +725,7 @@ Params:
 | `consumed_mods` | `TerminalModifiers` | required | Must be a subset of `mods` |
 | `utf8` | `string` | required | At most 4 MiB and contains no control characters |
 | `unshifted_codepoint` | `string \| null` | default null | Exactly one Unicode scalar when present |
+| `base_layout_codepoint` | `string \| null` | default null | Explicit PC-101 base-layout identity; exactly one Unicode scalar when present |
 | `action` | `"press" \| "release" \| "repeat" \| null` | default null | Key action when known |
 | `macos_option_as_alt` | `boolean` | required | `false` is valid only when Alt is active and consumed |
 
@@ -776,7 +777,7 @@ Example:
 Alternate-screen key fallback:
 
 ```json
-{"id":6,"cmd":"clear-history","surface":1,"fallback_key":{"key":"k","mods":{"shift":false,"control":false,"alt":false,"super":true,"caps_lock":false,"num_lock":false},"consumed_mods":{"shift":false,"control":false,"alt":false,"super":false,"caps_lock":false,"num_lock":false},"utf8":"","unshifted_codepoint":"k","action":"press","macos_option_as_alt":true}}
+{"id":6,"cmd":"clear-history","surface":1,"fallback_key":{"key":"k","mods":{"shift":false,"control":false,"alt":false,"super":true,"caps_lock":false,"num_lock":false},"consumed_mods":{"shift":false,"control":false,"alt":false,"super":false,"caps_lock":false,"num_lock":false},"utf8":"","unshifted_codepoint":"k","base_layout_codepoint":"k","action":"press","macos_option_as_alt":true}}
 {"id":6,"ok":true,"data":{}}
 ```
 

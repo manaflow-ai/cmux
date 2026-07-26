@@ -275,6 +275,7 @@ export interface TerminalKeyInput {
   consumed_mods: TerminalModifiers;
   utf8: string;
   unshifted_codepoint: string | null;
+  base_layout_codepoint: string | null;
   action: "press" | "release" | "repeat" | null;
   macos_option_as_alt: boolean;
 }

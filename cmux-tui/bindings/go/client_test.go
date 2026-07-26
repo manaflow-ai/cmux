@@ -241,13 +241,15 @@ func TestClearHistorySendsCapabilityGatedWireCommand(t *testing.T) {
 func TestClearHistoryFallbackRequiresCapabilityAndPreservesKey(t *testing.T) {
 	protocol := uint32(9)
 	codepoint := "k"
+	baseCodepoint := "k"
 	action := TerminalKeyPress
 	fallback := TerminalKeyInput{
-		Key:                TerminalKeyK,
-		Mods:               TerminalModifiers{Super: true},
-		UnshiftedCodepoint: &codepoint,
-		Action:             &action,
-		MacOSOptionAsAlt:   true,
+		Key:                 TerminalKeyK,
+		Mods:                TerminalModifiers{Super: true},
+		UnshiftedCodepoint:  &codepoint,
+		BaseLayoutCodepoint: &baseCodepoint,
+		Action:              &action,
+		MacOSOptionAsAlt:    true,
 	}
 	client := &Client{
 		protocol:     &protocol,
