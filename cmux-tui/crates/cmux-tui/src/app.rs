@@ -7512,8 +7512,7 @@ impl App {
                 {
                     if !matches!(input, Event::Mouse(_)) {
                         self.status_message = Some(
-                            "Deferred input was discarded because its destination changed"
-                                .to_string(),
+                            localization::catalog().input.deferred_destination_changed.to_string(),
                         );
                         return Ok(RenderAction::Draw);
                     }
@@ -17608,7 +17607,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert_eq!(
             app.status_message.as_deref(),
-            Some("Deferred input was discarded because its destination changed")
+            Some(localization::catalog().input.deferred_destination_changed)
         );
     }
 
@@ -17639,7 +17638,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert_ne!(
             app.status_message.as_deref(),
-            Some("Deferred input was discarded because its destination changed")
+            Some(localization::catalog().input.deferred_destination_changed)
         );
     }
 
@@ -17918,7 +17917,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert_eq!(
             app.status_message.as_deref(),
-            Some("Deferred input was discarded because its destination changed")
+            Some(localization::catalog().input.deferred_destination_changed)
         );
     }
 
@@ -19556,7 +19555,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert_ne!(
             app.status_message.as_deref(),
-            Some("Deferred input was discarded because its destination changed")
+            Some(localization::catalog().input.deferred_destination_changed)
         );
     }
 
@@ -19582,7 +19581,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
         assert_ne!(
             app.status_message.as_deref(),
-            Some("Deferred input was discarded because its destination changed")
+            Some(localization::catalog().input.deferred_destination_changed)
         );
     }
 

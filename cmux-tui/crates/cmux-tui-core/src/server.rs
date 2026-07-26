@@ -330,8 +330,7 @@ enum Command {
         button: Option<String>,
         #[serde(default, alias = "click_count")]
         click_count: Option<u32>,
-        #[serde(default)]
-        frame_seq: Option<u64>,
+        frame_seq: u64,
     },
     BrowserMouseGuarded {
         surface: SurfaceId,
@@ -354,8 +353,7 @@ enum Command {
         y_px: f64,
         #[serde(alias = "delta_y_px")]
         delta_y_px: f64,
-        #[serde(default)]
-        frame_seq: Option<u64>,
+        frame_seq: u64,
     },
     BrowserWheelGuarded {
         surface: SurfaceId,
@@ -3621,7 +3619,7 @@ fn handle_command(
                     y_px,
                     button: button.as_deref(),
                     click_count,
-                    frame_seq,
+                    frame_seq: Some(frame_seq),
                 },
             )
         }
@@ -3646,7 +3644,7 @@ fn handle_command(
             },
         ),
         Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
-            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, frame_seq)
+            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, Some(frame_seq))
         }
         Command::BrowserWheelGuarded { surface, x_px, y_px, delta_y_px, frame_seq } => {
             handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, Some(frame_seq))

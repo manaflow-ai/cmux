@@ -2641,7 +2641,13 @@ impl BrowserSurface {
         let tx = self.command_sender()?;
         let mut order = self.command_order.lock().unwrap();
         let command = order.sequence(command);
-        *self.latest_nav.lock().unwrap() = Some(command);
+        let mut latest_nav = self.latest_nav.lock().unwrap();
+        if let Some(pending) = latest_nav.as_mut() {
+            pending.command = command.command;
+        } else {
+            *latest_nav = Some(command);
+        }
+        drop(latest_nav);
         let wake = order.sequence(BrowserCommand::WakeLatest);
         match tx.try_send(wake) {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
@@ -3023,6 +3029,8 @@ impl BrowserSurface {
                 Err(error) => last_error = Some(error),
             }
         }
+        let _ =
+            session.runtime.client.suppress_timestampless_screencast_epoch(session_id, frame_epoch);
         self.suppress_failed_screencast_capture(frame_epoch, navigation_epoch);
         Err(last_error.expect("authority capture attempts must record an error"))
     }

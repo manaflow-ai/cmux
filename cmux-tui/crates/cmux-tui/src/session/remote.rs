@@ -53,17 +53,6 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
             "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
         );
     }
-    let supports_guarded_browser_pointer =
-        ident.get("capabilities").and_then(Value::as_array).is_some_and(|capabilities| {
-            capabilities
-                .iter()
-                .any(|capability| capability.as_str() == Some(GUARDED_BROWSER_POINTER_CAPABILITY))
-        });
-    if !supports_guarded_browser_pointer {
-        anyhow::bail!(
-            "cmux-tui protocol {protocol} server does not support guarded browser pointer input; restart the cmux-tui server"
-        );
-    }
     Ok(())
 }
 
@@ -1481,7 +1470,7 @@ impl RemoteSession {
     }
 
     pub fn supports_browser_attach(&self) -> bool {
-        true
+        self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY)
     }
 
     fn record_surface_overflow(&self, id: SurfaceId) -> (Option<Duration>, bool) {
