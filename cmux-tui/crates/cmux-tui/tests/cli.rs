@@ -303,8 +303,17 @@ fn legacy_server_process_helper() {
             | "persistent-close-error"
             | "browser-surface"
     ) {
-        let descendant =
-            Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let mut command = Command::new("yes");
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let descendant = command.spawn().unwrap();
         fs::write(
             std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
             descendant.id().to_string(),
@@ -508,8 +517,39 @@ fn legacy_server_process_helper() {
         .unwrap();
         for &expected_surface in surfaces {
             request.clear();
-            reader.read_line(&mut request).unwrap();
-            let close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            if reader.read_line(&mut request).unwrap() == 0 {
+                loop {
+                    std::thread::park();
+                }
+            }
+            let mut close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            if close_request["cmd"].as_str() == Some("process-info") {
+                assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
+                let pid = fs::read_to_string(
+                    std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
+                )
+                .unwrap()
+                .trim()
+                .parse::<u32>()
+                .unwrap();
+                writeln!(
+                    stream,
+                    "{}",
+                    serde_json::json!({
+                        "id": close_request["id"],
+                        "ok": true,
+                        "data": {"pid": pid},
+                    })
+                )
+                .unwrap();
+                request.clear();
+                if reader.read_line(&mut request).unwrap() == 0 {
+                    loop {
+                        std::thread::park();
+                    }
+                }
+                close_request = serde_json::from_str(&request).unwrap();
+            }
             assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
             assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
             if scenario == "applied-close-disconnect" {

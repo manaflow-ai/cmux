@@ -103,6 +103,13 @@ pub fn session_is_empty(session: libc::pid_t) -> io::Result<bool> {
     members(session).map(|members| members.is_empty())
 }
 
+/// Snapshot process IDs in a non-caller session. Callers must capture exact
+/// process birth identities before using the result for later signaling.
+pub fn session_member_pids(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    validate_session_target(session)?;
+    members(session)
+}
+
 fn signal_members(
     members: &[libc::pid_t],
     session: libc::pid_t,

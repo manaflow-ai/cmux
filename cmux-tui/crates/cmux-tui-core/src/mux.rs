@@ -67,14 +67,27 @@ struct ShutdownOwnerLedger {
 }
 
 impl ShutdownOwnerLedger {
-    fn stage(&self, key: ShutdownOwnerKey, owner: SurfaceShutdownOwner) {
-        self.owners.lock().unwrap().entry(key).or_insert_with(|| Arc::new(owner));
+    fn stage(
+        &self,
+        key: ShutdownOwnerKey,
+        owner: SurfaceShutdownOwner,
+    ) -> (ShutdownOwnerKey, Arc<SurfaceShutdownOwner>) {
+        let staged = self
+            .owners
+            .lock()
+            .unwrap()
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(owner))
+            .clone();
+        (key, staged)
     }
 
-    fn stage_surface(&self, surface: &Arc<Surface>) {
-        if let Some(owner) = surface.shutdown_owner() {
-            self.stage(shutdown_owner_key(surface.id, &owner), owner);
-        }
+    fn stage_surface(
+        &self,
+        surface: &Arc<Surface>,
+    ) -> Option<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)> {
+        let owner = surface.shutdown_owner()?;
+        Some(self.stage(shutdown_owner_key(surface.id, &owner), owner))
     }
 
     fn snapshot(&self) -> Vec<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)> {
@@ -3800,16 +3813,25 @@ impl Mux {
     }
 
     fn retire_surface_runtimes(&self, surfaces: impl IntoIterator<Item = Arc<Surface>>) {
-        for surface in surfaces {
-            self.shutdown_owners.stage_surface(&surface);
-        }
+        let owners = surfaces
+            .into_iter()
+            .filter_map(|surface| self.shutdown_owners.stage_surface(&surface))
+            .collect::<Vec<_>>();
         let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
         let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else { return };
-        self.terminate_staged_shutdown_owners_until(deadline);
+        self.terminate_shutdown_owners_until(owners, deadline);
     }
 
     fn terminate_staged_shutdown_owners_until(&self, deadline: Instant) {
         let owners = self.shutdown_owners.snapshot();
+        self.terminate_shutdown_owners_until(owners, deadline);
+    }
+
+    fn terminate_shutdown_owners_until(
+        &self,
+        owners: Vec<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)>,
+        deadline: Instant,
+    ) {
         if owners.is_empty() {
             return;
         }
@@ -3945,7 +3967,7 @@ impl Mux {
                 let surfaces =
                     state.surfaces.drain().map(|(_, surface)| surface).collect::<Vec<_>>();
                 for surface in &surfaces {
-                    self.shutdown_owners.stage_surface(surface);
+                    let _ = self.shutdown_owners.stage_surface(surface);
                 }
                 for workspace in &mut state.workspaces {
                     workspace.screens.clear();
@@ -3991,7 +4013,7 @@ impl Mux {
                     incarnation: incarnation.to_string(),
                 })
                 .expect("hosted owner has a terminal identity");
-            self.shutdown_owners.stage(key, owner);
+            let _ = self.shutdown_owners.stage(key, owner);
         }
         self.terminate_staged_shutdown_owners_until(deadline);
         let retained = self.shutdown_owners.snapshot();
@@ -8265,7 +8287,7 @@ fn take_surface_for_retirement(
 ) -> Option<Arc<Surface>> {
     let removed = state.surfaces.remove(&target);
     if let Some(surface) = &removed {
-        mux.shutdown_owners.stage_surface(surface);
+        let _ = mux.shutdown_owners.stage_surface(surface);
     }
     removed
 }

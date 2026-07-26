@@ -18,7 +18,10 @@ mod legacy_process;
 #[cfg(all(unix, test))]
 use legacy_process::terminate_process_tree;
 #[cfg(unix)]
-use legacy_process::{CapturedProcessTree, ProcessIdentity, capture_process_tree};
+use legacy_process::{
+    CapturedProcessSession, CapturedProcessTree, ProcessIdentity, capture_process_session,
+    capture_process_tree_until,
+};
 
 const PROBE_REQUEST_ID: u64 = 0;
 const SHUTDOWN_REQUEST_ID: u64 = 1;
@@ -32,6 +35,12 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const SHUTDOWN_TRANSPORT_MARGIN: Duration = Duration::from_secs(5);
 const SHUTDOWN_RESPONSE_TIMEOUT: Duration =
     SERVER_SHUTDOWN_TIMEOUT.saturating_add(SHUTDOWN_TRANSPORT_MARGIN);
+#[cfg(unix)]
+const LEGACY_SHUTDOWN_TIMEOUT: Duration = SHUTDOWN_RESPONSE_TIMEOUT;
+#[cfg(unix)]
+const LEGACY_HELPER_WAIT_MARGIN: Duration = Duration::from_millis(250);
+#[cfg(unix)]
+const LEGACY_HELPER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const LAUNCHER_COMMAND_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
 const MAX_LAUNCHER_COMMAND_BYTES: usize = 4096;
 
@@ -136,9 +145,14 @@ pub(crate) struct ServerProbe {
 
 impl ServerProbe {
     pub(crate) fn inspect(reader: &mut TransportReader) -> anyhow::Result<Self> {
+        Self::inspect_until(reader, Instant::now() + RESPONSE_TIMEOUT)
+    }
+
+    fn inspect_until(reader: &mut TransportReader, deadline: Instant) -> anyhow::Result<Self> {
+        set_transport_deadline(reader.get_mut().as_ref(), deadline)?;
         write_json_line(reader.get_mut(), &json!({"id": PROBE_REQUEST_ID, "cmd": "identify"}))
             .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-        let response = read_response(reader, PROBE_REQUEST_ID)?;
+        let response = read_response_until(reader, PROBE_REQUEST_ID, deadline)?;
         if response.get("ok").and_then(Value::as_bool) != Some(true) {
             anyhow::bail!(crate::localization::catalog().server.identity_failed);
         }
@@ -147,14 +161,19 @@ impl ServerProbe {
     }
 
     pub(crate) fn connect(path: &Path) -> anyhow::Result<(Self, TransportReader, Option<u32>)> {
+        Self::connect_until(path, Instant::now() + RESPONSE_TIMEOUT)
+    }
+
+    fn connect_until(
+        path: &Path,
+        deadline: Instant,
+    ) -> anyhow::Result<(Self, TransportReader, Option<u32>)> {
         let stream = transport::connect(path)
             .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.connect_failed))?;
         let peer_process_id = stream.peer_process_id().ok().flatten();
-        stream
-            .set_read_timeout(Some(RESPONSE_TIMEOUT))
-            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
+        set_transport_deadline(stream.as_ref(), deadline)?;
         let mut reader = BufReader::new(stream);
-        let probe = Self::inspect(&mut reader)?;
+        let probe = Self::inspect_until(&mut reader, deadline)?;
         Ok((probe, reader, peer_process_id))
     }
 
@@ -198,6 +217,12 @@ pub(crate) struct ServerLifecycle {
 impl ServerLifecycle {
     pub(crate) fn connect(path: PathBuf) -> anyhow::Result<Self> {
         let (probe, reader, peer_process_id) = ServerProbe::connect(&path)?;
+        Ok(Self { path, probe, reader, peer_process_id })
+    }
+
+    #[cfg(unix)]
+    fn connect_until(path: PathBuf, deadline: Instant) -> anyhow::Result<Self> {
+        let (probe, reader, peer_process_id) = ServerProbe::connect_until(&path, deadline)?;
         Ok(Self { path, probe, reader, peer_process_id })
     }
 
@@ -247,14 +272,24 @@ impl ServerLifecycle {
     fn close_legacy_surfaces_until_stable(
         &mut self,
         expected: ProcessIdentity,
-    ) -> anyhow::Result<()> {
+        deadline: Instant,
+    ) -> anyhow::Result<Vec<CapturedProcessSession>> {
         let mut next_request_id = LEGACY_LIST_REQUEST_ID;
         let mut consecutive_empty_scans = 0;
+        let mut owners = Vec::<CapturedProcessSession>::new();
         for _ in 0..LEGACY_MAX_SCAN_ROUNDS {
-            let closed = match self.close_legacy_surface_snapshot(&mut next_request_id) {
+            if Instant::now() >= deadline {
+                anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+            }
+            let closed = match self.close_legacy_surface_snapshot(
+                &mut next_request_id,
+                expected,
+                &mut owners,
+                deadline,
+            ) {
                 Ok(closed) => closed,
                 Err(error) if error.downcast_ref::<LegacyConnectionInterrupted>().is_some() => {
-                    self.reconnect_legacy_server(expected)?;
+                    self.reconnect_legacy_server(expected, deadline)?;
                     consecutive_empty_scans = 0;
                     continue;
                 }
@@ -263,7 +298,7 @@ impl ServerLifecycle {
             if closed == 0 {
                 consecutive_empty_scans += 1;
                 if consecutive_empty_scans == LEGACY_STABLE_EMPTY_SCANS {
-                    return Ok(());
+                    return Ok(owners);
                 }
             } else {
                 consecutive_empty_scans = 0;
@@ -273,8 +308,12 @@ impl ServerLifecycle {
     }
 
     #[cfg(unix)]
-    fn reconnect_legacy_server(&mut self, expected: ProcessIdentity) -> anyhow::Result<()> {
-        let replacement = Self::connect(self.path.clone()).map_err(|_| {
+    fn reconnect_legacy_server(
+        &mut self,
+        expected: ProcessIdentity,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        let replacement = Self::connect_until(self.path.clone(), deadline).map_err(|_| {
             anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
         })?;
         if replacement.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
@@ -293,28 +332,71 @@ impl ServerLifecycle {
     fn close_legacy_surface_snapshot(
         &mut self,
         next_request_id: &mut u64,
+        expected: ProcessIdentity,
+        owners: &mut Vec<CapturedProcessSession>,
+        deadline: Instant,
     ) -> anyhow::Result<usize> {
         let list_request_id = take_legacy_request_id(next_request_id)?;
+        set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
+            .map_err(|_| LegacyConnectionInterrupted)?;
         write_json_line(
             self.reader.get_mut(),
             &json!({"id": list_request_id, "cmd": "list-workspaces"}),
         )
         .map_err(|_| LegacyConnectionInterrupted)?;
-        let response = read_response(&mut self.reader, list_request_id)
+        let response = read_response_until(&mut self.reader, list_request_id, deadline)
             .map_err(|_| LegacyConnectionInterrupted)?;
         let data = response_data(&response)?;
-        let mut surfaces = legacy_surface_ids(data);
-        surfaces.sort_unstable();
-        surfaces.dedup();
+        let surfaces = legacy_surfaces(data)?;
 
-        for &surface in &surfaces {
-            let request_id = take_legacy_request_id(next_request_id)?;
+        for surface in &surfaces {
+            if surface.kind != "pty" {
+                anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+            }
+            let process_request_id = take_legacy_request_id(next_request_id)?;
+            set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
+                .map_err(|_| LegacyConnectionInterrupted)?;
             write_json_line(
                 self.reader.get_mut(),
-                &json!({"id": request_id, "cmd": "close-surface", "surface": surface}),
+                &json!({
+                    "id": process_request_id,
+                    "cmd": "process-info",
+                    "surface": surface.id,
+                }),
             )
             .map_err(|_| LegacyConnectionInterrupted)?;
-            let _response = read_response(&mut self.reader, request_id)
+            let process_response =
+                read_response_until(&mut self.reader, process_request_id, deadline)
+                    .map_err(|_| LegacyConnectionInterrupted)?;
+            let process_data = response_data(&process_response)?;
+            let pid = process_data
+                .get("pid")
+                .and_then(Value::as_u64)
+                .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                .filter(|pid| *pid > 1)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                })?;
+            let owner = capture_process_session(pid, expected)
+                .map_err(|_| {
+                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                })?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                })?;
+            if !owners.iter().any(|captured| captured.id() == owner.id()) {
+                owners.push(owner);
+            }
+
+            let request_id = take_legacy_request_id(next_request_id)?;
+            set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
+                .map_err(|_| LegacyConnectionInterrupted)?;
+            write_json_line(
+                self.reader.get_mut(),
+                &json!({"id": request_id, "cmd": "close-surface", "surface": surface.id}),
+            )
+            .map_err(|_| LegacyConnectionInterrupted)?;
+            let _response = read_response_until(&mut self.reader, request_id, deadline)
                 .map_err(|_| LegacyConnectionInterrupted)?;
             // Older servers can commit topology removal, then report a late
             // runtime-cleanup error. Reconcile every close response against
@@ -348,9 +430,10 @@ fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::R
         .arg(path)
         .arg(expected.pid().to_string())
         .arg(expected.started_at().to_string())
+        .arg(LEGACY_SHUTDOWN_TIMEOUT.as_millis().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::null());
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() < 0 {
@@ -359,18 +442,42 @@ fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::R
             Ok(())
         });
     }
-    let output = command.output().map_err(|_| {
+    let mut helper = command.spawn().map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
-    if output.status.success() {
+    let deadline = Instant::now() + LEGACY_SHUTDOWN_TIMEOUT + LEGACY_HELPER_WAIT_MARGIN;
+    let status = wait_for_child_until(&mut helper, deadline)?;
+    if status.success() {
         return Ok(());
     }
     anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed)
 }
 
 #[cfg(unix)]
+fn wait_for_child_until(
+    child: &mut std::process::Child,
+    deadline: Instant,
+) -> anyhow::Result<std::process::ExitStatus> {
+    loop {
+        if let Some(status) = child.try_wait().map_err(|_| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })? {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+        }
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()).min(LEGACY_HELPER_POLL_INTERVAL),
+        );
+    }
+}
+
+#[cfg(unix)]
 pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
-    let [path, expected_pid, expected_started_at] = args else {
+    let [path, expected_pid, expected_started_at, timeout_ms] = args else {
         anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported);
     };
     let expected_pid =
@@ -380,8 +487,17 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     let expected_started_at = expected_started_at
         .parse::<u128>()
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported))?;
+    let timeout = timeout_ms
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_millis)
+        .filter(|timeout| !timeout.is_zero() && *timeout <= LEGACY_SHUTDOWN_TIMEOUT)
+        .ok_or_else(|| {
+            anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported)
+        })?;
+    let deadline = Instant::now() + timeout;
     let expected = ProcessIdentity::from_parts(expected_pid, expected_started_at);
-    let mut lifecycle = ServerLifecycle::connect(PathBuf::from(path))?;
+    let mut lifecycle = ServerLifecycle::connect_until(PathBuf::from(path), deadline)?;
     if lifecycle.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
         anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
     }
@@ -389,13 +505,18 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     if actual != expected {
         anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
     }
-    let captured = capture_legacy_process_tree(actual)?;
+    let captured = capture_legacy_process_tree(actual, deadline)?;
 
-    lifecycle.close_legacy_surfaces_until_stable(actual).map_err(|_| {
+    let owners = lifecycle.close_legacy_surfaces_until_stable(actual, deadline).map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
-    terminate_captured_legacy_process_tree(captured)?;
-    wait_for_disconnect(&mut lifecycle.reader, &lifecycle.path)
+    for owner in owners {
+        owner.terminate_until(deadline).map_err(|_| {
+            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+        })?;
+    }
+    terminate_captured_legacy_process_tree(captured, deadline)?;
+    wait_for_disconnect_until(&mut lifecycle.reader, &lifecycle.path, deadline)
 }
 
 #[cfg(unix)]
@@ -426,15 +547,21 @@ fn terminate_legacy_process_tree(process: ProcessIdentity) -> anyhow::Result<()>
 }
 
 #[cfg(unix)]
-fn capture_legacy_process_tree(process: ProcessIdentity) -> anyhow::Result<CapturedProcessTree> {
-    capture_process_tree(process)
+fn capture_legacy_process_tree(
+    process: ProcessIdentity,
+    deadline: Instant,
+) -> anyhow::Result<CapturedProcessTree> {
+    capture_process_tree_until(process, deadline)
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
 }
 
 #[cfg(unix)]
-fn terminate_captured_legacy_process_tree(process: CapturedProcessTree) -> anyhow::Result<()> {
+fn terminate_captured_legacy_process_tree(
+    process: CapturedProcessTree,
+    deadline: Instant,
+) -> anyhow::Result<()> {
     process
-        .terminate()
+        .terminate_until(deadline)
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
 }
 
@@ -509,25 +636,27 @@ pub(crate) fn write_json_line(writer: &mut dyn Write, value: &Value) -> std::io:
     writer.write_all(b"\n")
 }
 
-fn read_response(reader: &mut TransportReader, request_id: u64) -> anyhow::Result<Value> {
-    read_matching_response(reader, request_id, false)
+fn set_transport_deadline(stream: &dyn transport::Stream, deadline: Instant) -> anyhow::Result<()> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
+    stream
+        .set_read_timeout(Some(remaining))
+        .and_then(|()| stream.set_write_timeout(Some(remaining)))
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))
+}
+
+fn read_response_until(
+    reader: &mut TransportReader,
+    request_id: u64,
+    deadline: Instant,
+) -> anyhow::Result<Value> {
+    read_matching_response_until(reader, request_id, false, deadline)
 }
 
 fn read_shutdown_response(reader: &mut TransportReader, request_id: u64) -> anyhow::Result<Value> {
     read_matching_response_with_timeout(reader, request_id, true, SHUTDOWN_RESPONSE_TIMEOUT)
-}
-
-fn read_matching_response(
-    reader: &mut TransportReader,
-    request_id: u64,
-    accept_unidentified_error: bool,
-) -> anyhow::Result<Value> {
-    read_matching_response_with_timeout(
-        reader,
-        request_id,
-        accept_unidentified_error,
-        RESPONSE_TIMEOUT,
-    )
 }
 
 fn read_matching_response_with_timeout(
@@ -536,9 +665,23 @@ fn read_matching_response_with_timeout(
     accept_unidentified_error: bool,
     timeout: Duration,
 ) -> anyhow::Result<Value> {
-    let deadline = Instant::now() + timeout;
+    read_matching_response_until(
+        reader,
+        request_id,
+        accept_unidentified_error,
+        Instant::now() + timeout,
+    )
+}
+
+fn read_matching_response_until(
+    reader: &mut TransportReader,
+    request_id: u64,
+    accept_unidentified_error: bool,
+    deadline: Instant,
+) -> anyhow::Result<Value> {
     let mut line = String::new();
     loop {
+        set_transport_deadline(reader.get_mut().as_ref(), deadline)?;
         match reader.read_line(&mut line) {
             Ok(0) => anyhow::bail!(crate::localization::catalog().server.response_closed),
             Ok(_) => {}
@@ -578,26 +721,64 @@ fn response_data(response: &Value) -> anyhow::Result<&Value> {
 }
 
 #[cfg(unix)]
-fn legacy_surface_ids(data: &Value) -> Vec<u64> {
-    let mut surfaces = Vec::new();
+struct LegacySurface {
+    id: u64,
+    kind: String,
+}
+
+#[cfg(unix)]
+fn legacy_surfaces(data: &Value) -> anyhow::Result<Vec<LegacySurface>> {
+    let mut surfaces = std::collections::HashMap::<u64, String>::new();
     for workspace in data.get("workspaces").and_then(Value::as_array).into_iter().flatten() {
         for screen in workspace.get("screens").and_then(Value::as_array).into_iter().flatten() {
             for pane in screen.get("panes").and_then(Value::as_array).into_iter().flatten() {
                 for tab in pane.get("tabs").and_then(Value::as_array).into_iter().flatten() {
                     if let Some(surface) = tab.get("surface").and_then(Value::as_u64) {
-                        surfaces.push(surface);
+                        let kind = tab.get("kind").and_then(Value::as_str).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                crate::localization::catalog().server.legacy_cleanup_failed
+                            )
+                        })?;
+                        if let Some(previous) = surfaces.insert(surface, kind.to_string())
+                            && previous != kind
+                        {
+                            anyhow::bail!(
+                                crate::localization::catalog().server.legacy_cleanup_failed
+                            );
+                        }
                     }
                 }
             }
         }
     }
-    surfaces
+    let mut surfaces =
+        surfaces.into_iter().map(|(id, kind)| LegacySurface { id, kind }).collect::<Vec<_>>();
+    surfaces.sort_by_key(|surface| surface.id);
+    Ok(surfaces)
+}
+
+#[cfg(all(unix, test))]
+fn legacy_surface_ids(data: &Value) -> Vec<u64> {
+    legacy_surfaces(data).unwrap().into_iter().map(|surface| surface.id).collect()
 }
 
 fn wait_for_disconnect(reader: &mut TransportReader, path: &Path) -> anyhow::Result<()> {
-    let deadline = Instant::now() + RESPONSE_TIMEOUT;
+    wait_for_disconnect_until(reader, path, Instant::now() + RESPONSE_TIMEOUT)
+}
+
+fn wait_for_disconnect_until(
+    reader: &mut TransportReader,
+    path: &Path,
+    deadline: Instant,
+) -> anyhow::Result<()> {
     let mut line = String::new();
     loop {
+        if set_transport_deadline(reader.get_mut().as_ref(), deadline).is_err() {
+            if connection_is_gone(path) {
+                return Ok(());
+            }
+            anyhow::bail!(crate::localization::catalog().server.shutdown_timed_out);
+        }
         match reader.read_line(&mut line) {
             Ok(0) => return Ok(()),
             Ok(_) => line.clear(),
@@ -770,8 +951,11 @@ mod tests {
             "workspaces": [{
                 "screens": [{
                     "panes": [
-                        {"tabs": [{"surface": 11}, {"surface": 12}]},
-                        {"tabs": [{"surface": 13}]},
+                        {"tabs": [
+                            {"surface": 11, "kind": "pty"},
+                            {"surface": 12, "kind": "pty"}
+                        ]},
+                        {"tabs": [{"surface": 13, "kind": "pty"}]},
                     ],
                 }],
             }],

@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 const PROCESS_TREE_MAX_ROUNDS: usize = 64;
 const PROCESS_TREE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+#[cfg(test)]
 const PROCESS_TREE_RETRY_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,10 +90,17 @@ enum ExactSignalResult {
     Gone,
 }
 
+#[cfg(test)]
 pub(super) fn terminate_process_tree(process: ProcessIdentity) -> io::Result<()> {
-    let deadline = Instant::now() + PROCESS_TREE_RETRY_TIMEOUT;
+    terminate_process_tree_until(process, Instant::now() + PROCESS_TREE_RETRY_TIMEOUT)
+}
+
+pub(super) fn terminate_process_tree_until(
+    process: ProcessIdentity,
+    deadline: Instant,
+) -> io::Result<()> {
     retry_process_tree_termination(process, deadline, |_| {
-        let tree = FrozenProcessTree::freeze(process)?;
+        let tree = FrozenProcessTree::freeze(process, deadline)?;
         tree.kill()
     })
 }
@@ -126,17 +134,22 @@ fn retry_process_tree_termination(
     }
 }
 
-pub(super) fn capture_process_tree(process: ProcessIdentity) -> io::Result<CapturedProcessTree> {
-    let tree = freeze_process_tree(process)?;
+pub(super) fn capture_process_tree_until(
+    process: ProcessIdentity,
+    deadline: Instant,
+) -> io::Result<CapturedProcessTree> {
+    let tree = freeze_process_tree(process, deadline)?;
     let sessions = tree.captured_sessions()?;
     drop(tree);
     Ok(CapturedProcessTree { root: process, sessions })
 }
 
-fn freeze_process_tree(process: ProcessIdentity) -> io::Result<FrozenProcessTree> {
-    let deadline = Instant::now() + PROCESS_TREE_RETRY_TIMEOUT;
+fn freeze_process_tree(
+    process: ProcessIdentity,
+    deadline: Instant,
+) -> io::Result<FrozenProcessTree> {
     loop {
-        let error = match FrozenProcessTree::freeze(process) {
+        let error = match FrozenProcessTree::freeze(process, deadline) {
             Ok(tree) => return Ok(tree),
             Err(error) => error,
         };
@@ -168,8 +181,7 @@ pub(super) struct CapturedProcessTree {
 }
 
 impl CapturedProcessTree {
-    pub(super) fn terminate(self) -> io::Result<()> {
-        let deadline = Instant::now() + PROCESS_TREE_RETRY_TIMEOUT;
+    pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
         for session in &self.sessions {
             if !session.kill_until_empty(deadline)? {
                 return Err(io::Error::other(
@@ -177,8 +189,82 @@ impl CapturedProcessTree {
                 ));
             }
         }
-        terminate_process_tree(self.root)
+        terminate_process_tree_until(self.root, deadline)
     }
+}
+
+pub(super) struct CapturedProcessSession(CapturedSession);
+
+impl CapturedProcessSession {
+    pub(super) fn id(&self) -> libc::pid_t {
+        self.0.id
+    }
+
+    pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
+        if self.0.kill_until_empty(deadline)? {
+            Ok(())
+        } else {
+            Err(io::Error::other(
+                "captured PTY session did not exit before the legacy shutdown deadline",
+            ))
+        }
+    }
+}
+
+pub(super) fn capture_process_session(
+    pid: libc::pid_t,
+    server: ProcessIdentity,
+) -> io::Result<Option<CapturedProcessSession>> {
+    if pid <= 1
+        || pid == server.pid
+        || pid == libc::pid_t::try_from(std::process::id()).unwrap_or(0)
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid PTY owner process"));
+    }
+    let Some(process) = ProcessIdentity::capture(pid)? else { return Ok(None) };
+    if process.signal(libc::SIGSTOP)? == ExactSignalResult::Gone {
+        return Ok(None);
+    }
+    let captured = (|| {
+        if ProcessIdentity::capture(pid)? != Some(process) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PTY owner process identity changed after fencing",
+            ));
+        }
+        // SAFETY: getsid only queries exact processes revalidated above.
+        let session = unsafe { libc::getsid(pid) };
+        if session <= 1 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: the server identity remains validated by the caller.
+        let server_session = unsafe { libc::getsid(server.pid) };
+        // SAFETY: getsid(0) only queries the detached helper.
+        let helper_session = unsafe { libc::getsid(0) };
+        if session == server_session || session == helper_session {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PTY owner shares a protected process session",
+            ));
+        }
+        let mut members = Vec::new();
+        for member in cmux_tui_core::process_session::session_member_pids(session)? {
+            if let Some(identity) = ProcessIdentity::capture(member)? {
+                members.push(identity);
+            }
+        }
+        if !members.contains(&process) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PTY owner left its process session while being captured",
+            ));
+        }
+        members.sort_by_key(|member| member.pid);
+        members.dedup();
+        Ok(CapturedProcessSession(CapturedSession { id: session, members }))
+    })();
+    let _ = process.signal(libc::SIGCONT);
+    captured.map(Some)
 }
 
 struct CapturedSession {
@@ -266,7 +352,7 @@ struct FrozenProcessTree {
 }
 
 impl FrozenProcessTree {
-    fn freeze(root: ProcessIdentity) -> io::Result<Self> {
+    fn freeze(root: ProcessIdentity, deadline: Instant) -> io::Result<Self> {
         let mut tree = Self { root, descendants: Vec::new(), armed: true };
         if root.signal(libc::SIGSTOP)? == ExactSignalResult::Gone {
             return Err(io::Error::new(
@@ -285,6 +371,12 @@ impl FrozenProcessTree {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid helper process id"))?;
         let mut known = HashSet::from([root.pid, helper_pid]);
         for _ in 0..PROCESS_TREE_MAX_ROUNDS {
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "legacy process tree did not stabilize before the shutdown deadline",
+                ));
+            }
             let parents =
                 std::iter::once(root).chain(tree.descendants.iter().copied()).collect::<Vec<_>>();
             let mut added = false;
