@@ -961,7 +961,6 @@ pub struct Keys {
 impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
-        let control = |code, action| (Chord { code, mods: KeyModifiers::CONTROL }, action);
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
         let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
         Keys {
@@ -1025,7 +1024,6 @@ impl Default for Keys {
                 bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
-                control(KeyCode::Char('l'), Action::ClearHistory),
                 command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
