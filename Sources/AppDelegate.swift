@@ -1094,6 +1094,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didReplyToTerminate = false
     // True while owned asynchronous cleanup controls the terminate reply.
     private var isAwaitingTerminateCleanup = false
+    private var terminateOwnedCleanupTask: Task<Void, Never>?
     private var terminateCleanupWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     private let terminationWatchdog = TerminationWatchdog()
@@ -1885,6 +1886,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
         terminateCleanupWatchdogTask?.cancel()
         terminateCleanupWatchdogTask = nil
+        terminateOwnedCleanupTask = nil
         // A cancelled quit ends this terminate request; the next quit must reply again.
         if !shouldTerminate {
             didReplyToTerminate = false
@@ -1906,21 +1908,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "reason": reason,
                 ]
             )
-            Task { @MainActor in
+            let cleanupTask = Task { @MainActor [weak self] in
+                guard let self else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }
                 for cleanupTask in simulatorCleanupTasks {
                     await cleanupTask.value
                 }
+                _ = await TerminalController.shared.simulatorCameraCleanupOwnershipScope
+                    .waitForPendingCleanup()
+                self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
-            // Watchdog: release quit if the deferred Task is starved inside a nested run loop.
+            terminateOwnedCleanupTask = cleanupTask
+            // Simulator camera disable can legitimately consume its 120-second
+            // worker deadline before durable simctl rollback begins. The
+            // watchdog requests cancellation after that contract plus cleanup
+            // headroom, then still joins the owned task before allowing AppKit
+            // teardown. It never bypasses externally visible rollback.
+            let cleanupDeadline: Duration = simulatorCleanupTasks.isEmpty
+                ? .milliseconds(3_500)
+                : .seconds(150)
             terminateCleanupWatchdogTask?.cancel()
-            terminateCleanupWatchdogTask = Task { @MainActor [weak self] in
-                try? await ContinuousClock().sleep(for: .milliseconds(3_500))
+            terminateCleanupWatchdogTask = Task { @MainActor in
+                try? await ContinuousClock().sleep(for: cleanupDeadline)
                 guard !Task.isCancelled else { return }
-                self?.replyToTerminateOnce(true)
+                cleanupTask.cancel()
+                await cleanupTask.value
             }
         }
         return true
@@ -1936,12 +1951,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
-        // Quit is committed and the critical state is now on disk. Bound the
-        // remainder of the terminate sequence so a blocked Apple will-terminate
-        // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
-        // the main thread for ~30s. Idempotent and a no-op if the process exits
-        // first.
-        terminationWatchdog.arm()
+        // The hard AppKit watchdog is armed immediately before the terminate
+        // reply, after any owned asynchronous cleanup has finished. This keeps
+        // the will-terminate gauntlet bounded without cutting rollback short.
     }
 
     private func presentQuitConfirmationAlert(
@@ -1982,6 +1994,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isTerminatingApp = false
             clearMarkedRemoteTmuxKills()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
+        }
+        if shouldQuit {
+            terminationWatchdog.arm()
         }
         replyToTerminateOnce(shouldQuit)
     }
@@ -2032,6 +2047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if deferTerminateForOwnedCleanup(reason: reason) {
                 return .terminateLater
             }
+            terminationWatchdog.arm()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }

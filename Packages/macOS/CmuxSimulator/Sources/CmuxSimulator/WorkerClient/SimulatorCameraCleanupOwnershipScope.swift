@@ -24,4 +24,11 @@ public struct SimulatorCameraCleanupOwnershipScope: Sendable {
         self.ownershipStore = ownershipStore
         coordinator = SimulatorCameraCleanupCoordinator(ownershipStore: ownershipStore)
     }
+
+    /// Waits for every cleanup already owned by this app scope, including work
+    /// that outlived the pane or worker client that scheduled it.
+    /// - Returns: `true` when every observed cleanup completed successfully.
+    public func waitForPendingCleanup() async -> Bool {
+        await coordinator.waitForPendingCleanup()
+    }
 }

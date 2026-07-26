@@ -73,6 +73,33 @@ extension SimulatorWorkerClientTests {
         #expect(await coordinator.trackedTargetCount == 0)
     }
 
+    @Test("Application cleanup drain retains work after its client owner disappears")
+    func applicationCleanupDrainWaitsForPendingWork() async {
+        let scope = SimulatorCameraCleanupOwnershipScope()
+        let gate = CameraCleanupOperationGate()
+        let cleanup = await scope.coordinator.enqueue(
+            deviceIdentifier: "DEVICE-\(UUID().uuidString)",
+            bundleIdentifiers: ["com.example.camera"]
+        ) {
+            await gate.wait()
+            return .completed
+        }
+        let completion = CameraCleanupStopProbe()
+        let drain = Task {
+            let succeeded = await scope.waitForPendingCleanup()
+            if succeeded {
+                await completion.finish()
+            }
+        }
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!(await completion.didFinish))
+
+        await gate.release()
+        await drain.value
+        #expect(await cleanup.value == .completed)
+        #expect(await completion.didFinish)
+    }
+
     @Test("A failed camera cleanup preserves ownership for its retry")
     func failedCameraCleanupPreservesOwnershipForRetry() async throws {
         let coordinator = SimulatorCameraCleanupCoordinator()

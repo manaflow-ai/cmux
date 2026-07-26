@@ -13,9 +13,13 @@ import Observation
 @Observable
 final class SimulatorPanel: Panel {
     private static let livePanelsTable = NSHashTable<SimulatorPanel>.weakObjects()
+    private static var pendingCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     static func beginApplicationTerminationCleanup() -> [Task<Void, Never>] {
-        livePanelsTable.allObjects.map { $0.beginClose() }
+        for panel in livePanelsTable.allObjects {
+            _ = panel.beginClose()
+        }
+        return Array(pendingCleanupTasks.values)
     }
 
     let id = UUID()
@@ -214,12 +218,17 @@ final class SimulatorPanel: Panel {
         self.startupTask = nil
         startupTask?.cancel()
         let pendingShutdown = shutdownTask
-        let finalShutdown = Task {
+        let panelID = id
+        let finalShutdown = Task { @MainActor in
             await pendingShutdown?.value
             _ = await startupTask?.value
             await coordinator.close()
+            _ = await TerminalController.shared.simulatorCameraCleanupOwnershipScope
+                .waitForPendingCleanup()
+            Self.pendingCleanupTasks.removeValue(forKey: panelID)
         }
         shutdownTask = finalShutdown
+        Self.pendingCleanupTasks[panelID] = finalShutdown
         return finalShutdown
     }
 

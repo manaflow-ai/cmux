@@ -123,6 +123,27 @@ actor SimulatorCameraCleanupCoordinator {
         return task
     }
 
+    func waitForPendingCleanup() async -> Bool {
+        var allCleanupCompleted = true
+        var observedRevisions: [SimulatorCameraCleanupTarget: UInt64] = [:]
+        while true {
+            let pending = revisionByTarget.compactMap { target, revision in
+                tailByTarget[target].map { (target, revision, $0) }
+            }
+            guard !pending.isEmpty else { return allCleanupCompleted }
+            for (target, revision, task) in pending {
+                if await task.value != .completed {
+                    allCleanupCompleted = false
+                }
+                observedRevisions[target] = revision
+            }
+            let hasNewCleanup = revisionByTarget.contains { target, revision in
+                observedRevisions[target] != revision
+            }
+            if !hasNewCleanup { return allCleanupCompleted }
+        }
+    }
+
     private func finish(
         revisions: [SimulatorCameraCleanupTarget: UInt64],
         owners: [SimulatorCameraCleanupTarget: UUID],
