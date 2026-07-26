@@ -173,10 +173,29 @@ impl ServerProbe {
         let restored = reader
             .get_ref()
             .set_read_timeout(previous_read_timeout)
-            .and_then(|()| reader.get_ref().set_write_timeout(previous_write_timeout))
-            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed));
+            .and_then(|()| reader.get_ref().set_write_timeout(previous_write_timeout));
         match result {
-            Ok(probe) => restored.map(|()| probe),
+            Ok(probe) => match restored {
+                Ok(()) => Ok(probe),
+                // A server may close immediately after its complete identity
+                // response. macOS then rejects timeout socket options with
+                // EINVAL even though the response remains authoritative.
+                Err(error)
+                    if error.raw_os_error() == Some(libc::EINVAL)
+                        || matches!(
+                            error.kind(),
+                            std::io::ErrorKind::InvalidInput
+                                | std::io::ErrorKind::NotConnected
+                                | std::io::ErrorKind::BrokenPipe
+                                | std::io::ErrorKind::ConnectionReset
+                        ) =>
+                {
+                    Ok(probe)
+                }
+                Err(_) => {
+                    Err(anyhow::anyhow!(crate::localization::catalog().server.transport_failed))
+                }
+            },
             Err(error) => {
                 let _ = restored;
                 Err(error)
