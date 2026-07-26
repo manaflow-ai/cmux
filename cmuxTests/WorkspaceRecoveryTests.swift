@@ -187,7 +187,9 @@ struct WorkspaceRecoveryTests {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: nil,
             cmuxConfigStore: nil,
-            window: nil
+            window: nil,
+            workspaceTerminalFontSizeArbiter:
+                appDelegate.workspaceTerminalFontSizeArbiter
         )
         appDelegate.mainWindowContexts[ObjectIdentifier(sourceContext)] = sourceContext
         appDelegate.tabManager = sourceManager

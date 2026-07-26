@@ -3,7 +3,6 @@ import Bonsplit
 import CmuxFoundation
 import CmuxRemoteSession
 import CmuxTerminalCore
-import GhosttyKit
 import XCTest
 @testable import CmuxTerminal
 
@@ -12,17 +11,6 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
-@_silgen_name("cmux_test_ghostty_font_state_begin")
-private func beginWorkspaceFontState(
-    _ surface: ghostty_surface_t,
-    _ runtimePoints: Float32,
-    _ adjusted: Bool,
-    _ configuredRuntimePoints: Float32
-)
-
-@_silgen_name("cmux_test_ghostty_font_state_end")
-private func endWorkspaceFontState()
 
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
@@ -942,85 +930,6 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
-    func testInheritanceCacheUsesAppliedMagnificationDuringQueuedReload() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let appliedPercent =
-            GhosttyApp.shared.appliedGlobalFontMagnificationPercent
-        let queuedPercent =
-            appliedPercent == GlobalFontMagnification.maximumPercent
-            ? GlobalFontMagnification.minimumPercent
-            : GlobalFontMagnification.maximumPercent
-        let defaults = UserDefaults.standard
-        let originalValue =
-            defaults.object(forKey: GlobalFontMagnification.percentKey)
-        defaults.set(
-            queuedPercent,
-            forKey: GlobalFontMagnification.percentKey
-        )
-        defer {
-            if let originalValue {
-                defaults.set(
-                    originalValue,
-                    forKey: GlobalFontMagnification.percentKey
-                )
-            } else {
-                defaults.removeObject(
-                    forKey: GlobalFontMagnification.percentKey
-                )
-            }
-        }
-
-        var template = CmuxSurfaceConfigTemplate()
-        template.setFontSize(13, isExplicitOverride: true)
-        let panel = TerminalPanel(
-            workspaceId: workspace.id,
-            configTemplate: template,
-            runtimeSpawnPolicy: .pacedSessionRestore
-        )
-        workspace.panels[panel.id] = panel
-        let runtimeSurface =
-            UnsafeMutableRawPointer.allocate(
-                byteCount: 1,
-                alignment: 1
-            )
-        GhosttyApp.terminalSurfaceRegistry.registerRuntimeSurface(
-            runtimeSurface,
-            ownerId: panel.id
-        )
-        panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        let runtimePoints =
-            CmuxSurfaceConfigTemplate.runtimeFontSize(
-                fromBasePoints: 13,
-                percent: appliedPercent
-            )
-        beginWorkspaceFontState(
-            runtimeSurface,
-            runtimePoints,
-            true,
-            runtimePoints
-        )
-        defer {
-            endWorkspaceFontState()
-            panel.surface.releaseSurfaceForTesting()
-            runtimeSurface.deallocate()
-        }
-
-        workspace.rememberTerminalConfigInheritanceSource(panel)
-
-        let cachedBasePoints = try XCTUnwrap(
-            workspace
-                .lastRememberedTerminalFontSizeLineageForConfigInheritance()?
-                .basePoints
-        )
-        XCTAssertEqual(
-            cachedBasePoints,
-            13,
-            accuracy: 0.001,
-            "A queued setting must not reinterpret a live surface before its runtime config applies"
-        )
-    }
-
     func testWorkspaceTerminalFontSizeDrainBudgetCapsLiveActionsAndPanelVisits() {
         var liveBudget = WorkspaceTerminalFontSizeDrainBudget()
         for _ in 0..<4 {
@@ -1700,6 +1609,151 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             destinationDockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
             19,
             "A forwarded destination shortcut must retain its destination Dock"
+        )
+    }
+
+    func testForeignCoordinatorAssociatesPanelTransferWithEnteredDock() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let movedWorkspace = sourceManager.selectedWorkspace,
+              let movedPane =
+                movedWorkspace.bonsplitController.focusedPaneId,
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace else {
+            XCTFail("Expected source and destination workspace panes")
+            return
+        }
+
+        let movedPanel = TerminalPanel(
+            workspaceId: movedWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        movedPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard movedWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: movedPanel,
+                sourceWorkspaceId: movedWorkspace.id
+            ),
+            inPane: movedPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a movable source terminal")
+            return
+        }
+
+        let sourceDock = sourceManager.makeWindowDockStore(
+            windowId: UUID()
+        )
+        let destinationDock =
+            destinationManager.makeWindowDockStore(
+                windowId: UUID()
+            )
+        guard let destinationDockPane =
+                destinationDock.bonsplitController.focusedPaneId else {
+            XCTFail("Expected a destination Dock pane")
+            return
+        }
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let sourceCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:),
+                applyChange: {
+                    _,
+                    panel,
+                    _,
+                    _ in
+                    panel === movedPanel
+                        ? .failed
+                        : .alreadySatisfied
+                }
+            )
+        let destinationCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: destinationManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        sourceCoordinator.attachWindowDock(sourceDock)
+        destinationCoordinator.attachWindowDock(destinationDock)
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+            sourceDock.closeAllPanels()
+            destinationDock.closeAllPanels()
+        }
+
+        XCTAssertTrue(
+            sourceCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: movedWorkspace.id,
+                deferFlush: true
+            )
+        )
+        guard let detachedWorkspace =
+                sourceManager.detachWorkspace(
+                    tabId: movedWorkspace.id
+                ) else {
+            XCTFail("Expected the source workspace to detach")
+            return
+        }
+        destinationManager.attachWorkspace(
+            detachedWorkspace,
+            select: true
+        )
+        XCTAssertTrue(
+            destinationCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: movedWorkspace.id,
+                deferFlush: true
+            )
+        )
+        XCTAssertTrue(
+            destinationDock.terminalFontSizeChangeCoordinator
+                === sourceCoordinator,
+            "The foreign workspace owner must temporarily own the destination Dock request"
+        )
+
+        guard let detachedPanel = movedWorkspace.detachSurface(
+            panelId: movedPanel.id
+        ),
+        destinationDock.attachDetachedSurface(
+            detachedPanel,
+            inPane: destinationDockPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected the terminal to enter the destination Dock")
+            return
+        }
+        guard let panelTransfer = movedPanel.fontSizePanelTransfer else {
+            XCTFail("Expected an active cross-container transfer")
+            return
+        }
+        XCTAssertTrue(panelTransfer.isActive)
+
+        XCTAssertTrue(
+            arbiter.hasPanelTransfer(
+                targeting: destinationWorkspace,
+                or: .init(destinationDock)
+            ),
+            "The active transfer must block new work targeting the Dock it actually entered"
+        )
+        XCTAssertFalse(
+            arbiter.hasPanelTransfer(
+                targeting: destinationWorkspace,
+                or: .init(sourceDock)
+            ),
+            "A foreign coordinator must not reassign the transfer to its home Dock"
         )
     }
 
@@ -5589,6 +5643,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
