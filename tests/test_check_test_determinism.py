@@ -84,6 +84,21 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "try await Swift.ContinuousClock().sleep(until: deadline)\n"
                 "#expect(finished)\n"
             ),
+            "named-continuous-clock.swift": (
+                "let clock = ContinuousClock()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
+            "typed-suspending-clock.swift": (
+                "let clock: SuspendingClock = .init()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
+            "qualified-typed-continuous-clock.swift": (
+                "let clock: Swift.ContinuousClock = .init()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -469,6 +484,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 if relative_path
                 in (
                     "shell-shebang.sh",
+                    "named-continuous-clock.swift",
+                    "typed-suspending-clock.swift",
+                    "qualified-typed-continuous-clock.swift",
                     "template-multiline-interpolation.ts",
                     "js-comment-close.ts",
                     "shell-arithmetic-before-sleep.sh",
@@ -505,6 +523,21 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "#expect(await completed)\n"
                     "try await SystemUpdateClock().sleep(until: deadline)\n"
                     "#expect(await completed)\n"
+                ),
+                "parameter-shadow.swift": (
+                    "let clock = ContinuousClock()\n"
+                    "func verify(clock: TestRelayClock) async throws {\n"
+                    "    try await clock.sleep(until: deadline)\n"
+                    "    #expect(await completed)\n"
+                    "}\n"
+                ),
+                "inner-binding-shadow.swift": (
+                    "let clock = ContinuousClock()\n"
+                    "do {\n"
+                    "    let clock = TestRelayClock()\n"
+                    "    try await clock.sleep(until: deadline)\n"
+                    "    #expect(await completed)\n"
+                    "}\n"
                 ),
                 "virtual.py": (
                     "fake_clock.sleep(1)\n"
@@ -695,6 +728,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "check()\n"
                     "time = fake_clock\n"
                 ),
+                "branch-call-before-module-rebind.py": (
+                    "import time\n"
+                    "def check():\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "if enabled:\n"
+                    "    check()\n"
+                    "    time = fake_clock\n"
+                ),
                 "nested-call-before-rebind.py": (
                     "def outer():\n"
                     "    import time as clock\n"
@@ -736,6 +778,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "deferred-later-trusted-alias.py",
             "nested-trusted-closure.py",
             "call-before-module-rebind.py",
+            "branch-call-before-module-rebind.py",
             "nested-call-before-rebind.py",
             "shadow-then-trusted-import.py",
         ):
@@ -751,6 +794,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 if relative_path
                 in (
                     "call-before-module-rebind.py",
+                    "branch-call-before-module-rebind.py",
                     "shadow-then-trusted-import.py",
                 )
                 else 3
