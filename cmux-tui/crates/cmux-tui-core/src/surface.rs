@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
@@ -29,7 +29,9 @@ use crate::{Mux, MuxEvent, SurfaceId};
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
-use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
+use crate::browser::{
+    BrowserResizeWaiter, BrowserShutdownOwner, BrowserSurface, PendingBrowserResize,
+};
 #[cfg(unix)]
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
@@ -561,6 +563,8 @@ pub struct PtySurface {
     /// Local process ownership is separate from PTY writes so shutdown never
     /// waits behind a blocked writer.
     local_process: Option<Mutex<LocalProcess>>,
+    #[cfg(unix)]
+    hosted_shutdown_owner: Option<Box<HostedShutdownOwner>>,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
     pid: Option<u32>,
     command: Vec<String>,
@@ -613,27 +617,90 @@ enum PtyRuntime {
     ExitedHosted,
 }
 
+#[derive(Clone)]
 enum LocalProcess {
     Owned(Arc<LocalPtyProcess>),
     #[cfg(test)]
-    Untracked(Box<dyn ChildKiller + Send>),
+    Untracked(Arc<Mutex<Box<dyn ChildKiller + Send>>>),
 }
 
 impl LocalProcess {
-    fn request_hangup(&mut self) -> bool {
+    #[cfg(test)]
+    fn untracked(killer: Box<dyn ChildKiller + Send>) -> Self {
+        Self::Untracked(Arc::new(Mutex::new(killer)))
+    }
+
+    fn request_hangup(&self) -> bool {
         match self {
             Self::Owned(process) => process.request_hangup(),
             #[cfg(test)]
-            Self::Untracked(killer) => killer.kill().is_ok(),
+            Self::Untracked(killer) => killer.lock().unwrap().kill().is_ok(),
         }
     }
 
-    fn terminate_and_wait(&mut self, deadline: Instant) -> bool {
+    fn terminate_and_wait(&self, deadline: Instant) -> bool {
         match self {
             Self::Owned(process) => process.terminate_and_wait(deadline),
             #[cfg(test)]
-            Self::Untracked(killer) => killer.kill().is_ok(),
+            Self::Untracked(killer) => killer.lock().unwrap().kill().is_ok(),
         }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone)]
+struct HostedShutdownOwner {
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: PathBuf,
+}
+
+pub(crate) struct SurfaceShutdownOwner {
+    kind: SurfaceShutdownOwnerKind,
+}
+
+enum SurfaceShutdownOwnerKind {
+    Local(LocalProcess),
+    #[cfg(unix)]
+    Hosted(HostedShutdownOwner),
+    Browser(BrowserShutdownOwner),
+}
+
+impl SurfaceShutdownOwner {
+    pub(crate) fn terminate_until(&self, deadline: Instant) -> bool {
+        match &self.kind {
+            SurfaceShutdownOwnerKind::Local(process) => process.terminate_and_wait(deadline),
+            #[cfg(unix)]
+            SurfaceShutdownOwnerKind::Hosted(owner) => {
+                crate::terminal_host_runtime::terminate_and_confirm_terminal_host_record(
+                    &owner.record,
+                    &owner.record_path,
+                    deadline,
+                )
+            }
+            SurfaceShutdownOwnerKind::Browser(owner) => owner.terminate_until(deadline),
+        }
+    }
+
+    pub(crate) fn hosted_identity(&self) -> Option<(&str, &str)> {
+        match &self.kind {
+            #[cfg(unix)]
+            SurfaceShutdownOwnerKind::Hosted(owner) => {
+                Some((&owner.record.terminal_id, &owner.record.incarnation))
+            }
+            SurfaceShutdownOwnerKind::Local(_) | SurfaceShutdownOwnerKind::Browser(_) => None,
+        }
+    }
+
+    pub(crate) fn is_browser(&self) -> bool {
+        matches!(self.kind, SurfaceShutdownOwnerKind::Browser(_))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn hosted(
+        record: crate::terminal_host_runtime::TerminalHostRecord,
+        record_path: PathBuf,
+    ) -> Self {
+        Self { kind: SurfaceShutdownOwnerKind::Hosted(HostedShutdownOwner { record, record_path }) }
     }
 }
 
@@ -1042,6 +1109,8 @@ impl Surface {
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master }),
             local_process: Some(Mutex::new(LocalProcess::Owned(process.clone()))),
+            #[cfg(unix)]
+            hosted_shutdown_owner: None,
             host_identity: None,
             pid,
             command: argv,
@@ -1203,6 +1272,7 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let sequence_boundary = snapshot.sequence_boundary;
         let host_identity = attachment.identity();
+        let (host_record, host_record_path) = attachment.discovery_record();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -1211,6 +1281,10 @@ impl Surface {
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
             local_process: None,
+            hosted_shutdown_owner: Some(Box::new(HostedShutdownOwner {
+                record: host_record,
+                record_path: host_record_path,
+            })),
             host_identity: Some(host_identity),
             pid: snapshot.pid,
             command: snapshot.command,
@@ -1703,6 +1777,7 @@ impl Surface {
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::ExitedHosted),
             local_process: None,
+            hosted_shutdown_owner: None,
             host_identity: Some(identity),
             pid: None,
             command,
@@ -1778,7 +1853,9 @@ impl Surface {
                     }),
                 }),
             }),
-            local_process: Some(Mutex::new(LocalProcess::Untracked(Box::new(TestChildKiller)))),
+            local_process: Some(Mutex::new(LocalProcess::untracked(Box::new(TestChildKiller)))),
+            #[cfg(unix)]
+            hosted_shutdown_owner: None,
             host_identity: None,
             pid: Some(id as u32),
             command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
@@ -1810,20 +1887,19 @@ impl Surface {
     pub(crate) fn set_server_shutdown_failure_for_test(&self, fail: bool) {
         let Self::Pty(pty) = self else { return };
         let Some(process) = &pty.local_process else { return };
-        let mut process = process.lock().unwrap();
-        *process = LocalProcess::Untracked(if fail {
-            Box::new(TestFailingChildKiller)
-        } else {
-            Box::new(TestChildKiller)
-        });
+        let process = process.lock().unwrap();
+        let LocalProcess::Untracked(killer) = &*process else { return };
+        *killer.lock().unwrap() =
+            if fail { Box::new(TestFailingChildKiller) } else { Box::new(TestChildKiller) };
     }
 
     #[cfg(test)]
     pub(crate) fn set_server_shutdown_delay_for_test(&self, delay: Duration) {
         let Self::Pty(pty) = self else { return };
         let Some(process) = &pty.local_process else { return };
-        *process.lock().unwrap() =
-            LocalProcess::Untracked(Box::new(TestSlowFailingChildKiller(delay)));
+        let process = process.lock().unwrap();
+        let LocalProcess::Untracked(killer) = &*process else { return };
+        *killer.lock().unwrap() = Box::new(TestSlowFailingChildKiller(delay));
     }
 
     fn as_pty(&self) -> Option<&PtySurface> {
@@ -2395,36 +2471,30 @@ impl Surface {
 
     /// Start runtime termination. Durable terminal-host death is confirmed
     /// separately through the process-bound discovery record.
-    pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
+    pub(crate) fn shutdown_owner(&self) -> Option<SurfaceShutdownOwner> {
         match self {
             Surface::Pty(pty) => {
                 if let Some(process) = &pty.local_process {
-                    let Some(mut process) = lock_mutex_until(process, deadline) else {
-                        return false;
-                    };
-                    return process.terminate_and_wait(deadline);
+                    return Some(SurfaceShutdownOwner {
+                        kind: SurfaceShutdownOwnerKind::Local(process.lock().unwrap().clone()),
+                    });
                 }
-                let Some(mut runtime) = lock_mutex_until(&pty.runtime, deadline) else {
-                    return false;
-                };
-                match &mut *runtime {
-                    #[cfg(unix)]
-                    PtyRuntime::Hosted(host) => {
-                        let timeout = deadline
-                            .saturating_duration_since(Instant::now())
-                            .min(Duration::from_millis(100));
-                        let _ = host.terminate_with_timeout(timeout);
-                        true
-                    }
-                    PtyRuntime::Local { .. } => {
-                        unreachable!("local PTY runtime is missing process ownership")
-                    }
-                    #[cfg(unix)]
-                    PtyRuntime::ExitedHosted => true,
+                #[cfg(unix)]
+                if let Some(owner) = &pty.hosted_shutdown_owner {
+                    return Some(SurfaceShutdownOwner {
+                        kind: SurfaceShutdownOwnerKind::Hosted(owner.as_ref().clone()),
+                    });
                 }
+                None
             }
-            Surface::Browser(browser) => browser.terminate_for_server_shutdown(deadline),
+            Surface::Browser(browser) => browser.shutdown_owner().map(|owner| {
+                SurfaceShutdownOwner { kind: SurfaceShutdownOwnerKind::Browser(owner) }
+            }),
         }
+    }
+
+    pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
+        self.shutdown_owner().is_none_or(|owner| owner.terminate_until(deadline))
     }
 
     pub(crate) fn disconnect_for_daemon_shutdown(&self) {
@@ -2560,18 +2630,6 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.activate()
-    }
-}
-
-fn lock_mutex_until<T>(mutex: &Mutex<T>, deadline: Instant) -> Option<MutexGuard<'_, T>> {
-    loop {
-        match mutex.try_lock() {
-            Ok(guard) => return Some(guard),
-            Err(TryLockError::Poisoned(error)) => return Some(error.into_inner()),
-            Err(TryLockError::WouldBlock) => {}
-        }
-        let remaining = deadline.checked_duration_since(Instant::now())?;
-        std::thread::sleep(remaining.min(Duration::from_millis(1)));
     }
 }
 

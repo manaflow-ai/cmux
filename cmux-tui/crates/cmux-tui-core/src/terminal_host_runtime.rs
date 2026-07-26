@@ -1384,6 +1384,57 @@ mod unix {
         Ok(records)
     }
 
+    /// Terminate one exact host incarnation and retain its discovery record
+    /// until process-bound liveness proves that host is dead.
+    pub(crate) fn terminate_and_confirm_terminal_host_record(
+        record: &TerminalHostRecord,
+        record_path: &Path,
+        deadline: Instant,
+    ) -> bool {
+        let mut last_terminate_attempt = None;
+        loop {
+            match terminal_host_record_liveness(record_path, record)
+                .unwrap_or(TerminalHostLiveness::Indeterminate)
+            {
+                TerminalHostLiveness::Dead => {
+                    return match remove_stale_terminal_host_record(record_path, record) {
+                        Ok(removed) => removed,
+                        Err(_) if !record_path.exists() => true,
+                        Err(_) => false,
+                    };
+                }
+                TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {}
+            }
+
+            let now = Instant::now();
+            if last_terminate_attempt.is_none_or(|attempt: Instant| {
+                now.duration_since(attempt) >= Duration::from_millis(100)
+            }) {
+                let timeout = deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_millis(100));
+                if !timeout.is_zero() {
+                    if record.supports_terminate_only {
+                        let _ = terminate_terminal_host_with_timeout(record, record_path, timeout);
+                    } else if let Ok(host) = adopt_terminal_host_with_timeout(
+                        record.clone(),
+                        record_path.to_path_buf(),
+                        timeout,
+                    ) {
+                        let _ = host.terminate_with_timeout(timeout);
+                        host.disconnect();
+                    }
+                    last_terminate_attempt = Some(Instant::now());
+                }
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            thread::sleep(deadline.saturating_duration_since(now).min(Duration::from_millis(10)));
+        }
+    }
+
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
@@ -3665,8 +3716,8 @@ pub use unix::{
 };
 #[cfg(unix)]
 pub(crate) use unix::{
-    adopt_terminal_host_with_timeout, launch_terminal_host_cancellable,
-    launch_terminal_host_with_identity_cancellable, terminate_terminal_host_with_timeout,
+    launch_terminal_host_cancellable, launch_terminal_host_with_identity_cancellable,
+    terminate_and_confirm_terminal_host_record,
 };
 
 #[cfg(not(unix))]

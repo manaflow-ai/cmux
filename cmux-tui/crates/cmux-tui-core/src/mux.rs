@@ -20,7 +20,7 @@ use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
-use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::surface::{DefaultColors, Surface, SurfaceOptions, SurfaceShutdownOwner};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
@@ -44,6 +44,22 @@ const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
 const SHUTDOWN_FANOUT_WORKERS: usize = 32;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum ShutdownOwnerKey {
+    Surface(SurfaceId),
+    Hosted { terminal_id: String, incarnation: String },
+}
+
+fn shutdown_owner_key(surface: SurfaceId, owner: &SurfaceShutdownOwner) -> ShutdownOwnerKey {
+    owner
+        .hosted_identity()
+        .map(|(terminal_id, incarnation)| ShutdownOwnerKey::Hosted {
+            terminal_id: terminal_id.to_string(),
+            incarnation: incarnation.to_string(),
+        })
+        .unwrap_or(ShutdownOwnerKey::Surface(surface))
+}
 
 /// An opaque per-mux credential provisioned by the external machine
 /// provider. Debug output is deliberately redacted.
@@ -852,7 +868,7 @@ pub struct Mux {
     surface_creations: SurfaceCreationGate,
     async_surface_creations: AsyncSurfaceCreationGate,
     shutdown_coordinator: Mutex<()>,
-    shutdown_surfaces: Mutex<Vec<Arc<Surface>>>,
+    shutdown_owners: Mutex<HashMap<ShutdownOwnerKey, SurfaceShutdownOwner>>,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -1085,7 +1101,7 @@ impl Mux {
             surface_creations: SurfaceCreationGate::default(),
             async_surface_creations: AsyncSurfaceCreationGate::default(),
             shutdown_coordinator: Mutex::new(()),
-            shutdown_surfaces: Mutex::new(Vec::new()),
+            shutdown_owners: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
@@ -3723,17 +3739,37 @@ impl Mux {
         self.reconcile_latest_client_size(&sizing, &attached_clients);
     }
 
-    /// Finish removed runtimes outside the topology lock. If the bounded
-    /// attempt cannot prove process death, retain the complete surface as
-    /// ownership escrow for the atomic server-shutdown retry.
+    /// Finish removed runtimes outside the topology lock. One shared deadline
+    /// bounds an entire pane/workspace close, and failures retain only the
+    /// minimal process/target owner needed for a later retry.
     fn retire_surface_runtime(&self, surface: Arc<Surface>) {
-        let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
-        if surface.terminate_for_server_shutdown(deadline) {
+        self.retire_surface_runtimes([surface]);
+    }
+
+    fn retire_surface_runtimes(&self, surfaces: impl IntoIterator<Item = Arc<Surface>>) {
+        let mut owners = self.shutdown_owners.lock().unwrap().drain().collect::<HashMap<_, _>>();
+        for surface in surfaces {
+            if let Some(owner) = surface.shutdown_owner() {
+                owners.insert(shutdown_owner_key(surface.id, &owner), owner);
+            }
+        }
+        let owners = owners.into_iter().collect::<Vec<_>>();
+        if owners.is_empty() {
             return;
         }
-        let mut retained = self.shutdown_surfaces.lock().unwrap();
-        if !retained.iter().any(|candidate| candidate.id == surface.id) {
-            retained.push(surface);
+        let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
+        let failed = Mutex::new(HashSet::new());
+        let started = bounded_shutdown_fanout(&owners, deadline, |(key, owner), deadline| {
+            if !owner.terminate_until(deadline) {
+                failed.lock().unwrap().insert(key.clone());
+            }
+        });
+        let failed = failed.into_inner().unwrap();
+        let mut retained = self.shutdown_owners.lock().unwrap();
+        for (index, (key, owner)) in owners.into_iter().enumerate() {
+            if index >= started || failed.contains(&key) {
+                retained.insert(key, owner);
+            }
         }
     }
 
@@ -3756,12 +3792,20 @@ impl Mux {
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
         let _ = self.surface_creations.stop_and_wait_until(deadline);
         let _ = self.async_surface_creations.stop_and_wait_until(deadline);
-        let mut surfaces =
-            self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
-        surfaces.extend(self.shutdown_surfaces.lock().unwrap().drain(..));
+        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.disconnect_for_daemon_shutdown();
         }
+        let retired = self
+            .shutdown_owners
+            .lock()
+            .unwrap()
+            .drain()
+            .map(|(_, owner)| owner)
+            .collect::<Vec<_>>();
+        bounded_shutdown_fanout(&retired, deadline, |owner, deadline| {
+            let _ = owner.terminate_until(deadline);
+        });
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             let _ = runtime.shutdown_until(deadline);
         }
@@ -3836,7 +3880,7 @@ impl Mux {
             }
         };
 
-        let (mut surfaces, tree_changed) = {
+        let (surfaces, tree_changed) = {
             let mutation = WorkspaceMutation::local("cmux-tui-shutdown");
             let mut registry = self.workspace_registry.lock().unwrap();
             let terminals = registry
@@ -3871,8 +3915,6 @@ impl Mux {
             }
             (surfaces, tree_changed)
         };
-        surfaces.extend(self.shutdown_surfaces.lock().unwrap().drain(..));
-
         self.pending_workspace_surfaces.lock().unwrap().clear();
         self.agent_records.lock().unwrap().clear();
         self.surface_notifications.lock().unwrap().clear();
@@ -3888,21 +3930,59 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
 
-        let failed_surfaces = Mutex::new(Vec::<Arc<Surface>>::new());
-        let started_surfaces = bounded_shutdown_fanout(&surfaces, deadline, |surface, deadline| {
-            if !surface.terminate_for_server_shutdown(deadline) {
-                failed_surfaces.lock().unwrap().push(surface.clone());
+        let mut owners = self.shutdown_owners.lock().unwrap().drain().collect::<HashMap<_, _>>();
+        let closed_count = surfaces.len() + owners.len();
+        for surface in surfaces {
+            if let Some(owner) = surface.shutdown_owner() {
+                owners.insert(shutdown_owner_key(surface.id, &owner), owner);
+            }
+        }
+        #[cfg(unix)]
+        for (record_path, record) in terminal_host_records {
+            let owner = SurfaceShutdownOwner::hosted(record, record_path);
+            let key = owner
+                .hosted_identity()
+                .map(|(terminal_id, incarnation)| ShutdownOwnerKey::Hosted {
+                    terminal_id: terminal_id.to_string(),
+                    incarnation: incarnation.to_string(),
+                })
+                .expect("hosted owner has a terminal identity");
+            owners.entry(key).or_insert(owner);
+        }
+        let owners = owners.into_iter().collect::<Vec<_>>();
+        let failed_keys = Mutex::new(HashSet::new());
+        let started = bounded_shutdown_fanout(&owners, deadline, |(key, owner), deadline| {
+            if !owner.terminate_until(deadline) {
+                failed_keys.lock().unwrap().insert(key.clone());
             }
         });
-        let mut failed_surfaces = failed_surfaces.into_inner().unwrap();
-        failed_surfaces.extend(surfaces[started_surfaces..].iter().cloned());
-        failed_surfaces.sort_by_key(|surface| surface.id);
-        failed_surfaces.dedup_by_key(|surface| surface.id);
+        let mut failed_keys = failed_keys.into_inner().unwrap();
+        failed_keys.extend(owners[started..].iter().map(|(key, _)| key.clone()));
         let browser_surface_failed =
-            failed_surfaces.iter().any(|surface| surface.as_browser().is_some());
-        let failed_surface_ids =
-            failed_surfaces.iter().map(|surface| surface.id).collect::<Vec<_>>();
-        *self.shutdown_surfaces.lock().unwrap() = failed_surfaces;
+            owners.iter().any(|(key, owner)| failed_keys.contains(key) && owner.is_browser());
+        let mut failed_surface_ids = failed_keys
+            .iter()
+            .filter_map(|key| match key {
+                ShutdownOwnerKey::Surface(surface) => Some(*surface),
+                ShutdownOwnerKey::Hosted { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        failed_surface_ids.sort_unstable();
+        let mut failed_hosts = failed_keys
+            .iter()
+            .filter_map(|key| match key {
+                ShutdownOwnerKey::Hosted { terminal_id, .. } => Some(terminal_id.clone()),
+                ShutdownOwnerKey::Surface(_) => None,
+            })
+            .collect::<Vec<_>>();
+        failed_hosts.sort();
+        let mut retained = self.shutdown_owners.lock().unwrap();
+        for (key, owner) in owners {
+            if failed_keys.contains(&key) {
+                retained.insert(key, owner);
+            }
+        }
+        drop(retained);
 
         let browser_runtime = (!browser_surface_failed)
             .then(|| self.browser_runtime.lock().unwrap().take())
@@ -3916,29 +3996,6 @@ impl Mux {
             }
         } else {
             false
-        };
-
-        #[cfg(unix)]
-        let failed_hosts = {
-            let failed = Mutex::new(Vec::new());
-            let started_hosts = bounded_shutdown_fanout(
-                &terminal_host_records,
-                deadline,
-                |(path, record), deadline| {
-                    if !terminate_and_confirm_terminal_host_record(record, path, deadline) {
-                        failed.lock().unwrap().push(record.terminal_id.clone());
-                    }
-                },
-            );
-            let mut failed = failed.into_inner().unwrap();
-            failed.extend(
-                terminal_host_records[started_hosts..]
-                    .iter()
-                    .map(|(_, record)| record.terminal_id.clone()),
-            );
-            failed.sort();
-            failed.dedup();
-            failed
         };
 
         let mut failures = Vec::new();
@@ -3956,7 +4013,6 @@ impl Mux {
         if browser_runtime_failed {
             failures.push("could not terminate the owned browser before the deadline".to_string());
         }
-        #[cfg(unix)]
         if !failed_hosts.is_empty() {
             failures.push(format!(
                 "could not terminate {} terminal host(s): {}",
@@ -3968,7 +4024,7 @@ impl Mux {
             anyhow::bail!("{}", failures.join("; "));
         }
 
-        Ok(surfaces.len())
+        Ok(closed_count)
     }
 
     fn lock_shutdown_coordinator_until(
@@ -5846,10 +5902,10 @@ impl Mux {
         else {
             return Ok(false);
         };
-        for surface in removed {
+        for surface in &removed {
             self.purge_surface_side_tables(surface.id);
-            self.retire_surface_runtime(surface);
         }
+        self.retire_surface_runtimes(removed);
         if tree_removed {
             self.emit_tree_delta(delta, selection_resync);
             for screen in changed_screens {
@@ -6132,10 +6188,10 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal_revision_after);
         }
         drop(registry);
-        for surface in removed {
+        for surface in &removed {
             self.purge_surface_side_tables(surface.id);
-            self.retire_surface_runtime(surface);
         }
+        self.retire_surface_runtimes(removed);
         self.terminate_tombstoned_workspace_hosts(&closed_workspace_key);
         self.emit_tree_delta(delta, selection_resync);
         self.emit_empty_if_current(empty_revision);
@@ -7701,31 +7757,6 @@ fn terminate_host_record(
 }
 
 #[cfg(unix)]
-fn terminate_host_record_with_timeout(
-    record: crate::terminal_host_runtime::TerminalHostRecord,
-    record_path: std::path::PathBuf,
-    timeout: Duration,
-) -> bool {
-    if record.supports_terminate_only {
-        return crate::terminal_host_runtime::terminate_terminal_host_with_timeout(
-            &record,
-            &record_path,
-            timeout,
-        )
-        .is_ok();
-    }
-    if let Ok(host) =
-        crate::terminal_host_runtime::adopt_terminal_host_with_timeout(record, record_path, timeout)
-    {
-        let terminated = host.terminate_with_timeout(timeout).is_ok();
-        host.disconnect();
-        terminated
-    } else {
-        false
-    }
-}
-
-#[cfg(unix)]
 fn terminal_host_record_liveness(
     record_path: &Path,
     record: &crate::terminal_host_runtime::TerminalHostRecord,
@@ -7760,52 +7791,6 @@ fn cleanup_terminal_host_record(
         TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
             terminate_host_record(record.clone(), record_path.to_path_buf())
         }
-    }
-}
-
-#[cfg(unix)]
-fn terminate_and_confirm_terminal_host_record(
-    record: &crate::terminal_host_runtime::TerminalHostRecord,
-    record_path: &Path,
-    deadline: Instant,
-) -> bool {
-    let mut termination_sent = false;
-    let mut last_terminate_attempt = None;
-    loop {
-        match terminal_host_record_liveness(record_path, record) {
-            TerminalHostLiveness::Dead => {
-                return match crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    record_path,
-                    record,
-                ) {
-                    Ok(removed) => removed,
-                    Err(_) if !record_path.exists() => true,
-                    Err(_) => false,
-                };
-            }
-            TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {}
-        }
-
-        let now = Instant::now();
-        if !termination_sent
-            && last_terminate_attempt.is_none_or(|attempt: Instant| {
-                now.duration_since(attempt) >= Duration::from_millis(100)
-            })
-        {
-            termination_sent = terminate_host_record_with_timeout(
-                record.clone(),
-                record_path.to_path_buf(),
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(SHUTDOWN_TERMINATION_TIMEOUT),
-            );
-            last_terminate_attempt = Some(Instant::now());
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            return false;
-        }
-        std::thread::sleep(deadline.saturating_duration_since(now).min(Duration::from_millis(10)));
     }
 }
 
@@ -10084,11 +10069,11 @@ mod tests {
 
         assert!(error.to_string().contains("could not terminate 1 surface process"));
         assert!(mux.surface(surface.id).is_none());
-        assert_eq!(mux.shutdown_surfaces.lock().unwrap().len(), 1);
+        assert_eq!(mux.shutdown_owners.lock().unwrap().len(), 1);
 
         owned.set_server_shutdown_failure_for_test(false);
         assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
-        assert!(mux.shutdown_surfaces.lock().unwrap().is_empty());
+        assert!(mux.shutdown_owners.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -10100,11 +10085,11 @@ mod tests {
 
         assert!(mux.close_surface(surface.id).unwrap());
         assert!(mux.surface(surface.id).is_none());
-        assert_eq!(mux.shutdown_surfaces.lock().unwrap().len(), 1);
+        assert_eq!(mux.shutdown_owners.lock().unwrap().len(), 1);
 
         owned.set_server_shutdown_failure_for_test(false);
         assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
-        assert!(mux.shutdown_surfaces.lock().unwrap().is_empty());
+        assert!(mux.shutdown_owners.lock().unwrap().is_empty());
     }
 
     #[test]

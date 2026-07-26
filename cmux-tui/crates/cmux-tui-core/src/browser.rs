@@ -104,6 +104,15 @@ struct BrowserSession {
     session_id: String,
 }
 
+#[derive(Clone)]
+pub(crate) struct BrowserShutdownOwner(BrowserSession);
+
+impl BrowserShutdownOwner {
+    pub(crate) fn terminate_until(&self, deadline: Instant) -> bool {
+        self.0.runtime.close_surface_for_shutdown(&self.0.target_id, &self.0.session_id, deadline)
+    }
+}
+
 struct BrowserState {
     latest_frame: Option<BrowserFrame>,
     // Latest-wins attach frame taps. Broadcast overwrites each slot and
@@ -1152,6 +1161,14 @@ fn emit_browser_failure(mux: &Weak<Mux>, id: SurfaceId, message: String) {
 }
 
 impl BrowserSurface {
+    pub(crate) fn shutdown_owner(&self) -> Option<BrowserShutdownOwner> {
+        if !self.dead.swap(true, Ordering::AcqRel) {
+            self.close_taps();
+            self.close_command_sender();
+        }
+        self.session.lock().unwrap().clone().map(BrowserShutdownOwner)
+    }
+
     pub fn latest_frame(&self) -> Option<BrowserFrame> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
@@ -1213,6 +1230,7 @@ impl BrowserSurface {
         self.close_command_sender();
     }
 
+    #[cfg(test)]
     pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
         if !self.dead.swap(true, Ordering::AcqRel) {
             self.close_taps();
