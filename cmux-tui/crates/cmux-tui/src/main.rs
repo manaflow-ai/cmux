@@ -647,7 +647,7 @@ fn main() {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
             eprintln!("cmux-tui: {error}");
-            eprintln!("{}", machine_agent::USAGE);
+            eprintln!("{}", localization::catalog().machine_agent.help);
             std::process::exit(1);
         }
         return;

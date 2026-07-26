@@ -26,10 +26,31 @@ struct Args {
     help: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ArgsError {
+    MissingValue(&'static str),
+    InvalidCloudPort(String),
+    ZeroCloudPort,
+    UnknownArgument(String),
+}
+
+impl ArgsError {
+    fn localized(&self, messages: &crate::localization::MachineAgentMessages) -> String {
+        match self {
+            Self::MissingValue(argument) => messages.argument_needs_value_message(argument),
+            Self::InvalidCloudPort(value) => messages.invalid_cloud_port_message(value),
+            Self::ZeroCloudPort => messages.cloud_port_cannot_be_zero.to_string(),
+            Self::UnknownArgument(argument) => messages.unknown_argument_message(argument),
+        }
+    }
+}
+
 pub(super) fn run(raw_args: &[String]) -> anyhow::Result<()> {
-    let args = parse_args(raw_args).map_err(anyhow::Error::msg)?;
+    let messages = &crate::localization::catalog().machine_agent;
+    let args =
+        parse_args(raw_args).map_err(|error| anyhow::Error::msg(error.localized(messages)))?;
     if args.help {
-        print!("{}", crate::localization::catalog().machine_agent.help);
+        print!("{}", messages.help);
         return Ok(());
     }
     let session = SessionName::new(args.session.clone())?;
@@ -57,7 +78,7 @@ pub(super) fn run(raw_args: &[String]) -> anyhow::Result<()> {
     .run()
 }
 
-fn parse_args(raw_args: &[String]) -> Result<Args, String> {
+fn parse_args(raw_args: &[String]) -> Result<Args, ArgsError> {
     let mut args = Args {
         session: "main".into(),
         socket: None,
@@ -72,46 +93,38 @@ fn parse_args(raw_args: &[String]) -> Result<Args, String> {
     while let Some(argument) = values.next() {
         match argument.as_str() {
             "--session" => {
-                args.session =
-                    values.next().ok_or_else(|| "--session needs a value".to_string())?.clone();
+                args.session = values.next().ok_or(ArgsError::MissingValue("--session"))?.clone();
             }
             "--socket" => {
                 args.socket =
-                    Some(values.next().ok_or_else(|| "--socket needs a value".to_string())?.into());
+                    Some(values.next().ok_or(ArgsError::MissingValue("--socket"))?.into());
             }
             "--state" => {
-                args.state =
-                    Some(values.next().ok_or_else(|| "--state needs a value".to_string())?.into());
+                args.state = Some(values.next().ok_or(ArgsError::MissingValue("--state"))?.into());
             }
             "--cloud-host" => {
                 args.cloud_host =
-                    values.next().ok_or_else(|| "--cloud-host needs a value".to_string())?.clone();
+                    values.next().ok_or(ArgsError::MissingValue("--cloud-host"))?.clone();
             }
             "--cloud-user" => {
-                args.cloud_user = Some(
-                    values.next().ok_or_else(|| "--cloud-user needs a value".to_string())?.clone(),
-                );
+                args.cloud_user =
+                    Some(values.next().ok_or(ArgsError::MissingValue("--cloud-user"))?.clone());
             }
             "--cloud-port" => {
-                let value =
-                    values.next().ok_or_else(|| "--cloud-port needs a value".to_string())?;
+                let value = values.next().ok_or(ArgsError::MissingValue("--cloud-port"))?;
                 let port =
-                    value.parse::<u16>().map_err(|_| format!("invalid --cloud-port {value:?}"))?;
+                    value.parse::<u16>().map_err(|_| ArgsError::InvalidCloudPort(value.clone()))?;
                 if port == 0 {
-                    return Err("--cloud-port cannot be zero".into());
+                    return Err(ArgsError::ZeroCloudPort);
                 }
                 args.cloud_port = Some(port);
             }
             "--cloud-identity" => {
-                args.cloud_identity = Some(
-                    values
-                        .next()
-                        .ok_or_else(|| "--cloud-identity needs a value".to_string())?
-                        .into(),
-                );
+                args.cloud_identity =
+                    Some(values.next().ok_or(ArgsError::MissingValue("--cloud-identity"))?.into());
             }
             "-h" | "--help" => args.help = true,
-            other => return Err(format!("unknown machine-agent argument {other:?}")),
+            other => return Err(ArgsError::UnknownArgument(other.to_string())),
         }
     }
     Ok(args)
@@ -186,5 +199,27 @@ mod tests {
         assert_eq!(parsed.cloud_port, Some(2222));
         assert!(parse_args(&["--cloud-port".into(), "0".into()]).is_err());
         assert!(parse_args(&["--headless".into()]).is_err());
+    }
+
+    #[test]
+    fn parser_errors_are_localized_without_exposing_transport_details() {
+        let invalid = parse_args(&["--cloud-port".into(), "invalid".into()]).unwrap_err();
+        assert_eq!(
+            invalid
+                .localized(&crate::localization::catalog_for_locale("en_US.UTF-8").machine_agent),
+            "Invalid --cloud-port value: invalid"
+        );
+        assert_eq!(
+            invalid
+                .localized(&crate::localization::catalog_for_locale("ja_JP.UTF-8").machine_agent),
+            "--cloud-port の値が無効です: invalid"
+        );
+
+        let missing = parse_args(&["--cloud-host".into()]).unwrap_err();
+        assert_eq!(
+            missing
+                .localized(&crate::localization::catalog_for_locale("ja_JP.UTF-8").machine_agent),
+            "オプション --cloud-host には値が必要です"
+        );
     }
 }

@@ -177,6 +177,11 @@ impl ProviderMachineController {
             // Update streams capture the connected machine at subscription time.
             result.restart_updates = true;
             result.ui = self.merge_local_ui_for(result.ui, None);
+        } else if switching_provider {
+            // An accepted provider enrollment selects its provider-owned
+            // machine before the generated Switch request opens it. Preserve
+            // that explicit intent instead of reasserting the active local row.
+            result.ui = self.merge_local_ui_for(result.ui, None);
         } else if self.active_local.is_some() && result.replacement.is_some() {
             // A provider lifecycle response must never replace an
             // active client-local session implicitly.
@@ -678,6 +683,11 @@ impl ProviderMachineRuntime {
         match self.client.supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY) {
             Ok(true) => {}
             Ok(false) => {
+                if matches_pending {
+                    anyhow::bail!(
+                        localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+                    );
+                }
                 self.pending_external_connect = None;
                 return Ok(ExternalConnectRouting::Local(specifier));
             }
@@ -705,6 +715,11 @@ impl ProviderMachineRuntime {
             }
         }
         if !self.snapshot.capabilities.connect_external_machine {
+            if matches_pending {
+                anyhow::bail!(
+                    localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+                );
+            }
             self.pending_external_connect = None;
             return Ok(ExternalConnectRouting::Local(specifier));
         }
@@ -725,6 +740,15 @@ impl ProviderMachineRuntime {
             }
         };
         let scope_id = self.snapshot.selected_scope_id.clone();
+        if self
+            .pending_external_connect
+            .as_ref()
+            .is_some_and(|pending| pending.specifier == specifier && pending.scope_id != scope_id)
+        {
+            anyhow::bail!(
+                localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+            );
+        }
         let mutation_id = if let Some(pending) = self
             .pending_external_connect
             .as_ref()
@@ -3157,7 +3181,7 @@ mod tests {
         };
         assert_eq!(
             error.to_string(),
-            localization::catalog().sidebar.machine_provider_disconnected
+            localization::catalog().sidebar.machine_provider_external_connect_ambiguous
         );
 
         controller.close();

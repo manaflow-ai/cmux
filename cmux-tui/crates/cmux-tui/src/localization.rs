@@ -26,11 +26,27 @@ pub(crate) struct MachineAgentMessages {
     pub registered: &'static str,
     pub retrying: &'static str,
     pub migration_failed: &'static str,
+    pub argument_needs_value: &'static str,
+    pub invalid_cloud_port: &'static str,
+    pub cloud_port_cannot_be_zero: &'static str,
+    pub unknown_argument: &'static str,
 }
 
 impl MachineAgentMessages {
     pub(crate) fn retrying_message(&self, milliseconds: u128) -> String {
         self.retrying.replace("{milliseconds}", &milliseconds.to_string())
+    }
+
+    pub(crate) fn argument_needs_value_message(&self, argument: &str) -> String {
+        self.argument_needs_value.replace("{argument}", argument)
+    }
+
+    pub(crate) fn invalid_cloud_port_message(&self, value: &str) -> String {
+        self.invalid_cloud_port.replace("{value}", value)
+    }
+
+    pub(crate) fn unknown_argument_message(&self, argument: &str) -> String {
+        self.unknown_argument.replace("{argument}", argument)
     }
 }
 
@@ -91,6 +107,7 @@ pub(crate) struct SidebarMessages {
     pub machine_reconnect_failed: &'static str,
     pub machine_terminal_colors_failed: &'static str,
     pub machine_provider_external_connect_unsupported: &'static str,
+    pub machine_provider_external_connect_ambiguous: &'static str,
     pub machine_not_ready_to_connect: &'static str,
     pub machine_managed_authority_unsupported: &'static str,
     pub machine_managed_authority_invalid: &'static str,
@@ -162,7 +179,7 @@ static ENGLISH: Catalog = Catalog {
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
     machine_agent: MachineAgentMessages {
         help: "\
-cmux machine-agent - share one local cmux session through cmux.cloud
+cmux machine-agent - share one local cmux session through a remote service
 
 USAGE:
   cmux machine-agent [OPTIONS]
@@ -177,14 +194,17 @@ OPTIONS:
   --cloud-identity <path>  SSH identity file
   -h, --help               Show this help
 
-The agent opens one outbound SSH exec channel using the exact remote command
-`cmux machine register`. It never opens a public listener or edits shell files.
-Authenticate once with interactive `ssh cmux.cloud`; the agent uses BatchMode.
+The agent opens one outbound connection. It never opens a public listener or
+edits shell files. Authenticate with the configured host before retrying.
 ",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
         migration_failed: "Could not reconnect the machine; please try again",
+        argument_needs_value: "Option {argument} needs a value",
+        invalid_cloud_port: "Invalid --cloud-port value: {value}",
+        cloud_port_cannot_be_zero: "--cloud-port cannot be zero",
+        unknown_argument: "Unknown machine-agent argument: {argument}",
     },
     sidebar: SidebarMessages {
         machines: "machines",
@@ -242,6 +262,7 @@ Authenticate once with interactive `ssh cmux.cloud`; the agent uses BatchMode.
         machine_reconnect_failed: "Could not reconnect machine",
         machine_terminal_colors_failed: "Could not apply terminal colors",
         machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
+        machine_provider_external_connect_ambiguous: "The previous connection attempt may have succeeded; reconnect the provider and retry with the same pairing code",
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
         machine_managed_authority_unsupported: "This provider cannot authorize managed workspace mirrors; upgrade the machine provider",
         machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
@@ -268,7 +289,7 @@ static JAPANESE: Catalog = Catalog {
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
     machine_agent: MachineAgentMessages {
         help: "\
-cmux machine-agent - ローカルの cmux セッションを cmux.cloud 経由で共有
+cmux machine-agent - ローカルの cmux セッションをリモートサービス経由で共有
 
 使用方法:
   cmux machine-agent [オプション]
@@ -283,15 +304,17 @@ cmux machine-agent - ローカルの cmux セッションを cmux.cloud 経由�
   --cloud-identity <path>  SSH ID ファイル
   -h, --help               このヘルプを表示
 
-エージェントは正確なリモートコマンド `cmux machine register` を使用して、外向きの
-SSH exec チャンネルを 1 つ開きます。公開リスナーを開いたり、シェルファイルを編集
-したりしません。最初に対話型の `ssh cmux.cloud` で認証してください。その後は
-BatchMode を使用します。
+エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
+を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
         migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
+        argument_needs_value: "オプション {argument} には値が必要です",
+        invalid_cloud_port: "--cloud-port の値が無効です: {value}",
+        cloud_port_cannot_be_zero: "--cloud-port に 0 は指定できません",
+        unknown_argument: "不明な machine-agent 引数です: {argument}",
     },
     sidebar: SidebarMessages {
         machines: "マシン",
@@ -349,6 +372,7 @@ BatchMode を使用します。
         machine_reconnect_failed: "マシンに再接続できませんでした",
         machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
         machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
+        machine_provider_external_connect_ambiguous: "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください",
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
         machine_managed_authority_unsupported: "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください",
         machine_managed_authority_invalid: "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました",
@@ -418,13 +442,22 @@ mod tests {
             catalog_for_locale("en_US.UTF-8")
                 .machine_agent
                 .help
-                .contains("share one local cmux session through cmux.cloud")
+                .contains("share one local cmux session through a remote service")
         );
         assert!(
             catalog_for_locale("ja_JP.UTF-8")
                 .machine_agent
                 .help
-                .contains("ローカルの cmux セッションを cmux.cloud 経由で共有")
+                .contains("ローカルの cmux セッションをリモートサービス経由で共有")
+        );
+        assert!(!catalog_for_locale("en_US.UTF-8").machine_agent.help.contains("BatchMode"));
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").machine_agent.invalid_cloud_port_message("invalid"),
+            "Invalid --cloud-port value: invalid"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").machine_agent.invalid_cloud_port_message("invalid"),
+            "--cloud-port の値が無効です: invalid"
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,
@@ -441,6 +474,10 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
+            "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_replacement_stale,

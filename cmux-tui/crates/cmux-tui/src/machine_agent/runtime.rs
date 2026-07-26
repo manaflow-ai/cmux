@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
@@ -633,7 +633,7 @@ fn spawn_cloud_reader_with<R, S>(
     spawn: S,
 ) -> io::Result<JoinHandle<()>>
 where
-    R: Read + Send + 'static,
+    R: BufRead + Send + 'static,
     S: FnOnce(String, Box<dyn FnOnce() + Send>) -> io::Result<JoinHandle<()>>,
 {
     let reader_control = Arc::clone(&control);
@@ -1152,7 +1152,7 @@ mod tests {
         let error = spawn_cloud_reader_with(
             7,
             3,
-            Box::new(io::empty()),
+            BufReader::new(Box::new(io::empty())),
             erased_control,
             inputs_tx,
             coordinator_tx,

@@ -154,7 +154,7 @@ impl Envelope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "body", rename_all = "snake_case")]
+#[serde(tag = "type", content = "body", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Message {
     Hello(Hello),
     Registered(Registered),
