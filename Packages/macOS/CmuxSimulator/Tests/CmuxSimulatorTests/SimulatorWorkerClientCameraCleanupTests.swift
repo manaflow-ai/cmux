@@ -100,6 +100,34 @@ extension SimulatorWorkerClientTests {
         #expect(await completion.didFinish)
     }
 
+    @Test("Application cleanup cancellation bounds an uncooperative rollback")
+    func applicationCleanupCancellationIsBounded() async {
+        let scope = SimulatorCameraCleanupOwnershipScope()
+        let gate = CameraCleanupOperationGate()
+        let sleeper = ManualCameraCleanupDeadlineSleeper()
+        let cleanup = await scope.coordinator.enqueue(
+            deviceIdentifier: "DEVICE-\(UUID().uuidString)",
+            bundleIdentifiers: ["com.example.camera"]
+        ) {
+            await gate.wait()
+            return .completed
+        }
+
+        let cancellation = Task {
+            await scope.coordinator.cancelPendingCleanupAndWait(
+                timeout: .seconds(3),
+                sleeper: sleeper
+            )
+        }
+        await sleeper.fireDeadline()
+
+        #expect(!(await cancellation.value))
+        #expect(cleanup.isCancelled)
+
+        await gate.release()
+        _ = await cleanup.value
+    }
+
     @Test("A failed camera cleanup preserves ownership for its retry")
     func failedCameraCleanupPreservesOwnershipForRetry() async throws {
         let coordinator = SimulatorCameraCleanupCoordinator()

@@ -1,3 +1,4 @@
+import Darwin
 import CmuxFoundation
 import Foundation
 import Testing
@@ -12,8 +13,10 @@ struct SimulatorControlServiceTests {
         #expect(deadlines.selectDevice >= 543)
         #expect(deadlines.recover >= 483)
         #expect(deadlines.textInputReadiness >= deadlines.selectDevice)
+        #expect(deadlines.webInspectorReadiness >= deadlines.selectDevice)
         #expect(deadlines.clientTimeout(for: deadlines.inspectionRead) == 45)
         #expect(SimulatorOperationDeadlines(selectDevice: 600).textInputReadiness == 600)
+        #expect(SimulatorOperationDeadlines(selectDevice: 600).webInspectorReadiness == 600)
     }
 
     @Test("Device discovery maps runtime names, state, family, and boot date")
@@ -152,6 +155,68 @@ struct SimulatorControlServiceTests {
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         ) == nil)
+    }
+
+    @Test("Launch recovery restores dead camera owners and preserves live owners")
+    func cameraLaunchRecoveryRestoresOnlyOrphans() async throws {
+        let orphanDevice = "ORPHAN-\(UUID().uuidString)"
+        let liveDevice = "LIVE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "camera-launch-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
+        try authorizationStore.save(
+            .denied,
+            deviceIdentifier: orphanDevice,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
+        let liveIdentity = try #require(SimulatorProcessIdentity(pid: getpid()))
+        try authorizationStore.save(
+            .granted,
+            deviceIdentifier: liveDevice,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: liveIdentity
+        )
+        let commands = RecordingCommandRunner(results: [
+            .success(""),
+            .success(""),
+            .success(""),
+        ])
+        let service = SimulatorControlService(
+            commands: commands,
+            cameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope(),
+            cameraAuthorizationStore: authorizationStore
+        )
+
+        #expect(await service.recoverOrphanedCameraAuthorizations())
+
+        #expect(await commands.recordedInvocations().map(\.arguments) == [
+            ["simctl", "terminate", orphanDevice, bundleIdentifier],
+            [
+                "simctl", "privacy", orphanDevice, "revoke",
+                "camera", bundleIdentifier,
+            ],
+            [
+                "simctl", "launch", "--terminate-running-process",
+                orphanDevice, bundleIdentifier,
+            ],
+        ])
+        #expect(try authorizationStore.authorization(
+            deviceIdentifier: orphanDevice,
+            bundleIdentifier: bundleIdentifier
+        ) == nil)
+        #expect(try authorizationStore.authorization(
+            deviceIdentifier: liveDevice,
+            bundleIdentifier: bundleIdentifier
+        ) == .granted)
     }
 
     @Test("Device type identifies family when runtimes omit family metadata")

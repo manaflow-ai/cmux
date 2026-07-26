@@ -82,6 +82,26 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(cancelled.isMarked)
     }
 
+    @Test("Web Inspector operation deadline starts after Simulator readiness")
+    func webInspectorReceiptSeparatesReadinessDeadline() async {
+        let receipt = ControlSimulatorWebInspectorReceipt(
+            readinessTimeout: 1,
+            cancellationJoinTimeout: 0
+        )
+        let cancelled = SimulatorCancellationProbe()
+        receipt.installCancellation { cancelled.mark() }
+        let waiter = Task.detached {
+            receipt.wait(timeout: 0)
+        }
+
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!cancelled.isMarked)
+
+        receipt.markOperationReady()
+        #expect(await waiter.value == nil)
+        #expect(cancelled.isMarked)
+    }
+
     @Test("Operation receipt returns completion delivered while cancellation joins")
     func operationReceiptReturnsCancellationCompletion() {
         let receipt = ControlSimulatorOperationReceipt(cancellationJoinTimeout: 1)
