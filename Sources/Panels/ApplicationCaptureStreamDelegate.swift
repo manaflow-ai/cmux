@@ -1,8 +1,10 @@
 import Foundation
 import ScreenCaptureKit
 
-/// ScreenCaptureKit invokes this delegate across concurrency domains. Its only
-/// mutable value is protected by `lock`, and `onUnexpectedStop` is Sendable.
+/// ScreenCaptureKit invokes this synchronous delegate off-main.
+/// `expectedStops` is the only shared mutable state, and `lock` protects every
+/// access. An actor hop would introduce a callback-ordering race between
+/// `expectStop(_:)` and `stream(_:didStopWithError:)`.
 final class ApplicationCaptureStreamDelegate: NSObject, SCStreamDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private let onUnexpectedStop: @Sendable (ObjectIdentifier) -> Void

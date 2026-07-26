@@ -150,22 +150,25 @@ final class ApplicationCaptureView: NSView {
         let previousTeardown = teardownTask
         captureTask = Task { [weak self] in
             await previousTeardown?.value
-            guard let self,
-                  self.captureDesired,
-                  self.startupToken == token,
-                  !Task.isCancelled else { return }
-            await self.beginCapture(token: token)
-            if self.startupToken == token {
-                self.captureTask = nil
+            guard let self else { return }
+            if self.captureDesired,
+               self.startupToken == token,
+               !Task.isCancelled {
+                await self.beginCapture(token: token)
+            }
+            let restartAfterCleanup = Task.isCancelled && self.captureDesired
+            guard self.startupToken == token else { return }
+            self.startupToken = nil
+            self.captureTask = nil
+            if restartAfterCleanup {
+                self.startCapture()
             }
         }
     }
 
     func stopCapture() {
         captureDesired = false
-        startupToken = nil
         captureTask?.cancel()
-        captureTask = nil
         sourceFrame = .zero
         lastTargetValidationAt = 0
         pendingScrollX = 0
@@ -177,6 +180,9 @@ final class ApplicationCaptureView: NSView {
         guard let activeStream else { return }
 
         streamDelegate.expectStop(activeStream)
+        // A startup generation also stops its own stream after startCapture()
+        // resolves. Retaining captureTask prevents a replacement from starting
+        // until that post-start teardown completes.
         let previousTeardown = teardownTask
         teardownTask = Task {
             await previousTeardown?.value
@@ -189,6 +195,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     private func beginCapture(token: UUID) async {
+        var attemptedStream: SCStream?
         onStateChanged(.starting)
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
             onStateChanged(.permissionRequired)
@@ -235,6 +242,7 @@ final class ApplicationCaptureView: NSView {
                 configuration: configuration,
                 delegate: streamDelegate
             )
+            attemptedStream = newStream
             try newStream.addStreamOutput(
                 streamOutput,
                 type: .screen,
@@ -245,18 +253,20 @@ final class ApplicationCaptureView: NSView {
             guard captureDesired, startupToken == token, !Task.isCancelled else {
                 if stream === newStream {
                     stream = nil
-                    streamDelegate.expectStop(newStream)
-                    do {
-                        try await newStream.stopCapture()
-                    } catch {
-                        Self.logger.error("ScreenCaptureKit cancelled-start teardown failed")
-                    }
+                }
+                streamDelegate.expectStop(newStream)
+                do {
+                    try await newStream.stopCapture()
+                } catch {
+                    Self.logger.error("ScreenCaptureKit cancelled-start teardown failed")
                 }
                 return
             }
             onStateChanged(.streaming)
         } catch {
-            stream = nil
+            if let attemptedStream, stream === attemptedStream {
+                stream = nil
+            }
             if captureDesired, startupToken == token, !Task.isCancelled {
                 onStateChanged(.failed)
             }
@@ -492,10 +502,7 @@ final class ApplicationCaptureView: NSView {
               ObjectIdentifier(activeStream) == streamID else { return }
         stream = nil
         captureDesired = false
-        targetUnavailable = true
-        startupToken = nil
         captureTask?.cancel()
-        captureTask = nil
         sourceFrame = .zero
         lastTargetValidationAt = 0
         pendingScrollX = 0
