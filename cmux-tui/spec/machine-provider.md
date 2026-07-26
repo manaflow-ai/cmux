@@ -1,6 +1,6 @@
 # Machine Provider Contract
 
-This document versions the client-side machine catalog boundary. It is separate from the mux control protocol: a selected machine still speaks the implemented cmux protocol v9, while a machine provider decides which machines exist and how to open that protocol transport.
+This document versions the client-side machine catalog boundary. It is separate from the mux control protocol: a selected machine still speaks the implemented cmux protocol v10, while a machine provider decides which machines exist and how to open that protocol transport.
 
 ## Versions
 
@@ -35,7 +35,7 @@ The app owns focus, selection, the shared rail renderer, terminal mirrors, and m
 - `Connect machine` accepts `host` or `user@host`, creates a process-local SSH target with default session `main`, and does not persist it.
 - Catalog changes, cloud VM creation, wake/suspend, team membership, quotas, and billing are outside v0.
 
-The static connector validates the selected server through the normal protocol-v9 `identify` exchange. EOF cancels pending requests and closes the connector process. Switching away performs the normal terminal input drain before the client attaches to the next session.
+The static connector validates the selected server through the normal protocol-v10 `identify` exchange. EOF cancels pending requests and closes the connector process. Switching away performs the normal terminal input drain before the client attaches to the next session.
 
 ## Implemented v1
 
@@ -79,7 +79,7 @@ The provider emits `snapshot_changed`, `connection_closed`, and `notice` events.
 
 Snapshots contain provider-stable opaque ids. Scopes distinguish personal and team contexts and advertise `can_admin`. Machines advertise status, connectability, and whether workspace creation belongs to the mux session or provider. Provider-owned creation declares supported `isolated` and `host` modes. Generic actions contain text, email, or integer fields with validation bounds, so team membership, verified domains, seat limits, billing, and future provider features do not add cloud-specific UI code.
 
-`open_machine` does not return an upstream address or general cloud credentials. It returns a short-lived bearer ticket. The client opens a fresh stream through the generation's connector and sends exactly one transport handshake containing the generation bearer and ticket. On acceptance, that transport becomes the normal protocol-v9 JSON-lines stream consumed by `RemoteSession`. Tickets are single use; close, expiry, control disconnect, or provider cancellation closes the corresponding upstream connection.
+`open_machine` does not return an upstream address or general cloud credentials. It returns a short-lived bearer ticket. The client opens a fresh stream through the generation's connector and sends exactly one transport handshake containing the generation bearer and ticket. On acceptance, that transport becomes the normal protocol-v10 JSON-lines stream consumed by `RemoteSession`. Tickets are single use; close, expiry, control disconnect, or provider cancellation closes the corresponding upstream connection.
 
 When a machine declares provider-owned workspaces, the provider must advertise `workspace-mirror-authority-v1`. After seeing that capability, the client sets `workspace_mirror_authority: true` in `open_machine`; the provider includes the result field only for that opt-in request. An older client omits the request field, so a new provider can return an upgrade-required error without sending a result that the strict v1 client cannot decode. An updated client connected to a legacy or rolled-back provider sees no capability and refuses to open a provider-owned machine before sending an incompatible request.
 

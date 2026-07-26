@@ -22,7 +22,7 @@ const requests = [
   { cmd: "set-client-info", name: "browser", kind: "web" },
   { cmd: "list-clients" },
   { cmd: "detach-client", client: 2 },
-  { cmd: "set-client-sizing", client: 2, enabled: false },
+  { cmd: "set-client-sizing", surface: 1, client: 2, enabled: false },
   { cmd: "reload-config" },
   { cmd: "set-window-title", title: "cmux" },
   { cmd: "clear-window-title" },
