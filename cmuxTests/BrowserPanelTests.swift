@@ -4248,6 +4248,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugEntryCount(), 1, "Workspace handoff should keep the hidden browser portal entry alive")
 
         let displayCountBeforeRebind = webView.displayIfNeededCount
+        let redrawCountBeforeRebind = webView.setNeedsDisplayCount
+        let reattachCountBeforeRebind = webView.reattachRenderingStateCount
         let newAnchor = NSView(frame: anchorFrame)
         contentView.addSubview(newAnchor)
         portal.bind(webView: webView, to: newAnchor, visibleInUI: true)
@@ -4261,9 +4263,19 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(slot.isHidden, "Rebinding the workspace browser should reveal the existing portal slot")
         XCTAssertEqual(portal.debugEntryCount(), 1)
         XCTAssertGreaterThan(
+            webView.setNeedsDisplayCount,
+            redrawCountBeforeRebind,
+            "Workspace rebind should invalidate the preserved browser for redraw"
+        )
+        XCTAssertGreaterThan(
+            webView.reattachRenderingStateCount,
+            reattachCountBeforeRebind,
+            "Workspace rebind should repair the preserved browser's rendering state"
+        )
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             displayCountBeforeRebind,
-            "Workspace rebind should refresh the preserved browser without recreating its portal slot"
+            "Workspace rebind must not synchronously flush WebKit display"
         )
     }
 }
