@@ -173,6 +173,19 @@ impl Action {
             finally:
                 CHECKER.TUI = original_tui
 
+    def test_prompt_driven_actions_are_composite_routes(self) -> None:
+        actions = CHECKER.action_metadata()
+        expected_routes = {
+            "NewBrowserTab": "frontend omnibar + new-browser-tab",
+            "RenameTab": "frontend prompt + rename-surface",
+            "RenameScreen": "frontend prompt + rename-screen",
+            "RenameWorkspace": "frontend prompt + rename-workspace",
+        }
+        for variant, route in expected_routes.items():
+            with self.subTest(variant=variant):
+                self.assertEqual(actions[variant]["classification"], "composite")
+                self.assertEqual(actions[variant]["route"], route)
+
     def test_menu_action_contracts_come_from_rust_execution_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -366,6 +379,51 @@ impl TreeDeltaKind {
                 names = CHECKER.event_names()
                 self.assertNotIn("comment-only", names)
                 self.assertNotIn("nested-comment-only", names)
+            finally:
+                CHECKER.TUI = original_tui
+
+    def test_event_discovery_handles_field_order_constants_and_insertions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            mux = tui / "crates/cmux-tui-core/src/mux.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text(
+                """\
+const CONSTANT_EVENT: &str = "constant-event";
+
+fn serializers() {
+    let _ = json!({"surface": 7, "event": "late-key-event"});
+    let _ = json!({"surface": 8, "event": CONSTANT_EVENT});
+    let mut value = json!({"surface": 9});
+    value
+        .as_object_mut()
+        .unwrap()
+        .insert("event".to_string(), json!("inserted-event"));
+}
+"""
+            )
+            mux.write_text(
+                """\
+impl TreeDeltaKind {
+    fn wire_name(&self) -> &str {
+        "workspace-added"
+    }
+}
+"""
+            )
+
+            original_tui = CHECKER.TUI
+            CHECKER.TUI = tui
+            try:
+                names = CHECKER.event_names()
+                self.assertTrue(
+                    {
+                        "late-key-event",
+                        "constant-event",
+                        "inserted-event",
+                    }.issubset(names)
+                )
             finally:
                 CHECKER.TUI = original_tui
 
