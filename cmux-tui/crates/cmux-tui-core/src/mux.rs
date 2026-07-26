@@ -1,7 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -57,6 +57,8 @@ const SHUTDOWN_OWNER_CAPACITY: usize = 4_096;
 #[cfg(unix)]
 const TERMINAL_ADOPTION_QUEUE_CAPACITY: usize = SHUTDOWN_OWNER_CAPACITY;
 #[cfg(unix)]
+const TERMINAL_ADOPTION_DEFERRED_CAPACITY: usize = TERMINAL_ADOPTION_QUEUE_CAPACITY;
+#[cfg(unix)]
 const TERMINAL_ADOPTION_WORKERS: usize = 4;
 #[cfg(not(test))]
 const SHUTDOWN_RECONCILE_MAX_ATTEMPTS: usize = 8;
@@ -75,6 +77,8 @@ struct TerminalAdoptionTask {
 #[cfg(unix)]
 struct TerminalAdoptionQueueState {
     tasks: Vec<TerminalAdoptionTask>,
+    deferred: VecDeque<TerminalAdoptionTask>,
+    in_flight: usize,
     rescan_required: bool,
     next_rescan: Option<Instant>,
     rescan_delay: Duration,
@@ -87,12 +91,55 @@ impl Default for TerminalAdoptionQueueState {
     fn default() -> Self {
         Self {
             tasks: Vec::new(),
+            deferred: VecDeque::new(),
+            in_flight: 0,
             rescan_required: false,
             next_rescan: None,
             rescan_delay: Duration::from_millis(100),
             workers_running: 0,
             stopping: false,
         }
+    }
+}
+
+#[cfg(unix)]
+impl TerminalAdoptionQueueState {
+    fn active_len(&self) -> usize {
+        self.tasks.len() + self.in_flight
+    }
+
+    fn enqueue(&mut self, task: TerminalAdoptionTask) -> bool {
+        if self.active_len() < TERMINAL_ADOPTION_QUEUE_CAPACITY {
+            self.tasks.push(task);
+            return true;
+        }
+        if self.deferred.len() < TERMINAL_ADOPTION_DEFERRED_CAPACITY {
+            self.deferred.push_back(task);
+            return true;
+        }
+        false
+    }
+
+    fn promote_deferred(&mut self) {
+        while self.active_len() < TERMINAL_ADOPTION_QUEUE_CAPACITY {
+            let Some(task) = self.deferred.pop_front() else { break };
+            self.tasks.push(task);
+        }
+    }
+
+    fn requeue_retry(&mut self, task: TerminalAdoptionTask) {
+        if let Some(next) = self.deferred.pop_front() {
+            self.tasks.push(next);
+            self.deferred.push_back(task);
+        } else {
+            self.tasks.push(task);
+        }
+    }
+
+    fn rescan_due(&self, now: Instant) -> bool {
+        self.rescan_required
+            && self.deferred.is_empty()
+            && self.next_rescan.is_none_or(|next_rescan| next_rescan <= now)
     }
 }
 
@@ -1160,6 +1207,87 @@ impl Drop for AsyncSurfaceCreationGuard {
     }
 }
 
+#[derive(Default)]
+enum BrowserRuntimeSlotState {
+    #[default]
+    Empty,
+    Connecting,
+    Ready(Arc<BrowserRuntime>),
+    Stopping(Option<Arc<BrowserRuntime>>),
+}
+
+#[derive(Default)]
+struct BrowserRuntimeSlot {
+    state: Mutex<BrowserRuntimeSlotState>,
+    changed: std::sync::Condvar,
+}
+
+impl BrowserRuntimeSlot {
+    fn stop(&self) {
+        let mut state = self.state.lock().unwrap();
+        let current = std::mem::take(&mut *state);
+        *state = match current {
+            BrowserRuntimeSlotState::Ready(runtime) => {
+                BrowserRuntimeSlotState::Stopping(Some(runtime))
+            }
+            BrowserRuntimeSlotState::Stopping(runtime) => {
+                BrowserRuntimeSlotState::Stopping(runtime)
+            }
+            BrowserRuntimeSlotState::Empty | BrowserRuntimeSlotState::Connecting => {
+                BrowserRuntimeSlotState::Stopping(None)
+            }
+        };
+        self.changed.notify_all();
+    }
+
+    fn take_for_shutdown(&self) -> Option<Arc<BrowserRuntime>> {
+        self.stop();
+        let mut state = self.state.lock().unwrap();
+        let BrowserRuntimeSlotState::Stopping(runtime) = &mut *state else {
+            unreachable!("stopped browser runtime slot has a stopping state");
+        };
+        runtime.take()
+    }
+
+    fn restore_for_shutdown(&self, runtime: Arc<BrowserRuntime>) {
+        let mut state = self.state.lock().unwrap();
+        let BrowserRuntimeSlotState::Stopping(current) = &mut *state else {
+            unreachable!("browser runtime can only be restored while stopping");
+        };
+        debug_assert!(current.is_none(), "browser runtime restored twice");
+        *current = Some(runtime);
+    }
+
+    fn take_on_drop(&mut self) -> Option<Arc<BrowserRuntime>> {
+        let state = self.state.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match std::mem::take(state) {
+            BrowserRuntimeSlotState::Ready(runtime) => Some(runtime),
+            BrowserRuntimeSlotState::Stopping(runtime) => runtime,
+            BrowserRuntimeSlotState::Empty | BrowserRuntimeSlotState::Connecting => None,
+        }
+    }
+
+    #[cfg(test)]
+    fn install_for_test(&self, runtime: Arc<BrowserRuntime>) {
+        *self.state.lock().unwrap() = BrowserRuntimeSlotState::Ready(runtime);
+    }
+
+    #[cfg(test)]
+    fn has_runtime_for_test(&self) -> bool {
+        match &*self.state.lock().unwrap() {
+            BrowserRuntimeSlotState::Ready(_) | BrowserRuntimeSlotState::Stopping(Some(_)) => true,
+            BrowserRuntimeSlotState::Empty
+            | BrowserRuntimeSlotState::Connecting
+            | BrowserRuntimeSlotState::Stopping(None) => false,
+        }
+    }
+
+    #[cfg(test)]
+    fn lock_available_for_test(&self) -> bool {
+        self.state.try_lock().is_ok()
+    }
+}
+
 enum SurfaceResizeRestore {
     Complete(bool),
     Pending(Receiver<SurfaceResizeOutcome>),
@@ -1396,7 +1524,7 @@ pub struct Mux {
     browser_runtime_connect: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     shutdown_owner_capacity: AtomicUsize,
-    browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
+    browser_runtime: BrowserRuntimeSlot,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
@@ -1645,7 +1773,7 @@ impl Mux {
             browser_runtime_connect: Mutex::new(None),
             #[cfg(test)]
             shutdown_owner_capacity: AtomicUsize::new(usize::MAX),
-            browser_runtime: Mutex::new(None),
+            browser_runtime: BrowserRuntimeSlot::default(),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
@@ -2183,28 +2311,32 @@ impl Mux {
             if tracked.contains(&terminal_id) {
                 return;
             }
-            if tracked.len() >= TERMINAL_ADOPTION_QUEUE_CAPACITY {
-                let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
-                state.rescan_required = true;
-                state.next_rescan.get_or_insert_with(Instant::now);
-                self.terminal_adoption_coordinator.wake.notify_one();
-                return;
-            }
             tracked.insert(terminal_id.clone());
         }
 
-        self.terminal_adoption_coordinator.state.lock().unwrap().tasks.push(TerminalAdoptionTask {
+        let task = TerminalAdoptionTask {
             options,
             record,
             record_path,
             next_attempt: Instant::now() + Duration::from_millis(100),
             delay: Duration::from_millis(100),
-        });
+        };
+        let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
+        if !state.enqueue(task) {
+            self.terminal_adoptions.lock().unwrap().remove(&terminal_id);
+            state.rescan_required = true;
+            state.next_rescan.get_or_insert_with(Instant::now);
+            self.terminal_adoption_coordinator.wake.notify_one();
+            return;
+        }
+        drop(state);
         self.terminal_adoption_coordinator.wake.notify_one();
         if self.ensure_terminal_adoption_workers().is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&terminal_id);
             let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
             state.tasks.retain(|task| task.record.terminal_id != terminal_id);
+            state.deferred.retain(|task| task.record.terminal_id != terminal_id);
+            state.promote_deferred();
             state.rescan_required = true;
             state.next_rescan.get_or_insert_with(Instant::now);
         }
@@ -2217,12 +2349,29 @@ impl Mux {
         let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
             return false;
         };
+        let registered = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let Ok(terminals) = registry.terminal_ids_including_tombstones() else {
+                return false;
+            };
+            terminals.into_iter().collect::<HashSet<_>>()
+        };
+        let live_counts = {
+            let state = self.state.lock().unwrap();
+            let mut counts = HashMap::<String, usize>::new();
+            for terminal_id in state
+                .surfaces
+                .values()
+                .filter_map(|surface| surface.terminal_host_identity())
+                .map(|identity| identity.terminal_id)
+            {
+                *counts.entry(terminal_id).or_default() += 1;
+            }
+            counts
+        };
         for (record_path, record) in records {
-            let already_live = self
-                .resolve_terminal(&record.terminal_id)
-                .ok()
-                .flatten()
-                .is_some_and(|resolution| resolution.surface.is_some());
+            let already_live = registered.contains(&record.terminal_id)
+                && live_counts.get(&record.terminal_id).copied() == Some(1);
             if already_live {
                 continue;
             }
@@ -2253,11 +2402,9 @@ impl Mux {
                 return;
             }
 
-            let tracked = mux.terminal_adoptions.lock().unwrap().len();
             let mut state = coordinator.state.lock().unwrap();
             let now = Instant::now();
-            let rescan_due = state.next_rescan.is_none_or(|next_rescan| next_rescan <= now);
-            if state.rescan_required && rescan_due && tracked < TERMINAL_ADOPTION_QUEUE_CAPACITY {
+            if state.rescan_due(now) {
                 state.rescan_required = false;
                 state.next_rescan = None;
                 drop(state);
@@ -2274,18 +2421,22 @@ impl Mux {
 
             if let Some(index) = state.tasks.iter().position(|task| task.next_attempt <= now) {
                 let mut task = state.tasks.swap_remove(index);
+                state.in_flight += 1;
                 drop(state);
                 let complete = mux.try_terminal_adoption(&task);
-                if complete {
-                    mux.terminal_adoptions.lock().unwrap().remove(&task.record.terminal_id);
-                    coordinator.wake.notify_one();
-                } else if mux.shutting_down.load(Ordering::Acquire) {
+                let mut state = coordinator.state.lock().unwrap();
+                state.in_flight =
+                    state.in_flight.checked_sub(1).expect("adoption worker tracks in-flight tasks");
+                if complete || mux.shutting_down.load(Ordering::Acquire) {
                     mux.terminal_adoptions.lock().unwrap().remove(&task.record.terminal_id);
                 } else {
                     task.delay = (task.delay * 2).min(Duration::from_secs(5));
                     task.next_attempt = Instant::now() + task.delay;
-                    coordinator.state.lock().unwrap().tasks.push(task);
+                    state.requeue_retry(task);
                 }
+                state.promote_deferred();
+                drop(state);
+                coordinator.wake.notify_one();
                 continue;
             }
 
@@ -2314,6 +2465,7 @@ impl Mux {
         let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
         state.stopping = true;
         state.tasks.clear();
+        state.deferred.clear();
         self.terminal_adoption_coordinator.wake.notify_all();
     }
 
@@ -4174,25 +4326,67 @@ impl Mux {
     }
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
-        let mut runtime = self.browser_runtime.lock().unwrap();
+        loop {
+            let mut state = self.browser_runtime.state.lock().unwrap();
+            if self.is_shutting_down() {
+                anyhow::bail!("server is shutting down");
+            }
+            match &*state {
+                BrowserRuntimeSlotState::Ready(runtime) if !runtime.is_closed() => {
+                    return Ok(runtime.clone());
+                }
+                BrowserRuntimeSlotState::Ready(_) => {
+                    *state = BrowserRuntimeSlotState::Empty;
+                }
+                BrowserRuntimeSlotState::Empty => {
+                    *state = BrowserRuntimeSlotState::Connecting;
+                    break;
+                }
+                BrowserRuntimeSlotState::Connecting => {
+                    drop(self.browser_runtime.changed.wait(state).unwrap());
+                }
+                BrowserRuntimeSlotState::Stopping(_) => {
+                    anyhow::bail!("server is shutting down");
+                }
+            }
+        }
+
+        let opts = self.surface_options.lock().unwrap().clone();
         #[cfg(test)]
         if let Some(hook) = self.browser_runtime_connect.lock().unwrap().clone() {
             hook();
         }
-        if self.is_shutting_down() {
-            anyhow::bail!("server is shutting down");
+        let connected = BrowserRuntime::connect(&opts);
+        let mut state = self.browser_runtime.state.lock().unwrap();
+        match connected {
+            Ok(created)
+                if matches!(*state, BrowserRuntimeSlotState::Connecting)
+                    && !self.is_shutting_down() =>
+            {
+                *state = BrowserRuntimeSlotState::Ready(created.clone());
+                self.browser_runtime.changed.notify_all();
+                Ok(created)
+            }
+            Ok(created) => {
+                self.browser_runtime.changed.notify_all();
+                drop(state);
+                created.shutdown();
+                anyhow::bail!("server is shutting down");
+            }
+            Err(error) => {
+                let stopping = self.is_shutting_down()
+                    || matches!(*state, BrowserRuntimeSlotState::Stopping(_));
+                if matches!(*state, BrowserRuntimeSlotState::Connecting) {
+                    *state = BrowserRuntimeSlotState::Empty;
+                }
+                self.browser_runtime.changed.notify_all();
+                drop(state);
+                if stopping {
+                    anyhow::bail!("server is shutting down");
+                }
+                Err(error)
+            }
         }
-        if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
-            return Ok(existing.clone());
-        }
-        let opts = self.surface_options.lock().unwrap().clone();
-        let created = BrowserRuntime::connect(&opts)?;
-        if self.is_shutting_down() {
-            created.shutdown();
-            anyhow::bail!("server is shutting down");
-        }
-        *runtime = Some(created.clone());
-        Ok(created)
     }
 
     fn start_browser_bootstrap(
@@ -4777,6 +4971,7 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.browser_runtime.stop();
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
@@ -4790,7 +4985,7 @@ impl Mux {
             surface.disconnect_for_daemon_shutdown();
         }
         self.terminate_staged_shutdown_owners_until(deadline);
-        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
+        if let Some(runtime) = self.browser_runtime.take_for_shutdown() {
             let _ = runtime.shutdown_until(deadline);
         }
     }
@@ -4841,8 +5036,12 @@ impl Mux {
     /// closed so a retry cannot race a new PTY into the session.
     pub fn close_all_surfaces_for_shutdown(&self) -> anyhow::Result<usize> {
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
+        #[cfg(unix)]
+        crate::process_session::require_stable_process_signaling_until(deadline)
+            .context("preflight process control for server shutdown")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
         self.shutting_down.store(true, Ordering::Release);
+        self.browser_runtime.stop();
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
         if !self.surface_creations.stop_and_wait_until(deadline) {
@@ -4964,7 +5163,7 @@ impl Mux {
         }
         self.terminate_staged_shutdown_owners_until(deadline);
         let retained = self.shutdown_owners.snapshot();
-        let current_browser_runtime = self.browser_runtime.lock().unwrap().take();
+        let current_browser_runtime = self.browser_runtime.take_for_shutdown();
         let mut browser_runtimes = Vec::new();
         for runtime in retained.iter().filter_map(|(_, owner)| owner.browser_runtime()) {
             if !browser_runtimes.iter().any(|candidate| Arc::ptr_eq(candidate, runtime)) {
@@ -4988,7 +5187,7 @@ impl Mux {
             });
             if surface_failed && runtime.source() == BrowserSource::External {
                 if is_current {
-                    *self.browser_runtime.lock().unwrap() = Some(runtime);
+                    self.browser_runtime.restore_for_shutdown(runtime);
                 }
                 continue;
             }
@@ -4999,7 +5198,7 @@ impl Mux {
             } else {
                 browser_runtime_failed = true;
                 if is_current {
-                    *self.browser_runtime.lock().unwrap() = Some(runtime);
+                    self.browser_runtime.restore_for_shutdown(runtime);
                 }
             }
         }
@@ -5076,6 +5275,7 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         self.surface_creations.stop();
         self.async_surface_creations.stop();
+        self.browser_runtime.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
@@ -8970,9 +9170,7 @@ impl Drop for Mux {
                 surface.disconnect_for_daemon_shutdown();
             }
         }
-        if let Ok(runtime) = self.browser_runtime.get_mut()
-            && let Some(runtime) = runtime.take()
-        {
+        if let Some(runtime) = self.browser_runtime.take_on_drop() {
             runtime.shutdown();
         }
     }
@@ -11631,54 +11829,74 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn terminal_adoption_overflow_refills_at_a_low_water_mark() {
-        let mux = Mux::new_for_test("adoption-low-water", SurfaceOptions::default());
-        {
-            let mut tracked = mux.terminal_adoptions.lock().unwrap();
-            tracked
-                .extend((0..TERMINAL_ADOPTION_QUEUE_CAPACITY).map(|index| format!("{index:032x}")));
-        }
-        {
-            let mut state = mux.terminal_adoption_coordinator.state.lock().unwrap();
-            state.rescan_required = true;
-            state.next_rescan = Some(Instant::now());
-        }
-        mux.ensure_terminal_adoption_workers().unwrap();
-
-        mux.terminal_adoptions.lock().unwrap().remove(&format!("{:032x}", 0));
-        mux.terminal_adoption_coordinator.wake.notify_all();
-        std::thread::sleep(Duration::from_millis(200));
-        let retained_after_one_slot =
-            mux.terminal_adoption_coordinator.state.lock().unwrap().rescan_required;
-
-        {
-            let mut tracked = mux.terminal_adoptions.lock().unwrap();
-            while tracked.len() > TERMINAL_ADOPTION_QUEUE_CAPACITY / 2 {
-                let terminal_id = tracked.iter().next().unwrap().clone();
-                tracked.remove(&terminal_id);
+    fn terminal_adoption_overflow_uses_a_bounded_deferred_tier() {
+        fn task(index: usize) -> TerminalAdoptionTask {
+            let terminal_id = format!("{index:032x}");
+            TerminalAdoptionTask {
+                options: SurfaceOptions::default(),
+                record: crate::terminal_host_runtime::TerminalHostRecord {
+                    record_version: 1,
+                    terminal_id: terminal_id.clone(),
+                    incarnation: terminal_id,
+                    endpoint: String::new(),
+                    owner_token: String::new(),
+                    host_pid: 0,
+                    host_start_nonce: String::new(),
+                    workspace_key: String::new(),
+                    supports_set_defaults: false,
+                    supports_terminate_only: false,
+                },
+                record_path: std::path::PathBuf::new(),
+                next_attempt: Instant::now(),
+                delay: Duration::from_millis(100),
             }
         }
-        mux.terminal_adoption_coordinator.wake.notify_all();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            if !mux.terminal_adoption_coordinator.state.lock().unwrap().rescan_required
-                || Instant::now() >= deadline
-            {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
+
+        let mut state = TerminalAdoptionQueueState::default();
+        for index in 0..TERMINAL_ADOPTION_QUEUE_CAPACITY {
+            assert!(state.enqueue(task(index)));
         }
-        let refilled = !mux.terminal_adoption_coordinator.state.lock().unwrap().rescan_required;
-        mux.request_terminal_adoption_stop();
+        for index in TERMINAL_ADOPTION_QUEUE_CAPACITY..TERMINAL_ADOPTION_QUEUE_CAPACITY * 2 {
+            assert!(state.enqueue(task(index)));
+        }
         assert!(
-            mux.wait_for_terminal_adoption_workers_until(Instant::now() + Duration::from_secs(2))
+            !state.enqueue(task(TERMINAL_ADOPTION_QUEUE_CAPACITY * 2)),
+            "adoption overflow exceeded both bounded queue tiers"
+        );
+        state.rescan_required = true;
+        state.next_rescan = Some(Instant::now());
+        assert!(
+            !state.rescan_due(Instant::now()),
+            "adoption overflow rescanned while deferred records remained"
         );
 
+        let retry = state.tasks.pop().unwrap();
+        let retry_id = retry.record.terminal_id.clone();
+        state.in_flight += 1;
+        state.in_flight -= 1;
+        state.requeue_retry(retry);
         assert!(
-            retained_after_one_slot,
-            "adoption overflow triggered a full rescan after one queue slot opened"
+            state.tasks.iter().any(|task| {
+                task.record.terminal_id == format!("{TERMINAL_ADOPTION_QUEUE_CAPACITY:032x}")
+            }),
+            "a permanently retrying active record starved the oldest deferred record"
         );
-        assert!(refilled, "adoption overflow did not refill after reaching its low-water mark");
+        assert_eq!(
+            state.deferred.back().map(|task| task.record.terminal_id.as_str()),
+            Some(retry_id.as_str()),
+            "a retry did not rotate behind deferred adoption work"
+        );
+
+        for _ in 0..TERMINAL_ADOPTION_DEFERRED_CAPACITY {
+            state.tasks.pop().unwrap();
+            state.promote_deferred();
+        }
+        assert_eq!(state.active_len(), TERMINAL_ADOPTION_QUEUE_CAPACITY);
+        assert!(state.deferred.is_empty());
+        assert!(
+            state.rescan_due(Instant::now()),
+            "adoption overflow did not request one new batch after draining deferred records"
+        );
     }
 
     #[cfg(unix)]
@@ -12176,7 +12394,7 @@ mod tests {
             "session-1",
         );
         insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface).unwrap();
-        *mux.browser_runtime.lock().unwrap() = Some(runtime);
+        mux.browser_runtime.install_for_test(runtime);
 
         let result = mux.close_all_surfaces_for_shutdown();
 
@@ -12185,7 +12403,7 @@ mod tests {
             "owned launched browser was not used as the authoritative shutdown fallback: {result:?}"
         );
         assert!(mux.shutdown_owners.is_empty());
-        assert!(mux.browser_runtime.lock().unwrap().is_none());
+        assert!(!mux.browser_runtime.has_runtime_for_test());
     }
 
     #[test]
@@ -12353,7 +12571,7 @@ mod tests {
         release_bootstrap_tx.send(()).unwrap();
         assert_eq!(shutdown_done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 1);
         shutdown.join().unwrap();
-        assert!(mux.browser_runtime.lock().unwrap().is_none());
+        assert!(!mux.browser_runtime.has_runtime_for_test());
     }
 
     #[test]
@@ -12377,7 +12595,7 @@ mod tests {
         mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
         connect_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        let slot_available = mux.browser_runtime.try_lock().is_ok();
+        let slot_available = mux.browser_runtime.lock_available_for_test();
         release_connect_tx.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {

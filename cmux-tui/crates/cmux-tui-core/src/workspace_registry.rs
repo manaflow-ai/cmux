@@ -407,6 +407,18 @@ impl WorkspaceRegistry {
         read_terminal(&self.connection, terminal_id)
     }
 
+    pub(crate) fn terminal_ids_including_tombstones(&self) -> anyhow::Result<Vec<String>> {
+        #[cfg(test)]
+        self.terminal_snapshot_count.fetch_add(1, Ordering::Relaxed);
+        let mut statement = self
+            .connection
+            .prepare("SELECT terminal_id FROM terminal_placements ORDER BY terminal_id ASC")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn replay_terminal(
         &self,
         mutation: &WorkspaceMutation,

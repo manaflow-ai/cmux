@@ -17,6 +17,7 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use ghostty_vt::{
     Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
     TerminalColorOverrides,
@@ -835,6 +836,7 @@ impl LocalPtyProcess {
     fn spawn_reaper(
         self: &Arc<Self>,
         mut child: Box<dyn portable_pty::Child + Send + Sync>,
+        reaper: crate::process_session::ReservedChildReaperLease,
     ) -> std::io::Result<()> {
         let process = self.clone();
         std::thread::Builder::new().name("surface-child".into()).spawn(move || {
@@ -845,23 +847,55 @@ impl LocalPtyProcess {
                     .and_then(|pid| libc::pid_t::try_from(pid).ok())
                     .is_some_and(|pid| wait_for_local_child_without_reaping(pid).is_ok());
                 if observed_without_reaping {
+                    let session =
+                        libc::pid_t::try_from(process.pid.expect("observed child has a PID"))
+                            .expect("portable-pty child PID fits pid_t");
                     process.child_waitable.store(true, Ordering::Release);
                     process.exited.1.notify_all();
-                    crate::process_session::reap_reserved_session_leader(
-                        crate::process_session::ReservedChildReap {
-                            changed: &process.exited,
-                            signal_lock: &process.child_signal_lock,
-                            pty_drained: &process.pty_drained,
-                            termination_started: &process.termination_started,
-                            cleanup_complete: &process.group_escalation_complete,
-                            child_reaped: &process.child_reaped,
-                        },
+                    let cleanup_process = process.clone();
+                    let prepare_process = process.clone();
+                    let reap_process = process.clone();
+                    let mut child = Some(child);
+                    crate::process_session::enqueue_reserved_session_leader(
+                        reaper,
+                        session,
                         NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
-                        |deadline| process.kill_session_descendants_before_reap(deadline),
-                        || {
-                            let _ = child.wait();
+                        move || {
+                            crate::process_session::reserved_child_needs_cleanup(
+                                crate::process_session::ReservedChildReap {
+                                    signal_lock: &cleanup_process.child_signal_lock,
+                                    pty_drained: &cleanup_process.pty_drained,
+                                    termination_started: &cleanup_process.termination_started,
+                                    cleanup_complete: &cleanup_process.group_escalation_complete,
+                                    child_reaped: &cleanup_process.child_reaped,
+                                },
+                            )
+                        },
+                        move || prepare_process.prepare_natural_cleanup(),
+                        move |cleanup_succeeded| {
+                            let done = crate::process_session::poll_reserved_session_leader(
+                                crate::process_session::ReservedChildReap {
+                                    signal_lock: &reap_process.child_signal_lock,
+                                    pty_drained: &reap_process.pty_drained,
+                                    termination_started: &reap_process.termination_started,
+                                    cleanup_complete: &reap_process.group_escalation_complete,
+                                    child_reaped: &reap_process.child_reaped,
+                                },
+                                cleanup_succeeded,
+                                || {
+                                    let mut child =
+                                        child.take().expect("reserved child is reaped once");
+                                    let _ = child.wait();
+                                },
+                            );
+                            if done {
+                                *reap_process.exited.0.lock().unwrap() = true;
+                                reap_process.exited.1.notify_all();
+                            }
+                            done
                         },
                     );
+                    return;
                 } else {
                     let _ = child.wait();
                     process.child_reaped.store(true, Ordering::Release);
@@ -896,6 +930,7 @@ impl LocalPtyProcess {
         {
             self.pty_drained.store(true, Ordering::Release);
             self.exited.1.notify_all();
+            crate::process_session::wake_child_reaper();
         }
     }
 
@@ -916,6 +951,7 @@ impl LocalPtyProcess {
     fn abandon_termination(&self) {
         self.termination_started.store(false, Ordering::Release);
         self.exited.1.notify_all();
+        crate::process_session::wake_child_reaper();
     }
 
     #[cfg(unix)]
@@ -990,7 +1026,7 @@ impl LocalPtyProcess {
     }
 
     #[cfg(unix)]
-    fn kill_session_descendants_before_reap(&self, deadline: Instant) -> bool {
+    fn prepare_natural_cleanup(&self) -> bool {
         #[cfg(test)]
         {
             self.normal_cleanup_attempts.fetch_add(1, Ordering::AcqRel);
@@ -1009,15 +1045,7 @@ impl LocalPtyProcess {
                 return false;
             }
         }
-        let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
-            return false;
-        };
-        matches!(
-            crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
-                self.child_waitable.load(Ordering::Acquire)
-            }),
-            Ok(true)
-        )
+        true
     }
 
     fn terminate_and_wait(&self, deadline: Instant) -> bool {
@@ -1046,6 +1074,7 @@ impl LocalPtyProcess {
                 self.child_reaped.load(Ordering::Acquire)
             };
             self.exited.1.notify_all();
+            crate::process_session::wake_child_reaper();
             if child_reaped {
                 let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                     self.abandon_termination();
@@ -1078,6 +1107,7 @@ impl LocalPtyProcess {
             }
             self.group_escalation_complete.store(true, Ordering::Release);
             self.exited.1.notify_all();
+            crate::process_session::wake_child_reaper();
         }
         #[cfg(not(unix))]
         {
@@ -1208,6 +1238,8 @@ impl Surface {
             return Self::spawn_hosted(id, opts, mux, attachment, true);
         }
         let _ = terminal_id;
+        let reaper = crate::process_session::reserve_child_reaper()
+            .context("reserve bounded PTY session cleanup")?;
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
             cols: opts.cols,
@@ -1314,7 +1346,7 @@ impl Surface {
             frame_requests,
         }));
 
-        process.spawn_reaper(child)?;
+        process.spawn_reaper(child, reaper)?;
         if let Err(error) = spawn_frame_producer(&surface, frame_rx) {
             let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(2));
             return Err(error);
@@ -3394,8 +3426,9 @@ mod tests {
         std::fs::write(&release_path, b"ready").unwrap();
 
         let deadline = Instant::now() + Duration::from_secs(3);
-        while crate::process_session::dedicated_natural_reap_workers_for_test()
-            < baseline + CHILDREN
+        while processes
+            .iter()
+            .any(|process| process.normal_cleanup_attempts.load(Ordering::Acquire) == 0)
             && Instant::now() < deadline
         {
             std::thread::sleep(Duration::from_millis(10));

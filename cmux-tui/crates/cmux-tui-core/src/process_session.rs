@@ -9,18 +9,27 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 #[cfg(target_os = "macos")]
 use std::mem::size_of;
-#[cfg(test)]
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const SESSION_KILL_POLL: Duration = Duration::from_millis(5);
+const PROCESS_SESSION_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(1);
 const NATURAL_REAP_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const NATURAL_REAP_RETRY_MAX: Duration = Duration::from_secs(1);
+const NATURAL_REAP_DEGRADED_RETRY: Duration = Duration::from_secs(30);
+const NATURAL_REAP_BATCH_WINDOW: Duration = Duration::from_millis(5);
+const NATURAL_REAP_CAPACITY: usize = 4_096;
+#[cfg(not(test))]
+const NATURAL_REAP_MAX_ATTEMPTS: usize = 8;
+#[cfg(test)]
+const NATURAL_REAP_MAX_ATTEMPTS: usize = 3;
 
 #[cfg(test)]
-static DEDICATED_NATURAL_REAP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+static NATURAL_REAP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+static NATURAL_REAPER: OnceLock<Mutex<Option<NaturalReaper>>> = OnceLock::new();
 
 #[cfg(test)]
 thread_local! {
@@ -29,26 +38,8 @@ thread_local! {
 }
 
 #[cfg(test)]
-struct DedicatedNaturalReapWorker;
-
-#[cfg(test)]
-impl DedicatedNaturalReapWorker {
-    fn enter() -> Self {
-        DEDICATED_NATURAL_REAP_WORKERS.fetch_add(1, Ordering::AcqRel);
-        Self
-    }
-}
-
-#[cfg(test)]
-impl Drop for DedicatedNaturalReapWorker {
-    fn drop(&mut self) {
-        DEDICATED_NATURAL_REAP_WORKERS.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-#[cfg(test)]
 pub(crate) fn dedicated_natural_reap_workers_for_test() -> usize {
-    DEDICATED_NATURAL_REAP_WORKERS.load(Ordering::Acquire)
+    NATURAL_REAP_WORKERS.load(Ordering::Acquire)
 }
 
 #[cfg(test)]
@@ -60,7 +51,6 @@ pub(crate) fn set_process_session_preflight_failure_for_test(enabled: bool) {
 /// shutdown. The session leader remains reserved until this state machine
 /// confirms that cleanup completed and performs the sole final reap.
 pub(crate) struct ReservedChildReap<'a> {
-    pub(crate) changed: &'a (Mutex<bool>, Condvar),
     pub(crate) signal_lock: &'a Mutex<()>,
     pub(crate) pty_drained: &'a AtomicBool,
     pub(crate) termination_started: &'a AtomicBool,
@@ -68,71 +58,360 @@ pub(crate) struct ReservedChildReap<'a> {
     pub(crate) child_reaped: &'a AtomicBool,
 }
 
-/// Reap a waitable PTY session leader without holding its signal lock during
-/// process-table scans. A transient natural-cleanup failure is retried even
-/// when no other lifecycle event arrives.
-pub(crate) fn reap_reserved_session_leader(
-    sync: ReservedChildReap<'_>,
-    cleanup_timeout: Duration,
-    mut cleanup: impl FnMut(Instant) -> bool,
-    reap: impl FnOnce(),
-) {
-    #[cfg(test)]
-    let _dedicated_worker = DedicatedNaturalReapWorker::enter();
-    let mut reap = Some(reap);
-    let mut retry_delay = NATURAL_REAP_RETRY_INITIAL;
-    loop {
-        let should_attempt_cleanup = {
-            let _signal = sync.signal_lock.lock().unwrap();
-            if sync.cleanup_complete.load(Ordering::Acquire) {
-                reap.take().expect("reserved child is reaped once")();
-                sync.child_reaped.store(true, Ordering::Release);
-                return;
-            }
-            !sync.termination_started.load(Ordering::Acquire)
-                && sync.pty_drained.load(Ordering::Acquire)
-        };
+enum NaturalReaperCommand {
+    Add(NaturalReapRequest),
+    Wake,
+}
 
-        let cleanup_succeeded = should_attempt_cleanup && cleanup(Instant::now() + cleanup_timeout);
-        if should_attempt_cleanup {
-            let _signal = sync.signal_lock.lock().unwrap();
-            let cleanup_claimed = sync.cleanup_complete.load(Ordering::Acquire);
-            let termination_started = sync.termination_started.load(Ordering::Acquire);
-            if cleanup_claimed || (cleanup_succeeded && !termination_started) {
-                sync.cleanup_complete.store(true, Ordering::Release);
-                reap.take().expect("reserved child is reaped once")();
-                sync.child_reaped.store(true, Ordering::Release);
-                return;
+struct NaturalReapRequest {
+    session: libc::pid_t,
+    cleanup_timeout: Duration,
+    needs_cleanup: Box<dyn Fn() -> bool + Send>,
+    prepare_cleanup: Box<dyn FnMut() -> bool + Send>,
+    finish: Box<dyn FnMut(bool) -> bool + Send>,
+    _lease: ReservedChildReaperLease,
+    next_attempt: Instant,
+    retry_delay: Duration,
+    attempts: usize,
+    degraded: bool,
+}
+
+struct NaturalReaper {
+    sender: mpsc::Sender<NaturalReaperCommand>,
+    active: Arc<AtomicUsize>,
+    degraded: Arc<AtomicUsize>,
+    wake_pending: Arc<AtomicBool>,
+    _worker: std::thread::JoinHandle<()>,
+}
+
+pub(crate) struct ReservedChildReaperLease {
+    sender: mpsc::Sender<NaturalReaperCommand>,
+    active: Arc<AtomicUsize>,
+    degraded: Arc<AtomicUsize>,
+}
+
+impl Drop for ReservedChildReaperLease {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl NaturalReaper {
+    fn start() -> io::Result<Self> {
+        let (sender, receiver) = mpsc::channel();
+        let active = Arc::new(AtomicUsize::new(0));
+        let degraded = Arc::new(AtomicUsize::new(0));
+        let wake_pending = Arc::new(AtomicBool::new(false));
+        let worker_wake_pending = wake_pending.clone();
+        let worker = std::thread::Builder::new().name("cmux-pty-session-reaper".into()).spawn(
+            move || {
+                #[cfg(test)]
+                NATURAL_REAP_WORKERS.fetch_add(1, Ordering::AcqRel);
+                run_natural_reaper(receiver, worker_wake_pending);
+                #[cfg(test)]
+                NATURAL_REAP_WORKERS.fetch_sub(1, Ordering::AcqRel);
+            },
+        )?;
+        Ok(Self { sender, active, degraded, wake_pending, _worker: worker })
+    }
+
+    fn lease(&self) -> io::Result<ReservedChildReaperLease> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < NATURAL_REAP_CAPACITY).then_some(active + 1)
+            })
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::WouldBlock, "PTY session reaper capacity exhausted")
+            })?;
+        Ok(ReservedChildReaperLease {
+            sender: self.sender.clone(),
+            active: self.active.clone(),
+            degraded: self.degraded.clone(),
+        })
+    }
+}
+
+pub(crate) fn reserve_child_reaper() -> io::Result<ReservedChildReaperLease> {
+    let mut slot = NATURAL_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    if slot.is_none() {
+        *slot = Some(NaturalReaper::start()?);
+    }
+    slot.as_ref().expect("natural PTY reaper initialized").lease()
+}
+
+pub(crate) fn wake_child_reaper() {
+    let Some(slot) = NATURAL_REAPER.get() else { return };
+    let slot = slot.lock().unwrap();
+    let Some(reaper) = slot.as_ref() else { return };
+    if !reaper.wake_pending.swap(true, Ordering::AcqRel) {
+        let _ = reaper.sender.send(NaturalReaperCommand::Wake);
+    }
+}
+
+pub(crate) fn enqueue_reserved_session_leader(
+    lease: ReservedChildReaperLease,
+    session: libc::pid_t,
+    cleanup_timeout: Duration,
+    needs_cleanup: impl Fn() -> bool + Send + 'static,
+    prepare_cleanup: impl FnMut() -> bool + Send + 'static,
+    finish: impl FnMut(bool) -> bool + Send + 'static,
+) {
+    let sender = lease.sender.clone();
+    sender
+        .send(NaturalReaperCommand::Add(NaturalReapRequest {
+            session,
+            cleanup_timeout,
+            needs_cleanup: Box::new(needs_cleanup),
+            prepare_cleanup: Box::new(prepare_cleanup),
+            finish: Box::new(finish),
+            _lease: lease,
+            next_attempt: Instant::now(),
+            retry_delay: NATURAL_REAP_RETRY_INITIAL,
+            attempts: 0,
+            degraded: false,
+        }))
+        .expect("natural PTY reaper remains alive while its service is registered");
+}
+
+pub(crate) fn reserved_child_needs_cleanup(sync: ReservedChildReap<'_>) -> bool {
+    let _signal = sync.signal_lock.lock().unwrap();
+    !sync.cleanup_complete.load(Ordering::Acquire)
+        && !sync.termination_started.load(Ordering::Acquire)
+        && sync.pty_drained.load(Ordering::Acquire)
+}
+
+pub(crate) fn poll_reserved_session_leader(
+    sync: ReservedChildReap<'_>,
+    cleanup_succeeded: bool,
+    reap: impl FnOnce(),
+) -> bool {
+    let should_attempt_cleanup = {
+        let _signal = sync.signal_lock.lock().unwrap();
+        if sync.cleanup_complete.load(Ordering::Acquire) {
+            reap();
+            sync.child_reaped.store(true, Ordering::Release);
+            return true;
+        }
+        !sync.termination_started.load(Ordering::Acquire)
+            && sync.pty_drained.load(Ordering::Acquire)
+    };
+
+    if should_attempt_cleanup {
+        let _signal = sync.signal_lock.lock().unwrap();
+        let cleanup_claimed = sync.cleanup_complete.load(Ordering::Acquire);
+        let termination_started = sync.termination_started.load(Ordering::Acquire);
+        if cleanup_claimed || (cleanup_succeeded && !termination_started) {
+            sync.cleanup_complete.store(true, Ordering::Release);
+            reap();
+            sync.child_reaped.store(true, Ordering::Release);
+            return true;
+        }
+    }
+    false
+}
+
+fn run_natural_reaper(
+    receiver: mpsc::Receiver<NaturalReaperCommand>,
+    wake_pending: Arc<AtomicBool>,
+) {
+    let mut pending = Vec::<NaturalReapRequest>::new();
+    loop {
+        let received = if pending.is_empty() {
+            receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
+        } else {
+            let now = Instant::now();
+            let wait = pending
+                .iter()
+                .map(|request| request.next_attempt.saturating_duration_since(now))
+                .min()
+                .unwrap_or(NATURAL_REAP_RETRY_MAX);
+            receiver.recv_timeout(wait)
+        };
+        match received {
+            Ok(command) => {
+                accept_natural_reaper_command(command, &mut pending, wake_pending.as_ref());
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) if pending.is_empty() => return,
+            Err(RecvTimeoutError::Disconnected) => {
+                std::thread::sleep(NATURAL_REAP_RETRY_MAX);
             }
         }
 
-        let state = sync.changed.0.lock().unwrap();
-        let retry_natural_cleanup = should_attempt_cleanup
-            && !cleanup_succeeded
-            && !sync.termination_started.load(Ordering::Acquire)
-            && !sync.cleanup_complete.load(Ordering::Acquire);
-        if retry_natural_cleanup {
-            let (_state, _) = sync
-                .changed
-                .1
-                .wait_timeout_while(state, retry_delay, |_| {
-                    !sync.termination_started.load(Ordering::Acquire)
-                        && !sync.cleanup_complete.load(Ordering::Acquire)
-                        && sync.pty_drained.load(Ordering::Acquire)
-                })
-                .unwrap();
-            retry_delay = (retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+        let batch_deadline = Instant::now() + NATURAL_REAP_BATCH_WINDOW;
+        while let Some(remaining) = batch_deadline.checked_duration_since(Instant::now()) {
+            match receiver.recv_timeout(remaining) {
+                Ok(command) => {
+                    accept_natural_reaper_command(command, &mut pending, wake_pending.as_ref());
+                }
+                Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+            }
+        }
+
+        let now = Instant::now();
+        let mut due = Vec::new();
+        let mut index = 0;
+        while index < pending.len() {
+            if pending[index].next_attempt <= now {
+                due.push(pending.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        if due.is_empty() {
+            continue;
+        }
+
+        let needs_cleanup = due.iter().map(|request| (request.needs_cleanup)()).collect::<Vec<_>>();
+        let prepared = due
+            .iter_mut()
+            .zip(&needs_cleanup)
+            .map(|(request, needed)| !needed || (request.prepare_cleanup)())
+            .collect::<Vec<_>>();
+        let sessions = due
+            .iter()
+            .zip(needs_cleanup.iter().zip(&prepared))
+            .filter_map(|(request, (needed, prepared))| {
+                (*needed && *prepared).then_some(request.session)
+            })
+            .collect::<HashSet<_>>();
+        let cleanup_timeout = due
+            .iter()
+            .zip(&needs_cleanup)
+            .filter_map(|(request, needed)| needed.then_some(request.cleanup_timeout))
+            .max()
+            .unwrap_or_default();
+        let cleanup_deadline = Instant::now() + cleanup_timeout;
+        let cleaned = if sessions.is_empty() {
+            HashSet::new()
         } else {
-            let _state = sync
-                .changed
-                .1
-                .wait_while(state, |_| {
-                    !sync.cleanup_complete.load(Ordering::Acquire)
-                        && (sync.termination_started.load(Ordering::Acquire)
-                            || !sync.pty_drained.load(Ordering::Acquire))
+            SessionProcessSnapshot::capture(sessions.iter().copied(), cleanup_deadline)
+                .map(|snapshot| {
+                    kill_sessions_until_only_leaders_from_snapshot(
+                        &snapshot,
+                        &sessions,
+                        cleanup_deadline,
+                    )
                 })
-                .unwrap();
-            retry_delay = NATURAL_REAP_RETRY_INITIAL;
+                .unwrap_or_default()
+        };
+
+        for ((mut request, needed), prepared) in due.into_iter().zip(needs_cleanup).zip(prepared) {
+            let cleanup_succeeded = needed && prepared && cleaned.contains(&request.session);
+            let done = (request.finish)(cleanup_succeeded);
+            if done {
+                if request.degraded {
+                    request._lease.degraded.fetch_sub(1, Ordering::AcqRel);
+                }
+                continue;
+            }
+            if needed {
+                request.attempts = request.attempts.saturating_add(1);
+            }
+            if request.attempts >= NATURAL_REAP_MAX_ATTEMPTS {
+                if !request.degraded {
+                    request.degraded = true;
+                    request._lease.degraded.fetch_add(1, Ordering::AcqRel);
+                }
+                request.next_attempt = Instant::now() + NATURAL_REAP_DEGRADED_RETRY;
+            } else {
+                request.next_attempt = Instant::now() + request.retry_delay;
+                request.retry_delay = (request.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+            }
+            pending.push(request);
+        }
+    }
+}
+
+fn kill_sessions_until_only_leaders_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    sessions: &HashSet<libc::pid_t>,
+    deadline: Instant,
+) -> HashSet<libc::pid_t> {
+    let mut states = HashMap::<libc::pid_t, (u64, Vec<libc::pid_t>)>::new();
+    let mut failed = HashSet::new();
+    for session in sessions {
+        match snapshot.members(*session) {
+            Ok((generation, members)) => {
+                if signal_members(&members, *session, None).is_ok() {
+                    states.insert(*session, (generation, members));
+                } else {
+                    failed.insert(*session);
+                }
+            }
+            Err(_) => {
+                failed.insert(*session);
+            }
+        }
+    }
+
+    let mut complete = HashSet::new();
+    while complete.len() + failed.len() < sessions.len() && Instant::now() < deadline {
+        let mut refresh = Vec::new();
+        for (session, (_, members)) in &states {
+            if complete.contains(session) || failed.contains(session) {
+                continue;
+            }
+            let drained = members
+                .iter()
+                .copied()
+                .filter(|pid| pid != session)
+                .map(|pid| still_member(pid, *session))
+                .collect::<io::Result<Vec<_>>>()
+                .map(|members| members.into_iter().all(|alive| !alive));
+            match drained {
+                Ok(true) => refresh.push(*session),
+                Ok(false) => {}
+                Err(_) => {
+                    failed.insert(*session);
+                }
+            }
+        }
+
+        if let Some(first) = refresh.first().copied() {
+            let observed_generation = states[&first].0;
+            if snapshot.refresh_members(first, observed_generation, deadline).is_err() {
+                break;
+            }
+            for session in refresh {
+                let Ok((generation, members)) = snapshot.members(session) else {
+                    failed.insert(session);
+                    continue;
+                };
+                if members.iter().all(|pid| *pid == session) {
+                    complete.insert(session);
+                    continue;
+                }
+                if signal_members(&members, session, None).is_err() {
+                    failed.insert(session);
+                    continue;
+                }
+                states.insert(session, (generation, members));
+            }
+        }
+
+        if complete.len() + failed.len() < sessions.len() {
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()).min(SESSION_KILL_POLL),
+            );
+        }
+    }
+    complete
+}
+
+fn accept_natural_reaper_command(
+    command: NaturalReaperCommand,
+    pending: &mut Vec<NaturalReapRequest>,
+    wake_pending: &AtomicBool,
+) {
+    match command {
+        NaturalReaperCommand::Add(request) => pending.push(request),
+        NaturalReaperCommand::Wake => {
+            wake_pending.store(false, Ordering::Release);
+            let now = Instant::now();
+            for request in pending {
+                request.next_attempt = now;
+            }
         }
     }
 }
@@ -688,8 +967,13 @@ impl StableProcessHandle {
     }
 }
 
-/// Verify that this runtime can signal exact process instances before any PTY is spawned.
+/// Verify that this runtime can enumerate PTY session members and signal exact
+/// process instances before any PTY is spawned or shutdown topology mutates.
 pub fn require_stable_process_signaling() -> io::Result<()> {
+    require_stable_process_signaling_until(Instant::now() + PROCESS_SESSION_PREFLIGHT_TIMEOUT)
+}
+
+pub(crate) fn require_stable_process_signaling_until(deadline: Instant) -> io::Result<()> {
     #[cfg(test)]
     if FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.get() {
         return Err(io::Error::new(
@@ -703,16 +987,26 @@ pub fn require_stable_process_signaling() -> io::Result<()> {
         io::Error::new(io::ErrorKind::Unsupported, "current process identity is unavailable")
     })?;
     match process.matches_current() {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "stable process signaling did not retain the current process",
-        )),
-        Err(error) => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            format!("stable process signaling is unavailable: {error}"),
-        )),
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "stable process signaling did not retain the current process",
+            ));
+        }
+        Err(error) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("stable process signaling is unavailable: {error}"),
+            ));
+        }
     }
+    all_process_ids(Some(deadline)).map(|_| ()).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("PTY session enumeration is unavailable: {error}"),
+        )
+    })
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -1096,10 +1390,9 @@ mod tests {
             .map(|child| libc::pid_t::try_from(child.id()).unwrap())
             .collect::<Vec<_>>();
         let deadline = Instant::now() + Duration::from_secs(1);
-        let snapshot = std::sync::Arc::new(
-            SessionProcessSnapshot::capture(sessions.clone(), deadline).unwrap(),
-        );
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(sessions.len()));
+        let snapshot =
+            Arc::new(SessionProcessSnapshot::capture(sessions.clone(), deadline).unwrap());
+        let barrier = Arc::new(std::sync::Barrier::new(sessions.len()));
 
         std::thread::scope(|scope| {
             for session in &sessions {
@@ -1122,5 +1415,27 @@ mod tests {
             scan_count, 2,
             "concurrent refreshes did not coalesce onto one new process-table snapshot"
         );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn natural_reap_batch_refreshes_all_sessions_with_one_scan() {
+        let mut children = [spawn_session_child(), spawn_session_child()];
+        let sessions = children
+            .iter()
+            .map(|child| libc::pid_t::try_from(child.id()).unwrap())
+            .collect::<HashSet<_>>();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let snapshot = SessionProcessSnapshot::capture(sessions.iter().copied(), deadline).unwrap();
+
+        let completed =
+            kill_sessions_until_only_leaders_from_snapshot(&snapshot, &sessions, deadline);
+        let scan_count = snapshot.scan_count();
+
+        for child in &mut children {
+            child.wait().unwrap();
+        }
+        assert_eq!(completed, sessions);
+        assert_eq!(scan_count, 2, "one natural-reap batch did not share its reconciliation scan");
     }
 }

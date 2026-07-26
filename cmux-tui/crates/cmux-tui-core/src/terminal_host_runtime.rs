@@ -2417,7 +2417,7 @@ mod unix {
             })
         }
 
-        fn kill_session_descendants_before_reap(&self, deadline: Instant) -> bool {
+        fn prepare_natural_cleanup(&self) -> bool {
             #[cfg(test)]
             {
                 self.normal_cleanup_attempts.fetch_add(1, Ordering::AcqRel);
@@ -2431,15 +2431,7 @@ mod unix {
                     return false;
                 }
             }
-            let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
-                return false;
-            };
-            matches!(
-                crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
-                    self.child_waitable.load(Ordering::Acquire)
-                }),
-                Ok(true)
-            )
+            true
         }
 
         fn request_forced_pty_drain(&self) {
@@ -2458,6 +2450,7 @@ mod unix {
                 self.termination_started.swap(true, Ordering::AcqRel)
             };
             self.child_exit.1.notify_all();
+            crate::process_session::wake_child_reaper();
             if already_started {
                 return;
             }
@@ -2476,11 +2469,13 @@ mod unix {
         fn finish_group_escalation(&self) {
             self.group_escalation_complete.store(true, Ordering::Release);
             self.child_exit.1.notify_all();
+            crate::process_session::wake_child_reaper();
         }
 
         fn abandon_group_escalation(&self) {
             self.termination_started.store(false, Ordering::Release);
             self.child_exit.1.notify_all();
+            crate::process_session::wake_child_reaper();
         }
 
         fn publish_exit_if_drained(&self) {
@@ -2501,6 +2496,7 @@ mod unix {
                 self.child_reaped.load(Ordering::Acquire)
             };
             self.child_exit.1.notify_all();
+            crate::process_session::wake_child_reaper();
             if child_reaped {
                 let session_empty = self
                     .pid
@@ -2860,6 +2856,8 @@ mod unix {
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
+        let reaper = crate::process_session::reserve_child_reaper()
+            .context("reserve bounded PTY session cleanup")?;
         let pty = native_pty_system().openpty(PtySize {
             rows: launch.rows,
             cols: launch.cols,
@@ -3013,6 +3011,7 @@ mod unix {
             // child wait rendezvous, so clients can safely stop at Exit.
             reader_host.pty_drained.store(true, Ordering::Release);
             reader_host.child_exit.1.notify_all();
+            crate::process_session::wake_child_reaper();
             reader_host.publish_exit_if_drained();
         })?;
         let child_host = shared.clone();
@@ -3022,28 +3021,57 @@ mod unix {
                 .and_then(|pid| libc::pid_t::try_from(pid).ok())
                 .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
             if observed_without_reaping {
+                let session =
+                    libc::pid_t::try_from(child_host.pid.expect("observed child has a PID"))
+                        .expect("portable-pty child PID fits pid_t");
                 child_host.child_waitable.store(true, Ordering::Release);
                 child_host.child_exit.1.notify_all();
-                crate::process_session::reap_reserved_session_leader(
-                    crate::process_session::ReservedChildReap {
-                        changed: &child_host.child_exit,
-                        signal_lock: &child_host.child_signal_lock,
-                        pty_drained: &child_host.pty_drained,
-                        termination_started: &child_host.termination_started,
-                        cleanup_complete: &child_host.group_escalation_complete,
-                        child_reaped: &child_host.child_reaped,
-                    },
+                let cleanup_host = child_host.clone();
+                let prepare_host = child_host.clone();
+                let reap_host = child_host.clone();
+                let mut child = Some(child);
+                crate::process_session::enqueue_reserved_session_leader(
+                    reaper,
+                    session,
                     HOST_KILL_WAIT,
-                    |deadline| child_host.kill_session_descendants_before_reap(deadline),
-                    || {
-                        let _ = child.wait();
+                    move || {
+                        crate::process_session::reserved_child_needs_cleanup(
+                            crate::process_session::ReservedChildReap {
+                                signal_lock: &cleanup_host.child_signal_lock,
+                                pty_drained: &cleanup_host.pty_drained,
+                                termination_started: &cleanup_host.termination_started,
+                                cleanup_complete: &cleanup_host.group_escalation_complete,
+                                child_reaped: &cleanup_host.child_reaped,
+                            },
+                        )
+                    },
+                    move || prepare_host.prepare_natural_cleanup(),
+                    move |cleanup_succeeded| {
+                        let done = crate::process_session::poll_reserved_session_leader(
+                            crate::process_session::ReservedChildReap {
+                                signal_lock: &reap_host.child_signal_lock,
+                                pty_drained: &reap_host.pty_drained,
+                                termination_started: &reap_host.termination_started,
+                                cleanup_complete: &reap_host.group_escalation_complete,
+                                child_reaped: &reap_host.child_reaped,
+                            },
+                            cleanup_succeeded,
+                            || {
+                                let mut child =
+                                    child.take().expect("reserved child is reaped once");
+                                let _ = child.wait();
+                            },
+                        );
+                        if done {
+                            let mut exited = reap_host.child_exit.0.lock().unwrap();
+                            *exited = true;
+                            drop(exited);
+                            reap_host.child_exit.1.notify_all();
+                            reap_host.publish_exit_if_drained();
+                        }
+                        done
                     },
                 );
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = true;
-                drop(exited);
-                child_host.child_exit.1.notify_all();
-                child_host.publish_exit_if_drained();
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
