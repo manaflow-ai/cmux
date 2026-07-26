@@ -20,6 +20,17 @@ public enum TerminalFontSizeMutationOutcome: Sendable, Equatable {
     }
 }
 
+/// Durable font ownership captured before Ghostty replaces app configuration.
+///
+/// Callers keep this value opaque and return it to the same surface after the
+/// native config update. This prevents post-reload runtime points from being
+/// mistaken for an externally adjusted durable base.
+public struct TerminalFontSizeConfigurationReloadState: Sendable {
+    fileprivate let surfaceId: UUID
+    fileprivate let lineage: TerminalFontSizeLineage?
+    fileprivate let followsConfiguredFontSize: Bool
+}
+
 extension TerminalSurface {
     @MainActor
     private static var activeTransferReconciliationTokens: Set<UUID> = []
@@ -493,6 +504,125 @@ extension TerminalSurface {
         followsConfiguredFontSize = true
         if !alreadyFollowsTarget {
             recordCurrentFontSizeLineage(targetLineage)
+        }
+        return .applied
+    }
+
+    /// Captures durable font ownership against the config that is still live.
+    ///
+    /// This must run before `ghostty_app_update_config`. An adjusted Ghostty
+    /// surface preserves its old runtime point value through that call, so
+    /// interpreting it afterward with a new magnification would corrupt the
+    /// unscaled base.
+    @MainActor
+    public func captureFontSizeConfigurationReloadState(
+        magnificationPercent: Int
+    ) -> TerminalFontSizeConfigurationReloadState {
+        TerminalFontSizeConfigurationReloadState(
+            surfaceId: id,
+            lineage: fontSizeLineageSnapshot(
+                magnificationPercent: magnificationPercent
+            ),
+            followsConfiguredFontSize: followsConfiguredFontSize
+        )
+    }
+
+    /// Reconciles native runtime points with a newly applied app config.
+    ///
+    /// Explicit terminals retain their unscaled base and receive the new
+    /// magnification. Config followers adopt the new configured size. A
+    /// temporary mobile fit keeps its fitted live size while its durable base
+    /// is rebased to either result.
+    @MainActor
+    public func reconcileFontSizeAfterConfigurationReload(
+        from state: TerminalFontSizeConfigurationReloadState,
+        configuredRuntimePoints: Float32,
+        magnificationPercent: Int
+    ) -> TerminalFontSizeMutationOutcome {
+        guard state.surfaceId == id,
+              configuredRuntimePoints.isFinite,
+              configuredRuntimePoints > 0 else {
+            return .failed
+        }
+
+        let policy = TerminalFontSizePolicy()
+        let configuredRuntimePoints = policy.clampedRuntimePoints(
+            configuredRuntimePoints
+        )
+        let retainsExplicitBase =
+            state.lineage?.isExplicitOverride
+            ?? !state.followsConfiguredFontSize
+        let targetLineage: TerminalFontSizeLineage
+        let durableRuntimePoints: Float32
+        if retainsExplicitBase, let lineage = state.lineage {
+            targetLineage = TerminalFontSizeLineage(
+                basePoints: lineage.basePoints,
+                isExplicitOverride: true
+            )
+            durableRuntimePoints = policy.clampedRuntimePoints(
+                CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: lineage.basePoints,
+                    percent: magnificationPercent
+                )
+            )
+        } else {
+            durableRuntimePoints = configuredRuntimePoints
+            targetLineage = TerminalFontSizeLineage(
+                basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
+                    fromRuntimePoints: configuredRuntimePoints,
+                    percent: magnificationPercent
+                ),
+                isExplicitOverride: false
+            )
+        }
+
+        let desiredLiveRuntimePoints: Float32
+        let retainsMobileFit: Bool
+        if var fitState = mobileViewportFontFitState {
+            fitState.updateDurableBase(to: durableRuntimePoints)
+            mobileViewportFontFitState = fitState
+            desiredLiveRuntimePoints = fitState.fittedRuntimePointSize
+            retainsMobileFit = true
+        } else {
+            desiredLiveRuntimePoints = durableRuntimePoints
+            retainsMobileFit = false
+        }
+
+        followsConfiguredFontSize = !retainsExplicitBase
+        recordCurrentFontSizeLineage(targetLineage)
+
+        guard let runtimeSurface = liveSurfaceForGhosttyAccess(
+            reason: "fontSize.configReload"
+        ) else {
+            return .alreadySatisfied
+        }
+        let observedRuntimePoints =
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            )
+        let nativeIsAdjusted =
+            ghostty_surface_font_size_adjusted(runtimeSurface)
+        let nativeMatchesTarget = observedRuntimePoints.map {
+            abs($0 - desiredLiveRuntimePoints) <= 0.000_1
+        } ?? false
+
+        if retainsExplicitBase || retainsMobileFit {
+            guard !nativeMatchesTarget || !nativeIsAdjusted else {
+                return .alreadySatisfied
+            }
+            guard performMobileViewportFontPointSizeAction(
+                desiredLiveRuntimePoints
+            ) else {
+                return .failed
+            }
+            return .applied
+        }
+
+        guard !nativeMatchesTarget || nativeIsAdjusted else {
+            return .alreadySatisfied
+        }
+        guard performInternalBindingAction("reset_font_size") else {
+            return .failed
         }
         return .applied
     }

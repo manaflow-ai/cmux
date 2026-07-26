@@ -1931,6 +1931,18 @@ class GhosttyApp {
         )
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+        let terminalFontReloadStates =
+            Self.terminalSurfaceRegistry
+                .allTerminalSurfaces()
+                .map { surface in
+                    (
+                        surface,
+                        surface.captureFontSizeConfigurationReloadState(
+                            magnificationPercent:
+                                appliedGlobalFontMagnificationPercent
+                        )
+                    )
+                }
         ghostty_app_update_config(app, newConfig)
         appliedGlobalFontMagnificationPercent =
             reloadMagnificationPercent
@@ -1941,6 +1953,33 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
+        let terminalFontConfiguration =
+            terminalFontConfigurationSnapshot(
+                config: newConfig,
+                magnificationPercent: reloadMagnificationPercent
+            )
+        for (surface, reloadState) in terminalFontReloadStates {
+            guard Self.terminalSurfaceRegistry.terminalSurface(
+                id: surface.id
+            ) === surface else {
+                continue
+            }
+            let outcome =
+                surface.reconcileFontSizeAfterConfigurationReload(
+                    from: reloadState,
+                    configuredRuntimePoints:
+                        terminalFontConfiguration
+                            .configuredRuntimePoints,
+                    magnificationPercent:
+                        terminalFontConfiguration
+                            .magnificationPercent
+                )
+            if outcome == .failed {
+                Self.initializationLogger.error(
+                    "Terminal font reconciliation failed after config reload surface=\(surface.id.uuidString, privacy: .public)"
+                )
+            }
+        }
         lastAppearanceColorScheme = reloadColorScheme
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         refreshSurfacesAfterConfigurationReload(
@@ -1964,6 +2003,18 @@ class GhosttyApp {
     @MainActor
     func terminalFontConfigurationSnapshot()
         -> WorkspaceTerminalFontConfigurationSnapshot {
+        terminalFontConfigurationSnapshot(
+            config: config,
+            magnificationPercent:
+                appliedGlobalFontMagnificationPercent
+        )
+    }
+
+    @MainActor
+    private func terminalFontConfigurationSnapshot(
+        config: ghostty_config_t?,
+        magnificationPercent: Int
+    ) -> WorkspaceTerminalFontConfigurationSnapshot {
         var configuredRuntimePoints: Float32 = 0
         let key = "font-size"
         if let config,
@@ -1977,8 +2028,7 @@ class GhosttyApp {
            configuredRuntimePoints > 0 {
             return WorkspaceTerminalFontConfigurationSnapshot(
                 configuredRuntimePoints: configuredRuntimePoints,
-                magnificationPercent:
-                    appliedGlobalFontMagnificationPercent
+                magnificationPercent: magnificationPercent
             )
         }
 
@@ -1986,11 +2036,10 @@ class GhosttyApp {
             configuredRuntimePoints: Float32(
                 GhosttyConfig.load(
                     globalFontMagnificationPercent:
-                        appliedGlobalFontMagnificationPercent
+                        magnificationPercent
                 ).fontSize
             ),
-            magnificationPercent:
-                appliedGlobalFontMagnificationPercent
+            magnificationPercent: magnificationPercent
         )
     }
 

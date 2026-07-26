@@ -19,25 +19,30 @@ private struct WorkspaceTerminalFontSizePanelDiscovery {
     }
 
     struct Candidate {
-        let panel: TerminalPanel
+        let panelId: UUID
         let origin: Origin
 
         @MainActor
-        func isMounted(
+        func mountedTerminalPanel(
             in workspace: Workspace?,
             windowDock: DockSplitStore?
-        ) -> Bool {
+        ) -> TerminalPanel? {
             switch origin {
             case .workspace:
-                return (workspace?.panels[panel.id] as? TerminalPanel) === panel
+                return workspace?.panels[panelId] as? TerminalPanel
             case .workspaceDock:
-                return (workspace?._dockSplit?.panels[panel.id]
-                    as? TerminalPanel) === panel
+                return workspace?._dockSplit?.panels[panelId]
+                    as? TerminalPanel
             case .remoteMirror(let mirrorId, let paneId):
-                return workspace?.remoteTmuxWindowMirror(forPanelId: mirrorId)?
-                    .panelsByPaneId[paneId] === panel
+                guard let panel = workspace?
+                    .remoteTmuxWindowMirror(forPanelId: mirrorId)?
+                    .panelsByPaneId[paneId],
+                      panel.id == panelId else {
+                    return nil
+                }
+                return panel
             case .windowDock:
-                return (windowDock?.panels[panel.id] as? TerminalPanel) === panel
+                return windowDock?.panels[panelId] as? TerminalPanel
             }
         }
     }
@@ -47,107 +52,65 @@ private struct WorkspaceTerminalFontSizePanelDiscovery {
         case nonTerminal
     }
 
-    private enum Phase {
-        case workspace
-        case workspaceDock
-        case remoteMirrors
-        case windowDock
-        case finished
-    }
-
-    private var phase: Phase = .workspace
-    private var workspacePanels: Dictionary<UUID, any Panel>.Iterator
-    private var workspaceDockPanels:
-        Dictionary<UUID, any Panel>.Iterator?
-    private var remoteMirrors:
-        Dictionary<UUID, RemoteTmuxWindowMirror>.Iterator
-    private var remoteMirrorPanels:
-        Dictionary<Int, TerminalPanel>.Iterator?
-    private var remoteMirrorId: UUID?
-    private var windowDockPanels:
-        Dictionary<UUID, any Panel>.Iterator?
+    /// Discovery snapshots identities only. A dictionary iterator retains its
+    /// backing storage and every panel value, which would keep closed browser
+    /// and terminal panels alive while a failed native mutation is parked.
+    private let visits: [Visit]
+    private var nextVisitIndex = 0
 
     init(workspace: Workspace) {
-        workspacePanels = workspace.panels.makeIterator()
-        workspaceDockPanels = workspace._dockSplit?.panels.makeIterator()
-        remoteMirrors = workspace.remoteTmuxWindowMirrors.makeIterator()
-        windowDockPanels = nil
-    }
-
-    init(windowDock: DockSplitStore?) {
-        phase = .windowDock
-        workspacePanels =
-            Dictionary<UUID, any Panel>().makeIterator()
-        workspaceDockPanels = nil
-        remoteMirrors =
-            Dictionary<UUID, RemoteTmuxWindowMirror>().makeIterator()
-        windowDockPanels = windowDock?.panels.makeIterator()
-    }
-
-    mutating func nextVisit() -> Visit? {
-        while true {
-            switch phase {
-            case .workspace:
-                if let (_, panel) = workspacePanels.next() {
-                    guard let terminalPanel = panel as? TerminalPanel else {
-                        return .nonTerminal
-                    }
-                    return .candidate(
-                        Candidate(panel: terminalPanel, origin: .workspace)
-                    )
-                }
-                phase = .workspaceDock
-
-            case .workspaceDock:
-                if let (_, panel) = workspaceDockPanels?.next() {
-                    guard let terminalPanel = panel as? TerminalPanel else {
-                        return .nonTerminal
-                    }
-                    return .candidate(
-                        Candidate(panel: terminalPanel, origin: .workspaceDock)
-                    )
-                }
-                phase = .remoteMirrors
-
-            case .remoteMirrors:
-                if let (paneId, panel) = remoteMirrorPanels?.next(),
-                   let remoteMirrorId {
-                    return .candidate(
+        var collectedVisits: [Visit] = workspace.panels.keys.map {
+            .candidate(
+                Candidate(panelId: $0, origin: .workspace)
+            )
+        }
+        if let workspaceDock = workspace._dockSplit {
+            collectedVisits.append(
+                contentsOf: workspaceDock.panels.keys.map {
+                    .candidate(
                         Candidate(
-                            panel: panel,
+                            panelId: $0,
+                            origin: .workspaceDock
+                        )
+                    )
+                }
+            )
+        }
+        for (mirrorId, mirror) in workspace.remoteTmuxWindowMirrors {
+            // Keep the existing bounded visit charged for entering a mirror.
+            collectedVisits.append(.nonTerminal)
+            for (paneId, panel) in mirror.panelsByPaneId {
+                collectedVisits.append(
+                    .candidate(
+                        Candidate(
+                            panelId: panel.id,
                             origin: .remoteMirror(
-                                mirrorId: remoteMirrorId,
+                                mirrorId: mirrorId,
                                 paneId: paneId
                             )
                         )
                     )
-                }
-                remoteMirrorPanels = nil
-                remoteMirrorId = nil
-                if let (mirrorId, mirror) = remoteMirrors.next() {
-                    remoteMirrorId = mirrorId
-                    remoteMirrorPanels = mirror.panelsByPaneId.makeIterator()
-                    return .nonTerminal
-                }
-                phase = .windowDock
-
-            case .windowDock:
-                if let (_, panel) = windowDockPanels?.next() {
-                    guard let terminalPanel = panel as? TerminalPanel else {
-                        return .nonTerminal
-                    }
-                    return .candidate(
-                        Candidate(panel: terminalPanel, origin: .windowDock)
-                    )
-                }
-                phase = .finished
-
-            case .finished:
-                return nil
+                )
             }
         }
+        visits = collectedVisits
+    }
+
+    init(windowDock: DockSplitStore?) {
+        visits = windowDock?.panels.keys.map {
+            .candidate(
+                Candidate(panelId: $0, origin: .windowDock)
+            )
+        } ?? []
+    }
+
+    mutating func nextVisit() -> Visit? {
+        guard nextVisitIndex < visits.count else { return nil }
+        defer { nextVisitIndex += 1 }
+        return visits[nextVisitIndex]
     }
 }
+
 @MainActor
 final class WorkspaceTerminalFontSizeCoordinator {
     typealias DrainCancellation = @MainActor () -> Void
@@ -2401,9 +2364,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
     @discardableResult
     private func apply(
         _ candidate: WorkspaceTerminalFontSizePanelDiscovery.Candidate,
+        terminalPanel: TerminalPanel,
         to activeRequest: inout ActiveRequest
     ) -> CoordinatedMutationDisposition {
-        let terminalPanel = candidate.panel
         let alreadyIncludesChange = surfaceIncludesChange(
             on: terminalPanel,
             for: activeRequest.request
@@ -2747,22 +2710,25 @@ final class WorkspaceTerminalFontSizeCoordinator {
             }
 
             if let pendingCandidate = current.pendingCandidate {
-                guard pendingCandidate.isMounted(
-                    in: workspace,
-                    windowDock: requestWindowDock
-                ) else {
+                guard let pendingTerminalPanel =
+                        pendingCandidate.mountedTerminalPanel(
+                            in: workspace,
+                            windowDock: requestWindowDock
+                        ) else {
                     current.pendingCandidate = nil
-                    current.seenPanelIds.remove(pendingCandidate.panel.id)
+                    current.seenPanelIds.remove(
+                        pendingCandidate.panelId
+                    )
                     activeRequest = current
                     continue
                 }
                 let alreadyIncludesChange = surfaceIncludesChange(
-                    on: pendingCandidate.panel,
+                    on: pendingTerminalPanel,
                     for: current.request
                 )
                 let panelHasLiveSurface =
-                    pendingCandidate.panel.surface.hasLiveSurface
-                    && pendingCandidate.panel.surface.surface != nil
+                    pendingTerminalPanel.surface.hasLiveSurface
+                    && pendingTerminalPanel.surface.surface != nil
                 if panelHasLiveSurface,
                    !alreadyIncludesChange,
                    !budget.reserveLiveActions(
@@ -2775,6 +2741,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 current.pendingCandidate = nil
                 let disposition = apply(
                     pendingCandidate,
+                    terminalPanel: pendingTerminalPanel,
                     to: &current
                 )
                 switch disposition {
@@ -2802,23 +2769,26 @@ final class WorkspaceTerminalFontSizeCoordinator {
             }
 
             guard case .candidate(let candidate) = visit,
-                  candidate.isMounted(
+                  let terminalPanel =
+                    candidate.mountedTerminalPanel(
                     in: workspace,
                     windowDock: requestWindowDock
                   ),
-                  current.seenPanelIds.insert(candidate.panel.id).inserted
+                  current.seenPanelIds.insert(
+                    candidate.panelId
+                  ).inserted
             else {
                 activeRequest = current
                 continue
             }
 
             let alreadyIncludesChange = surfaceIncludesChange(
-                on: candidate.panel,
+                on: terminalPanel,
                 for: current.request
             )
             let panelHasLiveSurface =
-                candidate.panel.surface.hasLiveSurface
-                && candidate.panel.surface.surface != nil
+                terminalPanel.surface.hasLiveSurface
+                && terminalPanel.surface.surface != nil
             if panelHasLiveSurface,
                !alreadyIncludesChange,
                !budget.reserveLiveActions(
@@ -2830,7 +2800,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 break drainLoop
             }
 
-            switch apply(candidate, to: &current) {
+            switch apply(
+                candidate,
+                terminalPanel: terminalPanel,
+                to: &current
+            ) {
             case .retry:
                 current.pendingCandidate = candidate
                 activeRequest = current
