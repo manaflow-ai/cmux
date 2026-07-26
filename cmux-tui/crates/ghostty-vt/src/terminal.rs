@@ -1253,11 +1253,11 @@ impl Terminal {
         if data.is_empty() {
             return Cow::Borrowed(data);
         }
-        if self.mouse_mode_scan.feed(data) {
+        let normalized = self.c1_normalizer.normalize(data);
+        if self.mouse_mode_scan.feed(&normalized) {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
-        self.kitty_inflight.write(data);
-        let normalized = self.c1_normalizer.normalize(data);
+        self.kitty_inflight.write(&normalized);
         self.cursor_override.write(&normalized);
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
@@ -1555,6 +1555,11 @@ impl Terminal {
             return Err(Error::NoValue);
         }
 
+        for alias in aliases {
+            if unsafe { sys::ghostty_kitty_graphics_image(graphics, alias.image_id) }.is_null() {
+                return Err(Error::NoValue);
+            }
+        }
         for alias in aliases {
             check(unsafe {
                 sys::ghostty_kitty_graphics_image_set_number(

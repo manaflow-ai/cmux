@@ -991,10 +991,63 @@ impl RenderService {
             encoder.finish()?;
         }
         writer.write_all(b"\",\"kitty_image_aliases\":")?;
-        serde_json::to_writer(&mut writer, &value.kitty_image_aliases).map_err(json_error_to_io)?;
+        write_kitty_image_aliases_json(&mut writer, &value.kitty_image_aliases)?;
         writer.write_all(b",\"colors\":")?;
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
         writer.write_all(b"}")?;
+        Ok(writer.finish())
+    }
+
+    fn serialize_attach_frame(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        match frame {
+            AttachFrame::Output(output) => {
+                write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
+                write_base64_json_string(&mut writer, output)?;
+                writer.write_all(b"\"}")?;
+            }
+            AttachFrame::OutputWithColors { output, colors } => {
+                write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
+                write_base64_json_string(&mut writer, output)?;
+                writer.write_all(b"\",\"colors\":")?;
+                serde_json::to_writer(&mut writer, &terminal_colors_json(**colors))
+                    .map_err(json_error_to_io)?;
+                writer.write_all(b"}")?;
+            }
+            AttachFrame::Resized { cols, rows, replay, kitty_image_aliases } => {
+                write!(
+                    writer,
+                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
+                )?;
+                write_base64_json_string(&mut writer, replay)?;
+                writer.write_all(b"\",\"kitty_image_aliases\":")?;
+                write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
+                writer.write_all(b"}")?;
+            }
+            AttachFrame::ResizedWithColors { cols, rows, replay, kitty_image_aliases, colors } => {
+                write!(
+                    writer,
+                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
+                )?;
+                write_base64_json_string(&mut writer, replay)?;
+                writer.write_all(b"\",\"kitty_image_aliases\":")?;
+                write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
+                writer.write_all(b",\"colors\":")?;
+                serde_json::to_writer(&mut writer, &terminal_colors_json(**colors))
+                    .map_err(json_error_to_io)?;
+                writer.write_all(b"}")?;
+            }
+            AttachFrame::ColorsChanged(colors) => {
+                let mut value = terminal_colors_json(**colors);
+                value["event"] = json!("colors-changed");
+                value["surface"] = json!(surface);
+                serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
+            }
+        }
         Ok(writer.finish())
     }
 
@@ -1008,6 +1061,31 @@ impl RenderService {
 
 fn json_error_to_io(error: serde_json::Error) -> std::io::Error {
     std::io::Error::new(error.io_error_kind().unwrap_or(std::io::ErrorKind::InvalidData), error)
+}
+
+fn write_base64_json_string(writer: &mut BudgetedJsonWriter, bytes: &[u8]) -> std::io::Result<()> {
+    let mut encoder =
+        base64::write::EncoderWriter::new(writer, &base64::engine::general_purpose::STANDARD);
+    encoder.write_all(bytes)?;
+    encoder.finish().map(|_| ())
+}
+
+fn write_kitty_image_aliases_json(
+    writer: &mut BudgetedJsonWriter,
+    aliases: &[ghostty_vt::KittyImageAlias],
+) -> std::io::Result<()> {
+    writer.write_all(b"[")?;
+    for (index, alias) in aliases.iter().enumerate() {
+        if index != 0 {
+            writer.write_all(b",")?;
+        }
+        write!(
+            writer,
+            "{{\"image_id\":{},\"image_number\":{}}}",
+            alias.image_id, alias.image_number
+        )?;
+    }
+    writer.write_all(b"]")
 }
 
 #[derive(Clone)]
@@ -1136,6 +1214,25 @@ impl MessageWriter {
             .render_service
             .serialize_vt_state(value)
             .and_then(|text| self.sink.send_initial(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    fn send_attach_frame(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_attach_frame(surface, frame)
+            .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -2465,8 +2562,7 @@ fn write_vt_state_command_json(
         encoder.finish()?;
     }
     output.write_all(b"\",\"kitty_image_aliases\":")?;
-    serde_json::to_writer(&mut *output, &kitty_image_aliases_json(kitty_image_aliases))
-        .map_err(json_error_to_io)?;
+    write_kitty_image_aliases_json(output, kitty_image_aliases)?;
     output.write_all(b"}}")?;
     Ok(())
 }
@@ -3043,24 +3139,12 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
     })
 }
 
-fn kitty_image_aliases_json(aliases: &[ghostty_vt::KittyImageAlias]) -> Vec<Value> {
-    aliases
-        .iter()
-        .map(|alias| {
-            json!({
-                "image_id": alias.image_id,
-                "image_number": alias.image_number,
-            })
-        })
-        .collect()
-}
-
 struct VtStateMessage {
     surface: SurfaceId,
     cols: u16,
     rows: u16,
     replay: Arc<[u8]>,
-    kitty_image_aliases: Vec<Value>,
+    kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     colors: Value,
 }
 
@@ -5169,7 +5253,7 @@ fn handle_command(
                 cols: attach.cols,
                 rows: attach.rows,
                 replay: attach.replay.clone(),
-                kitty_image_aliases: kitty_image_aliases_json(&attach.kitty_image_aliases),
+                kitty_image_aliases: attach.kitty_image_aliases.clone(),
                 colors: terminal_colors_json(attach.colors),
             };
             if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
@@ -5218,60 +5302,9 @@ fn handle_command(
                                 break;
                             }
                         };
-                        let value = match frame {
-                            AttachFrame::Output(chunk) => json!({
-                                "event": "output",
-                                "surface": surface_id,
-                                "data": base64::engine::general_purpose::STANDARD.encode(chunk),
-                            }),
-                            AttachFrame::OutputWithColors { output, colors } => json!({
-                                "event": "output",
-                                "surface": surface_id,
-                                "data": base64::engine::general_purpose::STANDARD.encode(output),
-                                "colors": terminal_colors_json(*colors),
-                            }),
-                            AttachFrame::Resized {
-                                cols,
-                                rows,
-                                replay,
-                                kitty_image_aliases,
-                            } => {
-                                json!({
-                                    "event": "resized",
-                                    "surface": surface_id,
-                                    "cols": cols,
-                                    "rows": rows,
-                                    "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                                    "kitty_image_aliases":
-                                        kitty_image_aliases_json(&kitty_image_aliases),
-                                })
-                            }
-                            AttachFrame::ResizedWithColors {
-                                cols,
-                                rows,
-                                replay,
-                                kitty_image_aliases,
-                                colors,
-                            } => {
-                                json!({
-                                    "event": "resized",
-                                    "surface": surface_id,
-                                    "cols": cols,
-                                    "rows": rows,
-                                    "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                                    "kitty_image_aliases":
-                                        kitty_image_aliases_json(&kitty_image_aliases),
-                                    "colors": terminal_colors_json(*colors),
-                                })
-                            }
-                            AttachFrame::ColorsChanged(colors) => {
-                                let mut value = terminal_colors_json(*colors);
-                                value["event"] = json!("colors-changed");
-                                value["surface"] = json!(surface_id);
-                                value
-                            }
-                        };
-                        if let Err(error) = writer.send_stream(&value, &outbound_stream) {
+                        if let Err(error) =
+                            writer.send_attach_frame(surface_id, &frame, &outbound_stream)
+                        {
                             handle_attach_send_error(&attach.lifecycle, &error);
                             break;
                         }

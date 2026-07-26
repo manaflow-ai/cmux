@@ -216,16 +216,14 @@ enum KittyStreamScan {
 
 impl KittyStreamScan {
     fn from_ground(byte: u8) -> Self {
+        // Match libghostty's parser and C1Normalizer: after a multibyte lead,
+        // every 0x80..=0xbf byte stays text even when strict UTF-8 would reject it.
         match byte {
             0x1b => Self::Escape,
             0x9f => Self::ApcType(KittyApcIntroducer::C1),
             0xc2..=0xdf => Self::utf8(1, 0x80, 0xbf),
-            0xe0 => Self::utf8(2, 0xa0, 0xbf),
-            0xe1..=0xec | 0xee..=0xef => Self::utf8(2, 0x80, 0xbf),
-            0xed => Self::utf8(2, 0x80, 0x9f),
-            0xf0 => Self::utf8(3, 0x90, 0xbf),
-            0xf1..=0xf3 => Self::utf8(3, 0x80, 0xbf),
-            0xf4 => Self::utf8(3, 0x80, 0x8f),
+            0xe0..=0xef => Self::utf8(2, 0x80, 0xbf),
+            0xf0..=0xf4 => Self::utf8(3, 0x80, 0xbf),
             _ => Self::Ground,
         }
     }

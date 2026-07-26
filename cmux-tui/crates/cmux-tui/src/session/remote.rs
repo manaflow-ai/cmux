@@ -325,8 +325,8 @@ impl RemoteSurface {
         rows: u16,
         replay: Option<&[u8]>,
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
-    ) {
-        self.apply_stream_resize_with_colors(cols, rows, replay, kitty_image_aliases, None);
+    ) -> ghostty_vt::Result<()> {
+        self.apply_stream_resize_with_colors(cols, rows, replay, kitty_image_aliases, None)
     }
 
     /// Apply one authoritative replay and its coupled Kitty alias and color
@@ -338,7 +338,7 @@ impl RemoteSurface {
         replay: Option<&[u8]>,
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
         colors: Option<&RemoteTerminalColors>,
-    ) {
+    ) -> ghostty_vt::Result<()> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
         let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
@@ -347,25 +347,27 @@ impl RemoteSurface {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeCommitBoundary);
         let mut term = self.term.lock().unwrap();
-        if let Some(replay) = replay
-            && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
-        {
-            let _ = fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
+        if let Some(replay) = replay {
+            let mut fresh = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
+            fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
             fresh.vt_write(replay);
-            let _ = fresh.restore_kitty_image_aliases(kitty_image_aliases);
+            fresh.restore_kitty_image_aliases(kitty_image_aliases)?;
             if let Some(colors) = colors {
                 apply_terminal_colors(&mut fresh, colors);
             }
             *term = fresh;
             self.sync_mouse_encoders(&term);
-            return;
+            return Ok(());
         }
-        let _ = term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
-        let _ = term.restore_kitty_image_aliases(kitty_image_aliases);
+        if !kitty_image_aliases.is_empty() {
+            return Err(ghostty_vt::Error::NoValue);
+        }
+        term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         if let Some(colors) = colors {
             apply_terminal_colors(&mut term, colors);
         }
         self.sync_mouse_encoders(&term);
+        Ok(())
     }
 
     fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> ghostty_vt::Result<bool> {
@@ -1024,15 +1026,24 @@ impl RemoteSession {
                     id,
                     format!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
-                let kitty_image_aliases = parse_kitty_image_aliases(&value);
+                let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize_with_colors(
-                        cols,
-                        rows,
-                        Some(&replay),
-                        &kitty_image_aliases,
-                        colors.as_ref(),
-                    );
+                    if surface
+                        .apply_stream_resize_with_colors(
+                            cols,
+                            rows,
+                            Some(&replay),
+                            &kitty_image_aliases,
+                            colors.as_ref(),
+                        )
+                        .is_err()
+                    {
+                        self.disconnect_transport();
+                        return;
+                    }
                     surface.dirty.store(true, Ordering::Release);
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
@@ -1093,12 +1104,25 @@ impl RemoteSession {
                 let Some(id) = surface_id() else { return };
                 let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                 let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-                let replay = value
-                    .get("replay")
-                    .or_else(|| value.get("data"))
-                    .and_then(|v| v.as_str())
-                    .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
-                let kitty_image_aliases = parse_kitty_image_aliases(&value);
+                let replay = match value.get("replay").or_else(|| value.get("data")) {
+                    Some(data) => {
+                        let Some(data) = data.as_str() else {
+                            self.disconnect_transport();
+                            return;
+                        };
+                        let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data)
+                        else {
+                            self.disconnect_transport();
+                            return;
+                        };
+                        Some(replay)
+                    }
+                    None => None,
+                };
+                let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
@@ -1108,13 +1132,19 @@ impl RemoteSession {
                     ),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize_with_colors(
-                        cols,
-                        rows,
-                        replay.as_deref(),
-                        &kitty_image_aliases,
-                        colors.as_ref(),
-                    );
+                    if surface
+                        .apply_stream_resize_with_colors(
+                            cols,
+                            rows,
+                            replay.as_deref(),
+                            &kitty_image_aliases,
+                            colors.as_ref(),
+                        )
+                        .is_err()
+                    {
+                        self.disconnect_transport();
+                        return;
+                    }
                     surface.dirty.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceResized {
                         surface: id,
@@ -1143,7 +1173,10 @@ impl RemoteSession {
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                     let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-                    surface.apply_stream_resize(cols, rows, None, &[]);
+                    if surface.apply_stream_resize(cols, rows, None, &[]).is_err() {
+                        self.disconnect_transport();
+                        return;
+                    }
                     surface.update_browser_state(&value);
                     surface.dirty.store(true, Ordering::Release);
                 }
@@ -1916,16 +1949,27 @@ impl Drop for RemoteSession {
     }
 }
 
-fn parse_kitty_image_aliases(value: &Value) -> Vec<ghostty_vt::KittyImageAlias> {
-    value
-        .get("kitty_image_aliases")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|alias| {
-            let image_id = u32::try_from(alias.get("image_id")?.as_u64()?).ok()?;
-            let image_number = u32::try_from(alias.get("image_number")?.as_u64()?).ok()?;
-            Some(ghostty_vt::KittyImageAlias { image_id, image_number })
+fn parse_kitty_image_aliases(
+    value: &Value,
+) -> Result<Vec<ghostty_vt::KittyImageAlias>, &'static str> {
+    let Some(aliases) = value.get("kitty_image_aliases") else {
+        return Ok(Vec::new());
+    };
+    let aliases = aliases.as_array().ok_or("kitty_image_aliases must be an array")?;
+    aliases
+        .iter()
+        .map(|alias| {
+            let image_id = alias
+                .get("image_id")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or("kitty image alias has an invalid image_id")?;
+            let image_number = alias
+                .get("image_number")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or("kitty image alias has an invalid image_number")?;
+            Ok(ghostty_vt::KittyImageAlias { image_id, image_number })
         })
         .collect()
 }
@@ -3700,7 +3744,7 @@ mod tests {
 
         let resizing_surface = surface.clone();
         let resizing = std::thread::spawn(move || {
-            resizing_surface.apply_stream_resize(100, 30, None, &[]);
+            resizing_surface.apply_stream_resize(100, 30, None, &[]).unwrap();
         });
         resize_entered_rx.recv().unwrap();
 
@@ -3732,7 +3776,7 @@ mod tests {
         let surface = test_remote_pty_surface(1, 80, 24, (8, 16));
         surface.set_cell_pixel_size(11, 19).unwrap();
 
-        surface.apply_stream_resize(90, 31, None, &[]);
+        surface.apply_stream_resize(90, 31, None, &[]).unwrap();
 
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (11, 19));
         let term = surface.term.lock().unwrap();
@@ -3825,7 +3869,7 @@ mod tests {
             mirror.vt_write(b"mirror-only\r\nstate\r\n");
         }
 
-        surface.apply_stream_resize(8, 4, Some(&replay), &[]);
+        surface.apply_stream_resize(8, 4, Some(&replay), &[]).unwrap();
         let scrollback_rows = {
             let mut mirror = surface.term.lock().unwrap();
             assert_eq!(mirror.plain_text().unwrap(), server_text);
@@ -3833,7 +3877,7 @@ mod tests {
             mirror.scrollback_rows()
         };
 
-        surface.apply_stream_resize(8, 4, Some(&replay), &[]);
+        surface.apply_stream_resize(8, 4, Some(&replay), &[]).unwrap();
         let mut mirror = surface.term.lock().unwrap();
         assert_eq!(mirror.plain_text().unwrap(), server_text);
         assert_eq!(mirror.scrollback_rows(), scrollback_rows);
@@ -3848,12 +3892,14 @@ mod tests {
         authoritative.vt_write(b"replacement");
         let replay = authoritative.vt_replay_bytes().unwrap();
 
-        surface.apply_stream_resize(
-            8,
-            4,
-            Some(&replay),
-            &[ghostty_vt::KittyImageAlias { image_id: 999, image_number: 77 }],
-        );
+        surface
+            .apply_stream_resize(
+                8,
+                4,
+                Some(&replay),
+                &[ghostty_vt::KittyImageAlias { image_id: 999, image_number: 77 }],
+            )
+            .unwrap_err();
 
         let mut mirror = surface.term.lock().unwrap();
         assert_eq!(mirror.cols(), 12);
@@ -4289,9 +4335,9 @@ mod tests {
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
-        surface.apply_stream_resize(12, 3, None, &[]);
+        surface.apply_stream_resize(12, 3, None, &[]).unwrap();
         surface.term.lock().unwrap().vt_write(&stale_replay);
-        surface.apply_stream_resize(10, 3, Some(&resize_replay), &[]);
+        surface.apply_stream_resize(10, 3, Some(&resize_replay), &[]).unwrap();
         let mut mirror = surface.term.lock().unwrap();
         mirror.vt_write(prompt);
 
