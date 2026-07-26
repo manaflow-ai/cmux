@@ -25,6 +25,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MIN_HEARTBEAT: Duration = Duration::from_millis(protocol::MIN_HEARTBEAT_INTERVAL_MS);
 const MAX_HEARTBEAT: Duration = Duration::from_millis(protocol::MAX_HEARTBEAT_INTERVAL_MS);
 const EVENT_QUEUE_CAPACITY: usize = 128;
+const LOCAL_WRITE_QUEUE_CAPACITY: usize = 8;
 const RECONNECT_BASE: Duration = Duration::from_millis(250);
 const RECONNECT_MAX: Duration = Duration::from_secs(30);
 
@@ -551,7 +552,9 @@ enum WorkerCommand {
 
 enum WorkerInput {
     Cloud(Result<Envelope, FrameReadError>),
-    LocalData { stream_id: u32, payload: DataPayload },
+    LocalData { stream_id: u32, instance_id: u64, payload: DataPayload },
+    LocalWriteComplete { stream_id: u32, instance_id: u64, bytes: u32 },
+    LocalWriteFailed { stream_id: u32, instance_id: u64 },
     LocalWake,
     Command(WorkerCommand),
 }
@@ -607,6 +610,7 @@ fn generation_worker(context: WorkerContext) {
         inputs: inputs_tx,
         recent_opens,
         streams: HashMap::new(),
+        next_stream_instance_id: 1,
         migration_pending: false,
         draining: false,
         heartbeat,
@@ -662,6 +666,7 @@ struct GenerationState {
     inputs: SyncSender<WorkerInput>,
     recent_opens: Arc<Mutex<RecentOpenIds>>,
     streams: HashMap<u32, ActiveStream>,
+    next_stream_instance_id: u64,
     migration_pending: bool,
     draining: bool,
     heartbeat: Duration,
@@ -684,10 +689,14 @@ impl GenerationState {
                     self.last_received = Instant::now();
                     self.handle_cloud(worker_id, coordinator, frame?)?;
                 }
-                Ok(WorkerInput::LocalData { stream_id, payload }) => {
-                    if self.streams.contains_key(&stream_id) {
-                        self.send(Message::Data(StreamData { stream_id, payload }))?;
-                    }
+                Ok(WorkerInput::LocalData { stream_id, instance_id, payload }) => {
+                    self.handle_local_data(stream_id, instance_id, payload)?;
+                }
+                Ok(WorkerInput::LocalWriteComplete { stream_id, instance_id, bytes }) => {
+                    self.complete_local_write(stream_id, instance_id, bytes)?;
+                }
+                Ok(WorkerInput::LocalWriteFailed { stream_id, instance_id }) => {
+                    self.fail_local_write(stream_id, instance_id)?;
                 }
                 Ok(WorkerInput::LocalWake) => {}
                 Ok(WorkerInput::Command(command)) => {
@@ -811,10 +820,30 @@ impl GenerationState {
             Ok(connection) => connection,
             Err(_) => return self.reject(open.stream_id, "local_unavailable"),
         };
+        let instance_id = self.next_stream_instance_id;
+        let Some(next_instance_id) = instance_id.checked_add(1) else {
+            connection.control.close();
+            return self.reject(open.stream_id, "stream_limit");
+        };
+        self.next_stream_instance_id = next_instance_id;
         let DuplexConnection { reader, writer, control } = connection;
         let flow = Arc::new(StreamFlow::new(open.initial_window));
+        let writes = match spawn_local_writer(
+            open.stream_id,
+            instance_id,
+            writer,
+            Arc::clone(&control),
+            self.inputs.clone(),
+        ) {
+            Ok(writes) => writes,
+            Err(_) => {
+                control.close();
+                return self.reject(open.stream_id, "local_unavailable");
+            }
+        };
         if spawn_local_reader(
             open.stream_id,
+            instance_id,
             reader,
             Arc::clone(&flow),
             Arc::clone(&control),
@@ -822,13 +851,15 @@ impl GenerationState {
         )
         .is_err()
         {
+            drop(writes);
             control.close();
             return self.reject(open.stream_id, "local_unavailable");
         }
         self.streams.insert(
             open.stream_id,
             ActiveStream {
-                writer,
+                instance_id,
+                writes,
                 control,
                 flow,
                 receive_remaining: protocol::MAX_STREAM_WINDOW_BYTES,
@@ -842,30 +873,64 @@ impl GenerationState {
 
     fn write_local(&mut self, data: StreamData) -> anyhow::Result<()> {
         let stream_id = data.stream_id;
-        let mut payload = data.payload.into_bytes();
-        let length = u32::try_from(payload.len()).expect("protocol payload length fits u32");
+        let length =
+            u32::try_from(data.payload.as_bytes().len()).expect("protocol payload length fits u32");
         if length == 0 {
-            payload.zeroize();
             return self.close_stream(stream_id, Some("flow_control"));
         }
         let Some(stream) = self.streams.get_mut(&stream_id) else {
-            payload.zeroize();
             return self.reject(stream_id, "unknown_stream");
         };
         if length > stream.receive_remaining {
-            payload.zeroize();
             self.close_stream(stream_id, Some("flow_control"))?;
             return Ok(());
         }
         stream.receive_remaining -= length;
-        if stream.writer.write_all(&payload).and_then(|()| stream.writer.flush()).is_err() {
-            payload.zeroize();
+        if stream.writes.try_send(data.payload).is_err() {
             self.close_stream(stream_id, Some("local_write"))?;
+        }
+        Ok(())
+    }
+
+    fn handle_local_data(
+        &mut self,
+        stream_id: u32,
+        instance_id: u64,
+        payload: DataPayload,
+    ) -> anyhow::Result<()> {
+        if self.streams.get(&stream_id).is_some_and(|stream| stream.instance_id == instance_id) {
+            self.send(Message::Data(StreamData { stream_id, payload }))?;
+        }
+        Ok(())
+    }
+
+    fn complete_local_write(
+        &mut self,
+        stream_id: u32,
+        instance_id: u64,
+        bytes: u32,
+    ) -> anyhow::Result<()> {
+        let Some(stream) = self.streams.get_mut(&stream_id) else {
+            return Ok(());
+        };
+        if stream.instance_id != instance_id {
             return Ok(());
         }
-        payload.zeroize();
-        stream.receive_remaining = stream.receive_remaining.saturating_add(length);
-        self.send(Message::Window(StreamWindow { stream_id, bytes: length }))
+        let Some(receive_remaining) = stream.receive_remaining.checked_add(bytes) else {
+            return self.close_stream(stream_id, Some("flow_control"));
+        };
+        if receive_remaining > protocol::MAX_STREAM_WINDOW_BYTES {
+            return self.close_stream(stream_id, Some("flow_control"));
+        }
+        stream.receive_remaining = receive_remaining;
+        self.send(Message::Window(StreamWindow { stream_id, bytes }))
+    }
+
+    fn fail_local_write(&mut self, stream_id: u32, instance_id: u64) -> anyhow::Result<()> {
+        if self.streams.get(&stream_id).is_some_and(|stream| stream.instance_id == instance_id) {
+            self.close_stream(stream_id, Some("local_write"))?;
+        }
+        Ok(())
     }
 
     fn add_window(&mut self, window: StreamWindow) -> anyhow::Result<()> {
@@ -922,7 +987,8 @@ impl GenerationState {
 }
 
 struct ActiveStream {
-    writer: Box<dyn Write + Send>,
+    instance_id: u64,
+    writes: SyncSender<DataPayload>,
     control: Arc<dyn ConnectionControl>,
     flow: Arc<StreamFlow>,
     receive_remaining: u32,
@@ -1005,47 +1071,84 @@ impl StreamFlow {
 
 fn spawn_local_reader(
     stream_id: u32,
+    instance_id: u64,
     mut reader: Box<dyn Read + Send>,
     flow: Arc<StreamFlow>,
     control: Arc<dyn ConnectionControl>,
     sender: SyncSender<WorkerInput>,
 ) -> io::Result<()> {
-    thread::Builder::new().name(format!("machine-agent-local-{stream_id}")).spawn(move || {
-        while let Some(reserved) = flow.reserve() {
-            let mut payload = vec![0u8; reserved];
-            match reader.read(&mut payload) {
-                Ok(0) => {
-                    payload.zeroize();
-                    flow.return_credit(reserved as u32);
-                    flow.mark_reader_done("eof");
-                    let _ = sender.try_send(WorkerInput::LocalWake);
-                    break;
-                }
-                Ok(read) => {
-                    payload.truncate(read);
-                    flow.return_credit((reserved - read) as u32);
-                    let payload = DataPayload::new(payload).expect("bounded local read");
-                    match sender.try_send(WorkerInput::LocalData { stream_id, payload }) {
-                        Ok(()) => {}
-                        Err(TrySendError::Full(_)) => {
-                            flow.mark_reader_done("queue_overflow");
-                            control.close();
-                            break;
+    thread::Builder::new().name(format!("machine-agent-local-reader-{stream_id}")).spawn(
+        move || {
+            while let Some(reserved) = flow.reserve() {
+                let mut payload = vec![0u8; reserved];
+                match reader.read(&mut payload) {
+                    Ok(0) => {
+                        payload.zeroize();
+                        flow.return_credit(reserved as u32);
+                        flow.mark_reader_done("eof");
+                        let _ = sender.try_send(WorkerInput::LocalWake);
+                        break;
+                    }
+                    Ok(read) => {
+                        payload.truncate(read);
+                        flow.return_credit((reserved - read) as u32);
+                        let payload = DataPayload::new(payload).expect("bounded local read");
+                        match sender.try_send(WorkerInput::LocalData {
+                            stream_id,
+                            instance_id,
+                            payload,
+                        }) {
+                            Ok(()) => {}
+                            Err(TrySendError::Full(_)) => {
+                                flow.mark_reader_done("queue_overflow");
+                                control.close();
+                                break;
+                            }
+                            Err(TrySendError::Disconnected(_)) => break,
                         }
-                        Err(TrySendError::Disconnected(_)) => break,
+                    }
+                    Err(_) => {
+                        payload.zeroize();
+                        flow.return_credit(reserved as u32);
+                        flow.mark_reader_done("local_read");
+                        let _ = sender.try_send(WorkerInput::LocalWake);
+                        break;
                     }
                 }
-                Err(_) => {
-                    payload.zeroize();
-                    flow.return_credit(reserved as u32);
-                    flow.mark_reader_done("local_read");
-                    let _ = sender.try_send(WorkerInput::LocalWake);
+            }
+        },
+    )?;
+    Ok(())
+}
+
+fn spawn_local_writer(
+    stream_id: u32,
+    instance_id: u64,
+    mut writer: Box<dyn Write + Send>,
+    control: Arc<dyn ConnectionControl>,
+    sender: SyncSender<WorkerInput>,
+) -> io::Result<SyncSender<DataPayload>> {
+    let (writes, receiver) = mpsc::sync_channel::<DataPayload>(LOCAL_WRITE_QUEUE_CAPACITY);
+    thread::Builder::new().name(format!("machine-agent-local-writer-{stream_id}")).spawn(
+        move || {
+            while let Ok(payload) = receiver.recv() {
+                let mut bytes = payload.into_bytes();
+                let length = u32::try_from(bytes.len()).expect("protocol payload length fits u32");
+                let result = writer.write_all(&bytes).and_then(|()| writer.flush());
+                bytes.zeroize();
+                let event = if result.is_ok() {
+                    WorkerInput::LocalWriteComplete { stream_id, instance_id, bytes: length }
+                } else {
+                    control.close();
+                    WorkerInput::LocalWriteFailed { stream_id, instance_id }
+                };
+                if sender.send(event).is_err() || result.is_err() {
                     break;
                 }
             }
-        }
-    })?;
-    Ok(())
+        },
+    )?;
+    Ok(writes)
 }
 
 #[derive(Default)]

@@ -62,6 +62,8 @@ impl SshCloudConnector {
             OsString::from("-o"),
             OsString::from("BatchMode=yes"),
             OsString::from("-o"),
+            OsString::from("StrictHostKeyChecking=yes"),
+            OsString::from("-o"),
             OsString::from("RequestTTY=no"),
             OsString::from("-o"),
             OsString::from("RemoteCommand=none"),
