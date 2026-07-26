@@ -65,7 +65,7 @@ The before/after PNG SHA-256 values differed; the report omits them because the 
 
 The public Core Graphics event API does not expose a supported way to synthesize a physical trackpad magnification event. The automated evidence therefore divides cleanly:
 
-- Unit coverage proves `magnify(with:)` delegates the event's magnification delta into the panel callback and tests the callback's behavior and safety boundaries.
+- Unit coverage proves the optional magnification callback routes deltas into the panel and tests the resulting zoom behavior and safety boundaries; it does not synthesize `NSEvent` or directly exercise `magnify(with:)`.
 - The tagged-app smoke proves the resulting page-zoom mutation changes and restores real WebKit rendering.
 - A literal physical two-finger gesture was not programmatically injected, so the report does not claim HID-level gesture proof.
 
