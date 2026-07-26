@@ -2631,6 +2631,12 @@ mod unix {
             thread::sleep(Duration::from_millis(delay.min(5_000)));
         }
         let bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
+        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_STALL_AFTER_BOOTSTRAP_READY_MS")
+            && let Ok(delay) = delay.parse::<u64>()
+            && delay > 0
+        {
+            thread::sleep(Duration::from_millis(delay.min(5_000)));
+        }
         let Some(launch_frame) = read_frame(reader, MAX_LAUNCH_PAYLOAD)? else {
             // Keep the one-frame bootstrap probe useful for compatibility and
             // packaging diagnostics. Production launchers always follow it

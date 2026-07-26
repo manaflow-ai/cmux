@@ -1324,6 +1324,8 @@ pub struct Mux {
     #[cfg(all(test, unix))]
     terminal_adoption_surface_factory: Mutex<Option<TerminalAdoptionSurfaceFactory>>,
     #[cfg(test)]
+    terminal_adoption_workers_started: AtomicUsize,
+    #[cfg(test)]
     browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     shutdown_owner_capacity: AtomicUsize,
@@ -1566,6 +1568,8 @@ impl Mux {
             terminal_adoption_after_attach: Mutex::new(None),
             #[cfg(all(test, unix))]
             terminal_adoption_surface_factory: Mutex::new(None),
+            #[cfg(test)]
+            terminal_adoption_workers_started: AtomicUsize::new(0),
             #[cfg(test)]
             browser_bootstrap_before_runtime: Mutex::new(None),
             #[cfg(test)]
@@ -2051,6 +2055,8 @@ impl Mux {
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
+                #[cfg(test)]
+                mux.terminal_adoption_workers_started.fetch_add(1, Ordering::AcqRel);
                 let mut delay = Duration::from_millis(100);
                 loop {
                     if mux.shutting_down.load(Ordering::Acquire) {
@@ -11269,6 +11275,48 @@ mod tests {
             spawned_pid.is_none(),
             "capacity rejection launched terminal process {spawned_pid:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_adoption_overflow_uses_one_shared_worker() {
+        let options = SurfaceOptions::default();
+        let mux = Mux::new_for_test("adoption-worker-bound", options.clone());
+        let root =
+            std::env::temp_dir().join(format!("cmux-adoption-worker-bound-{}", std::process::id()));
+
+        for _ in 0..3 {
+            let terminal_id = TerminalId::random().unwrap().to_hex();
+            let record_path = root.join(format!("{terminal_id}.json"));
+            mux.schedule_terminal_adoption(
+                options.clone(),
+                crate::terminal_host_runtime::TerminalHostRecord {
+                    record_version: 2,
+                    terminal_id,
+                    incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+                    endpoint: record_path.with_extension("sock").to_string_lossy().into_owned(),
+                    owner_token: "00".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+                    host_pid: 0,
+                    host_start_nonce: String::new(),
+                    workspace_key: String::new(),
+                    supports_set_defaults: true,
+                    supports_terminate_only: true,
+                },
+                record_path,
+            );
+        }
+
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while mux.terminal_adoption_workers_started.load(Ordering::Acquire) < 3
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let workers = mux.terminal_adoption_workers_started.load(Ordering::Acquire);
+        mux.request_daemon_shutdown();
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(workers <= 1, "overflow adoption started {workers} retry threads");
     }
 
     #[cfg(unix)]

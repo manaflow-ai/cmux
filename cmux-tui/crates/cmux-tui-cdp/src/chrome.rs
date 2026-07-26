@@ -2,6 +2,8 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
@@ -11,6 +13,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 static CHROME_REAPER: OnceLock<Mutex<Option<ChromeReaper>>> = OnceLock::new();
 const REAPER_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+#[cfg(test)]
+static FORCE_REAPER_PENDING: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static FORCE_REAPER_WAIT_ERROR: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static REAPER_POLL_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(test)]
 thread_local! {
@@ -246,6 +257,17 @@ fn run_reaper(receiver: mpsc::Receiver<ReapRequest>) {
 fn poll_reap_request(request: &mut ReapRequest) -> bool {
     #[cfg(test)]
     REAP_CHILD_CALLED_ON_THREAD.set(true);
+    #[cfg(test)]
+    {
+        REAPER_POLL_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+        if FORCE_REAPER_WAIT_ERROR.load(Ordering::Acquire) {
+            let _ = request.child.kill();
+            return false;
+        }
+        if FORCE_REAPER_PENDING.load(Ordering::Acquire) {
+            return false;
+        }
+    }
     let _ = request.child.kill();
     if !matches!(request.child.try_wait(), Ok(Some(_))) {
         return false;
@@ -558,5 +580,87 @@ mod tests {
         }
 
         assert!(cleaned, "the final Chrome cleanup remained parked until another browser shutdown");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn persistent_reaper_backs_off_unconfirmed_children() {
+        let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        }
+
+        let reaper = chrome_reaper_handle().unwrap();
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+        FORCE_REAPER_PENDING.store(true, Ordering::Release);
+        REAPER_POLL_ATTEMPTS.store(0, Ordering::Release);
+        reap_child_detached(&reaper, child, None);
+        std::thread::sleep(Duration::from_millis(160));
+        let attempts = REAPER_POLL_ATTEMPTS.load(Ordering::Acquire);
+        FORCE_REAPER_PENDING.store(false, Ordering::Release);
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while unsafe { kill(pid, 0) } == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if unsafe { kill(pid, 0) } == 0 {
+            let mut status = 0;
+            unsafe {
+                kill(pid, 9);
+                waitpid(pid, &mut status, 0);
+            }
+        }
+
+        assert!(attempts <= 6, "unconfirmed child was polled {attempts} times in 160ms");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_reaper_wait_error_releases_the_profile() {
+        let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        }
+
+        let reaper = chrome_reaper_handle().unwrap();
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+        let profile_dir = make_profile_dir().unwrap();
+        FORCE_REAPER_WAIT_ERROR.store(true, Ordering::Release);
+        reap_child_detached(&reaper, child, Some(profile_dir.clone()));
+        let deadline = Instant::now() + Duration::from_millis(200);
+        while profile_dir.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let released = !profile_dir.exists();
+        FORCE_REAPER_WAIT_ERROR.store(false, Ordering::Release);
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while profile_dir.exists() && Instant::now() < cleanup_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut status = 0;
+        unsafe {
+            kill(pid, 9);
+            waitpid(pid, &mut status, 0);
+        }
+        let _ = std::fs::remove_dir_all(&profile_dir);
+
+        assert!(released, "terminal wait error retained the Chrome profile indefinitely");
     }
 }

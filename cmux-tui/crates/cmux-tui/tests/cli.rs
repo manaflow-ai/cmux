@@ -1187,6 +1187,43 @@ fn server_stop_cancels_a_blocked_terminal_host_launch() {
 
 #[cfg(unix)]
 #[test]
+fn server_stop_cancels_a_blocked_terminal_host_launch_write() {
+    let mut server = HeadlessServer::start_with(
+        "server-stop-blocked-launch-write",
+        false,
+        &[("CMUX_TUI_TEST_STALL_AFTER_BOOTSTRAP_READY_MS", "3000")],
+    );
+    let command = format!(": #{}", "x".repeat(128 * 1024));
+    let mut create = Command::new(bin())
+        .args(["--socket"])
+        .arg(&server.socket)
+        .args(["run", "--new-workspace", "--command"])
+        .arg(command)
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    std::thread::sleep(Duration::from_millis(250));
+    assert!(create.try_wait().unwrap().is_none(), "terminal creation did not block on Launch");
+
+    let stop_started = Instant::now();
+    let stop = cli(&server, &["--json", "server", "stop"]);
+    let stop_elapsed = stop_started.elapsed();
+
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    assert!(!create.wait().unwrap().success());
+    assert!(terminal_host_pids(&host_root).is_empty());
+    assert!(
+        stop_elapsed < Duration::from_secs(2),
+        "shutdown waited for the blocked Launch write: {stop_elapsed:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn cancelled_published_host_is_terminated_through_its_record() {
     let mut server = HeadlessServer::start_with(
         "server-stop-published-launch",
