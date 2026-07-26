@@ -86,7 +86,7 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
         do {
             try data.write(to: fileURL)
         } catch {
-            try? FileManager.default.removeItem(at: fileURL)
+            try? fileManager.removeItem(at: fileURL)
             return nil
         }
         registerOwnedTemporaryImageFile(fileURL)
@@ -118,7 +118,7 @@ extension TerminalPasteboardService {
 #if DEBUG
                 logDebugEvent("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
 #endif
-                try? FileManager.default.removeItem(at: fileURL)
+                try? fileManager.removeItem(at: fileURL)
                 cleanupTransferredTemporaryImageFiles(fileURLs)
                 return .rejectedImagePayload
             }

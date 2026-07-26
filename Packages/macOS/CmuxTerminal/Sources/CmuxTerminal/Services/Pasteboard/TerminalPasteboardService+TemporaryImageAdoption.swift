@@ -56,13 +56,13 @@ extension TerminalPasteboardService {
             fileExtension: sanitizedImageFileExtension(fileExtension)
         )
         do {
-            try FileManager.default.moveItem(at: source, to: destination)
-            try FileManager.default.setAttributes(
+            try fileManager.moveItem(at: source, to: destination)
+            try fileManager.setAttributes(
                 [.posixPermissions: 0o600],
                 ofItemAtPath: destination.path
             )
         } catch {
-            try? FileManager.default.removeItem(at: destination)
+            try? fileManager.removeItem(at: destination)
             throw error
         }
         registerOwnedTemporaryImageFile(destination)

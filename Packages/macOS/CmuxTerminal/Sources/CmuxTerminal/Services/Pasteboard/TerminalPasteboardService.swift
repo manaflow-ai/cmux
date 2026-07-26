@@ -57,6 +57,9 @@ public final class TerminalPasteboardService: Sendable {
     // ghostty runtime threads.
     nonisolated(unsafe) private let selectionPasteboard: NSPasteboard
 
+    // SAFETY: FileManager supports concurrent use; this injected reference is immutable.
+    nonisolated(unsafe) let fileManager: FileManager
+
     /// The directory that owned temporary image files are written into.
     let temporaryDirectory: URL
 
@@ -74,11 +77,19 @@ public final class TerminalPasteboardService: Sendable {
 
     /// Creates the process's pasteboard service.
     ///
-    /// - Parameter temporaryDirectory: Destination for owned temporary image
-    ///   files. Tests inject a scratch directory; the app uses the user's
-    ///   temporary directory.
-    public init(temporaryDirectory: URL = FileManager.default.temporaryDirectory) {
-        self.temporaryDirectory = temporaryDirectory
+    /// - Parameters:
+    ///   - temporaryDirectory: Destination for owned temporary image files.
+    ///     Tests inject a scratch directory; `nil` uses `fileManager`'s
+    ///     temporary directory.
+    ///   - fileManager: Filesystem dependency used for moves, attributes, and
+    ///     cleanup.
+    public init(
+        temporaryDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) {
+        self.fileManager = fileManager
+        self.temporaryDirectory =
+            temporaryDirectory ?? fileManager.temporaryDirectory
         self.selectionPasteboard = NSPasteboard(
             name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
         )
@@ -162,7 +173,7 @@ extension TerminalPasteboardService {
                   consumeOwnedTemporaryImageFile(normalizedURL) else {
                 continue
             }
-            try? FileManager.default.removeItem(at: normalizedURL)
+            try? fileManager.removeItem(at: normalizedURL)
         }
     }
 
@@ -174,7 +185,7 @@ extension TerminalPasteboardService {
         temporaryImageOwnershipLock.unlock()
 
         for path in paths {
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+            try? fileManager.removeItem(at: URL(fileURLWithPath: path))
         }
     }
 
