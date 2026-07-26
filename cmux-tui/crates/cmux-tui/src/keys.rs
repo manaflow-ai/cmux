@@ -104,11 +104,14 @@ impl KeyboardInput {
     }
 
     /// Active-layout logical identity first, then the PC-101 physical
-    /// fallback. A reported shifted identity has already consumed Shift.
+    /// fallback. A reported shifted ASCII identity has already consumed
+    /// Shift; other layouts retain it as an explicit shortcut modifier.
     pub fn shortcut_keys(&self) -> (KeyEvent, Option<KeyEvent>) {
         let mut logical = self.key_event;
         if self.enhanced
             && logical.modifiers.contains(KeyModifiers::SHIFT)
+            && let KeyCode::Char(character) = logical.code
+            && shifted_ascii_char(character).is_some()
             && let Some(shifted_key) = self.shifted_key
         {
             logical.code = KeyCode::Char(shifted_key);
