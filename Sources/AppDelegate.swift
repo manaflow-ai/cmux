@@ -1020,6 +1020,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didBootstrapInitialMainWindow = false
     var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
+    private var closedWindowHistoryRecordedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
@@ -8889,6 +8890,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             let manager = self.tabManagerFor(windowId: windowId)
+            if let context = self.mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+                self.recordClosedWindowHistoryIfNeeded(for: context)
+            }
             // An explicit close of the window's LAST remote workspace (a tab/session
             // close) kills its remote session(s) — synced with tmux — even though it
             // also closes the app window. A plain window/quit close leaves the marker
@@ -14428,7 +14432,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
+            _ = reopenMostRecentlyClosedItem(
+                preferredTabManager: routedManager,
+                shouldActivate: true
+            )
             return true
         }
 
@@ -16541,6 +16548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preserveManualRestoreBackupOnMissingPrimary: closingWindowIsCrashDiagnostic
             )
         }
+        closedWindowHistoryRecordedWindowIds.remove(removed.windowId)
     }
 
     private func closeWindowSnapshotPruningCrashDiagnostics(
@@ -16567,29 +16575,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
-        let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
-        guard !shouldSuppressClosedWindowHistory,
-              !isTerminatingApp,
-              !isApplyingSessionRestore else {
+        if closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil {
+            closedWindowHistoryRecordedWindowIds.insert(context.windowId)
             return
         }
+        guard !isTerminatingApp,
+              !isApplyingSessionRestore,
+              closedWindowHistoryRecordedWindowIds.insert(context.windowId).inserted else {
+            return
+        }
+
+        // Capture remote mirrors while their controller registrations and live
+        // connection identities still exist. Session snapshots intentionally omit
+        // them, so the ordinary window snapshot alone cannot represent this close.
+        let remoteMirrorEntries: [ClosedRemoteTmuxMirrorHistoryEntry] = context.tabManager.tabs.enumerated().compactMap { index, workspace in
+            guard workspace.isRemoteTmuxMirror else { return nil }
+            return remoteTmuxController.closedMirrorHistoryEntry(
+                workspaceId: workspace.id,
+                windowId: context.windowId,
+                workspaceIndex: index
+            )
+        }
+
         let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
-        guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
+        if let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
             includeScrollback: true,
             restorableAgentIndex: restorableAgentIndex
-        ).snapshot else {
-            return
+        ).snapshot,
+           !snapshot.tabManager.workspaces.isEmpty {
+            // Preserve the existing synchronous local-window history ordering.
+            ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
+                windowId: context.windowId,
+                snapshot: snapshot,
+                workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
+            )))
         }
-        guard !snapshot.tabManager.workspaces.isEmpty else {
-            return
+
+        // Push after the local window record, in the manager's workspace order.
+        // Remote entries remain memory-only and retain their independent 20-record cap.
+        for entry in remoteMirrorEntries {
+            ClosedItemHistoryStore.shared.pushRemoteTmuxMirror(entry)
         }
-        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
-            windowId: context.windowId,
-            snapshot: snapshot,
-            workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
-        )))
     }
 
 #if DEBUG

@@ -62,10 +62,19 @@ struct ClosedWindowHistoryEntry: Codable {
     }
 }
 
+struct ClosedRemoteTmuxMirrorHistoryEntry: Codable {
+    let host: RemoteTmuxHost
+    let sessionName: String
+    let sessionId: Int?
+    let windowId: UUID?
+    let workspaceIndex: Int
+}
+
 enum ClosedItemHistoryEntry: Codable {
     case panel(ClosedPanelHistoryEntry)
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
+    case remoteTmuxMirror(ClosedRemoteTmuxMirrorHistoryEntry)
 }
 
 struct ClosedItemHistoryRecord: Identifiable, Codable {
@@ -124,6 +133,21 @@ enum ClosedWindowRestoreValidation {
     }
 }
 
+enum ClosedItemHistoryRestoreAttempt {
+    case restored
+    case failed
+    case pending
+
+    var wasAccepted: Bool {
+        switch self {
+        case .restored, .pending:
+            return true
+        case .failed:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
     static let defaultWorkspaceCapacity = 100
@@ -141,6 +165,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     private var needsPersistenceAfterPersistedRecordsLoad = false
     private var shouldDiscardPersistedRecordsOnLoad = false
     private var pendingPersistedRecordMutations: [PendingPersistedRecordMutation] = []
+    private var pendingRestoreRecordIds: Set<UUID> = []
 
     private enum PendingPersistedRecordMutation {
         case remapPanelWorkspaceIds(
@@ -195,6 +220,18 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
+    func pushRemoteTmuxMirror(_ entry: ClosedRemoteTmuxMirrorHistoryEntry) {
+        records.removeAll { record in
+            guard case .remoteTmuxMirror(let existing) = record.entry else { return false }
+            return Self.remoteTmuxMirrorIdentityMatches(existing, entry)
+        }
+        records.append(ClosedItemHistoryRecord(entry: .remoteTmuxMirror(entry)))
+        trimRemoteTmuxMirrorRecordsIfNeeded()
+        trimToCapacityIfNeeded()
+        revision &+= 1
+        persistRecords()
+    }
+
     @discardableResult
     func restoreFirstRestorable(using restore: (ClosedItemHistoryEntry) -> Bool) -> Bool {
         restoreFirstRestorable(newerThan: nil, using: restore)
@@ -208,6 +245,25 @@ final class ClosedItemHistoryStore: ObservableObject {
         onFailure: ((UUID) -> Void)? = nil,
         using restore: (ClosedItemHistoryEntry) -> Bool
     ) -> Bool {
+        attemptFirstRestorable(
+            newerThan: cutoff,
+            excluding: excludedRecordIds,
+            matching: isCandidate,
+            onFailure: onFailure,
+            using: { record in
+                restore(record.entry) ? .restored : .failed
+            }
+        ).wasAccepted
+    }
+
+    @discardableResult
+    func attemptFirstRestorable(
+        newerThan cutoff: Date?,
+        excluding excludedRecordIds: Set<UUID> = [],
+        matching isCandidate: (ClosedItemHistoryEntry) -> Bool = { _ in true },
+        onFailure: ((UUID) -> Void)? = nil,
+        using restore: (ClosedItemHistoryRecord) -> ClosedItemHistoryRestoreAttempt
+    ) -> ClosedItemHistoryRestoreAttempt {
         let candidates = records.enumerated()
             .filter { _, record in
                 guard !excludedRecordIds.contains(record.id) else { return false }
@@ -221,24 +277,66 @@ final class ClosedItemHistoryStore: ObservableObject {
                 }
                 return lhs.offset > rhs.offset
             }
-            .map { _, record in (id: record.id, entry: record.entry) }
+            .map { _, record in record }
         for candidate in candidates {
-            guard restore(candidate.entry) else {
+            if pendingRestoreRecordIds.contains(candidate.id) {
+                return .pending
+            }
+            let attempt = restore(candidate)
+            switch attempt {
+            case .restored:
+                removeRestoredRecord(id: candidate.id)
+                return .restored
+            case .pending:
+                pendingRestoreRecordIds.insert(candidate.id)
+                return .pending
+            case .failed:
                 onFailure?(candidate.id)
-                continue
             }
-            if let index = records.firstIndex(where: { $0.id == candidate.id }) {
-                records.remove(at: index)
-                revision &+= 1
-                persistRecords()
-            }
-            return true
         }
-        return false
+        return .failed
+    }
+
+    @discardableResult
+    func attemptRestore(
+        id: UUID,
+        using restore: (ClosedItemHistoryRecord) -> ClosedItemHistoryRestoreAttempt
+    ) -> ClosedItemHistoryRestoreAttempt {
+        if pendingRestoreRecordIds.contains(id) {
+            return .pending
+        }
+        guard let record = records.first(where: { $0.id == id }) else {
+            return .failed
+        }
+        let attempt = restore(record)
+        switch attempt {
+        case .restored:
+            removeRestoredRecord(id: id)
+        case .pending:
+            pendingRestoreRecordIds.insert(id)
+        case .failed:
+            break
+        }
+        return attempt
+    }
+
+    func completePendingRestore(id: UUID, succeeded: Bool) {
+        guard pendingRestoreRecordIds.remove(id) != nil else { return }
+        if succeeded {
+            removeRestoredRecord(id: id)
+        }
+    }
+
+    private func removeRestoredRecord(id: UUID) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records.remove(at: index)
+        revision &+= 1
+        persistRecords()
     }
 
     func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {
-        guard let index = records.firstIndex(where: { $0.id == id }) else {
+        guard !pendingRestoreRecordIds.contains(id),
+              let index = records.firstIndex(where: { $0.id == id }) else {
             return nil
         }
         let record = records.remove(at: index)
@@ -335,6 +433,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func removeAll() {
+        pendingRestoreRecordIds.removeAll(keepingCapacity: false)
         guard !records.isEmpty || !didFinishPersistedRecordsLoad else { return }
         if !didFinishPersistedRecordsLoad {
             shouldDiscardPersistedRecordsOnLoad = true
@@ -349,13 +448,37 @@ final class ClosedItemHistoryStore: ObservableObject {
         records = capacityPolicy.trimming(records)
         return records.count != previousCount
     }
+
+    private func trimRemoteTmuxMirrorRecordsIfNeeded() {
+        let remoteRecordIndices = records.indices.filter {
+            guard case .remoteTmuxMirror = records[$0].entry else { return false }
+            return true
+        }
+        let overflow = remoteRecordIndices.count - 20
+        guard overflow > 0 else { return }
+        for index in remoteRecordIndices.prefix(overflow).reversed() {
+            records.remove(at: index)
+        }
+    }
+
+    private static func remoteTmuxMirrorIdentityMatches(
+        _ lhs: ClosedRemoteTmuxMirrorHistoryEntry,
+        _ rhs: ClosedRemoteTmuxMirrorHistoryEntry
+    ) -> Bool {
+        guard lhs.host == rhs.host else { return false }
+        if let lhsSessionId = lhs.sessionId, let rhsSessionId = rhs.sessionId {
+            return lhsSessionId == rhsSessionId
+        }
+        return lhs.sessionName == rhs.sessionName
+    }
+
     private func persistRecords() {
         guard let fileURL else { return }
         guard didFinishPersistedRecordsLoad else {
             needsPersistenceAfterPersistedRecordsLoad = true
             return
         }
-        let recordsSnapshot = records
+        let recordsSnapshot = records.filter(Self.shouldPersist)
         let revisionSnapshot = revision
         if persistsRecordsSynchronously {
             Self.saveRecords(recordsSnapshot, fileURL: fileURL)
@@ -376,7 +499,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             finishPersistedRecordsLoad(Self.loadRecords(fileURL: fileURL))
         }
         needsPersistenceAfterPersistedRecordsLoad = false
-        let recordsSnapshot = records
+        let recordsSnapshot = records.filter(Self.shouldPersist)
         let revisionSnapshot = revision
         if persistsRecordsSynchronously {
             Self.saveRecords(recordsSnapshot, fileURL: fileURL)
@@ -543,17 +666,31 @@ final class ClosedItemHistoryStore: ObservableObject {
     ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
         var didUpdate = false
         let remappedRecords = records.map { record in
-            guard case .workspace(let workspaceEntry) = record.entry,
-                  workspaceEntry.windowId == oldWindowId else {
+            switch record.entry {
+            case .workspace(let workspaceEntry) where workspaceEntry.windowId == oldWindowId:
+                didUpdate = true
+                return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: workspaceEntry.workspaceId,
+                    windowId: newWindowId,
+                    workspaceIndex: workspaceEntry.workspaceIndex,
+                    snapshot: workspaceEntry.snapshot
+                )))
+            case .remoteTmuxMirror(let remoteEntry) where remoteEntry.windowId == oldWindowId:
+                didUpdate = true
+                return ClosedItemHistoryRecord(
+                    id: record.id,
+                    closedAt: record.closedAt,
+                    entry: .remoteTmuxMirror(ClosedRemoteTmuxMirrorHistoryEntry(
+                        host: remoteEntry.host,
+                        sessionName: remoteEntry.sessionName,
+                        sessionId: remoteEntry.sessionId,
+                        windowId: newWindowId,
+                        workspaceIndex: remoteEntry.workspaceIndex
+                    ))
+                )
+            default:
                 return record
             }
-            didUpdate = true
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: workspaceEntry.workspaceId,
-                windowId: newWindowId,
-                workspaceIndex: workspaceEntry.workspaceIndex,
-                snapshot: workspaceEntry.snapshot
-            )))
         }
         return (remappedRecords, didUpdate)
     }
@@ -629,6 +766,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
     }
 
+    private static func shouldPersist(_ record: ClosedItemHistoryRecord) -> Bool {
+        guard case .remoteTmuxMirror = record.entry else { return true }
+        return false
+    }
+
     nonisolated private static func defaultHistoryFileURL(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = nil,
@@ -680,6 +822,13 @@ final class ClosedItemHistoryStore: ObservableObject {
                 id: record.id,
                 title: String(localized: "menu.history.recentlyClosed.kind.window", defaultValue: "Window"),
                 detail: windowWorkspaceCountLabel(entry.snapshot.tabManager.workspaces.count),
+                closedAt: record.closedAt
+            )
+        case .remoteTmuxMirror(let entry):
+            return ClosedItemHistoryMenuItem(
+                id: record.id,
+                title: entry.sessionName,
+                detail: String(localized: "menu.history.recentlyClosed.kind.workspace", defaultValue: "Workspace"),
                 closedAt: record.closedAt
             )
         }
