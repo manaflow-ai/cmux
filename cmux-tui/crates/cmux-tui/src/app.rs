@@ -56,8 +56,8 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
-    is_remote_transport_failure,
+    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
+    is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
@@ -737,7 +737,7 @@ struct SurfaceResizeClaim {
 }
 
 struct SurfaceAttachClaim {
-    claims: Arc<Mutex<HashSet<SurfaceId>>>,
+    claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface: SurfaceId,
 }
 
@@ -746,6 +746,14 @@ impl Drop for SurfaceAttachClaim {
         self.claims.lock().unwrap().remove(&self.surface);
     }
 }
+
+#[derive(Clone, Copy, Default)]
+struct SurfaceAttachClaimState {
+    retired: bool,
+}
+
+#[cfg(test)]
+type SurfaceAttachAfterObsoleteCheckHook = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
 
 #[derive(Clone, Copy)]
 struct SurfaceResizeClaimState {
@@ -892,12 +900,14 @@ pub struct OrderedSession {
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
     surface_resize_ownership: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeOwnership>>>,
-    surface_attach_claims: Arc<Mutex<HashSet<SurfaceId>>>,
+    surface_attach_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
+    #[cfg(test)]
+    surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
 }
 
 impl OrderedSession {
@@ -932,12 +942,14 @@ impl OrderedSession {
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_ownership: Arc::new(Mutex::new(HashMap::new())),
-            surface_attach_claims: Arc::new(Mutex::new(HashSet::new())),
+            surface_attach_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_attach_failures: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
+            #[cfg(test)]
+            surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1022,27 +1034,27 @@ impl OrderedSession {
         self.client_refresh_generation.load(Ordering::Acquire)
     }
 
-    fn set_client_sizing(&self, client: u64, enabled: bool) {
+    fn set_client_sizing(&self, surface: SurfaceId, client: u64, enabled: bool) {
         self.enqueue_client_sizing_mutation(
             "set client sizing",
-            ("set client sizing", client),
-            move |session| session.set_client_sizing(client, enabled),
+            ("set client sizing", surface, client),
+            move |session| session.set_client_sizing(surface, client, enabled),
         );
     }
 
-    fn use_only_client_sizing(&self, client: u64) {
+    fn use_only_client_sizing(&self, surface: SurfaceId, client: u64) {
         self.enqueue_client_sizing_mutation(
             "use only client sizing",
-            ("use only client sizing", 0),
-            move |session| session.use_only_client_sizing(client),
+            ("use only client sizing", surface, 0),
+            move |session| session.use_only_client_sizing(surface, client),
         );
     }
 
-    fn use_all_client_sizing(&self) {
+    fn use_all_client_sizing(&self, surface: SurfaceId) {
         self.enqueue_client_sizing_mutation(
             "use all client sizing",
-            ("use all client sizing", 0),
-            |session| session.use_all_client_sizing(),
+            ("use all client sizing", surface, 0),
+            move |session| session.use_all_client_sizing(surface),
         );
     }
 
@@ -1083,10 +1095,14 @@ impl OrderedSession {
 
     fn forget_surface(&self, id: SurfaceId) {
         if self.remote {
-            self.exited_surfaces.lock().unwrap().insert(id);
+            let mut exited_surfaces = self.exited_surfaces.lock().unwrap();
+            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            exited_surfaces.insert(id);
+            if let Some(claim) = attach_claims.get_mut(&id) {
+                claim.retired = true;
+            }
         }
         self.surface_attach_failures.lock().unwrap().remove(&id);
-        self.surface_attach_claims.lock().unwrap().remove(&id);
         self.surface_resize_failures.lock().unwrap().remove(&id);
         self.surface_resize_ownership.lock().unwrap().remove(&id);
         self.inner.forget_surface(id);
@@ -1116,34 +1132,67 @@ impl OrderedSession {
         if !self.can_attach_surface(id) {
             return;
         }
-        self.surface_attach_claims.lock().unwrap().insert(id);
+        {
+            let exited_surfaces = self.exited_surfaces.lock().unwrap();
+            if exited_surfaces.contains(&id) {
+                return;
+            }
+            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            if attach_claims.contains_key(&id) {
+                return;
+            }
+            attach_claims.insert(id, SurfaceAttachClaimState::default());
+        }
         let claim = SurfaceAttachClaim { claims: self.surface_attach_claims.clone(), surface: id };
+        let attach_claims = self.surface_attach_claims.clone();
         let session = self.inner.clone();
         let exited_surfaces = self.exited_surfaces.clone();
         let attach_failures = self.surface_attach_failures.clone();
         let enqueue_failures = attach_failures.clone();
-        let remote = self.remote;
+        #[cfg(test)]
+        let attach_after_obsolete_check = self.surface_attach_after_obsolete_check.clone();
         let pending = self.pending_mutation();
         let superseded = pending.clone();
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "attach surface",
-            ("attach surface", id),
+            ("attach surface", id, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
             move || {
                 let _claim = claim;
-                if exited_surfaces.lock().unwrap().contains(&id)
-                    || (remote && session.remote_tree_is_stale())
-                {
+                let retired_before_attach = {
+                    let exited_surfaces = exited_surfaces.lock().unwrap();
+                    exited_surfaces.contains(&id)
+                        || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
+                };
+                if retired_before_attach {
                     pending.defer(SessionMutationOutcome::Success { tree: None });
                     return Ok(());
                 }
-                match session.try_surface_sized(id, size) {
+                #[cfg(test)]
+                if let Some(hook) = attach_after_obsolete_check.lock().unwrap().clone() {
+                    hook();
+                }
+                let result = session.try_surface_sized(id, size);
+                // Retirement can race after the preflight above while the
+                // ordered worker is waiting to attach. In that case the
+                // missing mirror is the expected result of teardown, not a
+                // retryable synchronization failure.
+                let attach_claims = attach_claims.lock().unwrap();
+                let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
+                match result {
                     Ok(Some(_)) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Ok(None) if retired => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
                         Ok(())
                     }
                     Ok(None) => {
@@ -1158,6 +1207,13 @@ impl OrderedSession {
                             error: format!("surface {id} is unavailable"),
                             reconnect_required: false,
                         });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
                         Ok(())
                     }
                     Err(error) => {
@@ -1177,6 +1233,7 @@ impl OrderedSession {
                             error: error.to_string(),
                             reconnect_required: timed_out,
                         });
+                        drop(attach_claims);
                         if timed_out || transport_failed { Err(error) } else { Ok(()) }
                     }
                 }
@@ -1191,17 +1248,19 @@ impl OrderedSession {
     }
 
     fn can_attach_surface(&self, id: SurfaceId) -> bool {
+        let failure_blocks = self
+            .surface_attach_failures
+            .lock()
+            .unwrap()
+            .get(&id)
+            .copied()
+            .is_some_and(surface_sync_failure_blocks);
+        let attach_claimed = self.surface_attach_claims.lock().unwrap().contains_key(&id);
         self.inner.cached_surface(id).is_none()
             && self.inner.can_attach_after_overflow(id)
             && !self.exited_surfaces.lock().unwrap().contains(&id)
-            && !self
-                .surface_attach_failures
-                .lock()
-                .unwrap()
-                .get(&id)
-                .copied()
-                .is_some_and(surface_sync_failure_blocks)
-            && !self.surface_attach_claims.lock().unwrap().contains(&id)
+            && !failure_blocks
+            && !attach_claimed
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
@@ -1460,7 +1519,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         self.operations.enqueue_coalescing_mutation_with_settlement(
             label,
-            key,
+            (key.0, key.1, 0),
             remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1484,7 +1543,7 @@ impl OrderedSession {
     fn enqueue_client_sizing_mutation(
         &self,
         label: &'static str,
-        key: (&'static str, u64),
+        key: (&'static str, SurfaceId, u64),
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
@@ -1525,7 +1584,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         let result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "release hidden surface sizing",
-            ("surface size release", surface),
+            ("surface size release", surface, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1564,7 +1623,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
             "resize PTY surface",
-            ("surface resize", surface_id),
+            ("surface resize", surface_id, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1712,7 +1771,7 @@ impl OrderedSession {
         let settlement = pending.clone();
         self.operations.enqueue_coalescing_mutation_with_settlement(
             "apply config",
-            ("apply config", 0),
+            ("apply config", 0, 0),
             self.remote,
             move || superseded.supersede(),
             move || settlement.publish_deferred(),
@@ -1771,7 +1830,7 @@ impl OrderedSession {
         } else {
             self.operations.enqueue_coalescing_mutation_with_settlement(
                 "sync sidebar plugin",
-                ("sidebar plugin", 0),
+                ("sidebar plugin", 0, 0),
                 self.remote,
                 move || superseded.supersede(),
                 move || settlement.publish_deferred(),
@@ -2257,9 +2316,9 @@ pub enum MenuAction {
     ToggleSidebarCompact { compact: bool },
     FocusSidebar,
     ShowShortcuts,
-    SetClientSizing { client: u64, enabled: bool },
-    UseClientSize(u64),
-    RestoreAllClientSizing,
+    SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
+    UseClientSize { surface: SurfaceId, client: u64 },
+    RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
     SelectProviderScope(usize),
     InvokeProviderAction(usize),
@@ -2332,8 +2391,8 @@ impl MenuAction {
             }
             MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
             MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
-            MenuAction::UseClientSize(_) => "Use only this client size",
-            MenuAction::RestoreAllClientSizing => "Use all client sizes",
+            MenuAction::UseClientSize { .. } => "Use only this client size",
+            MenuAction::RestoreAllClientSizing(_) => "Use all client sizes",
             MenuAction::DisconnectClient(_) => "Disconnect",
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
                 "Provider action"
@@ -2739,29 +2798,31 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
                 .iter()
                 .any(|size| size.surface == surface && size.cols.is_some() && size.rows.is_some())
     }) {
-        items.push(MenuItem::Action(MenuAction::UseClientSize(current.client)));
+        items.push(MenuItem::Action(MenuAction::UseClientSize { surface, client: current.client }));
     }
-    items.extend([MenuItem::Action(MenuAction::RestoreAllClientSizing), MenuItem::Separator]);
+    items.extend([
+        MenuItem::Action(MenuAction::RestoreAllClientSizing(surface)),
+        MenuItem::Separator,
+    ]);
     for client in clients {
-        let reported_size = client
-            .sizes
-            .iter()
-            .find(|size| size.surface == surface)
-            .and_then(|size| size.cols.zip(size.rows));
+        let size_info = client.sizes.iter().find(|size| size.surface == surface);
+        let reported_size = size_info.and_then(|size| size.cols.zip(size.rows));
+        let size_participating = size_info.is_none_or(|size| size.size_participating);
         let identity = client.kind.as_deref().or(client.name.as_deref()).unwrap_or("client");
         let size = reported_size
             .map(|(cols, rows)| format!("{cols}×{rows}"))
             .unwrap_or_else(|| "no grid".to_string());
         let self_label = if client.is_self { " · this client" } else { "" };
-        let sizing_label = if client.size_participating { "" } else { " · excluded" };
+        let sizing_label = if size_participating { "" } else { " · excluded" };
         let label = format!("#{} {identity} · {size}{self_label}{sizing_label}", client.client);
         let mut actions = Vec::new();
         if reported_size.is_some() {
             actions.extend([
-                MenuItem::Action(MenuAction::UseClientSize(client.client)),
+                MenuItem::Action(MenuAction::UseClientSize { surface, client: client.client }),
                 MenuItem::Action(MenuAction::SetClientSizing {
+                    surface,
                     client: client.client,
-                    enabled: !client.size_participating,
+                    enabled: !size_participating,
                 }),
             ]);
         }
@@ -8533,14 +8594,14 @@ impl App {
             | MenuAction::ToggleSidebarCompact { .. }
             | MenuAction::FocusSidebar
             | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
-            MenuAction::SetClientSizing { client, enabled } => {
-                self.session.set_client_sizing(client, enabled);
+            MenuAction::SetClientSizing { surface, client, enabled } => {
+                self.session.set_client_sizing(surface, client, enabled);
             }
-            MenuAction::UseClientSize(client) => {
-                self.session.use_only_client_sizing(client);
+            MenuAction::UseClientSize { surface, client } => {
+                self.session.use_only_client_sizing(surface, client);
             }
-            MenuAction::RestoreAllClientSizing => {
-                self.session.use_all_client_sizing();
+            MenuAction::RestoreAllClientSizing(surface) => {
+                self.session.use_all_client_sizing(surface);
             }
             MenuAction::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
@@ -11377,7 +11438,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc::Receiver;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
@@ -11733,9 +11794,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![surface.id],
-            sizes: vec![ClientSizeInfo { surface: surface.id, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: surface.id,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: false,
-            size_participating: true,
         }];
         app.replace_tree(app.session.tree());
         app.sync_layout((120, 30));
@@ -12736,14 +12801,14 @@ mod tests {
             5,
             vec![vec![MenuItem::Submenu {
                 label: "Clients".to_string(),
-                items: vec![MenuItem::Action(MenuAction::RestoreAllClientSizing)],
+                items: vec![MenuItem::Action(MenuAction::RestoreAllClientSizing(31))],
             }]],
         );
         assert!(menu.open_selected_submenu());
         menu.levels[1].rect = Rect { x: 10, y: 5, width: 20, height: 3 };
 
         assert_eq!(menu.hit_at(10, 5), None);
-        assert_eq!(menu.selected_action(), Some(MenuAction::RestoreAllClientSizing));
+        assert_eq!(menu.selected_action(), Some(MenuAction::RestoreAllClientSizing(31)));
     }
 
     #[test]
@@ -12757,7 +12822,6 @@ mod tests {
             attached: Vec::new(),
             sizes: Vec::new(),
             is_self: false,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[client], 31) else {
             panic!("expected connected clients submenu");
@@ -12777,9 +12841,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![31],
-            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: 31,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: true,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[current], 31) else {
             panic!("expected connected clients submenu");
@@ -12787,8 +12855,8 @@ mod tests {
         assert_eq!(
             &items[..2],
             &[
-                MenuItem::Action(MenuAction::UseClientSize(7)),
-                MenuItem::Action(MenuAction::RestoreAllClientSizing),
+                MenuItem::Action(MenuAction::UseClientSize { surface: 31, client: 7 }),
+                MenuItem::Action(MenuAction::RestoreAllClientSizing(31)),
             ]
         );
     }
@@ -12806,7 +12874,6 @@ mod tests {
             attached: vec![],
             sizes: vec![],
             is_self: true,
-            size_participating: true,
         }];
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
@@ -12829,7 +12896,6 @@ mod tests {
             attached: vec![],
             sizes: vec![],
             is_self: false,
-            size_participating: true,
         }];
 
         assert!(app.activate_menu(MenuAction::DisconnectClient(7)).is_ok());
@@ -12856,9 +12922,13 @@ mod tests {
             kind: Some("tui".to_string()),
             connected_seconds: 1,
             attached: vec![31],
-            sizes: vec![ClientSizeInfo { surface: 31, cols: Some(80), rows: Some(24) }],
+            sizes: vec![ClientSizeInfo {
+                surface: 31,
+                cols: Some(80),
+                rows: Some(24),
+                size_participating: true,
+            }],
             is_self: true,
-            size_participating: true,
         };
         let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&[local], 31) else {
             panic!("expected connected clients submenu");
@@ -12926,8 +12996,13 @@ mod tests {
 
     #[test]
     fn context_menu_scrolls_selection_and_hit_testing_through_tall_client_lists() {
-        let mut menu =
-            ContextMenu::at(10, 5, vec![(1..=8).map(MenuAction::UseClientSize).collect()]);
+        let mut menu = ContextMenu::at(
+            10,
+            5,
+            vec![
+                ((1..=8).map(|client| MenuAction::UseClientSize { surface: 31, client }).collect()),
+            ],
+        );
 
         menu.fit_to_rows(3);
         assert_eq!(menu.levels[0].rect.height, 5);
@@ -12937,7 +13012,10 @@ mod tests {
             menu.select_next();
         }
 
-        assert_eq!(menu.selected_action(), Some(MenuAction::UseClientSize(5)));
+        assert_eq!(
+            menu.selected_action(),
+            Some(MenuAction::UseClientSize { surface: 31, client: 5 })
+        );
         assert_eq!(menu.levels[0].scroll_offset, 2);
         assert_eq!(menu.item_at(10, 5), Some(2));
         assert_eq!(menu.item_at(10, 7), Some(4));
@@ -14879,6 +14957,161 @@ mod tests {
             app.session.surface_resize_decision(88, (100, 30), true),
             SurfaceResizeDecision::NeedsQueue(_)
         ));
+    }
+
+    #[test]
+    fn retiring_surface_during_queued_attach_is_not_a_sync_failure() {
+        let mux = Mux::new("surface-retired-during-attach-test", SurfaceOptions::default());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        app.replace_tree(notify_tree(surface, false));
+
+        let reached = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let hook_reached = reached.clone();
+        let hook_release = release.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                hook_reached.wait();
+                hook_release.wait();
+            }));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        reached.wait();
+        app.session.forget_surface(surface);
+        // The authoritative refresh can prune the general tombstone before
+        // the in-flight attach returns. Its claim must retain the retirement.
+        app.session.reconcile_exited_surfaces(&TreeView::default());
+        assert!(!app.session.exited_surfaces.lock().unwrap().contains(&surface));
+        release.wait();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::Success { tree: None },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
+    fn retiring_surface_does_not_swallow_attach_transport_failure() {
+        let surface = 77;
+        let reached = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let session = crate::session::test_remote_session_with_blocked_attach_transport_failure(
+            reached.clone(),
+            release.clone(),
+        );
+        assert!(session.take_remote_tree_stale());
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        reached.wait();
+        app.session.forget_surface(surface);
+        app.session.reconcile_exited_surfaces(&TreeView::default());
+        release.wait();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    error,
+                    ..
+                },
+                ..
+            } if error.contains("remote transport write failed")
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
+    fn unrelated_stale_tree_before_queued_attach_preserves_the_sync_failure() {
+        let session = crate::session::test_remote_session_without_provider_authority();
+        assert!(session.take_remote_tree_stale());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block attach lane", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        app.session.invalidate_remote_tree();
+        app.session.begin_shutdown();
+        release_tx.send(()).unwrap();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.as_deref().is_some_and(|message| {
+            message.contains("surface 77 attach failed")
+                && message.contains("remote response wait canceled for shutdown")
+        }));
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
+    fn unrelated_stale_tree_during_attach_preserves_the_sync_failure() {
+        let session = crate::session::test_remote_session_without_provider_authority();
+        assert!(session.take_remote_tree_stale());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        let session = app.session.inner.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                session.invalidate_remote_tree();
+                session.begin_shutdown();
+            }));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.as_deref().is_some_and(|message| {
+            message.contains("surface 77 attach failed")
+                && message.contains("remote response wait canceled for shutdown")
+        }));
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
     }
 
     #[test]
