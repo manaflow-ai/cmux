@@ -87,6 +87,7 @@ pub(crate) struct SidebarMessages {
     pub stopped: &'static str,
     pub unavailable: &'static str,
     pub connect_prompt: &'static str,
+    pub connect_host_prompt: &'static str,
     pub personal_scope: &'static str,
     pub team_scope: &'static str,
     pub scope: &'static str,
@@ -245,6 +246,7 @@ edits shell files. Authenticate with the configured host before retrying.
         stopped: "stopped",
         unavailable: "unavailable",
         connect_prompt: "Host address or pairing code",
+        connect_host_prompt: "Host address",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -358,6 +360,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         stopped: "停止",
         unavailable: "利用不可",
         connect_prompt: "ホストアドレスまたはペアリングコード",
+        connect_host_prompt: "ホストアドレス",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -493,6 +496,8 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"
         );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt, "Host address");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt, "ホストアドレス");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"

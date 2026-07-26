@@ -171,7 +171,6 @@ impl MachineAgent {
                     Ok(started) => {
                         highest_generation = highest_generation.max(started.generation);
                         latest_worker = Some(started.worker_id);
-                        reconnect_attempt = 0;
                         self.report_registration(&started.registered);
                         workers.insert(started.worker_id, started.handle);
                     }
@@ -281,12 +280,24 @@ impl MachineAgent {
                         }
                     }
                 }
-                Ok(CoordinatorEvent::Closed { worker_id }) => {
+                Ok(CoordinatorEvent::Closed { worker_id, stable }) => {
                     if let Some(worker) = workers.remove(&worker_id) {
                         worker.finish();
                     }
                     if latest_worker == Some(worker_id) {
                         latest_worker = None;
+                        if self.stop.requested() {
+                            break;
+                        }
+                        if stable {
+                            reconnect_attempt = 0;
+                        }
+                        let delay = reconnect_delay(reconnect_attempt, self.wait.as_ref());
+                        reconnect_attempt = reconnect_attempt.saturating_add(1);
+                        self.reporter.retrying(delay);
+                        if !self.wait.wait(delay, self.stop.as_ref()) {
+                            break;
+                        }
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {}
@@ -443,8 +454,17 @@ fn commit_migration_replacement(
     replacement: WorkerHandle,
     reporter: &dyn Reporter,
 ) -> Option<WorkerHandle> {
-    if try_send_worker_command(workers, worker_id, WorkerCommand::CommitMigration { generation }) {
+    let (acknowledgment, result) = mpsc::sync_channel(1);
+    if try_send_worker_command(
+        workers,
+        worker_id,
+        WorkerCommand::CommitMigration { generation, acknowledgment },
+    ) && matches!(result.recv_timeout(HANDSHAKE_TIMEOUT), Ok(true))
+    {
         return Some(replacement);
+    }
+    if let Some(worker) = workers.get(&worker_id) {
+        worker.control.close();
     }
     reporter.diagnostic(MachineAgentDiagnostic::MigrationCommitDelivery);
     reporter.migration_failed();
@@ -541,11 +561,11 @@ impl Drop for ReadDeadline {
 
 enum CoordinatorEvent {
     MigrationRequested { worker_id: u64, generation: u64, request: ReconnectGeneration },
-    Closed { worker_id: u64 },
+    Closed { worker_id: u64, stable: bool },
 }
 
 enum WorkerCommand {
-    CommitMigration { generation: u64 },
+    CommitMigration { generation: u64, acknowledgment: SyncSender<bool> },
     ResumeMigration { generation: u64, code: ErrorCode },
     Stop,
 }
@@ -618,10 +638,13 @@ fn generation_worker(context: WorkerContext) {
         last_ping: Instant::now(),
         next_ping_nonce: 1,
     };
+    let stable_after = heartbeat.saturating_mul(3);
+    let started_at = Instant::now();
     let _ = state.run(worker_id, &coordinator, inputs_rx);
+    let stable = started_at.elapsed() >= stable_after;
     state.close_all();
     control.close();
-    let _ = coordinator.send(CoordinatorEvent::Closed { worker_id });
+    let _ = coordinator.send(CoordinatorEvent::Closed { worker_id, stable });
 }
 
 fn spawn_cloud_reader_with<R, S>(
@@ -652,7 +675,7 @@ where
         Ok(handle) => Ok(handle),
         Err(error) => {
             control.close();
-            let _ = coordinator.send(CoordinatorEvent::Closed { worker_id });
+            let _ = coordinator.send(CoordinatorEvent::Closed { worker_id, stable: false });
             Err(error)
         }
     }
@@ -771,16 +794,21 @@ impl GenerationState {
 
     fn handle_command(&mut self, command: WorkerCommand) -> anyhow::Result<bool> {
         match command {
-            WorkerCommand::CommitMigration { generation } => {
+            WorkerCommand::CommitMigration { generation, acknowledgment } => {
                 if !self.migration_pending || generation <= self.generation {
+                    let _ = acknowledgment.try_send(false);
                     anyhow::bail!("invalid machine-agent migration commit");
                 }
-                self.send(Message::GenerationReady(GenerationReady {
+                if let Err(error) = self.send(Message::GenerationReady(GenerationReady {
                     from_generation: self.generation,
                     to_generation: generation,
-                }))?;
+                })) {
+                    let _ = acknowledgment.try_send(false);
+                    return Err(error);
+                }
                 self.migration_pending = false;
                 self.draining = true;
+                let _ = acknowledgment.try_send(true);
                 Ok(false)
             }
             WorkerCommand::ResumeMigration { generation, code } => {
@@ -1328,7 +1356,7 @@ mod tests {
         assert!(control.0.load(Ordering::Acquire));
         assert!(matches!(
             coordinator_rx.recv_timeout(Duration::from_millis(100)),
-            Ok(CoordinatorEvent::Closed { worker_id: 7 })
+            Ok(CoordinatorEvent::Closed { worker_id: 7, stable: false })
         ));
     }
 
@@ -1378,6 +1406,52 @@ mod tests {
             *reporter.diagnostics.lock().unwrap(),
             vec![MachineAgentDiagnostic::MigrationCommitDelivery]
         );
+    }
+
+    #[test]
+    fn migration_commit_requires_generation_ready_acknowledgment() {
+        let (old_commands, old_inputs) = mpsc::sync_channel(1);
+        let old_control = Arc::new(RecordingControl::default());
+        let erased_old_control: Arc<dyn ConnectionControl> = old_control.clone();
+        let old_thread = thread::spawn(move || {
+            let WorkerInput::Command(WorkerCommand::CommitMigration {
+                generation: 2,
+                acknowledgment,
+            }) = old_inputs.recv().unwrap()
+            else {
+                panic!("expected migration commit");
+            };
+            acknowledgment.send(false).unwrap();
+        });
+        let workers = HashMap::from([(
+            7,
+            WorkerHandle {
+                commands: old_commands,
+                control: erased_old_control,
+                join: Some(old_thread),
+            },
+        )]);
+
+        let (replacement_commands, _replacement_inputs) = mpsc::sync_channel(1);
+        let replacement_control = Arc::new(RecordingControl::default());
+        let erased_replacement_control: Arc<dyn ConnectionControl> = replacement_control.clone();
+        let replacement = WorkerHandle {
+            commands: replacement_commands,
+            control: erased_replacement_control,
+            join: None,
+        };
+        let reporter = TestReporter::default();
+
+        assert!(commit_migration_replacement(&workers, 7, 2, replacement, &reporter).is_none());
+        assert!(old_control.0.load(Ordering::Acquire));
+        assert!(replacement_control.0.load(Ordering::Acquire));
+        assert_eq!(
+            *reporter.diagnostics.lock().unwrap(),
+            vec![MachineAgentDiagnostic::MigrationCommitDelivery]
+        );
+        for (_, worker) in workers {
+            worker.finish();
+        }
     }
 
     #[test]

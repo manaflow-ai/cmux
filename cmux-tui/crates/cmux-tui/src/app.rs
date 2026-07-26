@@ -7046,15 +7046,21 @@ impl App {
                 }
             }
             Some(MachineRailCommand::Connect) => {
-                self.prompt = Some(Prompt::new(
-                    localization::catalog().sidebar.connect_prompt,
-                    String::new(),
-                    PromptTarget::ConnectMachine,
-                ));
+                let label = self.connect_machine_prompt_label();
+                self.prompt = Some(Prompt::new(label, String::new(), PromptTarget::ConnectMachine));
             }
             None => {}
         }
         RenderAction::Draw
+    }
+
+    fn connect_machine_prompt_label(&self) -> &'static str {
+        let messages = &localization::catalog().sidebar;
+        if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
+            messages.connect_prompt
+        } else {
+            messages.connect_host_prompt
+        }
     }
 
     fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
@@ -9538,11 +9544,9 @@ impl App {
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
                     }
-                    self.prompt = Some(Prompt::new(
-                        localization::catalog().sidebar.connect_prompt,
-                        String::new(),
-                        PromptTarget::ConnectMachine,
-                    ));
+                    let label = self.connect_machine_prompt_label();
+                    self.prompt =
+                        Some(Prompt::new(label, String::new(), PromptTarget::ConnectMachine));
                 }
                 Hit::ProviderScope => {
                     self.focus = FocusTarget::MachineRail;
@@ -15710,6 +15714,7 @@ mod tests {
             active: Some(machine),
             capabilities: MachineCapabilities { create: true, connect: true },
         });
+        ui.connect_accepts_pairing_code = true;
         ui.session_available = false;
         ui.set_workspace_creation_policy(
             machine,
@@ -15938,7 +15943,10 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert!(app.machine_ui.as_ref().is_some_and(|ui| ui.request.is_none()));
         assert!(app.prompt.is_some(), "connect machine is keyboard reachable");
-        assert_eq!(app.prompt.as_ref().map(|prompt| prompt.label.as_str()), Some("Host address"));
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
+            Some(localization::catalog().sidebar.connect_host_prompt)
+        );
         app.prompt = None;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);

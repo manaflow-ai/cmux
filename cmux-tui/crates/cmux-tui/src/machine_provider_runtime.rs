@@ -1602,6 +1602,8 @@ fn machine_ui_state(
             connect: snapshot.capabilities.connect_external_machine && provider_connect_supported,
         },
     });
+    ui.connect_accepts_pairing_code =
+        snapshot.capabilities.connect_external_machine && provider_connect_supported;
     ui.session_available = session_available;
     ui.set_managed_machines(
         machine_lifecycle_snapshot
