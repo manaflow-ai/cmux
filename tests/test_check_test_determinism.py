@@ -142,6 +142,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    #expect(finished)\n"
                 "}\n"
             ),
+            "typed-mutable-continuous-clock.swift": (
+                "var clock: ContinuousClock = .init()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
+            "inferred-mutable-suspending-clock.swift": (
+                "var clock = SuspendingClock()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -169,6 +179,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             ),
             "global-this-timeout.ts": (
                 "await new Promise(resolve => globalThis.setTimeout(resolve, 1))\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "node-timer-alias.ts": (
+                'import { setTimeout as sleep } from "node:timers/promises"\n'
+                "await sleep(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "timer-delay-alias.ts": (
+                'import { setTimeout as delay } from "timers/promises"\n'
+                "await delay(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
             "shell.sh": 'sleep 1\nassert "$actual" "$expected"\n',
@@ -535,6 +555,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "named-continuous-clock.swift",
                     "typed-suspending-clock.swift",
                     "qualified-typed-continuous-clock.swift",
+                    "typed-mutable-continuous-clock.swift",
+                    "inferred-mutable-suspending-clock.swift",
+                    "node-timer-alias.ts",
+                    "timer-delay-alias.ts",
                     "template-multiline-interpolation.ts",
                     "js-comment-close.ts",
                     "shell-arithmetic-before-sleep.sh",
@@ -632,6 +656,19 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ),
                 "virtual.ts": (
                     "await fixture.Bun.sleep(1)\n"
+                    "expect(completed).toBe(true)\n"
+                ),
+                "timer-alias-parameter-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "run(async (delay) => {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "})\n"
+                ),
+                "timer-alias-rebound.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "delay = fakeDelay\n"
+                    "await delay(1)\n"
                     "expect(completed).toBe(true)\n"
                 ),
                 "spaced-members.ts": (
