@@ -522,4 +522,60 @@ describe("RenderGraphics canvas resource policy", () => {
       expect(canvases[0]).toHaveAttribute("width", "2");
     });
   });
+
+  it("keeps an in-flight decoder across placement-only updates", async () => {
+    let workers = 0;
+    let terminations = 0;
+    class PausedWorker {
+      onmessage: ((event: MessageEvent<RenderGraphicsDecodeResponse>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      constructor() {
+        workers += 1;
+      }
+
+      postMessage(): void {}
+
+      terminate(): void {
+        terminations += 1;
+      }
+    }
+    vi.stubGlobal("Worker", PausedWorker);
+    const image = {
+      id: 1,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgba" as const,
+      data: zeroBytesBase64(4),
+    };
+    const first: RenderGraphicsModel = {
+      generation: 1,
+      images: [image],
+      placements: [placement(1, 1, 1)],
+    };
+    const movedPlacement = { ...placement(1, 1, 1), viewport_col: 1 };
+    const second: RenderGraphicsModel = {
+      generation: 2,
+      images: [{ ...image }],
+      placements: [movedPlacement],
+    };
+    const { rerender } = render(
+      <RenderGraphics graphics={first}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+    await waitFor(() => expect(workers).toBe(1));
+
+    rerender(
+      <RenderGraphics graphics={second}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(workers).toBe(1);
+    expect(terminations).toBe(0);
+  });
 });

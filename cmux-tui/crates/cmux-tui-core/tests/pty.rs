@@ -2,6 +2,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::TryRecvError;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -1185,9 +1186,22 @@ fn render_attach_snapshot_contains_preexisting_kitty_image() {
         .unwrap();
 
     let attach = surface.attach_render_stream().unwrap();
+    let second_attach = surface.attach_render_stream().unwrap();
     let graphics = &attach.initial.frame.kitty_graphics;
+    let second_graphics = &second_attach.initial.frame.kitty_graphics;
     assert_eq!(&*graphics.image(74).expect("render-attach image").data, &[255, 0, 0]);
     assert_eq!(graphics.placements.len(), 1);
+    assert!(
+        Arc::ptr_eq(graphics, second_graphics),
+        "unchanged render attachments must share one graphics snapshot"
+    );
+    assert!(
+        Arc::ptr_eq(
+            &graphics.image(74).expect("first render-attach image").data,
+            &second_graphics.image(74).expect("second render-attach image").data,
+        ),
+        "unchanged render attachments must share decoded Kitty pixels"
+    );
     let _ = mux.close_surface(surface.id);
 }
 
