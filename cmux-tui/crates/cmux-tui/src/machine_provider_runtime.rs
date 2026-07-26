@@ -19,8 +19,8 @@ use crate::machine::{
     ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
     ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
     ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
-    ProviderActionFieldKind, ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor,
-    ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    ProviderActionFieldKind, ProviderActionTarget, ProviderActionValue, ProviderPresentation,
+    ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
 };
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
@@ -450,7 +450,12 @@ impl ProviderMachineRuntime {
                     },
                 ))
             }
-            MachineRequest::InvokeProviderAction { action_id, values } => {
+            MachineRequest::InvokeProviderAction {
+                action_id,
+                values,
+                machine_id,
+                workspace_id,
+            } => {
                 let values = values
                     .into_iter()
                     .map(|(key, value)| {
@@ -466,6 +471,8 @@ impl ProviderMachineRuntime {
                 let result = self.client.invoke_action(
                     protocol::OpaqueId::new(action_id)?,
                     values,
+                    machine_id.map(protocol::OpaqueId::new).transpose()?,
+                    workspace_id.map(protocol::OpaqueId::new).transpose()?,
                     self.next_mutation_id()?,
                 )?;
                 let selected_scope_id = result.selected_scope_id;
@@ -1587,14 +1594,30 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
             .iter()
             .map(|action| ProviderActionDescriptor {
                 id: action.id.as_str().to_string(),
-                label: action.label.clone(),
+                label: localization::provider_action_label(action.id.as_str())
+                    .unwrap_or(&action.label)
+                    .to_string(),
+                target: match action.target {
+                    protocol::ProviderActionTarget::Scope => ProviderActionTarget::Scope,
+                    protocol::ProviderActionTarget::SelectedMachine => {
+                        ProviderActionTarget::SelectedMachine
+                    }
+                    protocol::ProviderActionTarget::SelectedWorkspace => {
+                        ProviderActionTarget::SelectedWorkspace
+                    }
+                },
                 destructive: action.destructive,
                 fields: action
                     .fields
                     .iter()
                     .map(|field| ProviderActionFieldDescriptor {
                         id: field.id.clone(),
-                        label: field.label.clone(),
+                        label: localization::provider_action_field_label(
+                            action.id.as_str(),
+                            &field.id,
+                        )
+                        .unwrap_or(&field.label)
+                        .to_string(),
                         kind: match field.kind {
                             protocol::ActionFieldKind::Text => ProviderActionFieldKind::Text,
                             protocol::ActionFieldKind::Email => ProviderActionFieldKind::Email,
@@ -1786,6 +1809,7 @@ mod tests {
             actions: vec![protocol::ProviderAction {
                 id: id("billing"),
                 label: format!("Billing revision {revision}"),
+                target: protocol::ProviderActionTarget::Scope,
                 destructive: false,
                 fields: Vec::new(),
             }],
@@ -1920,6 +1944,8 @@ mod tests {
             AcceptedMutationKind::InvokeAction => MachineRequest::InvokeProviderAction {
                 action_id: "billing".into(),
                 values: BTreeMap::new(),
+                machine_id: None,
+                workspace_id: None,
             },
         }
     }
@@ -2365,6 +2391,8 @@ mod tests {
             .perform_request(MachineRequest::InvokeProviderAction {
                 action_id: "billing".into(),
                 values: BTreeMap::new(),
+                machine_id: None,
+                workspace_id: None,
             })
             .unwrap();
         assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
@@ -2723,6 +2751,7 @@ mod tests {
             actions: vec![protocol::ProviderAction {
                 id: id("invite"),
                 label: "Invite member".into(),
+                target: protocol::ProviderActionTarget::Scope,
                 destructive: false,
                 fields: vec![protocol::ActionField {
                     id: "email".into(),
@@ -3508,6 +3537,8 @@ mod tests {
             .perform_request(MachineRequest::InvokeProviderAction {
                 action_id: "billing".into(),
                 values: BTreeMap::new(),
+                machine_id: None,
+                workspace_id: None,
             })
             .unwrap();
         let updates = runtime.subscribe_ui_updates().unwrap();

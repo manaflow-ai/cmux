@@ -63,7 +63,14 @@ pub(crate) struct SidebarMessages {
     pub action_invalid_integer: &'static str,
     pub action_below_minimum: &'static str,
     pub action_above_maximum: &'static str,
+    pub action_missing_selected_machine: &'static str,
+    pub action_missing_selected_workspace: &'static str,
     pub action_multiple_fields_unsupported: &'static str,
+    pub action_list_workspace_ports: &'static str,
+    pub action_make_workspace_port_public: &'static str,
+    pub action_make_workspace_port_private: &'static str,
+    pub action_open_private_workspace_port: &'static str,
+    pub action_workspace_port: &'static str,
     pub confirm_destructive_action: &'static str,
     pub confirmation_mismatch: &'static str,
     pub initial_machine_connection_failed: &'static str,
@@ -187,7 +194,14 @@ static ENGLISH: Catalog = Catalog {
         action_invalid_integer: "Enter a whole number",
         action_below_minimum: "This number is below the allowed minimum",
         action_above_maximum: "This number is above the allowed maximum",
+        action_missing_selected_machine: "Select a machine before running this action",
+        action_missing_selected_workspace: "Select a workspace before running this action",
         action_multiple_fields_unsupported: "This action needs a form that this client cannot show",
+        action_list_workspace_ports: "List workspace ports",
+        action_make_workspace_port_public: "Make workspace port public",
+        action_make_workspace_port_private: "Make workspace port private",
+        action_open_private_workspace_port: "Open private workspace port",
+        action_workspace_port: "Port",
         confirm_destructive_action: "Type CONFIRM to continue",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
         initial_machine_connection_failed: "Could not connect",
@@ -267,7 +281,14 @@ static JAPANESE: Catalog = Catalog {
         action_invalid_integer: "整数を入力してください",
         action_below_minimum: "この数値は許可された最小値未満です",
         action_above_maximum: "この数値は許可された最大値を超えています",
+        action_missing_selected_machine: "この操作を実行する前にマシンを選択してください",
+        action_missing_selected_workspace: "この操作を実行する前にワークスペースを選択してください",
         action_multiple_fields_unsupported: "この操作に必要なフォームをこのクライアントでは表示できません",
+        action_list_workspace_ports: "ワークスペースのポートを表示",
+        action_make_workspace_port_public: "ワークスペースのポートを公開",
+        action_make_workspace_port_private: "ワークスペースのポートを非公開",
+        action_open_private_workspace_port: "非公開のワークスペースポートを開く",
+        action_workspace_port: "ポート",
         confirm_destructive_action: "続行するには CONFIRM と入力",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
         initial_machine_connection_failed: "マシンに接続できませんでした",
@@ -298,6 +319,30 @@ static JAPANESE: Catalog = Catalog {
 pub(crate) fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<&'static Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| catalog_for_locale(&system_locale()))
+}
+
+pub(crate) fn provider_action_label(action_id: &str) -> Option<&'static str> {
+    let messages = &catalog().sidebar;
+    match action_id {
+        "workspace.ports.list" => Some(messages.action_list_workspace_ports),
+        "workspace.port.make_public" => Some(messages.action_make_workspace_port_public),
+        "workspace.port.make_private" => Some(messages.action_make_workspace_port_private),
+        "workspace.port.open_private" => Some(messages.action_open_private_workspace_port),
+        _ => None,
+    }
+}
+
+pub(crate) fn provider_action_field_label(action_id: &str, field_id: &str) -> Option<&'static str> {
+    matches!(
+        (action_id, field_id),
+        (
+            "workspace.port.make_public"
+                | "workspace.port.make_private"
+                | "workspace.port.open_private",
+            "port"
+        )
+    )
+    .then_some(catalog().sidebar.action_workspace_port)
 }
 
 pub(crate) fn catalog_for_locale(locale: &str) -> &'static Catalog {
@@ -356,6 +401,19 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_invalid,
             "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました"
         );
+    }
+
+    #[test]
+    fn workspace_port_provider_actions_use_localized_labels() {
+        assert_eq!(
+            provider_action_label("workspace.ports.list"),
+            Some(catalog().sidebar.action_list_workspace_ports)
+        );
+        assert_eq!(
+            provider_action_field_label("workspace.port.make_public", "port"),
+            Some(catalog().sidebar.action_workspace_port)
+        );
+        assert_eq!(provider_action_label("external.action"), None);
     }
 
     #[test]
