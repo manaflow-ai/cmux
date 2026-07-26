@@ -816,13 +816,18 @@ impl GenerationState {
         };
         let DuplexConnection { reader, writer, control } = connection;
         let flow = Arc::new(StreamFlow::new(open.initial_window));
-        spawn_local_reader(
+        if spawn_local_reader(
             open.stream_id,
             reader,
             Arc::clone(&flow),
             Arc::clone(&control),
             self.inputs.clone(),
-        )?;
+        )
+        .is_err()
+        {
+            control.close();
+            return self.reject(open.stream_id, "local_unavailable");
+        }
         self.streams.insert(
             open.stream_id,
             ActiveStream {

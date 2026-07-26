@@ -683,7 +683,20 @@ impl ProviderMachineRuntime {
             }
             Err(error) => return Err(error.into()),
         }
-        self.refresh()?;
+        if let Err(error) = self.refresh() {
+            match error.downcast_ref::<ProviderClientError>() {
+                Some(ProviderClientError::Disconnected | ProviderClientError::NotAuthenticated) => {
+                    if matches_pending {
+                        anyhow::bail!(
+                            localization::catalog().sidebar.machine_provider_disconnected
+                        );
+                    }
+                    self.pending_external_connect = None;
+                    return Ok(ExternalConnectRouting::Local(specifier));
+                }
+                _ => return Err(error),
+            }
+        }
         if !self.snapshot.capabilities.connect_external_machine {
             self.pending_external_connect = None;
             return Ok(ExternalConnectRouting::Local(specifier));
