@@ -4592,6 +4592,58 @@ mod tests {
     }
 
     #[test]
+    fn download_navigation_restores_current_document_pointer_authority() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let navigate = read_ws_json(&mut ws);
+            assert_eq!(navigate["method"], "Page.navigate");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": navigate["id"],
+                    "result": {"frameId": "main-frame", "isDownload": true}
+                }),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let previous_url = browser.url();
+
+        browser.navigate_blocking("https://example.test/download").unwrap();
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(state.pending_navigation_epoch, None);
+        assert_eq!(
+            state.pointer_frame_seq,
+            Some(1),
+            "a download must leave the unchanged document interactive"
+        );
+        drop(state);
+        assert_eq!(browser.url(), previous_url, "a download must not replace the document URL");
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn timed_out_navigation_keeps_pointer_admission_blocked() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");

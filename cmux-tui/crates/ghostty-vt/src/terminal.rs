@@ -1983,6 +1983,23 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_output_does_not_probe_unchanged_ambiguous_mouse_modes() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let probes_after_modes = terminal.mouse_mode_probe.signature_calls();
+
+        for _ in 0..128 {
+            terminal.vt_write(b"ordinary application output\r\n");
+        }
+
+        assert_eq!(
+            terminal.mouse_mode_probe.signature_calls(),
+            probes_after_modes,
+            "ordinary PTY output must not run synthetic mouse encodes"
+        );
+    }
+
+    #[test]
     fn bounded_vt_replay_keeps_the_latest_screen_after_large_history() {
         let mut source = Terminal::new(80, 24, 2 * 1024 * 1024, Callbacks::default()).unwrap();
         let wide_line = "x".repeat(2048);

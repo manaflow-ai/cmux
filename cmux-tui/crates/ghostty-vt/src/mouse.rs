@@ -66,6 +66,8 @@ pub struct MouseEncoders {
 /// multiple DEC modes are enabled and their last-set precedence matters.
 pub(crate) struct MouseModeProbe {
     encoder: MouseEncoder,
+    #[cfg(test)]
+    signature_calls: u64,
 }
 
 impl MouseEncoders {
@@ -104,10 +106,18 @@ impl MouseEncoders {
 
 impl MouseModeProbe {
     pub(crate) fn new() -> Result<Self> {
-        Ok(Self { encoder: MouseEncoder::new()? })
+        Ok(Self {
+            encoder: MouseEncoder::new()?,
+            #[cfg(test)]
+            signature_calls: 0,
+        })
     }
 
     pub(crate) fn signature(&mut self, terminal: sys::GhosttyTerminal) -> Vec<u8> {
+        #[cfg(test)]
+        {
+            self.signature_calls += 1;
+        }
         self.encoder.sync_from_raw_terminal(terminal);
         self.encoder.reset_motion_dedupe();
         let mut signature = Vec::with_capacity(96);
@@ -183,6 +193,11 @@ impl MouseModeProbe {
             signature.extend_from_slice(&encoded);
         }
         signature
+    }
+
+    #[cfg(test)]
+    pub(crate) fn signature_calls(&self) -> u64 {
+        self.signature_calls
     }
 }
 
