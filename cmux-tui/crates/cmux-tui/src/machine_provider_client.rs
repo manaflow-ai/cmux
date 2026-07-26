@@ -27,20 +27,22 @@ use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
-    AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken, ClientDescriptor,
-    CloseMachineParams, CloseMachineResult, ConnectExternalMachineParams,
-    ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
-    CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
-    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
-    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
-    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult, NoticeDelivery,
-    OpaqueId, OpenMachineParams, OpenMachineResult, Protocol, ProviderError, ProviderEvent,
-    ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams, RequestEnvelope,
-    ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams, SnapshotResult,
-    SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor, TransportHandshake,
-    TransportHandshakeResult, TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY,
-    WorkspaceCreateMode, WorkspaceMutationParams, WorkspaceMutationResult, WorkspaceSnapshotParams,
-    WorkspaceSnapshotResult,
+    AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken,
+    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, ClientDescriptor, CloseMachineParams,
+    CloseMachineResult, ConnectExternalMachineParams, ConnectExternalMachineResult,
+    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
+    DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope,
+    ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
+    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
+    MachineMutationParams, MachineMutationResult, NegotiateClientCapabilitiesParams,
+    NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId, OpenMachineParams,
+    OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError,
+    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
+    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
+    SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor,
+    TransportHandshake, TransportHandshakeResult, TransportRole, Version,
+    WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
+    WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -367,6 +369,7 @@ struct ProviderClientInner {
     authenticated: AtomicBool,
     token: Mutex<Option<BearerToken>>,
     provider_capabilities: Mutex<Vec<String>>,
+    negotiated_client_capabilities: Mutex<Vec<String>>,
 }
 
 #[cfg(unix)]
@@ -625,6 +628,7 @@ impl ProviderClient {
             authenticated: AtomicBool::new(false),
             token: Mutex::new(None),
             provider_capabilities: Mutex::new(Vec::new()),
+            negotiated_client_capabilities: Mutex::new(Vec::new()),
         });
         let weak = Arc::downgrade(&inner);
         std::thread::Builder::new()
@@ -652,6 +656,7 @@ impl ProviderClient {
         let (token, control, streams) = connector.connect()?.into_parts();
         let provider = Self::from_transport(control, streams)?;
         let hello = provider.hello(token, client)?;
+        provider.negotiate_supported_client_capabilities()?;
         Ok((provider, hello))
     }
 
@@ -697,11 +702,17 @@ impl ProviderClient {
     }
 
     pub(crate) fn snapshot(&self, known_revision: Option<u64>) -> ProviderResult<SnapshotResult> {
-        self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))
+        let mut snapshot =
+            self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))?;
+        self.retain_negotiated_actions(&mut snapshot)?;
+        Ok(snapshot)
     }
 
     pub(crate) fn select_scope(&self, scope_id: OpaqueId) -> ProviderResult<SelectScopeResult> {
-        self.request(ProviderRequest::SelectScope(SelectScopeParams { scope_id }))
+        let mut result: SelectScopeResult =
+            self.request(ProviderRequest::SelectScope(SelectScopeParams { scope_id }))?;
+        self.retain_negotiated_actions(&mut result.snapshot)?;
+        Ok(result)
     }
 
     pub(crate) fn create_machine(
@@ -1028,12 +1039,49 @@ impl ProviderClient {
 
     pub(crate) fn supports_capability(&self, capability: &str) -> ProviderResult<bool> {
         self.ensure_authenticated()?;
+        self.advertises_capability(capability)
+    }
+
+    fn advertises_capability(&self, capability: &str) -> ProviderResult<bool> {
         let capabilities = self
             .inner
             .provider_capabilities
             .lock()
             .map_err(|_| ProviderClientError::StatePoisoned("capabilities"))?;
         Ok(capabilities.iter().any(|candidate| candidate == capability))
+    }
+
+    fn negotiate_supported_client_capabilities(&self) -> ProviderResult<()> {
+        if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
+            return Ok(());
+        }
+        let requested = vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()];
+        let result: NegotiateClientCapabilitiesResult =
+            self.request(ProviderRequest::NegotiateClientCapabilities(
+                NegotiateClientCapabilitiesParams { capabilities: requested.clone() },
+            ))?;
+        if result.capabilities.iter().any(|capability| !requested.contains(capability)) {
+            return Err(ProviderClientError::Protocol(
+                "provider accepted an unrequested client capability".to_string(),
+            ));
+        }
+        *self
+            .inner
+            .negotiated_client_capabilities
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("client-capabilities"))? =
+            result.capabilities;
+        Ok(())
+    }
+
+    fn retain_negotiated_actions(&self, snapshot: &mut SnapshotResult) -> ProviderResult<()> {
+        let capabilities = self
+            .inner
+            .negotiated_client_capabilities
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("client-capabilities"))?;
+        snapshot.retain_actions_for_client_capabilities(&capabilities);
+        Ok(())
     }
 
     fn require_capability(&self, capability: &'static str) -> ProviderResult<()> {

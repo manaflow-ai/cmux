@@ -3247,6 +3247,7 @@ mod tests {
         let listener = socket.listener();
         let mut targeted = snapshot(1, "Machine", protocol::MachineStatus::Running);
         targeted.actions[0].target = protocol::ProviderActionTarget::SelectedWorkspace;
+        let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -3289,6 +3290,7 @@ mod tests {
             let request: protocol::RequestEnvelope = read_frame(&mut reader);
             assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
             write_frame(&mut stream, &protocol::ResponseEnvelope::success(request.id, targeted));
+            finished.recv_timeout(Duration::from_secs(1)).unwrap();
         });
 
         let runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
@@ -3296,6 +3298,7 @@ mod tests {
             runtime.snapshot.actions[0].target,
             protocol::ProviderActionTarget::SelectedWorkspace
         );
+        finish.send(()).unwrap();
         server.join().unwrap();
     }
 
