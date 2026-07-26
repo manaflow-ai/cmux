@@ -4418,6 +4418,81 @@ mod tests {
     }
 
     #[test]
+    fn production_navigation_timeout_keeps_pointer_admission_blocked() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let invalidation = browser.invalidate_pointer_frame();
+        let expected_epoch = invalidation.expected_frame_epoch;
+
+        let result: anyhow::Result<()> = browser.finish_navigation_command(
+            invalidation,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+        );
+
+        assert!(result.is_err());
+        let state = browser.state.lock().unwrap();
+        assert_eq!(
+            state.pending_frame_epoch, expected_epoch,
+            "an ambiguous production timeout must retain its navigation barrier"
+        );
+        assert_eq!(state.pointer_frame_seq, None);
+    }
+
+    #[test]
+    fn failed_reconfigure_restores_frame_admission_and_capture() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let metrics = read_ws_json(&mut ws);
+            assert_eq!(metrics["method"], "Emulation.setDeviceMetricsOverride");
+            write_ws_json(
+                &mut ws,
+                json!({"id": metrics["id"], "error": {"message": "injected resize failure"}}),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let (_, capture_generation) =
+            browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+
+        assert!(browser.reconfigure_reserved_blocking(queued).is_err());
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(
+            state.pending_frame_epoch, None,
+            "a rejected resize must release its frame-epoch reservation"
+        );
+        assert_eq!(state.pointer_frame_seq, Some(1));
+        drop(state);
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "a resize failure must preserve ownership of a balancing pointer release"
+        );
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn frames_stalled_requires_live_surface_over_threshold() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
