@@ -1727,6 +1727,7 @@ mod tests {
         current: io::Cursor<Vec<u8>>,
         writes: Vec<u8>,
         read_timeouts: Arc<Mutex<Vec<Option<Duration>>>>,
+        fail_read_timeout_call: Option<usize>,
     }
 
     impl Read for ScriptedStream {
@@ -1766,7 +1767,14 @@ mod tests {
         }
 
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            self.read_timeouts.lock().unwrap().push(timeout);
+            let call = {
+                let mut timeouts = self.read_timeouts.lock().unwrap();
+                timeouts.push(timeout);
+                timeouts.len()
+            };
+            if self.fail_read_timeout_call == Some(call) {
+                return Err(io::Error::from_raw_os_error(libc::EINVAL));
+            }
             Ok(())
         }
 
@@ -1796,6 +1804,7 @@ mod tests {
             current: io::Cursor::new(Vec::new()),
             writes: Vec::new(),
             read_timeouts,
+            fail_read_timeout_call: None,
         };
         let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
 
@@ -1817,6 +1826,7 @@ mod tests {
             current: io::Cursor::new(Vec::new()),
             writes: Vec::new(),
             read_timeouts,
+            fail_read_timeout_call: None,
         };
         let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
 
@@ -1837,6 +1847,7 @@ mod tests {
             current: io::Cursor::new(Vec::new()),
             writes: Vec::new(),
             read_timeouts: read_timeouts.clone(),
+            fail_read_timeout_call: None,
         };
         transport::Stream::set_read_timeout(&stream, Some(Duration::from_millis(250))).unwrap();
         let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
@@ -1847,6 +1858,25 @@ mod tests {
             Some(Duration::from_millis(250)),
             "identity probing replaced the stream's short shutdown polling timeout"
         );
+    }
+
+    #[test]
+    fn completed_probe_survives_closed_peer_timeout_restore() {
+        let read_timeouts = Arc::new(Mutex::new(Vec::new()));
+        let stream = ScriptedStream {
+            reads: VecDeque::from([Ok(
+                b"{\"id\":0,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[]}}\n"
+                    .to_vec(),
+            )]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+            read_timeouts,
+            fail_read_timeout_call: Some(4),
+        };
+        transport::Stream::set_read_timeout(&stream, Some(Duration::from_millis(250))).unwrap();
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(server_supports_capability(&mut reader, "unused"), Ok(false));
     }
 
     #[test]
