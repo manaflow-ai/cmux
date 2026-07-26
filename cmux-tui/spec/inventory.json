@@ -221,7 +221,7 @@
     {"variant": "SetClientSizing", "classification": "direct", "route": "set-client-sizing"},
     {"variant": "UseClientSize", "classification": "direct", "route": "set-client-sizing exclusive:true"},
     {"variant": "RestoreAllClientSizing", "classification": "direct", "route": "set-client-sizing enabled:true without client"},
-    {"variant": "DisconnectClient", "classification": "direct", "route": "detach-client"},
+    {"variant": "DisconnectClient", "classification": "composite", "route": "self: close frontend transport; peer: detach-client"},
     {"variant": "SelectProviderScope", "classification": "external-protocol", "route": "machine-provider select_scope"},
     {"variant": "InvokeProviderAction", "classification": "external-protocol", "route": "machine-provider invoke_action"}
   ],

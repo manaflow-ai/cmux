@@ -359,6 +359,40 @@ def menu_action_variants() -> set[str]:
     return rust_enum_variants(source, "MenuAction")
 
 
+def menu_action_metadata() -> dict[str, dict[str, str]]:
+    source = strip_rust_comments((TUI / "crates/cmux-tui/src/app.rs").read_text())
+    body = rust_function_body(source, "metadata")
+    metadata: dict[str, dict[str, str]] = {}
+    for variant, classification, route, execution in re.findall(
+        r"MenuAction::([A-Z][A-Za-z0-9]*)"
+        r"(?:\s*\([^)]*\)|\s*\{[^}]*\})?\s*=>\s*MenuActionMetadata::new\(\s*"
+        r"MenuActionClassification::([A-Z][A-Za-z0-9]*)\s*,\s*"
+        r'"([^"]+)"\s*,\s*'
+        r"MenuActionExecution::([A-Z][A-Za-z0-9]*)",
+        body,
+        re.DOTALL,
+    ):
+        if variant in metadata:
+            fail(f"duplicate menu action metadata for {variant}")
+        if execution != variant:
+            fail(
+                f"menu action metadata dispatch mismatch for {variant}: "
+                f"executes {execution}"
+            )
+        metadata[variant] = {
+            "classification": camel_to_kebab(classification),
+            "route": route,
+        }
+    variants = rust_enum_variants(source, "MenuAction")
+    if set(metadata) != variants:
+        missing = sorted(variants - set(metadata))
+        stale = sorted(set(metadata) - variants)
+        fail(
+            f"menu action metadata is not exhaustive, missing={missing}, stale={stale}"
+        )
+    return metadata
+
+
 def mux_protocol_version() -> int:
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     constants = {
@@ -616,6 +650,26 @@ def validate_menu_actions(inventory: dict) -> list[dict]:
         [action["variant"] for action in menu_actions], "menu action"
     )
     compare(menu_action_variants(), inventory_menu_actions, "menu action")
+    runtime_metadata = menu_action_metadata()
+    inventory_metadata = {
+        action["variant"]: {
+            "classification": action["classification"],
+            "route": action["route"],
+        }
+        for action in menu_actions
+    }
+    changed = sorted(
+        variant
+        for variant in set(runtime_metadata) | set(inventory_metadata)
+        if runtime_metadata.get(variant) != inventory_metadata.get(variant)
+    )
+    if changed:
+        details = [
+            f"{variant}: inventory={inventory_metadata.get(variant)}, "
+            f"runtime={runtime_metadata.get(variant)}"
+            for variant in changed
+        ]
+        fail(f"menu action metadata drift, {'; '.join(details)}")
     menu_allowed = {"direct", "composite", "presentation-only", "external-protocol"}
     for action in menu_actions:
         if action["classification"] not in menu_allowed:

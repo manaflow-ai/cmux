@@ -2206,7 +2206,265 @@ pub enum MenuAction {
     InvokeProviderAction(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuActionExecution {
+    RenameManagedMachine(MachineKey),
+    DeleteManagedMachine(MachineKey),
+    RestoreManagedMachine(MachineKey),
+    PurgeManagedMachine(MachineKey),
+    RenameWorkspace(WorkspaceId),
+    RenameManagedWorkspace(WorkspaceId),
+    CopyWorkspaceId(WorkspaceId),
+    CloseWorkspace(WorkspaceId),
+    DeleteManagedWorkspace(WorkspaceId),
+    RestoreManagedWorkspace(usize),
+    PurgeManagedWorkspace(usize),
+    RenameScreen(cmux_tui_core::ScreenId),
+    CloseScreen(cmux_tui_core::ScreenId),
+    BrowserBack(PaneId),
+    BrowserForward(PaneId),
+    BrowserReload(PaneId),
+    BrowserEditUrl(PaneId),
+    BrowserCopyUrl(PaneId),
+    BrowserActivate(PaneId),
+    RenameTab(PaneId),
+    CopyTabId(PaneId),
+    CopyPaneId(PaneId),
+    NewTab(PaneId),
+    NewBrowserTab(PaneId),
+    SplitRight(PaneId),
+    SplitDown(PaneId),
+    CloseTab(PaneId),
+    ClosePane(PaneId),
+    SetClientSizing { client: u64, enabled: bool },
+    UseClientSize(u64),
+    RestoreAllClientSizing,
+    DisconnectClient(u64),
+    SelectProviderScope(usize),
+    InvokeProviderAction(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuActionClassification {
+    Direct,
+    Composite,
+    PresentationOnly,
+    ExternalProtocol,
+}
+
+impl MenuActionClassification {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Composite => "composite",
+            Self::PresentationOnly => "presentation-only",
+            Self::ExternalProtocol => "external-protocol",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MenuActionMetadata {
+    classification: MenuActionClassification,
+    route: &'static str,
+    execution: MenuActionExecution,
+}
+
+impl MenuActionMetadata {
+    const fn new(
+        classification: MenuActionClassification,
+        route: &'static str,
+        execution: MenuActionExecution,
+    ) -> Self {
+        Self { classification, route, execution }
+    }
+
+    fn execution(self) -> MenuActionExecution {
+        debug_assert!(!self.classification.inventory_name().is_empty());
+        debug_assert!(!self.route.is_empty());
+        self.execution
+    }
+}
+
 impl MenuAction {
+    /// Compiled source of truth for programmability classification and
+    /// execution routing. The specification inventory checker reads this
+    /// exhaustive catalog.
+    fn metadata(&self) -> MenuActionMetadata {
+        match self {
+            MenuAction::RenameManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider rename_machine",
+                MenuActionExecution::RenameManagedMachine(*key),
+            ),
+            MenuAction::DeleteManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider delete_machine",
+                MenuActionExecution::DeleteManagedMachine(*key),
+            ),
+            MenuAction::RestoreManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider restore_machine",
+                MenuActionExecution::RestoreManagedMachine(*key),
+            ),
+            MenuAction::PurgeManagedMachine(key) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider purge_machine",
+                MenuActionExecution::PurgeManagedMachine(*key),
+            ),
+            MenuAction::RenameWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend prompt + rename-workspace",
+                MenuActionExecution::RenameWorkspace(*id),
+            ),
+            MenuAction::RenameManagedWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider rename_workspace plus provider mirror commit",
+                MenuActionExecution::RenameManagedWorkspace(*id),
+            ),
+            MenuAction::CopyWorkspaceId(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "tree snapshot + frontend clipboard",
+                MenuActionExecution::CopyWorkspaceId(*id),
+            ),
+            MenuAction::CloseWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "close-workspace",
+                MenuActionExecution::CloseWorkspace(*id),
+            ),
+            MenuAction::DeleteManagedWorkspace(id) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider delete_workspace",
+                MenuActionExecution::DeleteManagedWorkspace(*id),
+            ),
+            MenuAction::RestoreManagedWorkspace(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider restore_workspace",
+                MenuActionExecution::RestoreManagedWorkspace(*index),
+            ),
+            MenuAction::PurgeManagedWorkspace(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider purge_workspace",
+                MenuActionExecution::PurgeManagedWorkspace(*index),
+            ),
+            MenuAction::RenameScreen(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend prompt + rename-screen",
+                MenuActionExecution::RenameScreen(*id),
+            ),
+            MenuAction::CloseScreen(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "close-screen",
+                MenuActionExecution::CloseScreen(*id),
+            ),
+            MenuAction::BrowserBack(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-back",
+                MenuActionExecution::BrowserBack(*id),
+            ),
+            MenuAction::BrowserForward(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-forward",
+                MenuActionExecution::BrowserForward(*id),
+            ),
+            MenuAction::BrowserReload(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-reload",
+                MenuActionExecution::BrowserReload(*id),
+            ),
+            MenuAction::BrowserEditUrl(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend omnibar + browser-navigate",
+                MenuActionExecution::BrowserEditUrl(*id),
+            ),
+            MenuAction::BrowserCopyUrl(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "browser state + frontend clipboard",
+                MenuActionExecution::BrowserCopyUrl(*id),
+            ),
+            MenuAction::BrowserActivate(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "browser-activate",
+                MenuActionExecution::BrowserActivate(*id),
+            ),
+            MenuAction::RenameTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend prompt + rename-surface",
+                MenuActionExecution::RenameTab(*id),
+            ),
+            MenuAction::CopyTabId(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "tree snapshot + frontend clipboard",
+                MenuActionExecution::CopyTabId(*id),
+            ),
+            MenuAction::CopyPaneId(id) => MenuActionMetadata::new(
+                MenuActionClassification::PresentationOnly,
+                "tree snapshot + frontend clipboard",
+                MenuActionExecution::CopyPaneId(*id),
+            ),
+            MenuAction::NewTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "new-tab",
+                MenuActionExecution::NewTab(*id),
+            ),
+            MenuAction::NewBrowserTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend omnibar + new-browser-tab",
+                MenuActionExecution::NewBrowserTab(*id),
+            ),
+            MenuAction::SplitRight(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "split dir:right",
+                MenuActionExecution::SplitRight(*id),
+            ),
+            MenuAction::SplitDown(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "split dir:down",
+                MenuActionExecution::SplitDown(*id),
+            ),
+            MenuAction::CloseTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "close-surface",
+                MenuActionExecution::CloseTab(*id),
+            ),
+            MenuAction::ClosePane(id) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "close-pane",
+                MenuActionExecution::ClosePane(*id),
+            ),
+            MenuAction::SetClientSizing { client, enabled } => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "set-client-sizing",
+                MenuActionExecution::SetClientSizing { client: *client, enabled: *enabled },
+            ),
+            MenuAction::UseClientSize(client) => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "set-client-sizing exclusive:true",
+                MenuActionExecution::UseClientSize(*client),
+            ),
+            MenuAction::RestoreAllClientSizing => MenuActionMetadata::new(
+                MenuActionClassification::Direct,
+                "set-client-sizing enabled:true without client",
+                MenuActionExecution::RestoreAllClientSizing,
+            ),
+            MenuAction::DisconnectClient(client) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "self: close frontend transport; peer: detach-client",
+                MenuActionExecution::DisconnectClient(*client),
+            ),
+            MenuAction::SelectProviderScope(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider select_scope",
+                MenuActionExecution::SelectProviderScope(*index),
+            ),
+            MenuAction::InvokeProviderAction(index) => MenuActionMetadata::new(
+                MenuActionClassification::ExternalProtocol,
+                "machine-provider invoke_action",
+                MenuActionExecution::InvokeProviderAction(*index),
+            ),
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             MenuAction::RenameManagedMachine(_) => localization::catalog().sidebar.rename_machine,
@@ -7921,26 +8179,26 @@ impl App {
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        match action {
-            MenuAction::RenameManagedMachine(key) => {
+        match action.metadata().execution() {
+            MenuActionExecution::RenameManagedMachine(key) => {
                 self.open_rename_managed_machine_prompt(key);
             }
-            MenuAction::DeleteManagedMachine(key) => {
+            MenuActionExecution::DeleteManagedMachine(key) => {
                 self.open_delete_managed_machine_prompt(key);
             }
-            MenuAction::RestoreManagedMachine(key) => {
+            MenuActionExecution::RestoreManagedMachine(key) => {
                 self.request_restore_managed_machine(key);
             }
-            MenuAction::PurgeManagedMachine(key) => {
+            MenuActionExecution::PurgeManagedMachine(key) => {
                 self.open_purge_managed_machine_prompt(key);
             }
-            MenuAction::RenameWorkspace(id) => self.open_rename_workspace_prompt_for(id),
-            MenuAction::RenameManagedWorkspace(id) => {
+            MenuActionExecution::RenameWorkspace(id) => self.open_rename_workspace_prompt_for(id),
+            MenuActionExecution::RenameManagedWorkspace(id) => {
                 self.open_rename_workspace_prompt_for(id);
             }
-            MenuAction::CloseWorkspace(id) => self.request_delete_workspace(id),
-            MenuAction::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
-            MenuAction::RestoreManagedWorkspace(index) => {
+            MenuActionExecution::CloseWorkspace(id) => self.request_delete_workspace(id),
+            MenuActionExecution::DeleteManagedWorkspace(id) => self.request_delete_workspace(id),
+            MenuActionExecution::RestoreManagedWorkspace(index) => {
                 let workspace_id = self
                     .machine_ui
                     .as_ref()
@@ -7950,21 +8208,21 @@ impl App {
                     self.request_restore_managed_workspace(&workspace_id);
                 }
             }
-            MenuAction::PurgeManagedWorkspace(index) => {
+            MenuActionExecution::PurgeManagedWorkspace(index) => {
                 self.prompt = Some(Prompt::new(
                     localization::catalog().sidebar.confirm_purge_workspace,
                     String::new(),
                     PromptTarget::ConfirmPurgeManagedWorkspace(index),
                 ));
             }
-            MenuAction::CopyWorkspaceId(id) => {
+            MenuActionExecution::CopyWorkspaceId(id) => {
                 if let Some(short_id) =
                     self.tree.workspaces.iter().find(|ws| ws.id == id).map(|ws| ws.short_id.clone())
                 {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::RenameScreen(id) => {
+            MenuActionExecution::RenameScreen(id) => {
                 let buffer = self
                     .tree
                     .workspaces
@@ -7975,23 +8233,23 @@ impl App {
                     .unwrap_or_default();
                 self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
             }
-            MenuAction::CloseScreen(id) => self.session.close_screen(id),
-            MenuAction::BrowserBack(id) => {
+            MenuActionExecution::CloseScreen(id) => self.session.close_screen(id),
+            MenuActionExecution::BrowserBack(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Back);
             }
-            MenuAction::BrowserForward(id) => {
+            MenuActionExecution::BrowserForward(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Forward);
             }
-            MenuAction::BrowserReload(id) => {
+            MenuActionExecution::BrowserReload(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Reload);
             }
-            MenuAction::BrowserEditUrl(id) => self.focus_omnibar(id),
-            MenuAction::BrowserCopyUrl(id) => self.browser_copy_url(id),
-            MenuAction::BrowserActivate(id) => {
+            MenuActionExecution::BrowserEditUrl(id) => self.focus_omnibar(id),
+            MenuActionExecution::BrowserCopyUrl(id) => self.browser_copy_url(id),
+            MenuActionExecution::BrowserActivate(id) => {
                 self.enqueue_browser_command_for_pane(id, BrowserInputKind::Activate);
             }
-            MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
-            MenuAction::CopyTabId(id) => {
+            MenuActionExecution::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
+            MenuActionExecution::CopyTabId(id) => {
                 if let Some(short_id) = self
                     .tree
                     .pane(id)
@@ -8001,33 +8259,33 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::CopyPaneId(id) => {
+            MenuActionExecution::CopyPaneId(id) => {
                 if let Some(short_id) = self.tree.pane(id).map(|pane| pane.short_id.clone()) {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::NewTab(id) => {
+            MenuActionExecution::NewTab(id) => {
                 self.new_terminal_tab(Some(id))?;
             }
-            MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
-            MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
-            MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
-            MenuAction::CloseTab(id) => {
+            MenuActionExecution::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
+            MenuActionExecution::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
+            MenuActionExecution::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
+            MenuActionExecution::CloseTab(id) => {
                 if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
                     self.session.close_surface(surface);
                 }
             }
-            MenuAction::ClosePane(id) => self.session.close_pane(id),
-            MenuAction::SetClientSizing { client, enabled } => {
+            MenuActionExecution::ClosePane(id) => self.session.close_pane(id),
+            MenuActionExecution::SetClientSizing { client, enabled } => {
                 self.session.set_client_sizing(client, enabled);
             }
-            MenuAction::UseClientSize(client) => {
+            MenuActionExecution::UseClientSize(client) => {
                 self.session.use_only_client_sizing(client);
             }
-            MenuAction::RestoreAllClientSizing => {
+            MenuActionExecution::RestoreAllClientSizing => {
                 self.session.use_all_client_sizing();
             }
-            MenuAction::DisconnectClient(client) => {
+            MenuActionExecution::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
                     // Disconnecting this control connection would close the socket that must
                     // carry the response. Exit through the same local detach lifecycle as the
@@ -8040,7 +8298,7 @@ impl App {
                     self.session.disconnect_client(client);
                 }
             }
-            MenuAction::SelectProviderScope(index) => {
+            MenuActionExecution::SelectProviderScope(index) => {
                 let scope = self
                     .machine_ui
                     .as_ref()
@@ -8056,7 +8314,7 @@ impl App {
                     ui.request = Some(MachineRequest::SelectProviderScope(scope));
                 }
             }
-            MenuAction::InvokeProviderAction(index) => self.begin_provider_action(index),
+            MenuActionExecution::InvokeProviderAction(index) => self.begin_provider_action(index),
         }
         Ok(())
     }
