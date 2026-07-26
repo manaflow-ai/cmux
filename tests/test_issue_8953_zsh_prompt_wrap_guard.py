@@ -40,6 +40,7 @@ KEYBOARD_RESET = b"\x1b[>m\x1b[<8u"
 @dataclass(frozen=True)
 class SessionResult:
     columns: int
+    resized_columns: int
     output: bytes
 
     @property
@@ -178,6 +179,7 @@ def _capture_session(columns: int) -> SessionResult:
             os.chdir(cwd)
             os.execve("/bin/zsh", ["zsh", "-d", "-i"], env)
 
+        resized_columns = columns + 1
         fcntl.ioctl(
             master_fd,
             termios.TIOCSWINSZ,
@@ -192,9 +194,17 @@ def _capture_session(columns: int) -> SessionResult:
         search_from = 0
         child_reaped = False
         try:
-            for command in (b"echo AAA\n", b"echo BBB\n"):
-                search_from = _read_until(master_fd, output, PROMPT_END, search_from)
-                os.write(master_fd, command)
+            search_from = _read_until(master_fd, output, PROMPT_END, search_from)
+            os.write(master_fd, b"echo AAA\n")
+
+            search_from = _read_until(master_fd, output, PROMPT_END, search_from)
+            fcntl.ioctl(
+                master_fd,
+                termios.TIOCSWINSZ,
+                struct.pack("HHHH", 24, resized_columns, 0, 0),
+            )
+            search_from = _read_until(master_fd, output, PROMPT_END, search_from)
+            os.write(master_fd, b"echo BBB\n")
 
             search_from = _read_until(master_fd, output, PROMPT_END, search_from)
             os.write(master_fd, b"exit\n")
@@ -216,7 +226,11 @@ def _capture_session(columns: int) -> SessionResult:
             listener.close()
             server.join(timeout=1.0)
 
-        return SessionResult(columns=columns, output=bytes(output))
+        return SessionResult(
+            columns=columns,
+            resized_columns=resized_columns,
+            output=bytes(output),
+        )
 
 
 def main() -> int:
@@ -240,9 +254,10 @@ def main() -> int:
             failures.append(
                 f"cols={result.columns}: cmux rewrote Ghostty's zsh prompt marker to redraw=last"
             )
-        if result.output.count(GHOSTTY_FRESH_PROMPT) != 3:
+        if result.output.count(GHOSTTY_FRESH_PROMPT) != 4:
             failures.append(
-                f"cols={result.columns}: expected 3 unmodified Ghostty fresh-prompt markers, "
+                f"cols={result.columns}->{result.resized_columns}: expected 4 unmodified Ghostty "
+                "fresh-prompt markers (including the SIGWINCH redraw), "
                 f"saw {result.output.count(GHOSTTY_FRESH_PROMPT)}"
             )
 
@@ -250,7 +265,10 @@ def main() -> int:
         print("FAIL: " + "\nFAIL: ".join(failures))
         return 1
 
-    print("PASS: short zsh prompts emit no spacer rows and retain Ghostty prompt semantics")
+    print(
+        "PASS: short zsh prompts and SIGWINCH redraws emit no spacer rows "
+        "and retain Ghostty prompt semantics"
+    )
     return 0
 
 
