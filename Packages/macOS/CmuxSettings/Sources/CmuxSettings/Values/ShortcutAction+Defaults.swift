@@ -83,7 +83,8 @@ extension ShortcutAction {
         case .newWorkspaceGroup: return ShortcutStroke(key: "g", command: true, control: true)
         case .groupSelectedWorkspaces: return ShortcutStroke(key: "g", command: true, shift: true)
         case .toggleFocusedWorkspaceGroupCollapsed: return ShortcutStroke(key: ".", command: true, control: true)
-        case .reopenClosedBrowserPanel: return ShortcutStroke(key: "t", command: true, shift: true)
+        case .reopenClosedWorkspace: return ShortcutStroke(key: "t", command: true, shift: true)
+        case .reopenClosedBrowserPanel: return nil
         case .focusLeft: return ShortcutStroke(key: "←", command: true, option: true)
         case .focusRight: return ShortcutStroke(key: "→", command: true, option: true)
         case .focusUp: return ShortcutStroke(key: "↑", command: true, option: true)

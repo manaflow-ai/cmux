@@ -126,14 +126,15 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
+    static let defaultWorkspaceCapacity = 100
     static let shared = ClosedItemHistoryStore(
-        capacity: nil,
+        workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
-    private let capacity: Int?
+    private let capacityPolicy: ClosedItemHistoryCapacityPolicy
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
     private var didFinishPersistedRecordsLoad: Bool
@@ -154,20 +155,25 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     init(
         capacity: Int? = nil,
+        workspaceCapacity: Int? = nil,
         fileURL: URL? = nil,
         loadPersisted: Bool = true,
         loadsPersistedRecordsSynchronously: Bool = false,
         persistsRecordsSynchronously: Bool = false
     ) {
-        self.capacity = capacity.map { max(1, $0) }
+        self.capacityPolicy = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: capacity,
+            workspaceCapacity: workspaceCapacity
+        )
         self.fileURL = fileURL
         self.persistsRecordsSynchronously = persistsRecordsSynchronously
         self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
                 records = Self.loadRecords(fileURL: fileURL)
-                trimToCapacityIfNeeded()
+                let didTrimPersistedRecords = trimToCapacityIfNeeded()
                 didFinishPersistedRecordsLoad = true
+                if didTrimPersistedRecords { persistRecords() }
             } else {
                 loadPersistedRecordsAsync(from: fileURL)
             }
@@ -184,7 +190,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func push(_ record: ClosedItemHistoryRecord) {
         records.append(record)
-        trimToCapacityIfNeeded()
+        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { trimToCapacityIfNeeded() }
         revision &+= 1
         persistRecords()
     }
@@ -198,12 +204,14 @@ final class ClosedItemHistoryStore: ObservableObject {
     func restoreFirstRestorable(
         newerThan cutoff: Date?,
         excluding excludedRecordIds: Set<UUID> = [],
+        matching isCandidate: (ClosedItemHistoryEntry) -> Bool = { _ in true },
         onFailure: ((UUID) -> Void)? = nil,
         using restore: (ClosedItemHistoryEntry) -> Bool
     ) -> Bool {
         let candidates = records.enumerated()
             .filter { _, record in
                 guard !excludedRecordIds.contains(record.id) else { return false }
+                guard isCandidate(record.entry) else { return false }
                 guard let cutoff else { return true }
                 return record.closedAt >= cutoff
             }
@@ -241,25 +249,13 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
-        if let capacity, records.count > capacity {
-            let protectedRecordId = record.id
-            let overflow = records.count - capacity
-            for _ in 0..<overflow {
-                guard let removalIndex = records.firstIndex(where: { $0.id != protectedRecordId }) else {
-                    records.removeFirst()
-                    continue
-                }
-                records.remove(at: removalIndex)
-            }
-        }
+        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { records = capacityPolicy.trimming(records, preserving: record.id) }
         revision &+= 1
         persistRecords()
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        // Build items only for the records the menu will show — this runs in
-        // the App commands body on every menu rebuild, and `records` is
-        // unbounded persisted history.
+        // Build only visible rows; this runs on every menu rebuild and persisted history can be larger.
         if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
                 items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
@@ -348,11 +344,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
-    private func trimToCapacityIfNeeded() {
-        guard let capacity, records.count > capacity else { return }
-        records.removeFirst(records.count - capacity)
+    @discardableResult private func trimToCapacityIfNeeded() -> Bool {
+        let previousCount = records.count
+        records = capacityPolicy.trimming(records)
+        return records.count != previousCount
     }
-
     private func persistRecords() {
         guard let fileURL else { return }
         guard didFinishPersistedRecordsLoad else {
@@ -583,7 +579,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             guard !missingLoadedRecords.isEmpty else { return }
             records = missingLoadedRecords + records
         }
-        trimToCapacityIfNeeded()
+        if trimToCapacityIfNeeded() { needsPersistenceAfterPersistedRecordsLoad = true }
         revision &+= 1
     }
 

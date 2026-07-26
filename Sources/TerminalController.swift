@@ -6522,7 +6522,63 @@ class TerminalController {
         }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
+        let profileKeys = ["profile", "profile_id", "profile_name"]
+        let suppliedProfileKeys = profileKeys.filter { v2HasNonNullParam(params, $0) }
+        if suppliedProfileKeys.count > 1 {
+            return .err(
+                code: "invalid_params",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                data: ["profile_parameters": suppliedProfileKeys]
+            )
+        }
+        if let invalidProfileKey = profileKeys.first(where: {
+            v2HasNonNullParam(params, $0) && v2String(params, $0) == nil
+        }) {
+            return .err(
+                code: "invalid_params",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                data: ["profile_parameter": invalidProfileKey]
+            )
+        }
+
+        let profileSelector = v2String(params, "profile")
+            ?? v2String(params, "profile_id")
+            ?? v2String(params, "profile_name")
+        let preferredProfileID: UUID?
+        if let selector = profileSelector {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredProfileID = profile.id
+            case .notFound:
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    data: ["profile": selector]
+                )
+            case .ambiguous(let profiles):
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    data: [
+                        "profile": selector,
+                        "candidates": profiles.map {
+                            ["id": $0.id.uuidString, "name": $0.displayName]
+                        },
+                    ]
+                )
+            }
+        } else {
+            preferredProfileID = nil
+        }
+
         if BrowserAvailabilitySettings.isDisabled() {
+            if let profileSelector {
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    data: ["profile": profileSelector]
+                )
+            }
             if v2IsDiffViewerURL(url) {
                 return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
             }
@@ -6538,8 +6594,17 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
+            if let profileSelector, preferredProfileID != nil, ws.isRemoteWorkspace {
+                result = .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                    data: ["profile": profileSelector]
+                )
+                return
+            }
             if let url,
                respectExternalOpenRules,
+               preferredProfileID == nil,
                BrowserLinkOpenSettings.shouldOpenExternally(url) {
                 guard NSWorkspace.shared.open(url) else {
                     result = .err(
@@ -6594,6 +6659,7 @@ class TerminalController {
                     url: url,
                     focus: focus,
                     selectWhenNotFocused: true,
+                    preferredProfileID: preferredProfileID,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
                     transparentBackground: transparentBackground,
@@ -6606,6 +6672,7 @@ class TerminalController {
                     from: sourceSurfaceId,
                     orientation: .horizontal,
                     url: url,
+                    preferredProfileID: preferredProfileID,
                     focus: focus,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
@@ -14050,7 +14117,10 @@ class TerminalController {
         case "notification.reconcile":
             result = v2MobileNotificationReconcile(params: request.params)
         case "notification.feed.list":
-            result = v2MobileNotificationFeedList(params: request.params)
+            result = await v2MobileNotificationFeedList(
+                params: request.params,
+                responseID: request.id.map { String(describing: $0) }
+            )
         case "notification.feed.mark_read":
             result = v2MobileNotificationFeedMarkRead(params: request.params)
         case "notification.feed.mark_unread":
@@ -14444,10 +14514,27 @@ class TerminalController {
         }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
+        // Screen-anchored replays hydrate the phone's local scrollback: honor
+        // the client's requested history depth up to the shared budget so the
+        // replay reset does not truncate what the phone can scroll through.
+        let anchor: MobileTerminalRenderGridFrame.Anchor =
+            v2String(params, "anchor") == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+            ? .screen
+            : .viewport
+        let scrollbackLines: Int
+        if anchor == .screen {
+            let requested = v2Int(params, "max_scrollback_rows")
+                ?? MobileTerminalScrollbackPreference.defaultRows
+            scrollbackLines = MobileTerminalScrollbackPreference.clamped(requested)
+        } else {
+            scrollbackLines = TerminalController.mobileReplayScrollbackLineBudget
+        }
         let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
-            seq: seq
+            seq: seq,
+            scrollbackLines: scrollbackLines,
+            anchor: anchor
         )
         if let expectedViewport,
            let renderGrid,

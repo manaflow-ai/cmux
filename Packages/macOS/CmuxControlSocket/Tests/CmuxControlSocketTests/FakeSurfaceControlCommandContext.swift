@@ -6,6 +6,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
+    var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
     var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
@@ -41,6 +42,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
         createResolution
+    }
+
+    func controlSurfaceResumeSet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
+        inputs: ControlSurfaceResumeSetInputs
+    ) -> ControlSurfaceResumeResolution {
+        resumeResolution
     }
 
     func controlSurfaceReportPWD(

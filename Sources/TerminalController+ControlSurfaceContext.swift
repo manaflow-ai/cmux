@@ -79,7 +79,13 @@ extension TerminalController: ControlSurfaceContext {
         from binding: SurfaceResumeBindingSnapshot?
     ) -> ControlSurfaceResumeBinding? {
         guard let binding else { return nil }
-        let effective = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        let effective: SurfaceResumeBindingSnapshot
+        switch SurfaceResumeApprovalStore.applyingStoredApprovalLookup(to: binding) {
+        case .pendingSigningSecret:
+            effective = SurfaceResumeApprovalStore.bindingWithoutStoredApproval(to: binding)
+        case let .resolved(binding):
+            effective = binding
+        }
         let remoteContext = effective.launchFlavor.remoteContext
         return ControlSurfaceResumeBinding(
             name: effective.name,

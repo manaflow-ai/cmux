@@ -30634,13 +30634,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+            "value": "Multiple cmux browser profiles match '%@': %@. Use a profile UUID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります。代わりにプロファイル ID を使用してください。"
+            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります: %@。プロファイル UUID を使用してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.browserDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles cannot be used while the cmux browser is disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザーが無効な間はブラウザープロファイルを使用できません"
           }
         }
       }
@@ -30679,6 +30696,23 @@
         }
       }
     },
+    "browser.profile.automation.error.invalidProfileSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile must be a non-empty name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルには空でない名前または UUID を指定してください"
+          }
+        }
+      }
+    },
     "browser.profile.automation.error.missingName": {
       "extractionState": "manual",
       "localizations": {
@@ -30709,6 +30743,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブラウザープロファイルがありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.multipleProfileSelectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specify only one browser profile selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルセレクターは 1 つだけ指定してください"
           }
         }
       }
@@ -30787,13 +30838,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No cmux browser profile matches '%@'"
+            "value": "No cmux browser profile matches '%@'. Run 'cmux browser profiles' to list available profiles."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません。使用可能なプロファイルを表示するには 'cmux browser profiles' を実行してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileRequiresBrowserPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles can only be used when creating a browser pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルはブラウザーペインの作成時にのみ使用できます"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileUnavailableInRemoteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles cannot be selected when creating a browser pane in a remote workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートワークスペースでブラウザーペインを作成する場合、ブラウザープロファイルは選択できません"
           }
         }
       }
@@ -33986,6 +34071,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "viewport <width> <height> | reset"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.error.emptySelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile requires a non-empty profile name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile には空でないプロファイル名または UUID が必要です"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.error.navigateUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile is only supported when browser open creates a new pane; omit the surface selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile は browser open が新しいペインを作成する場合にのみ使用できます。サーフェスセレクターを省略してください"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <名前|UUID>]"
+          }
+        }
+      }
+    },
+    "cli.browser.profiles.marker.lastUsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "last used"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回使用"
           }
         }
       }
@@ -45064,6 +45217,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "mosh-tmux：--session 需要不含隱藏字元的非空工作階段名稱"
+          }
+        }
+      }
+    },
+    "cli.newPane.help.profileDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>                Browser profile name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <名前|UUID>                 ブラウザープロファイル名または UUID"
           }
         }
       }
@@ -123358,6 +123528,23 @@
         }
       }
     },
+    "menu.history.reopenClosedWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen Closed Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じたワークスペースを再度開く"
+          }
+        }
+      }
+    },
     "menu.history.reopenLastClosed": {
       "extractionState": "manual",
       "localizations": {
@@ -132303,13 +132490,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."
+            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone の cmux アプリでこのコードをスキャンして、ターミナルワークスペースを同期します。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
           }
         }
       }
@@ -170867,13 +171054,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a QR code to pair your iPhone or iPad with this Mac."
+            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR コードを表示して、iPhone または iPad をこの Mac とペアリングします。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
           }
         }
       }
@@ -229616,6 +229803,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "なし"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.pending.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume approval data is still loading. Retry the request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元の承認データを読み込み中です。リクエストを再試行してください。"
           }
         }
       }

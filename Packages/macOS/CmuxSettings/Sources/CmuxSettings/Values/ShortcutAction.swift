@@ -76,6 +76,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case groupSelectedWorkspaces
     /// Toggles collapse for the group containing the focused workspace.
     case toggleFocusedWorkspaceGroupCollapsed
+    case reopenClosedWorkspace
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
@@ -196,7 +197,7 @@ extension ShortcutAction {
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash:
+             .switchRightSidebarToDock, .triggerFlash, .reopenClosedWorkspace:
             return .workspace
         case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
              .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
