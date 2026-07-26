@@ -5,21 +5,23 @@ import Foundation
 /// Worker crashes cannot erase this record, so the host's durable Simulator
 /// cleanup can restore the prior TCC state after relaunching the target app.
 public struct SimulatorCameraAuthorizationStore: Sendable {
-    private let directory: URL
+    private let directory: URL?
 
     /// Creates a store in durable per-user Application Support by default.
     public init(
         directory: URL? = nil,
         fileManager: FileManager = FileManager()
     ) {
-        let applicationSupportDirectory = fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
-        self.directory = directory ?? applicationSupportDirectory
-            .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
-            .appendingPathComponent("camera-authorizations", isDirectory: true)
+        if let directory {
+            self.directory = directory
+        } else {
+            self.directory = fileManager.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first?
+                .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
+                .appendingPathComponent("camera-authorizations", isDirectory: true)
+        }
     }
 
     package func save(
@@ -36,6 +38,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
+        let directory = try requiredDirectory()
         let fileManager = FileManager()
         try fileManager.createDirectory(
             at: directory,
@@ -48,7 +51,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             authorization: existing?.authorization ?? authorization,
             ownerProcessIdentity: ownerProcessIdentity
         ))
-        let url = fileURL(
+        let url = try fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
@@ -73,7 +76,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) throws -> SimulatorCameraAuthorizationRecord? {
-        let url = fileURL(
+        let url = try fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
@@ -92,6 +95,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
     }
 
     package func records() throws -> [SimulatorCameraAuthorizationRecord] {
+        let directory = try requiredDirectory()
         let fileManager = FileManager()
         guard fileManager.fileExists(atPath: directory.path) else { return [] }
         let urls = try fileManager.contentsOfDirectory(
@@ -120,7 +124,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) throws {
-        let url = fileURL(
+        let url = try fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
@@ -135,10 +139,15 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
     private func fileURL(
         deviceIdentifier: String,
         bundleIdentifier: String
-    ) -> URL {
-        directory.appendingPathComponent(
+    ) throws -> URL {
+        try requiredDirectory().appendingPathComponent(
             hash([deviceIdentifier, bundleIdentifier]) + ".json"
         )
+    }
+
+    private func requiredDirectory() throws -> URL {
+        guard let directory else { throw CocoaError(.fileReadNoSuchFile) }
+        return directory
     }
 
     private func validate(
@@ -147,14 +156,15 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         expectedBundleIdentifier: String,
         sourceURL: URL
     ) throws {
+        let expectedURL = try fileURL(
+            deviceIdentifier: record.deviceIdentifier,
+            bundleIdentifier: record.bundleIdentifier
+        )
         guard record.deviceIdentifier == expectedDeviceIdentifier,
               record.bundleIdentifier == expectedBundleIdentifier,
               [.notDetermined, .denied, .granted].contains(record.authorization),
               record.ownerProcessIdentity.map(processIdentityIsValid) == true,
-              sourceURL.standardizedFileURL == fileURL(
-                  deviceIdentifier: record.deviceIdentifier,
-                  bundleIdentifier: record.bundleIdentifier
-              ).standardizedFileURL
+              sourceURL.standardizedFileURL == expectedURL.standardizedFileURL
         else {
             throw CocoaError(.fileReadCorruptFile)
         }

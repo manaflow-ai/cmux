@@ -383,8 +383,7 @@ class TerminalController {
         let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first ?? simulatorOwnershipFileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        )[0]
         let simulatorOwnershipDirectory = simulatorApplicationSupportDirectory
             .appendingPathComponent(
                 "com.cmux.simulator-ownership",
