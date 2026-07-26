@@ -13,6 +13,172 @@ ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
 SPEC = TUI / "spec"
 
+# Deliberately independent from inventory.json. Keeping this policy map in the
+# checker makes authority-group drift fail even when the Command enum is
+# unchanged.
+EXPECTED_COMMAND_PROFILES = {
+    "control": {
+        "apply-layout",
+        "clear-window-title",
+        "close-pane",
+        "close-screen",
+        "close-surface",
+        "close-terminal",
+        "close-workspace",
+        "copy",
+        "create-terminal",
+        "create-workspace",
+        "detach-client",
+        "export-layout",
+        "focus-direction",
+        "focus-pane",
+        "get-frontend-projection",
+        "identify",
+        "ids",
+        "list-agents",
+        "list-clients",
+        "list-terminals",
+        "list-workspaces",
+        "move-tab",
+        "move-terminal",
+        "move-workspace",
+        "new-browser-tab",
+        "new-pane",
+        "new-screen",
+        "new-tab",
+        "new-workspace",
+        "notify",
+        "pane-neighbor",
+        "ping",
+        "process-info",
+        "put-frontend-projection",
+        "read-screen",
+        "read-scrollback",
+        "release-surface-size",
+        "reload-config",
+        "rename-pane",
+        "rename-screen",
+        "rename-surface",
+        "rename-workspace",
+        "report-agent",
+        "resize-surface",
+        "resolve-terminal",
+        "run",
+        "scroll-surface",
+        "select-screen",
+        "select-tab",
+        "select-workspace",
+        "send",
+        "send-key",
+        "set-client-info",
+        "set-client-sizing",
+        "set-default-colors",
+        "set-ratio",
+        "set-split-ratio",
+        "set-window-title",
+        "split",
+        "swap-pane",
+        "terminal-events",
+        "vt-state",
+        "wait-for",
+        "zoom-pane",
+    },
+    "frontend": {
+        "attach-surface",
+        "browser-activate",
+        "browser-back",
+        "browser-forward",
+        "browser-insert-text",
+        "browser-key",
+        "browser-mouse",
+        "browser-navigate",
+        "browser-reload",
+        "browser-wheel",
+        "mint-terminal-renderer",
+        "set-cell-pixels",
+        "sidebar-plugin",
+        "subscribe",
+    },
+    "local-admin": {
+        "pairing-response",
+        "shutdown-daemon",
+    },
+    "provider-authority": {
+        "close-provider-managed-workspace",
+        "mark-workspaces-provider-managed",
+        "rename-provider-managed-workspace",
+    },
+}
+
+# Also independent from inventory.json. The sets model the production
+# serializer paths that feed each public stream.
+EXPECTED_EVENTS_BY_STREAM = {
+    "subscribe": {
+        "bell",
+        "client-attached",
+        "client-changed",
+        "client-detached",
+        "client-list-invalidated",
+        "config-reload-requested",
+        "empty",
+        "frontend-projection-changed",
+        "layout-changed",
+        "notification",
+        "overflow",
+        "pairing-requested",
+        "pairing-resolved",
+        "scroll-changed",
+        "status",
+        "surface-exited",
+        "surface-output",
+        "surface-resize-failed",
+        "surface-resized",
+        "terminal-registry-changed",
+        "title-changed",
+        "tree-changed",
+        "window-title-requested",
+    },
+    "subscribe-deltas": {
+        "pane-added",
+        "pane-closed",
+        "screen-added",
+        "screen-closed",
+        "screen-renamed",
+        "tab-added",
+        "tab-closed",
+        "tab-renamed",
+        "workspace-added",
+        "workspace-closed",
+        "workspace-moved",
+        "workspace-renamed",
+    },
+    "attach-byte": {
+        "colors-changed",
+        "detached",
+        "notification",
+        "output",
+        "overflow",
+        "resized",
+        "scroll-changed",
+        "vt-state",
+    },
+    "attach-render": {
+        "detached",
+        "overflow",
+        "render-delta",
+        "render-state",
+        "scroll-changed",
+    },
+    "attach-browser": {
+        "browser-state",
+        "detached",
+        "frame",
+        "notification",
+        "overflow",
+        "scroll-changed",
+    },
+}
+
 
 def fail(message: str) -> None:
     print(f"spec inventory error: {message}", file=sys.stderr)
@@ -148,10 +314,6 @@ def command_names() -> set[str]:
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     production = server.split("\n#[cfg(test)]\nmod tests", 1)[0]
-    production_parts = production.split("fn tree_delta_json", 1)
-    if len(production_parts) != 2:
-        fail("cannot find production event serialization region")
-    production = production_parts[1]
     names = set(
         re.findall(r'"event"\s*:\s*"([a-z][a-z0-9-]*)"', production)
     )
@@ -279,6 +441,34 @@ def compare(actual: set[str], expected: set[str], label: str) -> None:
         fail(f"{label} drift, {'; '.join(details)}")
 
 
+def expected_event_streams() -> dict[str, set[str]]:
+    streams_by_event: dict[str, set[str]] = {}
+    for stream, event_names_for_stream in EXPECTED_EVENTS_BY_STREAM.items():
+        for name in event_names_for_stream:
+            streams_by_event.setdefault(name, set()).add(stream)
+    return streams_by_event
+
+
+def compare_mapping(
+    actual: dict[str, set[str]],
+    expected: dict[str, set[str]],
+    label: str,
+) -> None:
+    changed = sorted(
+        key
+        for key in set(actual) | set(expected)
+        if actual.get(key, set()) != expected.get(key, set())
+    )
+    if not changed:
+        return
+    details = [
+        f"{key}: inventory={sorted(actual.get(key, set()))}, "
+        f"policy={sorted(expected.get(key, set()))}"
+        for key in changed
+    ]
+    fail(f"{label} drift, {'; '.join(details)}")
+
+
 def load_inventory() -> tuple[dict, dict]:
     inventory = json.loads((SPEC / "inventory.json").read_text())
     schema = json.loads((SPEC / "inventory.schema.json").read_text())
@@ -305,9 +495,17 @@ def validate_commands(inventory: dict) -> set[str]:
     command_groups = inventory["commands"]
     if set(command_groups) != set(profiles):
         fail("command profile keys must exactly match profile definitions")
+    actual_profiles = {
+        profile: set(names)
+        for profile, names in command_groups.items()
+    }
+    compare_mapping(actual_profiles, EXPECTED_COMMAND_PROFILES, "command profile")
     commands = [name for group in command_groups.values() for name in group]
     inventory_commands = unique(commands, "command")
-    compare(command_names(), inventory_commands, "command")
+    runtime_commands = command_names()
+    expected_profile_commands = set().union(*EXPECTED_COMMAND_PROFILES.values())
+    compare(runtime_commands, expected_profile_commands, "command profile policy")
+    compare(runtime_commands, inventory_commands, "command")
 
     command_sections = documented_sections(SPEC / "commands.md")
     command_headings = set(command_sections)
@@ -327,7 +525,15 @@ def validate_commands(inventory: dict) -> set[str]:
 def validate_events(inventory: dict) -> set[str]:
     events = inventory["events"]
     inventory_events = unique([event["name"] for event in events], "event")
-    compare(event_names(), inventory_events, "event")
+    runtime_events = event_names()
+    policy_streams = expected_event_streams()
+    inventory_streams = {
+        event["name"]: set(event["streams"])
+        for event in events
+    }
+    compare(runtime_events, set(policy_streams), "event stream policy")
+    compare(runtime_events, inventory_events, "event")
+    compare_mapping(inventory_streams, policy_streams, "event stream")
     event_headings = documented_headings(SPEC / "events.md")
     duplicate_event_sections = sorted(
         name for name in inventory_events if event_headings.count(name) != 1

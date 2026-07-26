@@ -24,7 +24,7 @@ An action that combines a frontend choice with a mux mutation has two steps. For
 Every variant of the native TUI `Action` enum appears in `inventory.json` with one classification:
 
 - `direct` invokes one implemented command.
-- `composite` derives a target from a snapshot or frontend geometry, then invokes an implemented command.
+- `composite` derives a target from frontend state or selects among multiple authority-specific routes, then invokes the matching command or secondary protocol.
 - `presentation-only` changes one frontend and uses the proposed frontend action adapter when remote automation is required.
 
 CI rejects a new native action until its route is classified. This prevents keyboard and context-menu features from silently bypassing the public contract.
@@ -32,6 +32,10 @@ CI rejects a new native action until its route is classified. This prevents keyb
 Every `MenuAction` variant is inventoried separately because context menus expose machine lifecycle, provider actions, client sizing, clipboard operations, and workspace deletion that are not configurable keyboard actions. Direct pointer routing, omnibar hits, and the built-in file sidebar are not claimed as enum-exhaustive. Their ownership is tracked by the feature-family rows for frontend presentation, browser lifecycle, host-terminal integration, and the file sidebar.
 
 `focus-left`, `focus-right`, `focus-up`, and `focus-down` are composites because the native TUI uses its rendered geometry and client focus history before calling `focus-pane`. `focus-direction` is a server-side approximation and is not an exact substitute. `scroll-up` and `scroll-down` are presentation-only for an attached remote TUI because that frontend owns its mirrored viewport; `scroll-surface` controls the server-owned viewport.
+
+`new-workspace` is conditional. A session-owned workspace uses the mux
+`new-workspace` command. A provider-owned workspace uses machine-provider
+`create_workspace` with the provider-advertised isolated or host mode.
 
 ## Required vNext primitives
 

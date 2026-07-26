@@ -167,7 +167,7 @@
     {"variant": "SelectScreen", "key": "select-screen-{number}", "classification": "direct", "route": "select-screen index"},
     {"variant": "NewScreen", "key": "new-screen", "classification": "direct", "route": "new-screen"},
     {"variant": "NextWorkspace", "key": "next-workspace", "classification": "direct", "route": "select-workspace delta:+1"},
-    {"variant": "NewWorkspace", "key": "new-workspace", "classification": "direct", "route": "new-workspace"},
+    {"variant": "NewWorkspace", "key": "new-workspace", "classification": "composite", "route": "session-owned: new-workspace; provider-owned: machine-provider create_workspace"},
     {"variant": "ToggleSidebar", "key": "toggle-sidebar", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "ToggleSidebarView", "key": "toggle-sidebar-view", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "FocusSidebar", "key": "focus-sidebar", "classification": "presentation-only", "route": "frontend action adapter"},
