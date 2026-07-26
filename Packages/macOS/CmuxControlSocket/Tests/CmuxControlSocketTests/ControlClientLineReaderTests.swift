@@ -37,10 +37,39 @@ private final class SocketPairFixture {
         writeEnd = -1
     }
 
+    /// Blocks until the peer has consumed everything queued on `readEnd`, so
+    /// the next write is guaranteed to land in a separate `read(2)`.
+    func waitUntilReaderDrainedInput(timeout: TimeInterval = 5) -> Bool {
+        func queuedBytes() -> Int32 {
+            var value: Int32 = 0
+            var size = socklen_t(MemoryLayout<Int32>.size)
+            guard getsockopt(readEnd, SOL_SOCKET, SO_NREAD, &value, &size) == 0 else { return -1 }
+            return value
+        }
+
+        // `write(2)` has already returned, so the bytes are either still queued
+        // or already consumed. Waiting for them to appear would race with a
+        // reader that drained them first, so only the drain is waited on.
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while true {
+            let queued = queuedBytes()
+            guard queued >= 0 else { return false }
+            if queued == 0 { return true }
+            guard Date.now < deadline else { return false }
+            usleep(1_000)
+        }
+    }
+
     deinit {
         close(readEnd)
         closeWriteEnd()
     }
+}
+
+// The worker is the only writer, and the test reads only after the semaphore
+// handoff has ordered the write before the read.
+private final class LineResultBox: @unchecked Sendable {
+    var value: String?
 }
 
 @Suite("ControlClientLineReader")
@@ -65,6 +94,29 @@ struct ControlClientLineReaderTests {
         let reader = ControlClientLineReader(socket: pair.readEnd)
         #expect(reader.nextLine(shouldContinueReading: { true }) == "partial")
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func assemblesMultiByteScalarAcrossPartialReads() throws {
+        let pair = try SocketPairFixture()
+
+        let result = LineResultBox()
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+        Thread.detachNewThread {
+            let reader = ControlClientLineReader(socket: readEnd)
+            result.value = reader.nextLine(shouldContinueReading: { true })
+            finished.signal()
+        }
+
+        pair.write([0xE3, 0x81]) // First two bytes of "あ" (U+3042).
+        #expect(pair.waitUntilReaderDrainedInput())
+        pair.write([0x82, 0x0A]) // Final byte and newline.
+        pair.closeWriteEnd()
+
+        let waitResult = finished.wait(timeout: .now() + 5)
+        #expect(waitResult == .success)
+        guard waitResult == .success else { return }
+        #expect(result.value == "あ")
     }
 
     @Test func crlfIsNotALineTerminator() throws {
