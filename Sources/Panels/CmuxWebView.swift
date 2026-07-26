@@ -12,6 +12,7 @@ import WebKit
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
+    var onMagnificationDelta: ((CGFloat) -> Void)?
 
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
@@ -247,6 +248,20 @@ final class CmuxWebView: WKWebView {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         onBrowserViewportHierarchyChanged?()
+    }
+
+    @discardableResult
+    func handleMagnificationDelta(_ delta: CGFloat) -> Bool {
+        guard let onMagnificationDelta else { return false }
+        onMagnificationDelta(delta)
+        return true
+    }
+
+    override func magnify(with event: NSEvent) {
+        guard handleMagnificationDelta(event.magnification) else {
+            super.magnify(with: event)
+            return
+        }
     }
 
     private final class ContextMenuFallbackBox: NSObject {

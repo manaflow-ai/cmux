@@ -3692,6 +3692,10 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
         }
+        webView.onMagnificationDelta = { [weak self, weak webView] delta in
+            guard let self, let webView, self.webView === webView else { return }
+            self.handleMagnificationDelta(delta)
+        }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -7206,6 +7210,11 @@ extension BrowserPanel {
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
         return pageZoomMutationHandled(applyPageZoom(clamped))
+    }
+
+    func handleMagnificationDelta(_ delta: CGFloat) {
+        guard delta.isFinite else { return }
+        _ = setPageZoomFactor(webView.pageZoom + delta)
     }
 
     /// Take a snapshot of the web view
