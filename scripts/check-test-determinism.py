@@ -894,6 +894,16 @@ _JAVASCRIPT_TIMER_IMPORT = re.compile(
     (?P=quote)
     """
 )
+_JAVASCRIPT_TIMER_NAMESPACE_IMPORT = re.compile(
+    rf"""(?msx)
+    ^[ \t]*import\s*\*\s*as\s*
+    (?P<namespace>{_JAVASCRIPT_IDENTIFIER_PATTERN})
+    \s*from\s*
+    (?P<quote>["'])
+    (?P<module>(?:node:)?timers/promises)
+    (?P=quote)
+    """
+)
 
 
 def _javascript_timer_aliases(
@@ -914,6 +924,20 @@ def _javascript_timer_aliases(
             if imported is not None:
                 aliases.add(imported.group("alias") or "setTimeout")
     return aliases
+
+
+def _javascript_timer_namespaces(
+    raw_text: str,
+    masked_text: str,
+) -> set[str]:
+    """Return namespaces imported from trusted promise-timer modules."""
+    return {
+        timer_import.group("namespace")
+        for timer_import in _JAVASCRIPT_TIMER_NAMESPACE_IMPORT.finditer(
+            raw_text
+        )
+        if masked_text.startswith("import", timer_import.start())
+    }
 
 
 def _javascript_parameter_aliases(
@@ -952,6 +976,8 @@ def _javascript_parameter_aliases(
 def _javascript_timer_alias_positions(
     text: str,
     aliases: set[str],
+    *,
+    member: Optional[str] = None,
 ) -> set[int]:
     """Resolve imported timer aliases independently at each lexical call site."""
     if not aliases:
@@ -961,20 +987,37 @@ def _javascript_timer_alias_positions(
         re.escape(alias)
         for alias in sorted(aliases, key=len, reverse=True)
     )
+    call_suffix = (
+        rf"\s*\.\s*(?P<member>{re.escape(member)})\s*\("
+        if member is not None
+        else r"\s*\("
+    )
     event_pattern = re.compile(
         "|".join(
             (
                 r"(?P<open_brace>\{)",
                 r"(?P<close_brace>\})",
+                r"(?P<destructuring>\b(?:let|const|var)\s*"
+                r"[\{\[](?P<binding_pattern>[^\}\]\n;]*)[\}\]])",
                 rf"(?P<declaration>\b(?:let|const|var|function|class)\s+"
                 rf"(?P<declared>{alias_pattern})(?![$\w]))",
                 rf"(?P<assignment>(?<![.$\w])"
                 rf"(?P<assigned>{alias_pattern})(?![$\w])\s*=(?!=|>))",
                 rf"(?P<call>(?<![.$\w])"
-                rf"(?P<called>{alias_pattern})(?![$\w])\s*\()",
+                rf"(?P<called>{alias_pattern})(?![$\w]){call_suffix})",
             )
         )
     )
+
+    def destructured_aliases(pattern: str) -> set[str]:
+        return {
+            alias
+            for alias in aliases
+            if re.search(
+                rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
+                pattern,
+            )
+        }
 
     declarations: dict[Optional[int], set[str]] = {None: set()}
     scope_openings: list[Optional[int]] = [None]
@@ -988,6 +1031,10 @@ def _javascript_timer_alias_positions(
         elif event.group("declaration") is not None:
             declarations.setdefault(scope_openings[-1], set()).add(
                 event.group("declared")
+            )
+        elif event.group("destructuring") is not None:
+            declarations.setdefault(scope_openings[-1], set()).update(
+                destructured_aliases(event.group("binding_pattern"))
             )
 
     scopes: list[dict[str, bool]] = [
@@ -1022,6 +1069,12 @@ def _javascript_timer_alias_positions(
         if event.group("declaration") is not None:
             scopes[-1][event.group("declared")] = False
             continue
+        if event.group("destructuring") is not None:
+            for alias in destructured_aliases(
+                event.group("binding_pattern")
+            ):
+                scopes[-1][alias] = False
+            continue
         if event.group("assignment") is not None:
             scopes[-1][event.group("assigned")] = False
             continue
@@ -1033,7 +1086,11 @@ def _javascript_timer_alias_positions(
             if alias not in scope:
                 continue
             if scope[alias]:
-                result.add(event.start("called"))
+                result.add(
+                    event.start("member")
+                    if member is not None
+                    else event.start("called")
+                )
             break
     return result
 
@@ -1065,6 +1122,17 @@ def _javascript_real_sleep_positions(
     for sleep_offset in _javascript_timer_alias_positions(
         text,
         timer_aliases,
+    ):
+        line = text.count("\n", 0, sleep_offset)
+        line_start = text.rfind("\n", 0, sleep_offset) + 1
+        positions.setdefault(line, set()).add(
+            sleep_offset - line_start
+        )
+    timer_namespaces = _javascript_timer_namespaces(raw_text, text)
+    for sleep_offset in _javascript_timer_alias_positions(
+        text,
+        timer_namespaces,
+        member="setTimeout",
     ):
         line = text.count("\n", 0, sleep_offset)
         line_start = text.rfind("\n", 0, sleep_offset) + 1
@@ -1351,10 +1419,7 @@ def _python_deferred_bindings(
     body: list[ast.stmt],
 ) -> dict[str, str]:
     """Collect eventual closure-cell bindings for one function body."""
-    collector = _PythonDeferredBindingCollector()
-    for statement in body:
-        collector.visit(statement)
-    return collector.deferred_bindings()
+    return _python_bindings_after_block(body, {})
 
 
 def _python_deferred_expression_bindings(
@@ -2477,12 +2542,9 @@ def _python_real_sleep_lines(
         and any(alias.name == "annotations" for alias in statement.names)
         for statement in tree.body
     )
-    deferred_binding_collector = _PythonDeferredBindingCollector()
-    for statement in tree.body:
-        deferred_binding_collector.visit(statement)
     visitor = _PythonSleepVisitor(
         postponed_annotations,
-        deferred_binding_collector.deferred_bindings(),
+        _python_bindings_after_block(tree.body, {}),
         _python_direct_call_bindings(tree.body),
     )
     visitor.visit(tree)
