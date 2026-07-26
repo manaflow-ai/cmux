@@ -147,11 +147,12 @@ struct ControlClientLineReaderTests {
     @Test func dropsLineThatIsNotValidUTF8() throws {
         let pair = try SocketPairFixture()
         // Malformed input is discarded rather than surfaced as an empty
-        // command.
-        pair.write([0xFF, 0xFE, 0x0A])
+        // command, without discarding a valid line that follows it.
+        pair.write([0xFF, 0xFE, 0x0A] + Array("ok\n".utf8))
         pair.closeWriteEnd()
 
         let reader = ControlClientLineReader(socket: pair.readEnd)
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "ok")
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
