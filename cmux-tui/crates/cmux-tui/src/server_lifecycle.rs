@@ -4,6 +4,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::{Command, Stdio};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -54,6 +56,8 @@ type TransportReader = BufReader<Box<dyn transport::Stream>>;
 
 #[cfg(unix)]
 static LEGACY_HELPER_CANCELLED: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static NEXT_BLOCKING_CONNECT_DELAY_MS: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(unix)]
 extern "C" fn handle_legacy_helper_signal(_: libc::c_int) {
@@ -273,7 +277,7 @@ impl ServerProbe {
         path: &Path,
         deadline: Instant,
     ) -> anyhow::Result<(Self, TransportReader, Option<u32>)> {
-        let stream = transport::connect(path)
+        let stream = blocking_transport_connect(path)
             .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.connect_failed))?;
         let peer_process_id = stream.peer_process_id().ok().flatten();
         set_transport_deadline(stream.as_ref(), deadline)?;
@@ -297,6 +301,17 @@ impl ServerProbe {
         Err(IncompatibleLocalServer { message: incompatible_server_message(&self.identity, path) }
             .into())
     }
+}
+
+fn blocking_transport_connect(path: &Path) -> std::io::Result<Box<dyn transport::Stream>> {
+    #[cfg(test)]
+    {
+        let delay_ms = NEXT_BLOCKING_CONNECT_DELAY_MS.swap(0, Ordering::AcqRel);
+        if delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(delay_ms as u64));
+        }
+    }
+    transport::connect(path)
 }
 
 #[derive(Debug)]
@@ -1151,6 +1166,27 @@ mod tests {
         assert_eq!(
             replay_command_from("cmux-tui".to_string(), ["--session", "two words", "", "it's"]),
             "cmux-tui --session 'two words' '' 'it'\"'\"'s'"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lifecycle_connect_deadline_does_not_enter_the_blocking_transport_primitive() {
+        let path = PathBuf::from("/tmp").join(format!(
+            "cmux-tui-connect-deadline-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        NEXT_BLOCKING_CONNECT_DELAY_MS.store(300, Ordering::Release);
+        let started = Instant::now();
+        let result = ServerProbe::connect_until(&path, started + Duration::from_millis(50));
+        let elapsed = started.elapsed();
+        NEXT_BLOCKING_CONNECT_DELAY_MS.store(0, Ordering::Release);
+
+        assert!(result.is_err(), "missing lifecycle socket unexpectedly connected");
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "lifecycle path entered an unbounded socket connect: {elapsed:?}"
         );
     }
 

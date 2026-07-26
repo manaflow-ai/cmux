@@ -306,12 +306,19 @@ mod unix {
     static HOST_REAP_TEST_LOCK: Mutex<()> = Mutex::new(());
     #[cfg(test)]
     static NEXT_HOST_NORMAL_CLEANUP_FAILURES: AtomicUsize = AtomicUsize::new(0);
+    #[cfg(test)]
+    static NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES: AtomicUsize = AtomicUsize::new(0);
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
     }
 
     impl SpawnedHostProcess {
+        #[cfg(test)]
+        fn new_for_test(child: std::process::Child) -> Self {
+            Self { child: Some(child) }
+        }
+
         fn child_mut(&mut self) -> &mut std::process::Child {
             self.child.as_mut().expect("terminal-host child is present")
         }
@@ -338,13 +345,23 @@ mod unix {
         }
 
         fn detach_reaper(mut self) {
-            let Some(mut child) = self.child.take() else { return };
-            let _ = thread::Builder::new().name("terminal-host-detached-reaper".into()).spawn(
-                move || {
-                    let _ = child.wait();
-                },
-            );
+            let Some(child) = self.child.take() else { return };
+            let _ = spawn_host_process_reaper(child);
         }
+    }
+
+    fn spawn_host_process_reaper(mut child: std::process::Child) -> std::io::Result<()> {
+        #[cfg(test)]
+        if NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .is_ok()
+        {
+            return Err(std::io::Error::other("forced terminal-host reaper spawn failure"));
+        }
+        thread::Builder::new().name("terminal-host-detached-reaper".into()).spawn(move || {
+            let _ = child.wait();
+        })?;
+        Ok(())
     }
 
     impl Drop for SpawnedHostProcess {
@@ -3865,6 +3882,52 @@ mod unix {
                 host.normal_cleanup_attempts.load(Ordering::Acquire)
             );
             assert!(reaped, "the hosted PTY leader remained unreaped after cleanup could succeed");
+        }
+
+        #[test]
+        fn detached_host_process_retains_reap_ownership_when_worker_spawn_fails() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let child =
+                Command::new("/bin/sh").arg("-c").arg("exit 0").spawn().expect("spawn test child");
+            let pid = libc::pid_t::try_from(child.id()).expect("child PID fits pid_t");
+            let process = SpawnedHostProcess::new_for_test(child);
+            NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES.store(1, Ordering::Release);
+
+            process.detach_reaper();
+
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let reaped_by_owner = loop {
+                let mut status = 0;
+                // SAFETY: pid names the test-owned child and status is writable
+                // for the duration of this nonblocking wait.
+                let result = unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) };
+                if result == -1 {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() == Some(libc::ECHILD) {
+                        break true;
+                    }
+                    panic!("waitpid failed: {error}");
+                }
+                if result == pid {
+                    break false;
+                }
+                if Instant::now() >= deadline {
+                    // SAFETY: pid remains the exact test-owned child until it
+                    // is reaped, and this branch is only timeout cleanup.
+                    unsafe {
+                        libc::kill(pid, libc::SIGKILL);
+                        libc::waitpid(pid, &raw mut status, 0);
+                    }
+                    break false;
+                }
+                thread::sleep(Duration::from_millis(10));
+            };
+            NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES.store(0, Ordering::Release);
+
+            assert!(
+                reaped_by_owner,
+                "detached terminal-host cleanup abandoned the child after thread spawn failed"
+            );
         }
 
         #[test]
