@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
     CDP_EVENT_QUEUE_CAPACITY, CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions,
-    TargetCreated, discover_browser_ws_url, resolve_browser_ws_url,
+    FrameEpoch, TargetCreated, discover_browser_ws_url, resolve_browser_ws_url,
 };
 
 use crate::platform;
@@ -116,6 +116,11 @@ struct BrowserSession {
 
 struct BrowserState {
     latest_frame: Option<BrowserFrame>,
+    // Frames are stamped at CDP ingress. A lifecycle barrier reserves the next
+    // epoch and holds its first frame until the matching state change commits.
+    accepted_frame_epoch: u64,
+    pending_frame_epoch: Option<u64>,
+    pending_frame: Option<(u64, BrowserFrame)>,
     /// Frame that may currently receive guarded pointer input. Navigation and
     /// geometry changes invalidate it before the next screencast frame lands.
     pointer_frame_seq: Option<u64>,
@@ -171,10 +176,12 @@ struct BrowserReconfigureFailure {
     retry_at: Option<Instant>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct PointerFrameInvalidation {
     previous: Option<u64>,
     previous_capture_generation: u64,
+    previous_pending_frame_epoch: Option<u64>,
+    previous_pending_frame: Option<(u64, BrowserFrame)>,
     revision: u64,
 }
 
@@ -408,6 +415,7 @@ pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
     session: Mutex<Option<BrowserSession>>,
     state: Mutex<BrowserState>,
+    frame_epoch: Arc<FrameEpoch>,
     dirty: AtomicBool,
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
@@ -495,6 +503,11 @@ impl BrowserRuntime {
         };
         let session_id = self.client.attach_to_target(&target_id)?;
         let events = self.register(&target_id, &session_id);
+        let Some(browser) = surface.as_browser() else {
+            self.unregister(&target_id, &session_id);
+            anyhow::bail!("browser bootstrap got a non-browser surface");
+        };
+        self.client.register_frame_epoch(&session_id, browser.frame_epoch.clone());
 
         let setup_result =
             self.setup_attached_surface(&surface, &target_id, &session_id, &normalized_url);
@@ -554,6 +567,7 @@ impl BrowserRuntime {
     }
 
     fn unregister(&self, target_id: &str, session_id: &str) {
+        self.client.unregister_frame_epoch(session_id);
         let route = {
             let mut routes = self.routes.lock().unwrap();
             let by_session = routes.by_session.remove(session_id);
@@ -611,6 +625,7 @@ pub(crate) fn new_surface(
     let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
     let command_order = Arc::new(Mutex::new(BrowserCommandOrder::default()));
     let latest_nav = Arc::new(Mutex::new(None));
+    let frame_epoch = Arc::new(FrameEpoch::default());
     #[cfg(test)]
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
     #[cfg(test)]
@@ -622,6 +637,9 @@ pub(crate) fn new_surface(
         session: Mutex::new(None),
         state: Mutex::new(BrowserState {
             latest_frame: None,
+            accepted_frame_epoch: frame_epoch.current(),
+            pending_frame_epoch: None,
+            pending_frame: None,
             pointer_frame_seq: None,
             pointer_frame_revision: 0,
             pointer_capture_generation: 0,
@@ -645,6 +663,7 @@ pub(crate) fn new_surface(
             stall_nudged: false,
             not_responding_reported: false,
         }),
+        frame_epoch,
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
         cell_pixels: Mutex::new((cell_w, cell_h)),
@@ -824,6 +843,15 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                         runtime.remove_route(&tx);
                     }
                 }
+                CdpEvent::FrameNavigated { params, session_id, frame_epoch } => {
+                    let tx =
+                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::FrameNavigated { params, session_id, frame_epoch })
+                    {
+                        runtime.remove_route(&tx);
+                    }
+                }
                 CdpEvent::TargetCreated(created) => {
                     let tx = created.opener_id.as_ref().and_then(|opener_id| {
                         runtime.routes.lock().unwrap().by_target.get(opener_id).cloned()
@@ -896,6 +924,7 @@ fn start_surface_thread(
             let Surface::Browser(browser) = surface.as_ref() else { break };
             match event {
                 CdpEvent::ScreencastFrame(frame) => {
+                    let frame_epoch = frame.frame_epoch;
                     let frame = BrowserFrame {
                         session_id: frame.session_id,
                         data_b64: frame.data_b64,
@@ -903,7 +932,7 @@ fn start_surface_thread(
                         css_height: frame.css_height,
                         seq: 0,
                     };
-                    browser.store_frame(frame);
+                    browser.store_frame_for_epoch(frame, frame_epoch);
                     if !browser.dirty.swap(true, Ordering::AcqRel)
                         && let Some(mux) = mux.upgrade()
                     {
@@ -927,8 +956,8 @@ fn start_surface_thread(
                         });
                     }
                 }
-                CdpEvent::Other { method, params, .. } if method == "Page.frameNavigated" => {
-                    handle_frame_navigated(browser, params);
+                CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
+                    handle_frame_navigated(browser, params, frame_epoch);
                     if let Some(mux) = mux.upgrade() {
                         mux.emit(MuxEvent::TitleChanged {
                             surface: id,
@@ -1304,11 +1333,12 @@ impl BrowserSurface {
     }
 
     fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
-        self.reconfigure_blocking(
+        self.begin_frame_transition(false);
+        let frame_epoch = self.reconfigure_blocking(
             queued.geometry.capture_pixels.0,
             queued.geometry.capture_pixels.1,
         )?;
-        self.confirm_reconfigure(queued);
+        self.confirm_reconfigure(queued, frame_epoch);
         Ok(())
     }
 
@@ -1393,7 +1423,7 @@ impl BrowserSurface {
         }
     }
 
-    fn confirm_reconfigure(&self, queued: QueuedBrowserGeometry) {
+    fn confirm_reconfigure(&self, queued: QueuedBrowserGeometry, frame_epoch: u64) {
         let mut state = self.state.lock().unwrap();
         let Some(index) =
             state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
@@ -1416,8 +1446,11 @@ impl BrowserSurface {
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
             state.stall_nudged = false;
-            Self::mark_state_dirty_locked(&mut state);
         }
+        if state.pending_frame_epoch.is_none() || state.pending_frame_epoch == Some(frame_epoch) {
+            Self::accept_frame_epoch_locked(&mut state, frame_epoch);
+        }
+        Self::mark_state_dirty_locked(&mut state);
     }
 
     fn fail_reconfigure(&self, queued: QueuedBrowserGeometry) -> Option<(u8, Option<Duration>)> {
@@ -1454,12 +1487,17 @@ impl BrowserSurface {
         }
     }
 
-    fn reconfigure_blocking(&self, width: u32, height: u32) -> anyhow::Result<()> {
-        let Some(session) = self.live_session()? else { return Ok(()) };
+    fn reconfigure_blocking(&self, width: u32, height: u32) -> anyhow::Result<u64> {
+        let Some(session) = self.live_session()? else {
+            return Ok(self.frame_epoch.advance());
+        };
         session.runtime.client.set_device_metrics(&session.session_id, width, height)?;
         let _ = session.runtime.client.stop_screencast(&session.session_id);
-        session.runtime.client.start_screencast(&session.session_id, width, height)?;
-        Ok(())
+        session.runtime.client.start_screencast_with_frame_barrier(
+            &session.session_id,
+            width,
+            height,
+        )
     }
 
     pub(crate) fn resize_needed(&self, cols: u16, rows: u16) -> bool {
@@ -1506,8 +1544,26 @@ impl BrowserSurface {
         (snapshot, BrowserFrameStream { slot, notify: rx })
     }
 
-    fn store_frame(&self, mut frame: BrowserFrame) {
+    #[cfg(test)]
+    fn store_frame(&self, frame: BrowserFrame) {
+        self.store_frame_for_epoch(frame, self.frame_epoch.current());
+    }
+
+    fn store_frame_for_epoch(&self, frame: BrowserFrame, frame_epoch: u64) {
         let mut state = self.state.lock().unwrap();
+        if let Some(pending_epoch) = state.pending_frame_epoch {
+            if frame_epoch == pending_epoch {
+                state.pending_frame = Some((frame_epoch, frame));
+            }
+            return;
+        }
+        if frame_epoch != state.accepted_frame_epoch {
+            return;
+        }
+        Self::store_frame_locked(&mut state, frame);
+    }
+
+    fn store_frame_locked(state: &mut BrowserState, mut frame: BrowserFrame) {
         // Screencast frames keep streaming the previous page after a
         // failed navigation; they must not mask that failure. A fresh
         // frame does prove Chrome recovered from the worker's
@@ -1534,7 +1590,7 @@ impl BrowserSurface {
                 // consume that transition and suppress the local recovery
                 // redraw, leaving the local status line stuck on the failure.
                 state.title = state.url.clone();
-                Self::mark_state_dirty_locked(&mut state);
+                Self::mark_state_dirty_locked(state);
             }
         }
         frame.seq = state.next_frame_seq;
@@ -1543,7 +1599,7 @@ impl BrowserSurface {
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
         let pointer_frame_seq = matches!(state.status, BrowserStatus::Live).then_some(frame.seq);
-        Self::set_pointer_frame_locked(&mut state, pointer_frame_seq);
+        Self::set_pointer_frame_locked(state, pointer_frame_seq);
         state.latest_frame = Some(frame.clone());
         let update = BrowserFrameUpdate {
             frame,
@@ -1557,6 +1613,19 @@ impl BrowserSurface {
                 Err(TrySendError::Disconnected(())) => false,
             }
         });
+    }
+
+    fn accept_frame_epoch_locked(state: &mut BrowserState, frame_epoch: u64) {
+        state.accepted_frame_epoch = frame_epoch;
+        state.pending_frame_epoch = None;
+        let pending = state
+            .pending_frame
+            .take()
+            .filter(|(pending_epoch, _)| *pending_epoch == frame_epoch)
+            .map(|(_, frame)| frame);
+        if let Some(frame) = pending {
+            Self::store_frame_locked(state, frame);
+        }
     }
 
     fn close_taps(&self) {
@@ -1585,7 +1654,7 @@ impl BrowserSurface {
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Failed(message.clone());
-        Self::invalidate_pointer_frame_locked(&mut state);
+        Self::invalidate_pointer_frame_locked(&mut state, true);
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
         Self::mark_state_dirty_locked(&mut state);
@@ -1738,24 +1807,56 @@ impl BrowserSurface {
         }
     }
 
-    fn invalidate_pointer_frame_locked(state: &mut BrowserState) -> PointerFrameInvalidation {
+    fn invalidate_pointer_frame_locked(
+        state: &mut BrowserState,
+        revoke_capture: bool,
+    ) -> PointerFrameInvalidation {
         let previous = state.pointer_frame_seq;
         let previous_capture_generation = state.pointer_capture_generation;
+        let previous_pending_frame_epoch = state.pending_frame_epoch;
+        let previous_pending_frame = state.pending_frame.clone();
         Self::set_pointer_frame_locked(state, None);
         Self::set_pending_attach_frame_locked(state, None);
-        state.pointer_capture_generation = state.pointer_capture_generation.wrapping_add(1);
+        if revoke_capture {
+            state.pointer_capture_generation = state.pointer_capture_generation.wrapping_add(1);
+        }
         PointerFrameInvalidation {
             previous,
             previous_capture_generation,
+            previous_pending_frame_epoch,
+            previous_pending_frame,
             revision: state.pointer_frame_revision,
         }
     }
 
     fn invalidate_pointer_frame(&self) -> PointerFrameInvalidation {
+        self.begin_frame_transition(true)
+    }
+
+    fn begin_frame_transition(&self, revoke_capture: bool) -> PointerFrameInvalidation {
         let mut state = self.state.lock().unwrap();
-        let invalidation = Self::invalidate_pointer_frame_locked(&mut state);
+        let pending_frame_epoch =
+            state.pending_frame_epoch.unwrap_or_else(|| self.frame_epoch.current()).wrapping_add(1);
+        let invalidation = Self::invalidate_pointer_frame_locked(&mut state, revoke_capture);
+        state.pending_frame_epoch = Some(pending_frame_epoch);
+        state.pending_frame = None;
         Self::mark_state_dirty_locked(&mut state);
         invalidation
+    }
+
+    fn accept_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.pending_frame_epoch.is_some_and(|pending_epoch| pending_epoch != frame_epoch)
+            || state.pending_frame_epoch.is_none() && state.accepted_frame_epoch == frame_epoch
+        {
+            return false;
+        }
+        Self::invalidate_pointer_frame_locked(&mut state, true);
+        state.pending_frame_epoch = Some(frame_epoch);
+        state.pending_frame = state.pending_frame.take().filter(|(epoch, _)| *epoch == frame_epoch);
+        Self::accept_frame_epoch_locked(&mut state, frame_epoch);
+        Self::mark_state_dirty_locked(&mut state);
+        true
     }
 
     fn restore_pointer_frame_after_failed_command(&self, invalidation: PointerFrameInvalidation) {
@@ -1767,6 +1868,8 @@ impl BrowserSurface {
             return;
         }
         state.pointer_capture_generation = invalidation.previous_capture_generation;
+        state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
+        state.pending_frame = invalidation.previous_pending_frame;
         Self::set_pointer_frame_locked(&mut state, invalidation.previous);
         let retained_frame = state.latest_frame.clone();
         Self::set_pending_attach_frame_locked(&mut state, retained_frame);
@@ -1778,7 +1881,9 @@ impl BrowserSurface {
         invalidation: PointerFrameInvalidation,
         result: anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        if result.is_err() {
+        if let Err(error) = &result
+            && !is_cdp_timeout_error(&error.to_string())
+        {
             self.restore_pointer_frame_after_failed_command(invalidation);
         }
         result
@@ -2043,6 +2148,7 @@ impl BrowserSurface {
         }
         let button = dispatch.button.unwrap_or("none");
         let mut captured_press = None;
+        let mut captured_release = false;
         let point = match (dispatch.event_type, dispatch.frame_seq) {
             ("mousePressed", Some(frame_seq)) => {
                 let Some((point, generation)) =
@@ -2054,10 +2160,16 @@ impl BrowserSurface {
                 Some(point)
             }
             ("mouseReleased", Some(_)) => {
-                let Some(generation) = active_pointer_presses.remove(button) else {
+                let Some(generation) = active_pointer_presses.get(button).copied() else {
                     return Ok(());
                 };
-                self.scale_captured_input_point(generation, dispatch.x, dispatch.y)
+                let point = self.scale_captured_input_point(generation, dispatch.x, dispatch.y);
+                if point.is_some() {
+                    captured_release = true;
+                } else {
+                    active_pointer_presses.remove(button);
+                }
+                point
             }
             ("mouseMoved", Some(_)) => {
                 if let Some(generation) = active_pointer_presses.get(button).copied() {
@@ -2074,16 +2186,32 @@ impl BrowserSurface {
             _ => self.scale_guarded_input_point(dispatch.frame_seq, dispatch.x, dispatch.y),
         };
         let Some((x, y)) = point else { return Ok(()) };
-        session.runtime.client.dispatch_mouse_event(
+        let replaced_press = captured_press
+            .map(|generation| active_pointer_presses.insert(button.to_string(), generation));
+        let result = session.runtime.client.dispatch_mouse_event(
             &session.session_id,
             dispatch.event_type,
             x,
             y,
             dispatch.button,
             dispatch.click_count,
-        )?;
-        if let Some(generation) = captured_press {
-            active_pointer_presses.insert(button.to_string(), generation);
+        );
+        if let Err(error) = result {
+            if !is_cdp_timeout_error(&error.to_string()) {
+                match replaced_press {
+                    Some(Some(previous)) => {
+                        active_pointer_presses.insert(button.to_string(), previous);
+                    }
+                    Some(None) => {
+                        active_pointer_presses.remove(button);
+                    }
+                    None => {}
+                }
+            }
+            return Err(error);
+        }
+        if captured_release {
+            active_pointer_presses.remove(button);
         }
         Ok(())
     }
@@ -2282,14 +2410,14 @@ fn frames_stalled_locked(state: &BrowserState, now: Instant, dead: bool) -> bool
     now.saturating_duration_since(since) > STALL_THRESHOLD
 }
 
-fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value) {
-    let Some(frame) = params.get("frame") else {
-        return;
-    };
+fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value, frame_epoch: u64) {
+    let frame = params.get("frame").unwrap_or(&params);
     if frame.get("parentId").is_some() {
         return;
     }
-    browser.invalidate_pointer_frame();
+    if !browser.accept_navigation_frame_epoch(frame_epoch) {
+        return;
+    }
     if let Some(url) = frame.get("url").and_then(|v| v.as_str()).filter(|url| !url.is_empty()) {
         browser.set_url(url.to_string());
         let title = frame
@@ -2934,14 +3062,14 @@ mod tests {
             })
         };
         assert!(!route.deliver(target("old")));
-        assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
-            method: "Page.frameNavigated".to_string(),
+        assert!(!route.deliver(cmux_tui_cdp::CdpEvent::FrameNavigated {
             params: Value::Null,
-            session_id: Some("session-1".to_string()),
+            session_id: "session-1".to_string(),
+            frame_epoch: 1,
         }));
         assert!(!route.deliver(target("new")));
 
-        assert!(matches!(route.try_recv().unwrap(), cmux_tui_cdp::CdpEvent::Other { .. }));
+        assert!(matches!(route.try_recv().unwrap(), cmux_tui_cdp::CdpEvent::FrameNavigated { .. }));
         assert!(matches!(
             route.try_recv().unwrap(),
             cmux_tui_cdp::CdpEvent::TargetInfoChanged(cmux_tui_cdp::TargetInfo { title, .. })
@@ -2959,6 +3087,7 @@ mod tests {
                 css_width: 80,
                 css_height: 24,
                 ack_id: index,
+                frame_epoch: 0,
             })
         };
 
@@ -2982,6 +3111,7 @@ mod tests {
             css_width: 80,
             css_height: 24,
             ack_id: 1,
+            frame_epoch: 0,
         });
         assert!(!route.deliver(frame));
         for index in 1..cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY {
@@ -3018,6 +3148,7 @@ mod tests {
                 css_width: 80,
                 css_height: 24,
                 ack_id: 1,
+                frame_epoch: 0,
             }));
 
         assert!(overflowed);
@@ -3526,7 +3657,7 @@ mod tests {
         browser.store_frame(frame);
 
         let queued = browser.reserve_reconfigure(400, 100).expect("changed geometry");
-        browser.confirm_reconfigure(queued);
+        browser.confirm_reconfigure(queued, browser.frame_epoch.advance());
 
         let state = browser.state.lock().unwrap();
         assert_eq!(state.latest_frame, None);
@@ -3575,9 +3706,11 @@ mod tests {
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
         assert_eq!(browser.latest_frame_seq(), Some(1));
 
+        let frame_epoch = browser.frame_epoch.advance();
         handle_frame_navigated(
             browser,
             json!({"frame": {"url": "https://next.test", "name": "next"}}),
+            frame_epoch,
         );
 
         assert_eq!(
@@ -3609,6 +3742,7 @@ mod tests {
                 css_width: 80,
                 css_height: 48,
                 ack_id: 2,
+                frame_epoch: 0,
             },
         )));
 
@@ -3617,19 +3751,43 @@ mod tests {
         let cmux_tui_cdp::CdpEvent::ScreencastFrame(frame) = queued else {
             panic!("expected queued screencast frame");
         };
-        browser.store_frame(BrowserFrame {
-            session_id: frame.session_id,
-            data_b64: frame.data_b64,
-            css_width: frame.css_width,
-            css_height: frame.css_height,
-            seq: 0,
-        });
+        browser.store_frame_for_epoch(
+            BrowserFrame {
+                session_id: frame.session_id,
+                data_b64: frame.data_b64,
+                css_width: frame.css_width,
+                css_height: frame.css_height,
+                seq: 0,
+            },
+            frame.frame_epoch,
+        );
 
         assert_eq!(
             browser.latest_frame_seq(),
             None,
             "a frame queued before invalidation must not reopen pointer admission"
         );
+    }
+
+    #[test]
+    fn older_navigation_event_cannot_settle_a_newer_command_barrier() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let older_epoch = browser.frame_epoch.advance();
+        browser.invalidate_pointer_frame();
+        let expected_epoch = browser.state.lock().unwrap().pending_frame_epoch.unwrap();
+        assert_ne!(older_epoch, expected_epoch);
+
+        handle_frame_navigated(
+            browser,
+            json!({"frame": {"url": "https://old.test", "name": "old"}}),
+            older_epoch,
+        );
+
+        assert_eq!(browser.latest_frame_seq(), None);
+        assert_eq!(browser.state.lock().unwrap().pending_frame_epoch, Some(expected_epoch));
+        assert_ne!(browser.url(), "https://old.test");
     }
 
     #[test]
@@ -3753,7 +3911,7 @@ mod tests {
         let (_snapshot, stream) = browser.attach_frames();
 
         let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
-        browser.confirm_reconfigure(queued);
+        browser.confirm_reconfigure(queued, browser.frame_epoch.advance());
 
         stream
             .notify
@@ -3787,7 +3945,7 @@ mod tests {
         );
 
         let reconfigure = browser.reserve_reconfigure(11, 5).expect("changed geometry");
-        browser.confirm_reconfigure(reconfigure);
+        browser.confirm_reconfigure(reconfigure, browser.frame_epoch.advance());
         assert!(
             browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
             "geometry changes must preserve capture so the page receives its release"

@@ -27,6 +27,23 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 #[cfg(test)]
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 
+/// Monotonic browser-frame generation shared by CDP ingress and one surface.
+///
+/// Navigation events and successful capture restarts advance the generation
+/// before later frames enter either bounded event queue.
+#[derive(Debug, Default)]
+pub struct FrameEpoch(AtomicU64);
+
+impl FrameEpoch {
+    pub fn current(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
+
+    pub fn advance(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::AcqRel).wrapping_add(1)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
     pub session_id: String,
@@ -34,6 +51,7 @@ pub struct ScreencastFrame {
     pub css_width: u32,
     pub css_height: u32,
     pub ack_id: u64,
+    pub frame_epoch: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +87,7 @@ pub struct NavigationHistory {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdpEvent {
     ScreencastFrame(ScreencastFrame),
+    FrameNavigated { params: Value, session_id: String, frame_epoch: u64 },
     TargetCreated(TargetCreated),
     TargetInfoChanged(TargetInfo),
     Other { method: String, params: Value, session_id: Option<String> },
@@ -97,13 +116,19 @@ pub struct CdpClient {
 
 struct Inner {
     outbound: Sender<Outbound>,
-    pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
+    pending: Mutex<HashMap<u64, PendingCall>>,
     events: Arc<EventQueue>,
+    frame_epochs: Mutex<HashMap<String, Arc<FrameEpoch>>>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
     #[cfg(test)]
     reader_stopped: Arc<AtomicBool>,
+}
+
+struct PendingCall {
+    response: Sender<Result<Value, String>>,
+    frame_barrier: Option<Arc<FrameEpoch>>,
 }
 
 struct EventQueue {
@@ -221,6 +246,10 @@ pub fn event_retained_bytes(event: &CdpEvent) -> usize {
             .len()
             .saturating_add(frame.session_id.len())
             .saturating_add(size_of::<ScreencastFrame>()),
+        CdpEvent::FrameNavigated { params, session_id, .. } => session_id
+            .len()
+            .saturating_add(json_retained_bytes(params))
+            .saturating_add(size_of::<u64>()),
         CdpEvent::TargetCreated(target) => target
             .target_id
             .len()
@@ -299,6 +328,7 @@ impl CdpClient {
                 outbound: outbound_tx,
                 pending: Mutex::new(HashMap::new()),
                 events: event_queue,
+                frame_epochs: Mutex::new(HashMap::new()),
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
@@ -335,9 +365,29 @@ impl CdpClient {
         params: Value,
         session_id: Option<&str>,
     ) -> anyhow::Result<Value> {
+        self.call_inner(method, params, session_id, None)
+    }
+
+    fn call_with_frame_barrier(
+        &self,
+        method: &str,
+        params: Value,
+        session_id: &str,
+        frame_barrier: Arc<FrameEpoch>,
+    ) -> anyhow::Result<Value> {
+        self.call_inner(method, params, Some(session_id), Some(frame_barrier))
+    }
+
+    fn call_inner(
+        &self,
+        method: &str,
+        params: Value,
+        session_id: Option<&str>,
+        frame_barrier: Option<Arc<FrameEpoch>>,
+    ) -> anyhow::Result<Value> {
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
-        self.inner.pending.lock().unwrap().insert(id, tx);
+        self.inner.pending.lock().unwrap().insert(id, PendingCall { response: tx, frame_barrier });
 
         let mut msg = json!({
             "id": id,
@@ -361,6 +411,14 @@ impl CdpClient {
                 anyhow::bail!("CDP call {method} timed out")
             }
         }
+    }
+
+    pub fn register_frame_epoch(&self, session_id: &str, frame_epoch: Arc<FrameEpoch>) {
+        self.inner.frame_epochs.lock().unwrap().insert(session_id.to_string(), frame_epoch);
+    }
+
+    pub fn unregister_frame_epoch(&self, session_id: &str) {
+        self.inner.frame_epochs.lock().unwrap().remove(session_id);
     }
 
     pub fn set_discover_targets(&self, discover: bool) -> anyhow::Result<()> {
@@ -456,6 +514,30 @@ impl CdpClient {
             Some(session_id),
         )
         .map(|_| ())
+    }
+
+    pub fn start_screencast_with_frame_barrier(
+        &self,
+        session_id: &str,
+        max_width: u32,
+        max_height: u32,
+    ) -> anyhow::Result<u64> {
+        let frame_epoch =
+            self.inner.frame_epochs.lock().unwrap().get(session_id).cloned().ok_or_else(|| {
+                anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
+            })?;
+        self.call_with_frame_barrier(
+            "Page.startScreencast",
+            json!({
+                "format": "png",
+                "maxWidth": max_width,
+                "maxHeight": max_height,
+                "everyNthFrame": 1,
+            }),
+            session_id,
+            frame_epoch.clone(),
+        )?;
+        Ok(frame_epoch.current())
     }
 
     pub fn stop_screencast(&self, session_id: &str) -> anyhow::Result<()> {
@@ -708,13 +790,18 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     }
     let Ok(value) = serde_json::from_str::<Value>(text) else { return };
     if let Some(id) = value.get("id").and_then(|v| v.as_u64()) {
-        if let Some(tx) = inner.pending.lock().unwrap().remove(&id) {
+        if let Some(pending) = inner.pending.lock().unwrap().remove(&id) {
             let response = if let Some(error) = value.get("error") {
                 Err(error.to_string())
             } else {
                 Ok(value.get("result").cloned().unwrap_or(Value::Null))
             };
-            let _ = tx.send(response);
+            if response.is_ok()
+                && let Some(frame_barrier) = pending.frame_barrier
+            {
+                frame_barrier.advance();
+            }
+            let _ = pending.response.send(response);
         }
         return;
     }
@@ -722,6 +809,14 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     let Some(method) = value.get("method").and_then(|v| v.as_str()) else { return };
     let params = value.get("params").cloned().unwrap_or(Value::Null);
     let session_id = value.get("sessionId").and_then(|v| v.as_str()).map(str::to_string);
+    let frame_navigation = session_id.is_some()
+        && match method {
+            "Page.frameNavigated" => {
+                params.get("frame").is_some_and(|frame| frame.get("parentId").is_none())
+            }
+            "Page.navigatedWithinDocument" => true,
+            _ => false,
+        };
     match method {
         "Page.screencastFrame" => {
             if let Some(target_session) = session_id.as_deref() {
@@ -729,7 +824,15 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     return;
                 };
                 ack_screencast_frame(inner, target_session, ack_id);
-                let Some(frame) = screencast_frame(&params, target_session) else { return };
+                let frame_epoch = inner
+                    .frame_epochs
+                    .lock()
+                    .unwrap()
+                    .get(target_session)
+                    .map_or(0, |frame_epoch| frame_epoch.current());
+                let Some(frame) = screencast_frame(&params, target_session, frame_epoch) else {
+                    return;
+                };
                 dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
             }
         }
@@ -742,6 +845,16 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             if let Some(info) = target_info(&params, session_id.as_deref()) {
                 dispatch_event(inner, CdpEvent::TargetInfoChanged(info));
             }
+        }
+        _ if frame_navigation => {
+            let session_id = session_id.expect("guarded above");
+            let frame_epoch = inner
+                .frame_epochs
+                .lock()
+                .unwrap()
+                .get(&session_id)
+                .map_or(0, |frame_epoch| frame_epoch.advance());
+            dispatch_event(inner, CdpEvent::FrameNavigated { params, session_id, frame_epoch });
         }
         _ => {
             dispatch_event(
@@ -770,7 +883,7 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
     let _ = inner.outbound.send(Outbound::Message(text));
 }
 
-fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame> {
+fn screencast_frame(params: &Value, session_id: &str, frame_epoch: u64) -> Option<ScreencastFrame> {
     const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
     const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 
@@ -799,6 +912,7 @@ fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame>
         css_width,
         css_height,
         ack_id,
+        frame_epoch,
     })
 }
 
@@ -863,8 +977,8 @@ fn close_inner(inner: &Arc<Inner>, why: &str) {
     if inner.closed.swap(true, Ordering::AcqRel) {
         return;
     }
-    for (_, tx) in inner.pending.lock().unwrap().drain() {
-        let _ = tx.send(Err(why.to_string()));
+    for (_, pending) in inner.pending.lock().unwrap().drain() {
+        let _ = pending.response.send(Err(why.to_string()));
     }
     inner.events.close(why);
 }
@@ -1022,6 +1136,23 @@ mod tests {
 
     use super::*;
 
+    fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
+        let (outbound, outbound_rx) = channel();
+        (
+            Arc::new(Inner {
+                outbound,
+                pending: Mutex::new(HashMap::new()),
+                events: Arc::new(EventQueue::new()),
+                frame_epochs: Mutex::new(HashMap::new()),
+                next_id: AtomicU64::new(1),
+                closed: AtomicBool::new(false),
+                timeout: Duration::from_secs(1),
+                reader_stopped: Arc::new(AtomicBool::new(false)),
+            }),
+            outbound_rx,
+        )
+    }
+
     #[test]
     fn screencast_frame_rejects_terminal_control_bytes() {
         let params = json!({
@@ -1030,7 +1161,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert!(screencast_frame(&params, "session-1").is_none());
+        assert!(screencast_frame(&params, "session-1", 0).is_none());
     }
 
     #[test]
@@ -1041,7 +1172,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert_eq!(screencast_frame(&params, "session-1").unwrap().data_b64, "aGk=");
+        assert_eq!(screencast_frame(&params, "session-1", 0).unwrap().data_b64, "aGk=");
     }
 
     #[test]
@@ -1052,7 +1183,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert!(screencast_frame(&params, "session-1").is_none());
+        assert!(screencast_frame(&params, "session-1", 0).is_none());
     }
 
     #[test]
@@ -1121,16 +1252,7 @@ mod tests {
 
     #[test]
     fn rejected_screencast_frame_is_acknowledged() {
-        let (outbound_tx, outbound_rx) = channel();
-        let inner = Arc::new(Inner {
-            outbound: outbound_tx,
-            pending: Mutex::new(HashMap::new()),
-            events: Arc::new(EventQueue::new()),
-            next_id: AtomicU64::new(1),
-            closed: AtomicBool::new(false),
-            timeout: Duration::from_secs(1),
-            reader_stopped: Arc::new(AtomicBool::new(false)),
-        });
+        let (inner, outbound_rx) = test_inner();
         handle_text(
             &inner,
             &json!({
@@ -1151,6 +1273,65 @@ mod tests {
         let ack: Value = serde_json::from_str(&ack).unwrap();
         assert_eq!(ack["method"], "Page.screencastFrameAck");
         assert_eq!(ack["params"]["sessionId"], 77);
+    }
+
+    #[test]
+    fn frame_navigation_advances_epoch_before_following_frame_enters_the_queue() {
+        let (inner, _outbound_rx) = test_inner();
+        let frame_epoch = Arc::new(FrameEpoch::default());
+        inner.frame_epochs.lock().unwrap().insert("session-1".to_string(), frame_epoch.clone());
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.navigatedWithinDocument",
+                "sessionId": "session-1",
+                "params": {"frameId": "frame-1", "url": "https://example.test/#next"}
+            })
+            .to_string(),
+        );
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "AAAA",
+                    "sessionId": 8,
+                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+                }
+            })
+            .to_string(),
+        );
+
+        let (event_tx, event_rx) = sync_channel(2);
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::FrameNavigated { frame_epoch: 1, .. }
+        ));
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::ScreencastFrame(ScreencastFrame { frame_epoch: 1, .. })
+        ));
+        assert_eq!(frame_epoch.current(), 1);
+    }
+
+    #[test]
+    fn successful_response_advances_frame_barrier_before_waking_caller() {
+        let (inner, _outbound_rx) = test_inner();
+        let frame_epoch = Arc::new(FrameEpoch::default());
+        let (response, received) = channel();
+        inner
+            .pending
+            .lock()
+            .unwrap()
+            .insert(7, PendingCall { response, frame_barrier: Some(frame_epoch.clone()) });
+
+        handle_text(&inner, &json!({"id": 7, "result": {}}).to_string());
+
+        assert!(received.recv().unwrap().is_ok());
+        assert_eq!(frame_epoch.current(), 1);
     }
 
     #[test]
