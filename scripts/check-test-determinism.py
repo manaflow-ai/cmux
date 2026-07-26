@@ -220,7 +220,8 @@ _SWIFT_SIMPLE_BINDING = (
     rf"\b(?:let|var)\s+(?P<binding_name>{_SWIFT_IDENTIFIER_PATTERN})\b"
 )
 _SWIFT_NAMED_SLEEP_CALL = (
-    rf"(?<![.$\w])(?P<receiver>{_SWIFT_IDENTIFIER_PATTERN})"
+    rf"(?<![.$\w])(?:(?P<qualification>self|Self)\s*\.\s*)?"
+    rf"(?P<receiver>{_SWIFT_IDENTIFIER_PATTERN})"
     r"\s*\.\s*(?P<named_sleep>sleep)\s*\("
 )
 _SWIFT_CLOCK_EVENT = re.compile(
@@ -599,6 +600,27 @@ def _swift_function_parameter_scopes(text: str) -> dict[int, set[str]]:
     return result
 
 
+def _swift_type_scopes(text: str) -> set[int]:
+    """Return opening braces for concrete Swift type and extension bodies."""
+    result: set[int] = set()
+    declaration_pattern = re.compile(
+        r"(?<![.$\w])(?:class|struct|actor|enum|extension)\b"
+    )
+    for declaration in declaration_pattern.finditer(text):
+        body_opening = text.find("{", declaration.end())
+        if body_opening < 0:
+            continue
+        suffix = text[declaration.end() : body_opening]
+        if (
+            ";" in suffix
+            or "}" in suffix
+            or declaration_pattern.search(suffix)
+        ):
+            continue
+        result.add(body_opening)
+    return result
+
+
 def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
     """Return simple closure parameters introduced immediately after a brace."""
     candidate = re.match(
@@ -616,18 +638,26 @@ def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
 def _swift_named_clock_sleep_positions(text: str) -> set[int]:
     """Resolve immutable standard-clock bindings through lexical Swift scopes."""
     function_parameters = _swift_function_parameter_scopes(text)
-    scopes: list[dict[str, bool]] = [{}]
+    type_scopes = _swift_type_scopes(text)
+    scopes: list[tuple[str, dict[str, bool]]] = [("file", {})]
     result: set[int] = set()
 
     for event in _SWIFT_CLOCK_EVENT.finditer(text):
         if event.group("open_brace") is not None:
+            scope_kind = (
+                "function"
+                if event.start() in function_parameters
+                else "type"
+                if event.start() in type_scopes
+                else "block"
+            )
             bindings = {
                 name: False
                 for name in function_parameters.get(event.start(), set())
             }
             for name in _swift_closure_parameter_names(text, event.start()):
                 bindings[name] = False
-            scopes.append(bindings)
+            scopes.append((scope_kind, bindings))
             continue
         if event.group("close_brace") is not None:
             if len(scopes) > 1:
@@ -638,17 +668,26 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
             or event.group("inferred_let") is not None
         ):
             name = event.group("typed_name") or event.group("inferred_name")
-            scopes[-1][name] = True
+            scopes[-1][1][name] = True
             continue
         if event.group("simple_binding") is not None:
-            scopes[-1][event.group("binding_name")] = False
+            scopes[-1][1][event.group("binding_name")] = False
             continue
         if event.group("named_call") is None:
             continue
 
         receiver = event.group("receiver")
-        for scope in reversed(scopes):
+        candidate_scopes = reversed(scopes)
+        if event.group("qualification") is not None:
+            candidate_scopes = (
+                scope
+                for scope in reversed(scopes)
+                if scope[0] == "type"
+            )
+        for _, scope in candidate_scopes:
             if receiver not in scope:
+                if event.group("qualification") is not None:
+                    break
                 continue
             if scope[receiver]:
                 result.add(event.start("named_sleep"))
@@ -973,7 +1012,17 @@ class _PythonDeferredBindingCollector(_PythonLocalBindingCollector):
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         for alias in node.names:
             if alias.name == "*":
-                self.local_names.update(_PYTHON_SLEEP_MODULES)
+                if (
+                    node.level == 0
+                    and node.module in _PYTHON_SLEEP_MODULES
+                ):
+                    self.trusted_bindings[
+                        "sleep"
+                    ] = _PYTHON_FUNCTION_BINDING
+                else:
+                    self.local_names.update(
+                        (*_PYTHON_SLEEP_MODULES, "sleep")
+                    )
             elif (
                 node.level == 0
                 and node.module in _PYTHON_SLEEP_MODULES
@@ -1553,6 +1602,12 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if any(alias.name == "*" for alias in node.names):
+            if (
+                node.level == 0
+                and node.module in _PYTHON_SLEEP_MODULES
+            ):
+                self._bind("sleep", _PYTHON_FUNCTION_BINDING)
+                return
             visible_names: set[str] = set()
             scope: Optional[_PythonScope] = self.scope
             while scope is not None:
