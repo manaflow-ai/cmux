@@ -167,6 +167,18 @@ extension Workspace {
               !kind.isEmpty else {
             return false
         }
+        if let agentKind = RestorableAgentKind(rawValue: kind),
+           !confirmedRuntimeAgentProcessIdentities(
+                kind: agentKind,
+                sessionId: checkpointId,
+                panelId: panelId,
+                currentProcessIdentity: { Self.agentPIDProcessIdentity(pid: pid_t($0)) }
+           ).isEmpty {
+            // Hook registration is newer and more specific than the detached
+            // process scan: it proves this exact session generation is still
+            // running on this panel, so autosave must preserve its binding.
+            return false
+        }
         let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
         return !AgentResumeLiveness.hasLiveProcess(
             for: liveIndex?.entry(workspaceId: id, panelId: panelId),
