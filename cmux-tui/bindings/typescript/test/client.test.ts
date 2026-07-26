@@ -4,6 +4,9 @@ import {
   CmuxClient,
   CmuxStream,
   DEFAULT_MAX_ATTACH_ENCODED_CHARS,
+  MAX_ATTACH_HANDSHAKE_TIMEOUT_MS,
+  MIN_ATTACH_HANDSHAKE_BYTES_PER_SECOND,
+  defaultAttachHandshakeTimeoutMs,
 } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
 import type {
@@ -168,6 +171,50 @@ test("attach buffering enforces aggregate bytes and browser-frame limits", async
 type CmuxClientOptionsWithSecurityLimits = ConstructorParameters<typeof CmuxClient>[0] & {
   maxAttachEncodedChars: number;
 };
+
+test("attach handshake deadline accounts for the largest accepted snapshot", () => {
+  assert.equal(MIN_ATTACH_HANDSHAKE_BYTES_PER_SECOND, 64 * 1024);
+  assert.equal(MAX_ATTACH_HANDSHAKE_TIMEOUT_MS, 15 * 60 * 1_000);
+  assert.equal(
+    defaultAttachHandshakeTimeoutMs(10_000, RENDER_ATTACH_MAX_ENCODED_CHARS),
+    522_000,
+  );
+});
+
+test("attach stream can acknowledge after the ordinary request deadline", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      event: "render-state",
+      surface: 7,
+      size: { cols: 1, rows: 1 },
+      cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+      default_fg: "#ffffff",
+      default_bg: "#000000",
+      scrollback_rows: 0,
+      rows: [],
+      graphics: { generation: 0, images: [], placements: [] },
+    });
+    setTimeout(() => transport.emit({ id: request.id, ok: true, data: {} }), 30);
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 10,
+    attachHandshakeTimeoutMs: 100,
+  });
+
+  const stream = await client.attachSurface(7, { mode: "render" });
+  assert.equal((await stream.next()).event, "render-state");
+  stream.close();
+  await client.close();
+});
 
 test("legacy resize response defaults to accepted", async () => {
   const transport = new ScriptedTransport((request, connection) => {

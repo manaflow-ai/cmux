@@ -76,6 +76,11 @@ import type { Transport, Unsubscribe } from "./transport.js";
 export interface CmuxClientOptions {
   transport: Transport;
   timeoutMs?: number;
+  /**
+   * Maximum time to establish an attach stream. Defaults to a size-aware
+   * deadline that permits the largest accepted initial snapshot at 64 KiB/s.
+   */
+  attachHandshakeTimeoutMs?: number;
   allowProtocolV6Attach?: boolean;
   /** Maximum events retained for a stream whose consumer falls behind. */
   maxBufferedEvents?: number;
@@ -87,6 +92,21 @@ export interface CmuxClientOptions {
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = RENDER_ATTACH_MAX_ENCODED_CHARS;
+export const MIN_ATTACH_HANDSHAKE_BYTES_PER_SECOND = 64 * 1024;
+export const MAX_ATTACH_HANDSHAKE_TIMEOUT_MS = 15 * 60 * 1_000;
+
+export function defaultAttachHandshakeTimeoutMs(
+  requestTimeoutMs: number,
+  maxAttachEncodedChars: number,
+): number {
+  const transferMs = Math.ceil(
+    maxAttachEncodedChars * 1_000 / MIN_ATTACH_HANDSHAKE_BYTES_PER_SECOND,
+  );
+  return Math.max(
+    requestTimeoutMs,
+    Math.min(MAX_ATTACH_HANDSHAKE_TIMEOUT_MS, requestTimeoutMs + transferMs),
+  );
+}
 
 /** Return a string's UTF-8 size without allocating an encoded copy. */
 function utf8ByteLength(value: string): number {
@@ -415,6 +435,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
 /** Promise-based typed client for any cmux JSON transport. */
 export class CmuxClient {
   readonly timeoutMs: number;
+  readonly attachHandshakeTimeoutMs: number;
   readonly allowProtocolV6Attach: boolean;
   readonly maxBufferedEvents: number;
   readonly maxAttachEncodedChars: number;
@@ -440,6 +461,20 @@ export class CmuxClient {
       options.maxAttachEncodedChars,
       DEFAULT_MAX_ATTACH_ENCODED_CHARS,
     );
+    const defaultAttachTimeout = defaultAttachHandshakeTimeoutMs(
+      this.timeoutMs,
+      this.maxAttachEncodedChars,
+    );
+    this.attachHandshakeTimeoutMs = options.attachHandshakeTimeoutMs === undefined
+      ? defaultAttachTimeout
+      : Math.max(
+        this.timeoutMs,
+        this.securityLimit(
+          "attachHandshakeTimeoutMs",
+          options.attachHandshakeTimeoutMs,
+          MAX_ATTACH_HANDSHAKE_TIMEOUT_MS,
+        ),
+      );
     this.streamTransportFactory = options.streamTransportFactory;
     this.router = new MessageRouter(this.transport);
   }
@@ -807,7 +842,10 @@ export class CmuxClient {
     terminalSubscription = router.onTerminal((error) => stream.fail(error));
 
     const payload = this.dropUndefined({ id: this.nextId(), ...request });
-    const response = await router.send(payload, this.timeoutMs).catch((error) => {
+    const handshakeTimeoutMs = buffering === undefined
+      ? this.timeoutMs
+      : this.attachHandshakeTimeoutMs;
+    const response = await router.send(payload, handshakeTimeoutMs).catch((error) => {
       stream.fail(error as Error);
       throw streamError ?? error;
     });

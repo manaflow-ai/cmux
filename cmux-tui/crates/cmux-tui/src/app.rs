@@ -3968,6 +3968,28 @@ fn run_with_machine_updates_inner(
         let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
+        Ok(())
+    })() {
+        let _ = restore_terminal(Some(&stdout_lock));
+        return Err(e);
+    }
+    // This guard runs during unwinding after inner stdout guards and the App
+    // have dropped, so graphics are quiescent before terminal restoration.
+    let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
+
+    // Probe before enabling application input modes. Any keys read alongside
+    // terminal replies are parsed and queued into the same app channel below.
+    let terminal_probe = crate::ui::graphics::probe_terminal(None);
+    let cell_pixels = terminal_probe.cell_pixels;
+    if session_available {
+        session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
+    }
+    let graphics_supported = terminal_probe.graphics_supported;
+    let pending_input = terminal_probe.pending_input;
+
+    if let Err(e) = (|| -> anyhow::Result<()> {
+        let _guard = stdout_lock.lock().unwrap();
+        let mut stdout = std::io::stdout();
         stdout.execute(EnableMouseCapture)?;
         // Ask the host terminal to report Shift-modified mouse events so
         // Shift remains cmux's selection/context-menu escape while the inner
@@ -3980,20 +4002,16 @@ fn run_with_machine_updates_inner(
         let _ = restore_terminal(Some(&stdout_lock));
         return Err(e);
     }
-    // This guard runs during unwinding after inner stdout guards and the App
-    // have dropped, so graphics are quiescent before terminal restoration.
-    let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
-
-    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
-    if session_available {
-        session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
-    }
-    let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
 
     // Crossterm input → app channel.
     let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn({
         move || {
+            for event in pending_input {
+                if input_tx.send(AppEvent::Input(event)).is_err() {
+                    return;
+                }
+            }
             while let Ok(event) = crossterm::event::read() {
                 if input_tx.send(AppEvent::Input(event)).is_err() {
                     break;
@@ -5516,8 +5534,8 @@ impl App {
         occluders.iter().any(|occluder| rects_intersect(rect, *occluder))
     }
 
-    fn refresh_cell_pixels(&mut self, query_fallback: bool) {
-        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels), query_fallback);
+    fn refresh_cell_pixels(&mut self) {
+        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels));
         let changed = self.cell_pixels != next;
         if changed {
             if !self.prepare_pty_input_before_mutation() {
@@ -6339,7 +6357,7 @@ impl App {
                 if self.graphics_supported {
                     self.graphics_host_scene_reset_pending = true;
                 }
-                self.refresh_cell_pixels(false);
+                self.refresh_cell_pixels();
                 self.render_states.clear();
                 // Keep the dimensions of the frame that remains visible until
                 // the next draw publishes a replacement. Clearing this cache

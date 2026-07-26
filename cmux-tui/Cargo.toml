@@ -54,6 +54,8 @@ rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"
 fs4 = "1.1.0"
 sha2 = "0.10"
 zeroize = "1.9"
+terminput = "=0.5.11"
+terminput-crossterm = { version = "=0.4.7", default-features = false, features = ["crossterm_0_29"] }
 
 [profile.release]
 lto = "thin"

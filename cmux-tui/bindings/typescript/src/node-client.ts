@@ -7,6 +7,7 @@ export interface ClientOptions {
   socketPath?: string;
   session?: string;
   timeoutMs?: number;
+  attachHandshakeTimeoutMs?: number;
   allowProtocolV6Attach?: boolean;
   /** Overrides the default Unix transport. */
   transport?: Transport;
@@ -23,6 +24,7 @@ export class CmuxClient extends TransportCmuxClient {
     const shared: CmuxClientOptions = {
       transport: options.transport ?? new UnixSocketTransport(socketPath),
       timeoutMs: options.timeoutMs,
+      attachHandshakeTimeoutMs: options.attachHandshakeTimeoutMs,
       allowProtocolV6Attach: options.allowProtocolV6Attach,
       streamTransportFactory: options.streamTransportFactory
         ?? (options.transport ? undefined : () => new UnixSocketTransport(socketPath)),

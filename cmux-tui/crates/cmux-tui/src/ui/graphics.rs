@@ -773,23 +773,59 @@ fn delete_image(image_id: u32) -> Vec<u8> {
     format!("{ESC}_Ga=d,d=I,i={image_id},q=2;{ESC}\\").into_bytes()
 }
 
-pub fn probe_kitty_graphics() -> bool {
-    let mut stdout = std::io::stdout();
-    let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
-    let _ = stdout.flush();
-    let bytes = read_stdin_for(Duration::from_millis(180));
-    kitty_probe_succeeded(&bytes)
+const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
+const TERMINAL_PROBE_TIMEOUT: Duration = Duration::from_millis(180);
+
+#[derive(Debug)]
+pub struct StartupTerminalProbe {
+    pub cell_pixels: (u16, u16),
+    pub graphics_supported: bool,
+    pub pending_input: Vec<crossterm::event::Event>,
 }
 
-const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ParsedTerminalProbe {
+    window_pixels: Option<(u32, u32)>,
+    kitty_supported: Option<bool>,
+    primary_device_attributes: bool,
+    pending_input: Vec<u8>,
+}
+
+/// Probe terminal capabilities in one exchange and return any user input read
+/// alongside the replies. The final DA1 request acts as an ordering marker,
+/// while a complete Kitty reply lets supporting terminals finish immediately.
+pub fn probe_terminal(known_cell_pixels: Option<(u16, u16)>) -> StartupTerminalProbe {
+    let ioctl_pixels = ioctl_cell_pixels();
+    let terminal_size = crossterm::terminal::size().ok();
+    let query_window_pixels =
+        ioctl_pixels.is_none() && terminal_size.is_some_and(|(cols, rows)| cols > 0 && rows > 0);
+
+    let mut stdout = std::io::stdout();
+    if query_window_pixels {
+        let _ = write!(stdout, "\x1b[14t");
+    }
+    let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+    let _ = stdout.flush();
+
+    let bytes = read_stdin_until(TERMINAL_PROBE_TIMEOUT, terminal_probe_complete);
+    let parsed = parse_terminal_probe(&bytes);
+    let queried_pixels =
+        terminal_size.zip(parsed.window_pixels).and_then(|((cols, rows), (width, height))| {
+            cell_pixels_from_window_size(cols, rows, width, height)
+        });
+    StartupTerminalProbe {
+        cell_pixels: resolve_cell_pixels(known_cell_pixels, ioctl_pixels.or(queried_pixels)),
+        graphics_supported: parsed.kitty_supported.unwrap_or(false),
+        pending_input: parse_pending_input(&parsed.pending_input),
+    }
+}
 
 /// Resolve host cell metrics without treating an absent resize-time ioctl
 /// value as a new measurement. Some outer terminals zero `ws_xpixel` and
 /// `ws_ypixel` after `TIOCSWINSZ`; in that case the last real measurement is
 /// more accurate than the synthetic startup fallback.
-pub fn detect_cell_pixels(known: Option<(u16, u16)>, query_fallback: bool) -> (u16, u16) {
-    let detected = ioctl_cell_pixels().or_else(|| query_fallback.then(query_cell_pixels).flatten());
-    resolve_cell_pixels(known, detected)
+pub fn detect_cell_pixels(known: Option<(u16, u16)>) -> (u16, u16) {
+    resolve_cell_pixels(known, ioctl_cell_pixels())
 }
 
 fn resolve_cell_pixels(known: Option<(u16, u16)>, detected: Option<(u16, u16)>) -> (u16, u16) {
@@ -808,6 +844,20 @@ fn cell_pixels_from_terminal_size(
     Some(((width_px / cols).max(1), (height_px / rows).max(1)))
 }
 
+fn cell_pixels_from_window_size(
+    cols: u16,
+    rows: u16,
+    width_px: u32,
+    height_px: u32,
+) -> Option<(u16, u16)> {
+    if cols == 0 || rows == 0 || width_px == 0 || height_px == 0 {
+        return None;
+    }
+    let width = (width_px / u32::from(cols)).clamp(1, u32::from(u16::MAX));
+    let height = (height_px / u32::from(rows)).clamp(1, u32::from(u16::MAX));
+    Some((width as u16, height as u16))
+}
+
 #[cfg(unix)]
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
@@ -821,27 +871,8 @@ fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     None
 }
 
-fn query_cell_pixels() -> Option<(u16, u16)> {
-    let (cols, rows) = crossterm::terminal::size().ok()?;
-    if cols == 0 || rows == 0 {
-        return None;
-    }
-    let mut stdout = std::io::stdout();
-    let _ = write!(stdout, "\x1b[14t");
-    let _ = stdout.flush();
-    let bytes = read_stdin_for(Duration::from_millis(120));
-    let response = String::from_utf8_lossy(&bytes);
-    let start = response.find("\x1b[4;")?;
-    let tail = &response[start + 4..];
-    let end = tail.find('t')?;
-    let mut parts = tail[..end].split(';');
-    let height = parts.next()?.parse::<u32>().ok()?;
-    let width = parts.next()?.parse::<u32>().ok()?;
-    Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
-}
-
 #[cfg(unix)]
-fn read_stdin_for(timeout: Duration) -> Vec<u8> {
+fn read_stdin_until(timeout: Duration, complete: impl Fn(&[u8]) -> bool) -> Vec<u8> {
     let start = Instant::now();
     let mut out = Vec::new();
     while start.elapsed() < timeout {
@@ -858,14 +889,21 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
             break;
         }
         out.extend_from_slice(&buf[..n as usize]);
-        // DA1 is only a progress marker. Drain the full bounded window so a
-        // later Kitty reply cannot leak into crossterm input.
+        if complete(&out) {
+            // Drain bytes that are already queued with the replies so an
+            // input sequence split at this read boundary remains intact.
+            let mut pending =
+                libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+            if unsafe { libc::poll(&mut pending, 1, 0) } <= 0 {
+                break;
+            }
+        }
     }
     out
 }
 
 #[cfg(not(unix))]
-fn read_stdin_for(_timeout: Duration) -> Vec<u8> {
+fn read_stdin_until(_timeout: Duration, _complete: impl Fn(&[u8]) -> bool) -> Vec<u8> {
     Vec::new()
 }
 
@@ -873,8 +911,102 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-fn kitty_probe_succeeded(bytes: &[u8]) -> bool {
-    find_bytes(bytes, b"_Gi=31;OK").is_some()
+fn terminal_probe_complete(bytes: &[u8]) -> bool {
+    let parsed = parse_terminal_probe(bytes);
+    parsed.primary_device_attributes && parsed.kitty_supported.is_some()
+}
+
+fn parse_terminal_probe(bytes: &[u8]) -> ParsedTerminalProbe {
+    let mut parsed = ParsedTerminalProbe::default();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if bytes[offset..].starts_with(b"\x1b[")
+            && let Some(relative_end) =
+                bytes[offset + 2..].iter().position(|byte| (0x40..=0x7e).contains(byte))
+        {
+            let end = offset + 2 + relative_end + 1;
+            let sequence = &bytes[offset..end];
+            let parameters = &sequence[2..sequence.len() - 1];
+            let final_byte = sequence[sequence.len() - 1];
+            if final_byte == b'c' && parameters.starts_with(b"?") {
+                parsed.primary_device_attributes = true;
+                offset = end;
+                continue;
+            }
+            if final_byte == b't'
+                && let Some(pixels) = parse_window_pixel_response(parameters)
+            {
+                parsed.window_pixels = Some(pixels);
+                offset = end;
+                continue;
+            }
+        }
+        if bytes[offset..].starts_with(b"\x1b_")
+            && let Some(relative_end) = find_bytes(&bytes[offset + 2..], b"\x1b\\")
+        {
+            let end = offset + 2 + relative_end + 2;
+            let sequence = &bytes[offset..end];
+            if let Some(supported) = parse_kitty_probe_response(sequence) {
+                parsed.kitty_supported = Some(supported);
+                offset = end;
+                continue;
+            }
+        }
+        parsed.pending_input.push(bytes[offset]);
+        offset += 1;
+    }
+    parsed
+}
+
+fn parse_window_pixel_response(parameters: &[u8]) -> Option<(u32, u32)> {
+    let response = std::str::from_utf8(parameters).ok()?;
+    let mut parts = response.split(';');
+    if parts.next()? != "4" {
+        return None;
+    }
+    let height = parts.next()?.parse().ok()?;
+    let width = parts.next()?.parse().ok()?;
+    (parts.next().is_none() && width > 0 && height > 0).then_some((width, height))
+}
+
+fn parse_kitty_probe_response(sequence: &[u8]) -> Option<bool> {
+    let marker = b"Gi=31;";
+    let status_start = find_bytes(sequence, marker)? + marker.len();
+    let status_end = find_bytes(&sequence[status_start..], b"\x1b\\")? + status_start;
+    Some(sequence[status_start..status_end].starts_with(b"OK"))
+}
+
+fn parse_pending_input(bytes: &[u8]) -> Vec<crossterm::event::Event> {
+    let mut events = Vec::new();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
+            events.push(event);
+            offset += consumed;
+            continue;
+        }
+        let code = if bytes[offset] == b'\x1b' {
+            crossterm::event::KeyCode::Esc
+        } else {
+            crossterm::event::KeyCode::Char(char::REPLACEMENT_CHARACTER)
+        };
+        events.push(crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            code,
+            crossterm::event::KeyModifiers::NONE,
+        )));
+        offset += 1;
+    }
+    events
+}
+
+fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
+    let minimum = usize::from(bytes.first() == Some(&b'\x1b') && bytes.len() > 1) + 1;
+    for end in minimum..=bytes.len() {
+        let Ok(Some(event)) = terminput::Event::parse_from(&bytes[..end]) else { continue };
+        let Ok(event) = terminput_crossterm::to_crossterm(event) else { continue };
+        return Some((event, end));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -902,15 +1034,59 @@ mod tests {
     }
 
     #[test]
-    fn kitty_probe_accepts_ok_before_or_after_da1() {
-        assert!(kitty_probe_succeeded(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;c"));
-        assert!(kitty_probe_succeeded(b"\x1b[?62;c\x1b_Gi=31;OK\x1b\\"));
+    fn terminal_probe_finishes_after_kitty_and_da1_in_either_order() {
+        assert!(terminal_probe_complete(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;c"));
+        assert!(terminal_probe_complete(b"\x1b[?62;c\x1b_Gi=31;OK\x1b\\"));
+        assert!(terminal_probe_complete(b"\x1b_Gi=31;EINVAL\x1b\\\x1b[?62;c"));
     }
 
     #[test]
-    fn kitty_probe_rejects_da1_or_error_without_ok() {
-        assert!(!kitty_probe_succeeded(b"\x1b[?62;c"));
-        assert!(!kitty_probe_succeeded(b"\x1b_Gi=31;EINVAL\x1b\\"));
+    fn terminal_probe_waits_for_both_completion_markers() {
+        assert!(!terminal_probe_complete(b"\x1b[?62;c"));
+        assert!(!terminal_probe_complete(b"\x1b_Gi=31;OK\x1b\\"));
+    }
+
+    #[test]
+    fn terminal_probe_strips_replies_and_replays_user_input() {
+        use crossterm::event::{Event, KeyCode, MouseButton, MouseEventKind};
+
+        let parsed = parse_terminal_probe(
+            b"a\x1b[4;800;1200t\x1b[I\x1b_Gi=31;OK\x1b\\\
+              \x1b[200~pasted\x1b[201~\x1b[?62;c\x1b[<0;3;4Mb",
+        );
+        assert_eq!(parsed.window_pixels, Some((1200, 800)));
+        assert_eq!(parsed.kitty_supported, Some(true));
+        assert!(parsed.primary_device_attributes);
+        assert_eq!(cell_pixels_from_window_size(120, 40, 1200, 800), Some((10, 20)),);
+
+        let events = parse_pending_input(&parsed.pending_input);
+        assert!(matches!(
+            events.as_slice(),
+            [
+                Event::Key(first),
+                Event::FocusGained,
+                Event::Paste(paste),
+                Event::Mouse(mouse),
+                Event::Key(last),
+            ] if first.code == KeyCode::Char('a')
+                && paste == "pasted"
+                && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                && mouse.column == 2
+                && mouse.row == 3
+                && last.code == KeyCode::Char('b')
+        ));
+    }
+
+    #[test]
+    fn terminal_probe_preserves_fragmented_escape_input_without_dropping_bytes() {
+        use crossterm::event::{Event, KeyCode};
+
+        let events = parse_pending_input(b"\x1b[");
+        assert!(matches!(
+            events.as_slice(),
+            [Event::Key(escape), Event::Key(bracket)]
+                if escape.code == KeyCode::Esc && bracket.code == KeyCode::Char('[')
+        ));
     }
 
     #[test]
