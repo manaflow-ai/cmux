@@ -344,15 +344,15 @@ struct WindowKeyDownReplayGuardTests {
     func unavailableCopyPolicyPreservesConfiguredGhosttyBinding() {
         #expect(GhosttyNSView.shouldConsumeUnavailableCopy(
             hasCopyableSelection: false,
-            bindingIsDefaultCopy: true
+            bindingIsExactCopyAction: true
         ))
         #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
             hasCopyableSelection: false,
-            bindingIsDefaultCopy: false
+            bindingIsExactCopyAction: false
         ), "A custom performable Cmd+C action must reach Ghostty")
         #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
             hasCopyableSelection: true,
-            bindingIsDefaultCopy: true
+            bindingIsExactCopyAction: true
         ))
     }
 

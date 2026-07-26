@@ -4601,7 +4601,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         return Self.shouldConsumeUnavailableCopy(
             hasCopyableSelection: hasCopyableSelection,
-            bindingIsDefaultCopy: ghosttyBindingIsExactAction(
+            bindingIsExactCopyAction: ghosttyBindingIsExactAction(
                 "copy_to_clipboard",
                 for: event,
                 surface: surface
@@ -4609,14 +4609,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    /// Only Ghostty's exact default Copy action is safe to consume here.
+    /// Only Ghostty's exact Copy action is safe to consume here.
     /// Configured actions, explicit unbinds, and key-sequence misses must still
     /// reach Ghostty's normal binding/input path.
     static func shouldConsumeUnavailableCopy(
         hasCopyableSelection: Bool,
-        bindingIsDefaultCopy: Bool
+        bindingIsExactCopyAction: Bool
     ) -> Bool {
-        !hasCopyableSelection && bindingIsDefaultCopy
+        !hasCopyableSelection && bindingIsExactCopyAction
     }
 
     private func copyCurrentViewportLinesToClipboard(
