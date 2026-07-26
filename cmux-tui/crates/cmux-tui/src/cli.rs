@@ -7,7 +7,10 @@ use cmux_tui_core::platform::transport;
 use cmux_tui_core::server::{
     LAYOUT_UNDO_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
+use cmux_tui_core::{LayoutRatioError, LayoutUndoError, ViewportWidthError};
 use serde_json::{Value, json};
+
+use crate::localization::{Catalog, LayoutMessages};
 
 const REQUEST_ID: u64 = 1;
 const CAPABILITY_REQUEST_ID: u64 = 0;
@@ -230,7 +233,7 @@ const VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         name: "new-pane-right",
-        help: "Create a viewport pane to the right (default width: two-thirds).",
+        help: "new-pane-right",
         allowed: &["pane", "width", "cols", "rows"],
         kind: socket(build_new_pane_right, print_surface, false),
     },
@@ -254,13 +257,13 @@ const VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         name: "set-viewport-pane-width",
-        help: "Set the viewport width of the column containing a pane.",
+        help: "set-viewport-pane-width",
         allowed: &["pane", "width"],
         kind: socket(build_set_viewport_pane_width, print_empty, false),
     },
     VerbSpec {
         name: "undo-layout",
-        help: "Undo the latest structural layout change.",
+        help: "undo-layout",
         allowed: &["pane", "revision", "confirm-close"],
         kind: socket(build_undo_layout, print_layout_undo, false),
     },
@@ -445,11 +448,26 @@ pub fn run(args: &[String], usage: &str) -> i32 {
 }
 
 pub fn print_help(usage: &str) {
-    print!("{usage}");
-    println!();
-    println!("VERB HELP");
+    let mut stdout = io::stdout().lock();
+    let _ = write_help(usage, &crate::localization::catalog().layout, &mut stdout);
+}
+
+fn write_help(usage: &str, messages: &LayoutMessages, out: &mut dyn Write) -> io::Result<()> {
+    write!(out, "{usage}")?;
+    writeln!(out)?;
+    writeln!(out, "VERB HELP")?;
     for verb in VERBS {
-        println!("  {:<18} {}", verb.name, verb.help);
+        writeln!(out, "  {:<18} {}", verb.name, localized_verb_help(verb, messages))?;
+    }
+    Ok(())
+}
+
+fn localized_verb_help<'a>(verb: &'a VerbSpec, messages: &'a LayoutMessages) -> &'a str {
+    match verb.name {
+        "new-pane-right" => messages.new_pane_right_help,
+        "set-viewport-pane-width" => messages.set_viewport_pane_width_help,
+        "undo-layout" => messages.undo_layout_help,
+        _ => verb.help,
     }
 }
 
@@ -613,7 +631,12 @@ fn run_command(args: CliArgs) -> i32 {
         match server_supports_capability(&mut reader, capability) {
             Ok(true) => {}
             Ok(false) => {
-                eprintln!("{} is not supported by this server", args.verb.name);
+                eprintln!(
+                    "{}",
+                    crate::localization::catalog()
+                        .layout
+                        .unsupported_server_command(args.verb.name)
+                );
                 return 1;
             }
             Err(err) => {
@@ -856,7 +879,7 @@ fn run_stream(mut reader: BufReader<Box<dyn transport::Stream>>) -> i32 {
 
 fn print_response(value: &Value, json_output: bool, print_human: PrintFn) -> i32 {
     if value.get("ok").and_then(Value::as_bool) != Some(true) {
-        let error = value.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+        let error = localized_response_error(value);
         eprintln!("{error}");
         return 1;
     }
@@ -875,6 +898,33 @@ fn print_response(value: &Value, json_output: bool, print_human: PrintFn) -> i32
             eprintln!("stdout error: {err}");
             3
         }
+    }
+}
+
+fn localized_response_error(value: &Value) -> String {
+    localized_response_error_for(value, crate::localization::catalog())
+}
+
+fn localized_response_error_for(value: &Value, catalog: &Catalog) -> String {
+    let code = value.get("error_code").and_then(Value::as_str);
+    match code {
+        Some(LayoutUndoError::UNAVAILABLE_CODE) => {
+            catalog.sidebar.layout_nothing_to_undo.to_string()
+        }
+        Some(LayoutUndoError::STALE_CODE) => catalog.sidebar.layout_undo_stale.to_string(),
+        Some(LayoutRatioError::UNKNOWN_TARGET_CODE) => {
+            catalog.layout.viewport_ratio_target_missing.to_string()
+        }
+        Some(LayoutRatioError::OUT_OF_RANGE_CODE) => {
+            catalog.layout.viewport_ratio_out_of_range.to_string()
+        }
+        Some(ViewportWidthError::OUT_OF_RANGE_CODE) => {
+            catalog.layout.viewport_width_out_of_range.to_string()
+        }
+        Some(ViewportWidthError::COLUMN_MISSING_CODE) => {
+            catalog.layout.viewport_column_missing.to_string()
+        }
+        _ => value.get("error").and_then(Value::as_str).unwrap_or("unknown error").to_string(),
     }
 }
 
@@ -1198,7 +1248,9 @@ fn required_viewport_width(flags: &FlagMap) -> Result<f32, UsageError> {
     if !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
         .contains(&width)
     {
-        return Err(UsageError("viewport pane width must be between 0.1 and 1.0".to_string()));
+        return Err(UsageError(
+            crate::localization::catalog().layout.viewport_width_out_of_range.to_string(),
+        ));
     }
     Ok(width)
 }
@@ -1567,8 +1619,9 @@ fn print_surface(data: &Value, out: &mut dyn Write) -> io::Result<()> {
 fn print_layout_undo(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     let screen = data.get("screen").and_then(Value::as_u64).unwrap_or(0);
     let revision = data.get("revision").and_then(Value::as_u64).unwrap_or(0);
+    let messages = &crate::localization::catalog().layout;
     if data.get("undone").and_then(Value::as_bool) == Some(true) {
-        return writeln!(out, "undone screen={screen} revision={revision}");
+        return writeln!(out, "{}", messages.layout_undo_applied(screen, revision));
     }
     let panes = data
         .get("closes_panes")
@@ -1582,10 +1635,7 @@ fn print_layout_undo(data: &Value, out: &mut dyn Write) -> io::Result<()> {
                 .join(",")
         })
         .unwrap_or_default();
-    writeln!(
-        out,
-        "confirmation required: rerun with --revision {revision} --confirm-close (closes panes {panes})"
-    )
+    writeln!(out, "{}", messages.layout_undo_confirmation_required(revision, &panes))
 }
 
 fn print_notification(data: &Value, out: &mut dyn Write) -> io::Result<()> {
@@ -1890,6 +1940,48 @@ mod tests {
     #[test]
     fn registered_verbs_have_help_text() {
         assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+    }
+
+    #[test]
+    fn layout_cli_help_and_typed_errors_use_the_selected_catalog() {
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let mut help = Vec::new();
+        write_help("usage\n", &japanese.layout, &mut help).unwrap();
+        let help = String::from_utf8(help).unwrap();
+        assert!(help.contains("右側にビューポートペインを作成"));
+        assert!(help.contains("直前のレイアウト変更を元に戻す"));
+
+        let error = localized_response_error_for(
+            &json!({
+                "ok": false,
+                "error_code": LayoutRatioError::OUT_OF_RANGE_CODE,
+                "error": "private English server detail",
+            }),
+            japanese,
+        );
+        assert_eq!(error, japanese.layout.viewport_ratio_out_of_range);
+        assert!(!error.contains("private English"));
+
+        let width_error = localized_response_error_for(
+            &json!({
+                "ok": false,
+                "error_code": ViewportWidthError::OUT_OF_RANGE_CODE,
+                "error": "private English width detail",
+            }),
+            japanese,
+        );
+        assert_eq!(width_error, japanese.layout.viewport_width_out_of_range);
+        assert!(!width_error.contains("private English"));
+
+        let unavailable = localized_response_error_for(
+            &json!({
+                "ok": false,
+                "error_code": LayoutUndoError::UNAVAILABLE_CODE,
+                "error": "no layout change to undo",
+            }),
+            japanese,
+        );
+        assert_eq!(unavailable, japanese.sidebar.layout_nothing_to_undo);
     }
 
     #[test]

@@ -51,7 +51,8 @@ use crate::{
     LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
     PairingDecision, PaneId, RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
     SplitId, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors,
-    TreeDelta, TreeDeltaKind, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
+    assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -2000,6 +2001,11 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
                             error
                                 .downcast_ref::<LayoutRatioError>()
                                 .map(|error| error.code().to_string())
+                        })
+                        .or_else(|| {
+                            error
+                                .downcast_ref::<ViewportWidthError>()
+                                .map(|error| error.code().to_string())
                         }),
                     error: Some(error.to_string()),
                 },
@@ -3818,21 +3824,17 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
-            if !width.is_finite()
-                || !(crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH)
-                    .contains(&width)
-            {
-                anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
-            }
-            let changed = transaction.map_or_else(
-                || mux.set_viewport_pane_width(pane, width),
+            transaction.map_or_else(
+                || mux.set_viewport_pane_width_checked(pane, width),
                 |transaction| {
-                    mux.set_viewport_pane_width_in_transaction(pane, width, client, transaction)
+                    mux.set_viewport_pane_width_in_transaction_checked(
+                        pane,
+                        width,
+                        client,
+                        transaction,
+                    )
                 },
-            );
-            if !changed {
-                anyhow::bail!("pane {pane} has no resizable viewport column");
-            }
+            )?;
             Ok(json!({}))
         }
         Command::UndoLayout { pane, revision, confirm_close } => {
@@ -5351,6 +5353,54 @@ mod tests {
         assert_eq!(response["error_code"], LayoutRatioError::OUT_OF_RANGE_CODE);
         assert!(response["error"].as_str().unwrap().contains("width must be between"));
         assert!(!response["error"].as_str().unwrap().contains("unknown split"));
+    }
+
+    #[test]
+    fn viewport_width_failures_have_stable_error_codes() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        for (id, width, code) in [
+            (31, 0.5, ViewportWidthError::COLUMN_MISSING_CODE),
+            (32, 1.1, ViewportWidthError::OUT_OF_RANGE_CODE),
+        ] {
+            handle_message(
+                &mux,
+                7,
+                &json!({
+                    "id": id,
+                    "cmd": "set-viewport-pane-width",
+                    "pane": pane,
+                    "width": width
+                })
+                .to_string(),
+                &writer,
+            );
+            let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+            assert_eq!(response["id"], id);
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error_code"], code);
+        }
+
+        handle_message(
+            &mux,
+            7,
+            &json!({
+                "id": 33,
+                "cmd": "new-pane-right",
+                "pane": pane,
+                "width": 1.1
+            })
+            .to_string(),
+            &writer,
+        );
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 33);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], ViewportWidthError::OUT_OF_RANGE_CODE);
     }
 
     #[test]

@@ -1996,10 +1996,14 @@ impl OrderedSession {
         width: f32,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create viewport pane", true, move |session| {
-            let surface = session.new_pane_right(pane, width, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        self.enqueue_with_completion(
+            localization::catalog().layout.create_viewport_pane_operation,
+            true,
+            move |session| {
+                let surface = session.new_pane_right(pane, width, size)?;
+                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+            },
+        );
         Ok(())
     }
 
@@ -2009,27 +2013,31 @@ impl OrderedSession {
         revision: Option<u64>,
         confirm_close: bool,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("undo layout", true, move |session| {
-            let result = match session.undo_layout(pane, revision, confirm_close) {
-                Ok(result) => result,
-                Err(error) => {
-                    if let Some(action) = layout_undo_error_completion(&error) {
-                        return Ok(Some(action));
+        self.enqueue_with_completion(
+            localization::catalog().layout.undo_layout_operation,
+            true,
+            move |session| {
+                let result = match session.undo_layout(pane, revision, confirm_close) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        if let Some(action) = layout_undo_error_completion(&error) {
+                            return Ok(Some(action));
+                        }
+                        return Err(error);
                     }
-                    return Err(error);
+                };
+                match result {
+                    LayoutUndoResult::Undone { .. } => Ok(None),
+                    LayoutUndoResult::ConfirmationRequired { revision, closes_panes, .. } => {
+                        Ok(Some(SessionCompletionAction::LayoutUndoConfirmation {
+                            pane,
+                            revision,
+                            closes_panes,
+                        }))
+                    }
                 }
-            };
-            match result {
-                LayoutUndoResult::Undone { .. } => Ok(None),
-                LayoutUndoResult::ConfirmationRequired { revision, closes_panes, .. } => {
-                    Ok(Some(SessionCompletionAction::LayoutUndoConfirmation {
-                        pane,
-                        revision,
-                        closes_panes,
-                    }))
-                }
-            }
-        });
+            },
+        );
         Ok(())
     }
 
@@ -2047,8 +2055,8 @@ impl OrderedSession {
         let client = self.layout_resize_client;
         let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
         self.enqueue_coalescing_session_mutation(
-            "resize exact pane split",
-            ("split id", split),
+            localization::catalog().layout.resize_exact_split_operation,
+            (localization::catalog().layout.split_id_subject, split),
             move |session| {
                 session.set_split_ratio_in_transaction(split, ratio, client, transaction)
             },
@@ -2059,8 +2067,8 @@ impl OrderedSession {
         let client = self.layout_resize_client;
         let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
         self.enqueue_coalescing_session_mutation(
-            "resize viewport pane",
-            ("viewport pane", pane),
+            localization::catalog().layout.resize_viewport_pane_operation,
+            (localization::catalog().layout.viewport_pane_subject, pane),
             move |session| {
                 session.set_viewport_pane_width_in_transaction(pane, width, client, transaction)
             },
@@ -4902,8 +4910,8 @@ fn catch_renderer_panic<T>(render: impl FnOnce() -> T) -> anyhow::Result<T> {
             .downcast_ref::<String>()
             .map(String::as_str)
             .or_else(|| payload.downcast_ref::<&str>().copied())
-            .unwrap_or("unknown panic");
-        anyhow::anyhow!("terminal renderer panicked: {message}")
+            .unwrap_or(localization::catalog().runtime.unknown_panic);
+        anyhow::anyhow!(localization::catalog().runtime.renderer_panicked(message))
     })
 }
 
@@ -7308,7 +7316,7 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::HostInputFailed(error) => {
-                anyhow::bail!("host terminal input failed: {error}")
+                anyhow::bail!(localization::catalog().runtime.host_input_failed(&error))
             }
             AppEvent::Input(Event::Key(key)) => {
                 let dismissed =

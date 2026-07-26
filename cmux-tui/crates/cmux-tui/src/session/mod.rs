@@ -18,9 +18,10 @@ use cmux_tui_core::server::{
     VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, LayoutUndoError, LayoutUndoResult, Mux,
-    MuxEventReceiver, PaneId, ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId,
-    SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserStatus, DefaultColors, LayoutRatioError, LayoutUndoError,
+    LayoutUndoResult, Mux, MuxEventReceiver, PaneId, ScreenId, SidebarPluginStatus, SplitDir,
+    SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
+    ViewportWidthError, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde::Deserialize;
@@ -63,9 +64,82 @@ fn normalize_remote_layout_undo_error(error: anyhow::Error) -> anyhow::Error {
     match remote.rejection_code() {
         Some(LayoutUndoError::UNAVAILABLE_CODE) => LayoutUndoError::Unavailable.into(),
         Some(LayoutUndoError::STALE_CODE) => LayoutUndoError::Stale(
-            remote.rejection_message().unwrap_or("layout changed before undo").to_string(),
+            remote
+                .rejection_message()
+                .unwrap_or(crate::localization::catalog().layout.layout_changed_before_undo)
+                .to_string(),
         )
         .into(),
+        _ => error,
+    }
+}
+
+fn localized_layout_ratio_error(error: LayoutRatioError) -> anyhow::Error {
+    let messages = &crate::localization::catalog().layout;
+    let message = match error {
+        LayoutRatioError::UnknownPaneSplit { pane } => messages.unknown_pane_split(pane),
+        LayoutRatioError::UnknownSplit { split } => messages.unknown_split(split),
+        LayoutRatioError::UnrepresentableViewportWidth { split, ratio, width } => {
+            messages.unrepresentable_viewport_width(split, ratio, width)
+        }
+    };
+    anyhow::anyhow!(message)
+}
+
+fn normalize_remote_split_ratio_error(
+    error: anyhow::Error,
+    split: SplitId,
+    ratio: f32,
+) -> anyhow::Error {
+    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+        return error;
+    };
+    let messages = &crate::localization::catalog().layout;
+    match remote.rejection_code() {
+        Some(LayoutRatioError::UNKNOWN_TARGET_CODE) => {
+            anyhow::anyhow!(messages.unknown_split(split))
+        }
+        Some(LayoutRatioError::OUT_OF_RANGE_CODE) => {
+            anyhow::anyhow!(messages.unrepresentable_viewport_ratio(split, ratio))
+        }
+        _ => error,
+    }
+}
+
+fn validate_viewport_width(width: f32) -> anyhow::Result<()> {
+    if width.is_finite()
+        && (cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
+            .contains(&width)
+    {
+        return Ok(());
+    }
+    anyhow::bail!(crate::localization::catalog().layout.viewport_width_out_of_range)
+}
+
+fn localized_viewport_width_error(error: ViewportWidthError) -> anyhow::Error {
+    let messages = &crate::localization::catalog().layout;
+    match error {
+        ViewportWidthError::OutOfRange { .. } => {
+            anyhow::anyhow!(messages.viewport_width_out_of_range)
+        }
+        ViewportWidthError::PaneNotResizable { pane } => {
+            anyhow::anyhow!(messages.pane_without_resizable_column(pane))
+        }
+    }
+}
+
+fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> anyhow::Error {
+    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+        return error;
+    };
+    let messages = &crate::localization::catalog().layout;
+    match remote.rejection_code() {
+        Some(ViewportWidthError::OUT_OF_RANGE_CODE) => {
+            anyhow::anyhow!(messages.viewport_width_out_of_range)
+        }
+        Some(ViewportWidthError::COLUMN_MISSING_CODE) => {
+            anyhow::anyhow!(messages.pane_without_resizable_column(pane))
+        }
         _ => error,
     }
 }
@@ -788,12 +862,13 @@ impl Session {
         width: f32,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<SurfaceId> {
+        validate_viewport_width(width)?;
         match self {
             Session::Local(mux) => mux.new_pane_right(pane, width, size).map(|surface| surface.id),
             Session::Remote(remote) => {
                 if !remote.supports_capability(VIEWPORT_SPLITS_CAPABILITY) {
                     anyhow::bail!(
-                        "remote cmux server does not support viewport panes; upgrade the server before using new-pane-right"
+                        crate::localization::catalog().layout.remote_viewport_panes_unsupported
                     );
                 }
                 let result = remote.request(with_size(
@@ -839,7 +914,7 @@ impl Session {
                         )
                     },
                 )
-                .map_err(Into::into),
+                .map_err(localized_layout_ratio_error),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-split-ratio",
@@ -847,7 +922,8 @@ impl Session {
                     "ratio": ratio,
                     "transaction": transaction.map(|(_, transaction)| transaction),
                 }))
-                .map(|_| ()),
+                .map(|_| ())
+                .map_err(|error| normalize_remote_split_ratio_error(error, split, ratio)),
         }
     }
 
@@ -867,28 +943,25 @@ impl Session {
         width: f32,
         transaction: Option<(u64, u64)>,
     ) -> anyhow::Result<()> {
-        if !width.is_finite()
-            || !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
-                .contains(&width)
-        {
-            anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
-        }
+        validate_viewport_width(width)?;
         match self {
-            Session::Local(mux) => {
-                let changed = transaction.map_or_else(
-                    || mux.set_viewport_pane_width(pane, width),
+            Session::Local(mux) => transaction
+                .map_or_else(
+                    || mux.set_viewport_pane_width_checked(pane, width),
                     |(client, transaction)| {
-                        mux.set_viewport_pane_width_in_transaction(pane, width, client, transaction)
+                        mux.set_viewport_pane_width_in_transaction_checked(
+                            pane,
+                            width,
+                            client,
+                            transaction,
+                        )
                     },
-                );
-                changed
-                    .then_some(())
-                    .ok_or_else(|| anyhow::anyhow!("pane {pane} has no resizable viewport column"))
-            }
+                )
+                .map_err(localized_viewport_width_error),
             Session::Remote(remote) => {
                 if !remote.supports_capability(VIEWPORT_COLUMN_RESIZE_CAPABILITY) {
                     anyhow::bail!(
-                        "remote cmux server does not support viewport pane resizing; upgrade the server"
+                        crate::localization::catalog().layout.remote_viewport_resize_unsupported
                     );
                 }
                 remote
@@ -899,6 +972,7 @@ impl Session {
                         "transaction": transaction.map(|(_, transaction)| transaction),
                     }))
                     .map(|_| ())
+                    .map_err(|error| normalize_remote_viewport_width_error(error, pane))
             }
         }
     }
@@ -914,7 +988,7 @@ impl Session {
             Session::Remote(remote) => {
                 if !remote.supports_capability(LAYOUT_UNDO_CAPABILITY) {
                     anyhow::bail!(
-                        "remote cmux server does not support layout undo; upgrade the server"
+                        crate::localization::catalog().layout.remote_layout_undo_unsupported
                     );
                 }
                 let result = remote
@@ -925,30 +999,44 @@ impl Session {
                         "confirm_close": confirm_close,
                     }))
                     .map_err(normalize_remote_layout_undo_error)?;
-                let screen = result
-                    .get("screen")
-                    .and_then(serde_json::Value::as_u64)
-                    .ok_or_else(|| anyhow::anyhow!("layout undo response is missing screen"))?;
+                let screen =
+                    result.get("screen").and_then(serde_json::Value::as_u64).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            crate::localization::catalog().layout.layout_undo_missing_screen
+                        )
+                    })?;
                 let revision = result
                     .get("revision")
                     .and_then(serde_json::Value::as_u64)
-                    .ok_or_else(|| anyhow::anyhow!("layout undo response is missing revision"))?;
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            crate::localization::catalog().layout.layout_undo_missing_revision
+                        )
+                    })?;
                 if result.get("undone").and_then(serde_json::Value::as_bool) == Some(true) {
                     return Ok(LayoutUndoResult::Undone { screen, revision });
                 }
                 if result.get("confirmation_required").and_then(serde_json::Value::as_bool)
                     != Some(true)
                 {
-                    anyhow::bail!("layout undo response has no outcome");
+                    anyhow::bail!(
+                        crate::localization::catalog().layout.layout_undo_missing_outcome
+                    );
                 }
                 let closes_panes = result
                     .get("closes_panes")
                     .and_then(serde_json::Value::as_array)
-                    .ok_or_else(|| anyhow::anyhow!("layout undo response is missing closes_panes"))?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            crate::localization::catalog().layout.layout_undo_missing_closes_panes
+                        )
+                    })?
                     .iter()
                     .map(|value| {
                         value.as_u64().ok_or_else(|| {
-                            anyhow::anyhow!("layout undo response contains an invalid pane")
+                            anyhow::anyhow!(
+                                crate::localization::catalog().layout.layout_undo_invalid_pane
+                            )
                         })
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;

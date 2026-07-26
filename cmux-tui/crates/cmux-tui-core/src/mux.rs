@@ -622,6 +622,39 @@ impl fmt::Display for LayoutRatioError {
 
 impl std::error::Error for LayoutRatioError {}
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ViewportWidthError {
+    OutOfRange { width: f32 },
+    PaneNotResizable { pane: PaneId },
+}
+
+impl ViewportWidthError {
+    pub const OUT_OF_RANGE_CODE: &'static str = "viewport-width-out-of-range";
+    pub const COLUMN_MISSING_CODE: &'static str = "viewport-column-not-found";
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::OutOfRange { .. } => Self::OUT_OF_RANGE_CODE,
+            Self::PaneNotResizable { .. } => Self::COLUMN_MISSING_CODE,
+        }
+    }
+}
+
+impl fmt::Display for ViewportWidthError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OutOfRange { .. } => {
+                formatter.write_str("viewport pane width must be between 0.1 and 1.0")
+            }
+            Self::PaneNotResizable { pane } => {
+                write!(formatter, "pane {pane} has no resizable viewport column")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ViewportWidthError {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidebarPluginOptions {
     pub command: Vec<String>,
@@ -5293,8 +5326,10 @@ impl Mux {
         width: f32,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        if !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width) {
-            anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
+        if !width.is_finite()
+            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
+        {
+            return Err(ViewportWidthError::OutOfRange { width }.into());
         }
         self.split_with_viewport_width(target, SplitDir::Right, size, Some(width))
     }
@@ -6643,6 +6678,15 @@ impl Mux {
 
     /// Set the width of the horizontal viewport column containing `pane`.
     pub fn set_viewport_pane_width(&self, pane: PaneId, width: f32) -> bool {
+        self.set_viewport_pane_width_checked(pane, width).is_ok()
+    }
+
+    /// Set a viewport column width while preserving rejection details.
+    pub fn set_viewport_pane_width_checked(
+        &self,
+        pane: PaneId,
+        width: f32,
+    ) -> Result<(), ViewportWidthError> {
         self.set_viewport_pane_width_inner(pane, width, None)
     }
 
@@ -6654,6 +6698,18 @@ impl Mux {
         client: u64,
         transaction: u64,
     ) -> bool {
+        self.set_viewport_pane_width_in_transaction_checked(pane, width, client, transaction)
+            .is_ok()
+    }
+
+    /// Set a transactional viewport width while preserving rejection details.
+    pub fn set_viewport_pane_width_in_transaction_checked(
+        &self,
+        pane: PaneId,
+        width: f32,
+        client: u64,
+        transaction: u64,
+    ) -> Result<(), ViewportWidthError> {
         self.set_viewport_pane_width_inner(pane, width, Some((client, transaction)))
     }
 
@@ -6662,28 +6718,28 @@ impl Mux {
         pane: PaneId,
         width: f32,
         transaction: Option<(u64, u64)>,
-    ) -> bool {
+    ) -> Result<(), ViewportWidthError> {
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
         {
-            return false;
+            return Err(ViewportWidthError::OutOfRange { width });
         }
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
-                return false;
+                return Err(ViewportWidthError::PaneNotResizable { pane });
             };
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
             if !screen.layout_columns_active() {
-                return false;
+                return Err(ViewportWidthError::PaneNotResizable { pane });
             }
             let Some(column_index) =
                 screen.layout_columns.iter().position(|column| column.root.contains(pane))
             else {
-                return false;
+                return Err(ViewportWidthError::PaneNotResizable { pane });
             };
             if (screen.layout_columns[column_index].width - width).abs() < f32::EPSILON {
-                return true;
+                return Ok(());
             }
             let coalesce = transaction
                 .map(|(client, transaction)| LayoutMutationKey::Resize { client, transaction });
@@ -6691,14 +6747,10 @@ impl Mux {
             screen.layout_columns[column_index].width = width;
             screen.sync_layout_column_width_projection();
             screen.record_prepared_layout_change(before, Vec::new(), coalesce);
-            Some(screen.id)
+            screen.id
         };
-        if let Some(screen) = changed_screen {
-            self.emit(MuxEvent::LayoutChanged(screen));
-            true
-        } else {
-            false
-        }
+        self.emit(MuxEvent::LayoutChanged(changed_screen));
+        Ok(())
     }
 
     fn pane_navigation_layout(screen: &Screen, pane: PaneId, dir: Direction) -> LayoutResult {
@@ -10497,7 +10549,31 @@ mod tests {
             assert!(!screen.layout_columns_active());
             assert!(screen.viewport_splits.is_empty());
             assert_eq!(screen.root.pane_ids_vec(), vec![first_pane]);
+            assert_eq!(screen.active_pane, first_pane);
             assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn layout_undo_preserves_focus_when_the_current_pane_survives() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.focus_pane(first_pane));
+        assert!(mux.set_viewport_pane_width(right_pane, 0.7));
+        assert!(mux.focus_pane(right_pane));
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, right_pane);
+            assert_eq!(screen.layout_columns[1].width, 0.5);
         });
     }
 

@@ -1247,6 +1247,8 @@ Errors:
 | `pane <id> has no resizable viewport column` | Pane is unknown or its screen has no viewport columns |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
+Invalid widths return `error_code:"viewport-width-out-of-range"`. A missing pane or a pane outside a viewport layout returns `error_code:"viewport-column-not-found"`.
+
 CLI mapping:
 
 | Item | Value |

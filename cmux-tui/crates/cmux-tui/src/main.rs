@@ -289,7 +289,7 @@ KEYS (prefix: Ctrl-b)
   z  maximize/restore pane
   s  show/hide sidebar m    compact/full sidebar
   e  toggle sidebar view    S    focus sidebar  ?  keyboard shortcuts
-  g  new 2/3 column right   U    undo layout
+  {layout_shortcuts}
   <  browser back      >    browser forward     r/u  browser reload/edit URL
   Ctrl-b  send a literal Ctrl-b
 
@@ -330,23 +330,21 @@ PLUGIN VERBS (local; no socket protocol command)
   plugin remove <name>
 ";
 
-fn usage_for(messages: &localization::MachineAgentMessages) -> String {
-    usage_for_platform(messages, cfg!(unix))
+fn usage_for(catalog: &localization::Catalog) -> String {
+    usage_for_platform(catalog, cfg!(unix))
 }
 
-fn usage_for_platform(
-    messages: &localization::MachineAgentMessages,
-    supports_machine_agent: bool,
-) -> String {
-    if supports_machine_agent {
-        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", messages.usage))
+fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: bool) -> String {
+    let usage = if supports_machine_agent {
+        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
     } else {
         USAGE.replace("  {machine_agent_usage}\n", "")
-    }
+    };
+    usage.replace("  {layout_shortcuts}\n", &format!("{}\n", catalog.layout.startup_shortcuts))
 }
 
 fn usage() -> String {
-    usage_for(&localization::catalog().machine_agent)
+    usage_for(localization::catalog())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1682,16 +1680,10 @@ mod tests {
 
     #[test]
     fn startup_help_localizes_the_machine_agent_entrypoint() {
-        let english = usage_for_platform(
-            &localization::catalog_for_locale("en_US.UTF-8").machine_agent,
-            true,
-        );
+        let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
         assert!(english.contains("cmux machine-agent"));
         assert!(english.contains("Share one local session through the configured host"));
-        let japanese = usage_for_platform(
-            &localization::catalog_for_locale("ja_JP.UTF-8").machine_agent,
-            true,
-        );
+        let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
         assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
         assert!(!japanese.contains("Share one local session"));
@@ -1699,7 +1691,7 @@ mod tests {
 
     #[test]
     fn startup_help_omits_machine_agent_on_unsupported_platforms() {
-        let english = &localization::catalog_for_locale("en_US.UTF-8").machine_agent;
+        let english = localization::catalog_for_locale("en_US.UTF-8");
         let usage = usage_for_platform(english, false);
         assert!(!usage.contains("machine-agent"));
         assert!(usage.contains("cmux-tui relay"));
@@ -1718,10 +1710,15 @@ mod tests {
 
     #[test]
     fn startup_help_lists_column_action() {
-        assert!(USAGE.contains("g  new 2/3 column right"));
-        assert!(USAGE.contains("new-pane-right"));
-        assert!(USAGE.contains("U    undo layout"));
-        assert!(USAGE.contains("undo-layout"));
+        let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
+        assert!(english.contains("g  new 2/3 column right"));
+        assert!(english.contains("new-pane-right"));
+        assert!(english.contains("U    undo layout"));
+        assert!(english.contains("undo-layout"));
+
+        let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
+        assert!(japanese.contains("g  右に 2/3 幅の列を追加"));
+        assert!(japanese.contains("U    レイアウトを元に戻す"));
     }
 
     #[test]

@@ -628,8 +628,10 @@ impl Screen {
     }
 
     pub(crate) fn restore_layout_snapshot(&mut self, snapshot: ScreenLayoutSnapshot) {
+        let active_pane = self.active_pane;
         self.root = snapshot.root;
-        self.active_pane = snapshot.active_pane;
+        self.active_pane =
+            if self.root.contains(active_pane) { active_pane } else { snapshot.active_pane };
         self.zoomed_pane = snapshot.zoomed_pane;
         self.zellij_auto_layout = snapshot.zellij_auto_layout;
         self.viewport_splits = snapshot.viewport_splits;
