@@ -21,8 +21,8 @@ use cmux_tui_core::{
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderState, Screen,
-    Terminal, TerminalColorOverrides, parse_color,
+    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
+    TerminalColorOverrides, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::Zeroize;
@@ -1131,39 +1131,34 @@ impl RemoteSession {
         surface: SurfaceId,
         fallback_key: &KeyInput,
     ) -> anyhow::Result<()> {
-        let (supports_clear, supports_atomic_clear) = {
+        let supports_atomic_clear = {
             let capabilities = self.capabilities.lock().unwrap();
-            let supports_clear = capabilities.contains(CLEAR_HISTORY_CAPABILITY);
-            (supports_clear, supports_clear && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY))
+            capabilities.contains(CLEAR_HISTORY_CAPABILITY)
+                && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
         };
         if supports_atomic_clear {
             return self
                 .clear_history_request(surface, Some(ProtocolKeyInput::try_from(fallback_key)?));
         }
 
+        // Plain clear-history remains available through clear_history(), but a
+        // shortcut needs the atomic capability because only the authoritative
+        // server can safely choose between clearing the primary screen and
+        // forwarding input to an alternate screen. Forward the original key
+        // for every non-atomic peer so replicated screen-state lag cannot
+        // swallow or misroute user input.
         let surface =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
         if surface.kind != SurfaceKind::Pty {
             anyhow::bail!("browser surface does not accept PTY bytes");
         }
-        // Intermediate peers support emulator-side clearing but cannot choose
-        // atomically between clear and key fallback. Use the mirrored screen
-        // only for that legacy capability combination; current peers make the
-        // decision authoritatively in the single request above.
         let encoded = {
             let term = surface.term.lock().unwrap();
-            if supports_clear && term.active_screen() != Screen::Alternate {
-                None
-            } else {
-                let mut encoder = KeyEncoder::new()?;
-                let mut encoded = Vec::new();
-                encoder.sync_from_terminal(&term);
-                encoder.encode(fallback_key, &mut encoded)?;
-                Some(encoded)
-            }
-        };
-        let Some(encoded) = encoded else {
-            return self.clear_history_request(surface.id, None);
+            let mut encoder = KeyEncoder::new()?;
+            let mut encoded = Vec::new();
+            encoder.sync_from_terminal(&term);
+            encoder.encode(fallback_key, &mut encoded)?;
+            encoded
         };
         if encoded.is_empty() {
             return Ok(());
