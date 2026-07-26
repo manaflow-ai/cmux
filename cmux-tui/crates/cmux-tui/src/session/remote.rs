@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind,
+    BrowserFrame, BrowserSource, BrowserStatus, CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+    DefaultColors, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
+    NotificationLevel, PairingChallenge, Rgb, SurfaceId, SurfaceKind,
     platform::transport,
     server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
 };
@@ -1161,7 +1161,7 @@ impl RemoteSession {
             encoded
         };
         if encoded.is_empty() {
-            return Ok(());
+            anyhow::bail!(CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR);
         }
         self.send_bytes(surface.id, &encoded)
     }

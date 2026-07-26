@@ -611,6 +611,9 @@ enum PtyRuntime {
     ExitedHosted,
 }
 
+pub const CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR: &str =
+    "terminal keyboard mode cannot encode clear-history fallback key";
+
 pub(crate) enum ClearHistoryTransition {
     Cleared(Vec<u8>),
     EncodedFallback(Vec<u8>),
@@ -631,11 +634,7 @@ pub(crate) fn apply_clear_history_transition(
         return Ok(ClearHistoryTransition::Noop);
     };
     let encoded = encode_key_from_terminal(term, input)?;
-    Ok(if encoded.is_empty() {
-        ClearHistoryTransition::Noop
-    } else {
-        ClearHistoryTransition::EncodedFallback(encoded)
-    })
+    Ok(ClearHistoryTransition::EncodedFallback(encoded))
 }
 
 fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result<Vec<u8>> {
@@ -643,6 +642,9 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
     let mut encoded = Vec::new();
     encoder.sync_from_terminal(term);
     encoder.encode(input, &mut encoded)?;
+    if encoded.is_empty() {
+        anyhow::bail!(CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR);
+    }
     Ok(encoded)
 }
 
@@ -1825,9 +1827,6 @@ impl Surface {
                     let term = pty.term.lock().unwrap();
                     encode_key_from_terminal(&term, input)?
                 };
-                if encoded.is_empty() {
-                    return Ok(());
-                }
                 let runtime = pty.runtime.lock().unwrap();
                 match &*runtime {
                     PtyRuntime::Hosted(host) if host.supports_clear_history() => {
