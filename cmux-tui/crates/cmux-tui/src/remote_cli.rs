@@ -585,7 +585,7 @@ fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
     }
 
     let remote = RemoteSession::connect(&connected.runtime.info().local_socket)?;
-    let result = crate::run_tui(Session::Remote(remote), connected.route);
+    let result = crate::run_tui(Session::Remote(remote), connected.route, None);
     let shutdown = connected.runtime.shutdown();
     result.and(shutdown)
 }

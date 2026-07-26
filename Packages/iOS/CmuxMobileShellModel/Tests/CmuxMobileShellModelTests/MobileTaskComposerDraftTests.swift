@@ -53,6 +53,7 @@ import Testing
             macDeviceID: "mac-a",
             directory: "~/Dev/cmux",
             didEditDirectory: true,
+            workspaceName: "Release checklist",
             operationID: freshOperationID,
             completedOperationID: completedOperationID
         )
@@ -65,5 +66,25 @@ import Testing
         #expect(restored == draft)
         #expect(restored.operationID == freshOperationID)
         #expect(restored.completedOperationID == completedOperationID)
+        #expect(restored.workspaceName == "Release checklist")
+    }
+
+    @Test func legacyDraftWithoutWorkspaceNameStillDecodes() throws {
+        let data = try #require(
+            """
+            {
+              "prompt": "Keep this draft",
+              "templateID": null,
+              "macDeviceID": "mac-a",
+              "directory": "~/Dev/cmux",
+              "didEditDirectory": true
+            }
+            """.data(using: .utf8)
+        )
+
+        let restored = try JSONDecoder().decode(MobileTaskComposerDraft.self, from: data)
+
+        #expect(restored.workspaceName == nil)
+        #expect(restored.prompt == "Keep this draft")
     }
 }

@@ -50,6 +50,53 @@ import Testing
         #expect(recovery.submittedSnapshot == snapshot)
     }
 
+    @Test func completedOperationRecoveryTracksEffectiveRequestAcrossHarmlessEdits() {
+        let operationID = UUID()
+        let submitted = Self.snapshot(operationID: operationID)
+        var recovery = TaskComposerCompletedOperationRecovery(submittedSnapshot: submitted)
+
+        recovery.markCurrentRequestDifferent()
+        #expect(!recovery.blocksSubmission)
+        #expect(!recovery.allowsStartAgain)
+
+        let shouldRestoreAfterWhitespaceEdit = recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "   ")
+        )
+        #expect(shouldRestoreAfterWhitespaceEdit)
+        #expect(recovery.appliesToCurrentRequest)
+        #expect(recovery.blocksSubmission)
+
+        let shouldPreserveCurrentBanner = recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "")
+        )
+        #expect(!shouldPreserveCurrentBanner)
+
+        recovery.markCurrentRequestDifferent()
+        let shouldRestoreForDifferentRequest = recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "Different workspace")
+        )
+        #expect(!shouldRestoreForDifferentRequest)
+        #expect(!recovery.appliesToCurrentRequest)
+        #expect(!recovery.blocksSubmission)
+
+        recovery.reconcileCurrentRequest(
+            Self.snapshot(operationID: operationID, workspaceName: "\n")
+        )
+        #expect(recovery.appliesToCurrentRequest)
+    }
+
+    @Test func failureTitlesDistinguishRejectedAcceptedAndUnconfirmedRequests() {
+        #expect(TaskComposerFailureTitleStyle.launchFailed.title == "Couldn’t start this task")
+        #expect(TaskComposerFailureTitleStyle.taskAccepted.title == "Task already accepted")
+        #expect(TaskComposerFailureTitleStyle.statusUnconfirmed.title == "Task status unconfirmed")
+        #expect(
+            TaskComposerFailureTitleStyle(failure: .alreadyCompleted(hostDisplayName: nil)) == .taskAccepted
+        )
+        #expect(
+            TaskComposerFailureTitleStyle(failure: .requestTimedOut(hostDisplayName: nil)) == .statusUnconfirmed
+        )
+    }
+
     @Test func startAgainUsesAFreshOperationIdentityWithoutChangingTheDraft() throws {
         let snapshot = Self.snapshot(operationID: UUID())
         var identity = MobileTaskSubmissionIdentity(
@@ -66,7 +113,10 @@ import Testing
         #expect(retried.directory == snapshot.directory)
     }
 
-    private static func snapshot(operationID: UUID) -> MobileTaskSubmissionSnapshot {
+    private static func snapshot(
+        operationID: UUID,
+        workspaceName: String = ""
+    ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
             template: MobileTaskTemplate(
                 name: "Codex",
@@ -76,6 +126,7 @@ import Testing
             prompt: "Fix the flaky test",
             macDeviceID: "mac-1",
             directory: "~/Dev/cmux",
+            workspaceName: workspaceName,
             didEditDirectory: true,
             operationID: operationID
         )

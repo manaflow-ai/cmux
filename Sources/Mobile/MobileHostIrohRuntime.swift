@@ -116,13 +116,11 @@ final class MobileHostIrohRuntime {
     var signOutPreparationTask: Task<Void, Never>?
     var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
+    var nextDiagnosticSessionID = 0
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
-        diagnosticLog = DiagnosticLog(
-            buildStamp: Self.diagnosticBuildStamp,
-            role: .macHost
-        )
+        diagnosticLog = Self.hostDiagnosticLog
         appInstances = CmxIrohAppInstanceRepository(store: installState)
         brokerBackpressureGate = CmxIrohBrokerBackpressureGate(store: installState)
         #if DEBUG
@@ -194,7 +192,16 @@ final class MobileHostIrohRuntime {
         lanPublisher = CmxIrohLANHostPublisher()
     }
 
-    private static var diagnosticBuildStamp: String {
+    /// The host diagnostic ring, deliberately `nonisolated` so read paths like
+    /// the `iroh_diag` socket verb can snapshot it without a main-actor hop:
+    /// the ring must stay exportable even when the main thread is wedged,
+    /// which is exactly when connection diagnostics matter most.
+    nonisolated static let hostDiagnosticLog = DiagnosticLog(
+        buildStamp: MobileHostIrohRuntime.diagnosticBuildStamp,
+        role: .macHost
+    )
+
+    private nonisolated static var diagnosticBuildStamp: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let name = info["CFBundleName"] as? String ?? "cmux"
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
@@ -290,5 +297,14 @@ final class MobileHostIrohRuntime {
         for error: any Error
     ) -> DiagnosticFailureKind {
         DiagnosticFailureKind.classify(error)
+    }
+
+    func makeDiagnosticSessionID() -> Int {
+        if nextDiagnosticSessionID == Int.max {
+            nextDiagnosticSessionID = 1
+        } else {
+            nextDiagnosticSessionID += 1
+        }
+        return nextDiagnosticSessionID
     }
 }

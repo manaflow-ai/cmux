@@ -139,7 +139,7 @@ extension MobileShellComposite {
             ), let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -155,7 +155,7 @@ extension MobileShellComposite {
                     return
                 }
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -185,7 +185,7 @@ extension MobileShellComposite {
                     reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
                     return
                 }
-                if await self.isForgottenMacDeviceID(
+                if await self.isHiddenMacDeviceID(
                     macDeviceID,
                     instanceTag: capturedInstanceTag,
                     scope: scope
@@ -227,6 +227,7 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
@@ -242,6 +243,7 @@ extension MobileShellComposite {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
+        recoverDisconnectedOnForegroundIfNeeded()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -253,8 +255,31 @@ extension MobileShellComposite {
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
+        if connectionRecoveryOwner.cancelProbing() {
+            applyConnectionRecoveryOwnerState()
+        }
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
+    }
+
+    /// A foreground return while disconnected redials the stored Mac
+    /// immediately. Covers a recovery that failed while the app was
+    /// backgrounded (its deadline burns during suspension): without this
+    /// the user sits on "Connection lost" until a network change, presence
+    /// push, or backoff timer fires. Gated on a finished startup reconnect
+    /// so it cannot race the launch path, and excluded for reauth-required
+    /// states where a redial cannot help.
+    func recoverDisconnectedOnForegroundIfNeeded() {
+        guard connectionState != .connected,
+              isSignedIn,
+              pairedMacStore != nil,
+              !connectionRequiresReauth,
+              !isReconnectingStoredMac,
+              didFinishStoredMacReconnectAttempt,
+              !connectionRecoveryOwner.isActive else {
+            return
+        }
+        recoverMobileConnection(trigger: .foreground)
     }
 
     func loadReconnectRefreshSnapshot(
@@ -306,7 +331,7 @@ extension MobileShellComposite {
                   pairedMacs: pairedMacs,
                   registryDevices: nil
               ).currentMac(for: captured),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   captured.macDeviceID,
                   instanceTag: captured.instanceTag,
                   scope: scope
@@ -325,14 +350,14 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope
               ),
               let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope

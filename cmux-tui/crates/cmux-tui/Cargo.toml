@@ -31,6 +31,7 @@ getrandom.workspace = true
 libc.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
+parking_lot.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true

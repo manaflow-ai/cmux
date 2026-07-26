@@ -13,8 +13,8 @@ use ghostty_vt::RenderState;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::{thumb_geometry, truncate};
-use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
+use super::{ScrollbarState, ScrollbarStyle, thumb_geometry, truncate};
+use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
 
@@ -87,13 +87,14 @@ pub struct DrawCursors {
 /// Draw every pane of the current frame and return its visible input cursors.
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
+    let panes_accept_focus = app.focus == FocusTarget::Pane;
     let areas = app.pane_areas.clone();
     let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
     for area in &areas {
-        let focused = Some(area.pane) == active_pane;
+        let focused = panes_accept_focus && Some(area.pane) == active_pane;
         draw_box(app, frame, area, focused);
         if area.bar.is_some() {
             draw_tab_bar(app, frame, area, focused);
@@ -366,6 +367,15 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     };
     let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
     app.rendered_terminal_bounds.insert(area.surface, live);
+    app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
+    if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
+        let (shape, blinking) = render.frame.cursor_visual;
+        app.use_terminal_cursor_spec(
+            super::terminal_grid::resolved_cursor_color(&render),
+            shape,
+            blinking,
+        );
+    }
 
     let cursor = super::terminal_grid::draw_render_frame(
         frame,
@@ -474,24 +484,22 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
     let hovered = app.hover.is_some_and(|(hx, hy)| track.contains(hx, hy));
     let dragging = app.dragging_scrollbar() == Some(area.surface);
     let active = hovered || dragging;
-    let glyph = if active { "▐" } else { "▕" };
-
-    let thumb_style = if active || focused {
-        Style::default().fg(app.chrome.scrollbar_thumb_active_fg)
+    // The track stays as the existing pane border or empty reserved column;
+    // the shared style paints only the thumb.
+    let state = if active {
+        ScrollbarState::Expanded
+    } else if focused {
+        ScrollbarState::Highlighted
     } else {
-        Style::default().fg(app.chrome.scrollbar_thumb_fg)
+        ScrollbarState::Idle
     };
-    for dy in 0..track.height {
-        let y = track.y + dy;
-        if track.x >= screen.width || y >= screen.height {
-            continue;
-        }
-        // The track stays the border line (drawn by draw_box); only the
-        // thumb overlays it with a solid bar.
-        if dy >= thumb_y && dy < thumb_y + thumb_len {
-            buf[(track.x, y)].set_symbol(glyph).set_style(thumb_style);
-        }
-    }
+    ScrollbarStyle::from_chrome(app.chrome).draw_thumb(
+        buf,
+        track,
+        (thumb_y, thumb_len),
+        Style::default(),
+        state,
+    );
     app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
 }
 

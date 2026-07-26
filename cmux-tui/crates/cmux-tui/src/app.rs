@@ -17,9 +17,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
-    layout_screen, split_sides, zellij_default_pane_layout,
+    BrowserSource, BrowserStatus, Direction, MuxEvent, Node, PairingChallenge, PaneId, Rect,
+    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
+    exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -31,11 +31,12 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghostty_vt::{
-    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
-    Screen,
+    CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
+    RenderState, Rgb, Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
+use unicode_width::UnicodeWidthStr;
 
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
@@ -60,9 +61,11 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
-use crate::ui::graphics_writer::GraphicsWriter;
+use crate::ui::graphics_writer::{GraphicsWriter, StdoutLock};
 use crate::ui::input::{InputEvent, TextInput};
-use crate::ui::thumb_geometry;
+use crate::ui::{
+    thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
+};
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -72,6 +75,7 @@ const ROUTING_REFRESH_RETRIES: u8 = 1;
 const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
+const MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT: u8 = 5;
 
 pub enum AppEvent {
     SessionScoped {
@@ -125,6 +129,7 @@ pub enum AppEvent {
 struct SessionEventSender {
     tx: SyncSender<AppEvent>,
     generation: Option<u64>,
+    surface_filter: Option<SurfaceId>,
     stop: Arc<AtomicBool>,
 }
 
@@ -134,13 +139,45 @@ enum SessionTrySendError {
 }
 
 impl SessionEventSender {
-    fn scoped(tx: SyncSender<AppEvent>, generation: u64, stop: Arc<AtomicBool>) -> Self {
-        Self { tx, generation: Some(generation), stop }
+    fn scoped(
+        tx: SyncSender<AppEvent>,
+        generation: u64,
+        surface_filter: Option<SurfaceId>,
+        stop: Arc<AtomicBool>,
+    ) -> Self {
+        Self { tx, generation: Some(generation), surface_filter, stop }
     }
 
     #[cfg(test)]
     fn unscoped(tx: SyncSender<AppEvent>) -> Self {
-        Self { tx, generation: None, stop: Arc::new(AtomicBool::new(false)) }
+        Self { tx, generation: None, surface_filter: None, stop: Arc::new(AtomicBool::new(false)) }
+    }
+
+    #[cfg(test)]
+    fn filtered(tx: SyncSender<AppEvent>, surface: SurfaceId) -> Self {
+        Self {
+            tx,
+            generation: None,
+            surface_filter: Some(surface),
+            stop: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn accepts_mux_event(&self, event: &MuxEvent) -> bool {
+        let Some(filter) = self.surface_filter else { return true };
+        match event {
+            MuxEvent::SurfaceOutput(surface)
+            | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::Bell(surface) => *surface == filter,
+            MuxEvent::SurfaceResized { surface, .. }
+            | MuxEvent::SurfaceResizeFailed { surface, .. }
+            | MuxEvent::TitleChanged { surface, .. }
+            | MuxEvent::ScrollChanged { surface, .. } => *surface == filter,
+            MuxEvent::Notification(notification) => {
+                notification.surface.is_none_or(|surface| surface == filter)
+            }
+            _ => true,
+        }
     }
 
     fn wrap(&self, event: AppEvent) -> AppEvent {
@@ -318,6 +355,9 @@ fn forward_mux_event(
     tx: &SessionEventSender,
     mux_titles: &MuxTitleIngress,
 ) -> ForwardMuxOutcome {
+    if !tx.accepts_mux_event(&event) {
+        return ForwardMuxOutcome::Continue;
+    }
     match event {
         MuxEvent::TitleChanged { surface, title } => {
             if !mux_titles.push(surface, title) {
@@ -344,8 +384,9 @@ fn start_ordered_session(
     operations: PtyInputSender,
     app_events: SyncSender<AppEvent>,
     generation: u64,
+    surface_filter: Option<SurfaceId>,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
-    start_ordered_session_inner(inner, operations, app_events, generation, false)
+    start_ordered_session_inner(inner, operations, app_events, generation, surface_filter, false)
 }
 
 fn prepare_ordered_session(
@@ -353,8 +394,9 @@ fn prepare_ordered_session(
     operations: PtyInputSender,
     app_events: SyncSender<AppEvent>,
     generation: u64,
+    surface_filter: Option<SurfaceId>,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
-    start_ordered_session_inner(inner, operations, app_events, generation, true)
+    start_ordered_session_inner(inner, operations, app_events, generation, surface_filter, true)
 }
 
 fn start_ordered_session_inner(
@@ -362,11 +404,12 @@ fn start_ordered_session_inner(
     operations: PtyInputSender,
     app_events: SyncSender<AppEvent>,
     generation: u64,
+    surface_filter: Option<SurfaceId>,
     paused: bool,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
     let stop = Arc::new(AtomicBool::new(false));
     let start = Arc::new(AtomicBool::new(!paused));
-    let events = SessionEventSender::scoped(app_events, generation, stop.clone());
+    let events = SessionEventSender::scoped(app_events, generation, surface_filter, stop.clone());
     let session = OrderedSession::new_with_event_sender(inner, operations, events.clone());
     let mux_titles = Arc::new(MuxTitleIngress::default());
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
@@ -1063,6 +1106,10 @@ impl OrderedSession {
 
     fn begin_shutdown(&self) {
         self.inner.begin_shutdown();
+    }
+
+    fn daemon_shutdown_requested(&self) -> bool {
+        self.inner.daemon_shutdown_requested()
     }
 
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
@@ -1828,7 +1875,12 @@ impl OrderedSession {
     }
 
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
-        self.enqueue("zoom pane", move |session| session.zoom_pane(pane));
+        self.enqueue("zoom pane", move |session| session.zoom_pane(pane, ZoomMode::Toggle));
+    }
+
+    pub fn set_pane_zoom(&self, pane: PaneId, zoomed: bool) {
+        let mode = if zoomed { ZoomMode::On } else { ZoomMode::Off };
+        self.enqueue("set pane zoom", move |session| session.zoom_pane(Some(pane), mode));
     }
 
     pub fn split(
@@ -2031,7 +2083,7 @@ impl RenderAction {
 /// A clickable region of the current frame. The renderers rebuild the hit
 /// map every draw, so hit-testing always matches what is on screen.
 /// Left-click performs the action; right-click opens the matching context
-/// menu where one exists (workspace rows, panes).
+/// menu where one exists (sidebar rows and divider, screens, panes).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
     Machine {
@@ -2080,6 +2132,12 @@ pub enum Hit {
     Scrollbar {
         surface: SurfaceId,
         track: Rect,
+    },
+    /// The workspace rail's row viewport scrollbar.
+    WorkspaceScrollbar {
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
     },
     /// A rail's right border.
     RailResize(RailKind),
@@ -2140,8 +2198,8 @@ pub enum PaneEdge {
 /// One pane's screen real estate for the current frame. Every pane draws
 /// a border box in its rect; the top border row doubles as the tab bar
 /// and the scrollbar is either inside the box or on the right border.
-/// `content` is the terminal area inside the box. Rects too small for a
-/// box get `bar: None` and content = rect.
+/// `content` is the terminal area inside the box. A short rect reserves
+/// its first row for the tab bar and hides terminal content.
 #[derive(Debug, Clone, Copy)]
 pub struct PaneArea {
     pub pane: PaneId,
@@ -2187,12 +2245,18 @@ pub enum MenuAction {
     RenameTab(PaneId),
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
+    NewPaneSmart(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
     SplitRight(PaneId),
     SplitDown(PaneId),
     CloseTab(PaneId),
     ClosePane(PaneId),
+    TogglePaneZoom { pane: PaneId, zoomed: bool },
+    ToggleSidebar { visible: bool },
+    ToggleSidebarCompact { compact: bool },
+    FocusSidebar,
+    ShowShortcuts,
     SetClientSizing { client: u64, enabled: bool },
     UseClientSize(u64),
     RestoreAllClientSizing,
@@ -2203,17 +2267,22 @@ pub enum MenuAction {
 
 impl MenuAction {
     pub fn label(&self) -> &'static str {
+        let menu = &localization::catalog().menu;
         match self {
             MenuAction::RenameManagedMachine(_) => localization::catalog().sidebar.rename_machine,
             MenuAction::DeleteManagedMachine(_) => localization::catalog().sidebar.delete_machine,
             MenuAction::RestoreManagedMachine(_) => localization::catalog().sidebar.restore_machine,
             MenuAction::PurgeManagedMachine(_) => localization::catalog().sidebar.purge_machine,
-            MenuAction::RenameWorkspace(_) => "Rename workspace",
+            MenuAction::RenameWorkspace(_) => {
+                localization::catalog().action_label(Action::RenameWorkspace)
+            }
             MenuAction::RenameManagedWorkspace(_) => {
                 localization::catalog().sidebar.rename_workspace
             }
             MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
-            MenuAction::CloseWorkspace(_) => "Close workspace",
+            MenuAction::CloseWorkspace(_) => {
+                localization::catalog().action_label(Action::CloseWorkspace)
+            }
             MenuAction::DeleteManagedWorkspace(_) => {
                 localization::catalog().sidebar.delete_workspace
             }
@@ -2221,23 +2290,46 @@ impl MenuAction {
                 localization::catalog().sidebar.restore_workspace
             }
             MenuAction::PurgeManagedWorkspace(_) => localization::catalog().sidebar.purge_workspace,
-            MenuAction::RenameScreen(_) => "Rename screen",
-            MenuAction::CloseScreen(_) => "Close screen",
-            MenuAction::BrowserBack(_) => "Back",
-            MenuAction::BrowserForward(_) => "Forward",
-            MenuAction::BrowserReload(_) => "Reload",
-            MenuAction::BrowserEditUrl(_) => "Edit URL",
+            MenuAction::RenameScreen(_) => {
+                localization::catalog().action_label(Action::RenameScreen)
+            }
+            MenuAction::CloseScreen(_) => localization::catalog().action_label(Action::CloseScreen),
+            MenuAction::BrowserBack(_) => localization::catalog().action_label(Action::BrowserBack),
+            MenuAction::BrowserForward(_) => {
+                localization::catalog().action_label(Action::BrowserForward)
+            }
+            MenuAction::BrowserReload(_) => {
+                localization::catalog().action_label(Action::BrowserReload)
+            }
+            MenuAction::BrowserEditUrl(_) => {
+                localization::catalog().action_label(Action::BrowserEditUrl)
+            }
             MenuAction::BrowserCopyUrl(_) => "Copy URL",
             MenuAction::BrowserActivate(_) => "Show in Chrome",
-            MenuAction::RenameTab(_) => "Rename tab",
+            MenuAction::RenameTab(_) => localization::catalog().action_label(Action::RenameTab),
             MenuAction::CopyTabId(_) => "Copy tab id",
             MenuAction::CopyPaneId(_) => "Copy pane id",
-            MenuAction::NewTab(_) => "New tab",
-            MenuAction::NewBrowserTab(_) => "New browser tab",
-            MenuAction::SplitRight(_) => "Split right",
-            MenuAction::SplitDown(_) => "Split down",
-            MenuAction::CloseTab(_) => "Close tab",
-            MenuAction::ClosePane(_) => "Close pane",
+            MenuAction::NewPaneSmart(_) => {
+                localization::catalog().action_label(Action::NewPaneSmart)
+            }
+            MenuAction::NewTab(_) => localization::catalog().action_label(Action::NewTab),
+            MenuAction::NewBrowserTab(_) => {
+                localization::catalog().action_label(Action::NewBrowserTab)
+            }
+            MenuAction::SplitRight(_) => localization::catalog().action_label(Action::SplitRight),
+            MenuAction::SplitDown(_) => localization::catalog().action_label(Action::SplitDown),
+            MenuAction::CloseTab(_) => localization::catalog().action_label(Action::CloseTab),
+            MenuAction::ClosePane(_) => localization::catalog().action_label(Action::ClosePane),
+            MenuAction::TogglePaneZoom { zoomed: false, .. } => menu.maximize_pane,
+            MenuAction::TogglePaneZoom { zoomed: true, .. } => menu.restore_pane_layout,
+            MenuAction::ToggleSidebar { visible: false } => menu.show_sidebar,
+            MenuAction::ToggleSidebar { visible: true } => menu.hide_sidebar,
+            MenuAction::ToggleSidebarCompact { compact: false } => menu.compact_sidebar,
+            MenuAction::ToggleSidebarCompact { compact: true } => menu.full_sidebar,
+            MenuAction::FocusSidebar => menu.focus_sidebar,
+            MenuAction::ShowShortcuts => {
+                localization::catalog().action_label(Action::ShowShortcuts)
+            }
             MenuAction::SetClientSizing { enabled: true, .. } => "Use for sizing",
             MenuAction::SetClientSizing { enabled: false, .. } => "Exclude from sizing",
             MenuAction::UseClientSize(_) => "Use only this client size",
@@ -2250,11 +2342,39 @@ impl MenuAction {
     }
 }
 
+fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
+    match action {
+        MenuAction::RenameWorkspace(_) => Some(Action::RenameWorkspace),
+        MenuAction::CloseWorkspace(_) => Some(Action::CloseWorkspace),
+        MenuAction::RenameScreen(_) => Some(Action::RenameScreen),
+        MenuAction::CloseScreen(_) => Some(Action::CloseScreen),
+        MenuAction::BrowserBack(_) => Some(Action::BrowserBack),
+        MenuAction::BrowserForward(_) => Some(Action::BrowserForward),
+        MenuAction::BrowserReload(_) => Some(Action::BrowserReload),
+        MenuAction::BrowserEditUrl(_) => Some(Action::BrowserEditUrl),
+        MenuAction::RenameTab(_) => Some(Action::RenameTab),
+        MenuAction::NewPaneSmart(_) => Some(Action::NewPaneSmart),
+        MenuAction::NewTab(_) => Some(Action::NewTab),
+        MenuAction::NewBrowserTab(_) => Some(Action::NewBrowserTab),
+        MenuAction::SplitRight(_) => Some(Action::SplitRight),
+        MenuAction::SplitDown(_) => Some(Action::SplitDown),
+        MenuAction::CloseTab(_) => Some(Action::CloseTab),
+        MenuAction::ClosePane(_) => Some(Action::ClosePane),
+        MenuAction::TogglePaneZoom { .. } => Some(Action::ZoomPane),
+        MenuAction::ToggleSidebar { .. } => Some(Action::ToggleSidebar),
+        MenuAction::ToggleSidebarCompact { .. } => Some(Action::ToggleSidebarCompact),
+        MenuAction::FocusSidebar => Some(Action::FocusSidebar),
+        MenuAction::ShowShortcuts => Some(Action::ShowShortcuts),
+        _ => None,
+    }
+}
+
 /// One row in a context menu. Separators divide related action groups and
 /// are skipped by keyboard and mouse selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
     Action(MenuAction),
+    ActionWithShortcut { action: MenuAction, shortcut: String },
     LabeledAction { label: String, action: MenuAction },
     Submenu { label: String, items: Vec<MenuItem> },
     Separator,
@@ -2263,17 +2383,28 @@ pub enum MenuItem {
 impl MenuItem {
     pub fn action(&self) -> Option<MenuAction> {
         match self {
-            MenuItem::Action(action) | MenuItem::LabeledAction { action, .. } => Some(*action),
+            MenuItem::Action(action)
+            | MenuItem::ActionWithShortcut { action, .. }
+            | MenuItem::LabeledAction { action, .. } => Some(*action),
             MenuItem::Submenu { .. } | MenuItem::Separator => None,
         }
     }
 
     pub fn label(&self) -> Option<&str> {
         match self {
-            MenuItem::Action(action) => Some(action.label()),
+            MenuItem::Action(action) | MenuItem::ActionWithShortcut { action, .. } => {
+                Some(action.label())
+            }
             MenuItem::LabeledAction { label, .. } => Some(label),
             MenuItem::Submenu { label, .. } => Some(label),
             MenuItem::Separator => None,
+        }
+    }
+
+    pub fn shortcut(&self) -> Option<&str> {
+        match self {
+            MenuItem::ActionWithShortcut { shortcut, .. } => Some(shortcut),
+            _ => None,
         }
     }
 
@@ -2300,13 +2431,19 @@ pub struct MenuLevel {
 
 impl MenuLevel {
     fn new(x: u16, y: u16, items: Vec<MenuItem>) -> Self {
-        let label_w = items
+        let content_w = items
             .iter()
-            .filter_map(MenuItem::label)
-            .map(|label| label.chars().count())
+            .filter_map(|item| {
+                let label = item.label()?;
+                let suffix = item
+                    .shortcut()
+                    .map(|shortcut| shortcut.width() + 2)
+                    .unwrap_or(if matches!(item, MenuItem::Submenu { .. }) { 2 } else { 0 });
+                Some(label.width() + suffix)
+            })
             .max()
             .unwrap_or(0) as u16;
-        let width = label_w + 2 + ContextMenu::PAD * 2 + 2;
+        let width = content_w + 2 + ContextMenu::PAD * 2 + 2;
         let height = items.len() as u16 + 2;
         let selected = items.iter().position(MenuItem::selectable).unwrap_or(0);
         let visible_rows = items.len();
@@ -2375,6 +2512,7 @@ impl ContextMenu {
     /// Horizontal padding between the menu edge and the item labels.
     pub const PAD: u16 = 1;
 
+    #[cfg(test)]
     fn at(x: u16, y: u16, groups: Vec<Vec<MenuAction>>) -> Self {
         Self::with_groups(
             x,
@@ -2464,7 +2602,10 @@ impl ContextMenu {
                     ..
                 } => true,
                 MenuItem::Submenu { items, .. } => items.iter().any(item_targets_provider),
-                MenuItem::Action(_) | MenuItem::LabeledAction { .. } | MenuItem::Separator => false,
+                MenuItem::Action(_)
+                | MenuItem::ActionWithShortcut { .. }
+                | MenuItem::LabeledAction { .. }
+                | MenuItem::Separator => false,
             }
         }
 
@@ -2571,7 +2712,11 @@ fn pane_context_menu_groups(
     }
     vec![
         vec![MenuAction::RenameTab(pane), MenuAction::CloseTab(pane)],
-        vec![MenuAction::NewTab(pane), MenuAction::NewBrowserTab(pane)],
+        vec![
+            MenuAction::NewPaneSmart(pane),
+            MenuAction::NewTab(pane),
+            MenuAction::NewBrowserTab(pane),
+        ],
         browser_actions,
         vec![
             MenuAction::SplitRight(pane),
@@ -2673,6 +2818,86 @@ pub struct PairingDialog {
 impl PairingDialog {
     fn new(challenge: PairingChallenge) -> Self {
         Self { challenge, rect: Rect::default(), approve: Rect::default(), deny: Rect::default() }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ShortcutHelp {
+    pub rows: Vec<(Action, String)>,
+    pub rect: Rect,
+    pub scroll_offset: usize,
+    pub visible_rows: usize,
+    pub close_button: Rect,
+    pub scrollbar_track: Rect,
+    pub scrollbar_thumb: Rect,
+    scrollbar_drag: Option<(u16, usize)>,
+}
+
+impl ShortcutHelp {
+    fn resolved_rows(config: &Config, surface_only: bool) -> Vec<(Action, String)> {
+        config
+            .keys
+            .resolved_shortcuts()
+            .into_iter()
+            .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
+            .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
+            .collect()
+    }
+
+    fn from_config(config: &Config, surface_only: bool) -> Self {
+        Self { rows: Self::resolved_rows(config, surface_only), ..Self::default() }
+    }
+
+    fn max_scroll(&self, total_rows: usize) -> usize {
+        total_rows.saturating_sub(self.visible_rows)
+    }
+
+    fn scroll_by(&mut self, delta: isize, total_rows: usize) {
+        self.scroll_offset =
+            self.scroll_offset.saturating_add_signed(delta).min(self.max_scroll(total_rows));
+    }
+
+    pub(crate) fn scrollbar_geometry(&self, total_rows: usize) -> (u16, u16) {
+        viewport_thumb_geometry(
+            total_rows,
+            self.visible_rows,
+            self.scroll_offset,
+            self.scrollbar_track.height,
+        )
+    }
+
+    fn start_scrollbar_drag(&mut self, y: u16, total_rows: usize) {
+        if self.scrollbar_track.height == 0 {
+            return;
+        }
+        let relative = y
+            .saturating_sub(self.scrollbar_track.y)
+            .min(self.scrollbar_track.height.saturating_sub(1));
+        let (thumb_y, thumb_height) = self.scrollbar_geometry(total_rows);
+        if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
+            self.scroll_offset = viewport_jump_offset(
+                total_rows,
+                self.visible_rows,
+                self.scrollbar_track.height,
+                relative,
+            );
+        }
+        self.scrollbar_drag = Some((y, self.scroll_offset));
+    }
+
+    fn drag_scrollbar(&mut self, y: u16, total_rows: usize) {
+        let Some((anchor_y, anchor_offset)) = self.scrollbar_drag else { return };
+        self.scroll_offset = viewport_drag_offset(
+            total_rows,
+            self.visible_rows,
+            self.scrollbar_track.height,
+            anchor_offset,
+            y as i128 - anchor_y as i128,
+        );
+    }
+
+    pub(crate) fn scrollbar_dragging(&self) -> bool {
+        self.scrollbar_drag.is_some()
     }
 }
 
@@ -2781,7 +3006,7 @@ enum Drag {
     /// Text selection inside a pane's content rect.
     Select { content: Rect, auto_scroll: Option<i8>, col: u16 },
     /// Browser mouse drag inside a pane's content rect.
-    Browser { surface: SurfaceId, content: Rect },
+    Browser { surface: SurfaceId, content: Rect, position: (u16, u16) },
     /// Mouse reporting owned by the PTY application in this pane.
     PtyMouse {
         surface: SurfaceId,
@@ -2795,6 +3020,14 @@ enum Drag {
     },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
+    /// Workspace viewport scrollbar thumb drag.
+    WorkspaceScrollbar {
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+        anchor_y: u16,
+        anchor_offset: usize,
+    },
     /// Independent rail width override drag.
     RailResize(RailKind),
     /// Pane split resize drag.
@@ -2819,6 +3052,12 @@ enum PtyMouseReleaseCapture {
     Bytes(PtyInputBytes),
     NotReported,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OuterCursorSpec {
+    Reset,
+    Terminal { color: Rgb, shape: CursorShape, blinking: bool },
 }
 
 #[derive(Clone)]
@@ -2890,6 +3129,9 @@ pub struct App {
     app_events: SyncSender<AppEvent>,
     machine_action_worker: Option<MachineActionWorker>,
     machine_action_in_flight: bool,
+    machine_action_request: Option<MachineRequest>,
+    machine_provider_reconnect_attempts: u8,
+    machine_provider_reconnect_retry_at: Option<Instant>,
     pending_machine_replacement: Option<PendingMachineReplacement>,
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
@@ -2899,9 +3141,15 @@ pub struct App {
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
+    /// Terminal grid dimensions from the frame actually drawn for each
+    /// surface. Pointer routing uses this snapshot so resize transitions do
+    /// not target blank pane margins or wait on the PTY's terminal lock.
+    pub rendered_terminal_sizes: HashMap<SurfaceId, (u16, u16)>,
+    desired_outer_cursor: OuterCursorSpec,
+    applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
-    stdout_lock: Arc<Mutex<()>>,
+    stdout_lock: Arc<StdoutLock>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
     /// Terminal cells actually represented by the last rendered snapshot.
@@ -2915,7 +3163,10 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     pub prefix_armed: bool,
     pub session_label: String,
+    /// When set, render only this PTY surface without session chrome.
+    surface_only: Option<SurfaceId>,
     pub sidebar_visible: bool,
+    pub sidebar_compact: bool,
     pub focus: FocusTarget,
     pub sidebar_focus_pending: bool,
     pub machine_ui: Option<MachineUiState>,
@@ -2957,6 +3208,7 @@ pub struct App {
     pub prompt: Option<Prompt>,
     pub pairing_dialog: Option<PairingDialog>,
     pairing_queue: VecDeque<PairingChallenge>,
+    pub shortcut_help: Option<ShortcutHelp>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
@@ -3038,16 +3290,20 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
 
 const MIN_RAIL_WIDTH: u16 = 10;
 const MIN_CONTENT_WIDTH: u16 = 40;
+const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 
 fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option<u16> {
     let configured_max = if configured_max > 0 { configured_max } else { u16::MAX };
     let effective_max = available.min(configured_max);
-    (effective_max >= MIN_RAIL_WIDTH).then_some(desired.clamp(MIN_RAIL_WIDTH, effective_max))
+    // `then_some` evaluates eagerly and would clamp with min > max while the
+    // outer terminal is still publishing its initial zero-width geometry.
+    (effective_max >= MIN_RAIL_WIDTH).then(|| desired.clamp(MIN_RAIL_WIDTH, effective_max))
 }
 
 fn sidebar_layout_for(
     config: &Config,
     visible: bool,
+    compact: bool,
     machine_visible: bool,
     size: (u16, u16),
     workspace_override: Option<u16>,
@@ -3062,7 +3318,11 @@ fn sidebar_layout_for(
         };
     }
 
-    let workspace_desired = workspace_override.unwrap_or(config.sidebar.width);
+    let workspace_desired = if compact {
+        config.sidebar.compact_width
+    } else {
+        workspace_override.unwrap_or(config.sidebar.width)
+    };
     let machine_can_fit = machine_visible
         && width >= MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(2));
     let workspace_reserve = if machine_can_fit { MIN_RAIL_WIDTH } else { 0 };
@@ -3130,6 +3390,113 @@ fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Op
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
+#[derive(Clone, Copy)]
+struct SubtreeMinimumHeight {
+    full: u16,
+    bar_only: u16,
+}
+
+fn minimum_tabbed_height(node: &Node) -> SubtreeMinimumHeight {
+    match node {
+        Node::Leaf(_) => SubtreeMinimumHeight { full: MIN_TABBED_PANE_HEIGHT, bar_only: 1 },
+        Node::Split { dir: SplitDir::Right, a, b, .. } => {
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: first.full.max(second.full),
+                bar_only: first.bar_only.max(second.bar_only),
+            }
+        }
+        Node::Split { dir: SplitDir::Down, ratio, a, b, .. } => {
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: minimum_split_height(*ratio, first.full, second.full),
+                bar_only: minimum_split_height(*ratio, first.bar_only, second.bar_only),
+            }
+        }
+        Node::Stack { panes, .. } => {
+            let collapsed_headers =
+                u16::try_from(panes.len().saturating_sub(1)).unwrap_or(u16::MAX);
+            SubtreeMinimumHeight {
+                full: MIN_TABBED_PANE_HEIGHT.saturating_add(collapsed_headers),
+                bar_only: 1u16.saturating_add(collapsed_headers),
+            }
+        }
+    }
+}
+
+fn minimum_split_height(ratio: f32, first_minimum: u16, second_minimum: u16) -> u16 {
+    let fits = |height| {
+        let (first, second) =
+            split_sides(Rect { width: 1, height, ..Rect::default() }, SplitDir::Down, ratio);
+        first.height >= first_minimum && second.height >= second_minimum
+    };
+    if !fits(u16::MAX) {
+        return u16::MAX;
+    }
+
+    let mut low = first_minimum.saturating_add(second_minimum).max(2);
+    let mut high = u16::MAX;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if fits(middle) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    low
+}
+
+fn vertical_split_minimum_heights(
+    node: &Node,
+    target: SplitId,
+) -> Option<(SubtreeMinimumHeight, SubtreeMinimumHeight)> {
+    match node {
+        Node::Leaf(_) | Node::Stack { .. } => None,
+        Node::Split { id, dir, a, b, .. } if *id == target => {
+            (*dir == SplitDir::Down).then(|| (minimum_tabbed_height(a), minimum_tabbed_height(b)))
+        }
+        Node::Split { a, b, .. } => vertical_split_minimum_heights(a, target)
+            .or_else(|| vertical_split_minimum_heights(b, target)),
+    }
+}
+
+fn clamp_ratio_to_minimum_heights(
+    height: u16,
+    requested: f32,
+    first_minimum: u16,
+    second_minimum: u16,
+) -> Option<f32> {
+    let minimum = (f32::from(first_minimum) / f32::from(height)).max(0.05);
+    let maximum = (f32::from(height.saturating_sub(second_minimum)) / f32::from(height)).min(0.95);
+    (minimum <= maximum).then(|| requested.clamp(minimum, maximum))
+}
+
+fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requested: f32) -> f32 {
+    let requested = requested.clamp(0.05, 0.95);
+    let Some((first_minimum, second_minimum)) = vertical_split_minimum_heights(root, split) else {
+        return requested;
+    };
+    if height == 0 {
+        return requested;
+    }
+
+    if let Some(clamped) =
+        clamp_ratio_to_minimum_heights(height, requested, first_minimum.full, second_minimum.full)
+    {
+        return clamped;
+    }
+    clamp_ratio_to_minimum_heights(
+        height,
+        requested,
+        first_minimum.bar_only,
+        second_minimum.bar_only,
+    )
+    .unwrap_or(requested)
+}
+
 fn pane_parts_for_rect(
     rect: Rect,
     scrollbar: ScrollbarPosition,
@@ -3154,6 +3521,12 @@ fn pane_parts_for_rect(
                 height: rect.height - 2,
             },
             Some(Rect { x: track_x, y: rect.y + 1, width: 1, height: rect.height - 2 }),
+        )
+    } else if rect.width > 2 && rect.height > 0 {
+        (
+            Some(Rect { height: 1, ..rect }),
+            Rect { y: rect.y.saturating_add(1), height: 0, ..rect },
+            None,
         )
     } else {
         (None, rect, None)
@@ -3197,6 +3570,7 @@ struct MachineSessionPreparation {
     default_colors: cmux_tui_core::DefaultColors,
     generation: u64,
     pty_input: PtyInputSender,
+    surface_filter: Option<SurfaceId>,
 }
 
 struct PreparedMachineSession {
@@ -3518,6 +3892,7 @@ fn prepare_machine_session(
         preparation.pty_input,
         app_events,
         preparation.generation,
+        preparation.surface_filter,
     )?;
     let tree = session.tree();
     Ok(PreparedMachineSession {
@@ -3671,6 +4046,7 @@ pub fn run_with_machine_updates(
     session: Session,
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
+    surface_only: Option<SurfaceId>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
@@ -3684,8 +4060,12 @@ pub fn run_with_machine_updates(
     // repaint their prompt, leaving a reverse-video % artifact). The
     // pane's border box eats one cell on every side.
     let initial_size = crossterm::terminal::size().ok().map(|(w, h)| {
+        if surface_only.is_some() {
+            return (w.max(1), h.max(1));
+        }
         let pane =
-            sidebar_layout_for(&config, true, machine_ui.is_some(), (w, h), None, None).content;
+            sidebar_layout_for(&config, true, false, machine_ui.is_some(), (w, h), None, None)
+                .content;
         content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
     });
     ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
@@ -3715,8 +4095,14 @@ pub fn run_with_machine_updates(
     })?;
     let session_generation = 1;
     let (session, session_event_worker, mux_titles, mux_recovery_generation) =
-        start_ordered_session(session, pty_input.sender(), tx.clone(), session_generation)?;
-    let stdout_lock = Arc::new(Mutex::new(()));
+        start_ordered_session(
+            session,
+            pty_input.sender(),
+            tx.clone(),
+            session_generation,
+            surface_only,
+        )?;
+    let stdout_lock = Arc::new(StdoutLock::new(()));
     let machine_action_worker = machine_controller
         .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
         .transpose()?;
@@ -3724,7 +4110,7 @@ pub fn run_with_machine_updates(
     // Crossterm input → app channel.
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
-        let _guard = stdout_lock.lock().unwrap();
+        let _guard = stdout_lock.lock();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
@@ -3740,8 +4126,8 @@ pub fn run_with_machine_updates(
         return Err(e);
     }
 
-    let cell_pixels = crate::ui::graphics::detect_cell_pixels(true);
-    if session_available {
+    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
+    if session_available && publishes_global_cell_metrics(surface_only) {
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
     let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
@@ -3762,7 +4148,9 @@ pub fn run_with_machine_updates(
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock));
+        with_panic_stdout_lock(&restore_lock, || {
+            let _ = restore_terminal_unlocked();
+        });
         default_hook(info);
     }));
 
@@ -3787,6 +4175,9 @@ pub fn run_with_machine_updates(
         app_events: tx,
         machine_action_worker,
         machine_action_in_flight: false,
+        machine_action_request: None,
+        machine_provider_reconnect_attempts: 0,
+        machine_provider_reconnect_retry_at: None,
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
@@ -3796,6 +4187,9 @@ pub fn run_with_machine_updates(
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
+        rendered_terminal_sizes: HashMap::new(),
+        desired_outer_cursor: OuterCursorSpec::Reset,
+        applied_outer_cursor: None,
         graphics_writer,
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
@@ -3806,7 +4200,9 @@ pub fn run_with_machine_updates(
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
         session_label,
-        sidebar_visible: true,
+        surface_only,
+        sidebar_visible: surface_only.is_none(),
+        sidebar_compact: false,
         focus: FocusTarget::Pane,
         sidebar_focus_pending: false,
         machine_ui,
@@ -3841,6 +4237,7 @@ pub fn run_with_machine_updates(
         prompt: None,
         pairing_dialog: None,
         pairing_queue: VecDeque::new(),
+        shortcut_help: None,
         omnibar: None,
         toast: None,
         shake_frames: 0,
@@ -3904,11 +4301,25 @@ pub fn run_with_machine_updates(
     Ok(outcome)
 }
 
-fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
-    let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
+fn restore_terminal(stdout_lock: Option<&Arc<StdoutLock>>) -> anyhow::Result<()> {
+    let _guard = stdout_lock.map(|lock| lock.lock());
+    restore_terminal_unlocked()
+}
+
+fn with_panic_stdout_lock(stdout_lock: &Arc<StdoutLock>, restore: impl FnOnce()) {
+    // Render panics may recurse on the owner thread. Reentrant acquisition
+    // preserves that path while still waiting for a different stdout writer.
+    let _guard = stdout_lock.lock();
+    restore();
+}
+
+fn restore_terminal_unlocked() -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
+    // Cursor color and DECSCUSR shape are outer-terminal global state. Always
+    // restore both, including panic/startup-failure paths.
+    let _ = write!(stdout, "\x1b]112\x07\x1b[0 q");
     // Restore the conventional host behavior where Shift bypasses capture.
     let _ = write!(stdout, "\x1b[>0s");
     let _ = stdout.execute(DisableBracketedPaste);
@@ -3920,6 +4331,10 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
 }
 
 impl App {
+    pub fn is_surface_only(&self) -> bool {
+        self.surface_only.is_some()
+    }
+
     pub fn session_available(&self) -> bool {
         self.machine_ui.as_ref().is_none_or(|machine| machine.session_available)
     }
@@ -4024,7 +4439,10 @@ impl App {
         self.draw_terminal(terminal)?;
         self.emit_graphics()?;
 
-        while !self.quit && !crate::shutdown_requested() {
+        while !self.quit
+            && !crate::shutdown_requested()
+            && !self.session.daemon_shutdown_requested()
+        {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0
@@ -4068,6 +4486,7 @@ impl App {
                     Err(_) => break,
                 }
             }
+            action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens
             // the idle wait, so a failed try_send cannot create a lost wakeup.
             action = action.merge(self.apply_pty_failures());
@@ -4156,6 +4575,21 @@ impl App {
         if self.machine_action_in_flight {
             return RenderAction::None;
         }
+        if let Some(retry_at) = self.machine_provider_reconnect_retry_at {
+            if Instant::now() < retry_at {
+                if self
+                    .machine_ui
+                    .as_ref()
+                    .is_some_and(|ui| matches!(ui.request, Some(MachineRequest::ReconnectProvider)))
+                {
+                    return RenderAction::None;
+                }
+            } else if let Some(ui) = self.machine_ui.as_mut()
+                && ui.request.is_none()
+            {
+                ui.request = Some(MachineRequest::ReconnectProvider);
+            }
+        }
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
         };
@@ -4171,9 +4605,13 @@ impl App {
             default_colors: self.default_colors,
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
+            surface_filter: self.surface_only,
         };
-        match worker.perform(request, preparation) {
-            Ok(()) => self.machine_action_in_flight = true,
+        match worker.perform(request.clone(), preparation) {
+            Ok(()) => {
+                self.machine_action_in_flight = true;
+                self.machine_action_request = Some(request);
+            }
             Err(MachineSubmitError::Busy(request)) => {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(request);
@@ -4187,6 +4625,31 @@ impl App {
             }
         }
         RenderAction::None
+    }
+
+    fn schedule_machine_provider_reconnect(&mut self) {
+        self.machine_provider_reconnect_attempts =
+            self.machine_provider_reconnect_attempts.saturating_add(1);
+        let exponent = self
+            .machine_provider_reconnect_attempts
+            .saturating_sub(1)
+            .min(MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT);
+        self.machine_provider_reconnect_retry_at =
+            Some(Instant::now() + Duration::from_secs(1_u64 << exponent));
+        if let Some(ui) = self.machine_ui.as_mut()
+            && ui.request.is_none()
+        {
+            ui.request = Some(MachineRequest::ReconnectProvider);
+        }
+    }
+
+    fn clear_machine_provider_reconnect(&mut self) {
+        self.machine_provider_reconnect_attempts = 0;
+        self.machine_provider_reconnect_retry_at = None;
+    }
+
+    fn take_machine_action_was_provider_reconnect(&mut self) -> bool {
+        matches!(self.machine_action_request.take(), Some(MachineRequest::ReconnectProvider))
     }
 
     fn apply_machine_controller_completion(
@@ -4209,9 +4672,13 @@ impl App {
             }
             MachineControllerCompletion::Action { result, updates } => {
                 self.machine_action_in_flight = false;
+                let reconnecting = self.take_machine_action_was_provider_reconnect();
                 let result = match result {
                     Ok(result) => result,
                     Err(error) => {
+                        if reconnecting {
+                            self.schedule_machine_provider_reconnect();
+                        }
                         self.status_message = Some(format!(
                             "{}: {error}",
                             localization::catalog().sidebar.machine_action_failed
@@ -4219,6 +4686,9 @@ impl App {
                         return RenderAction::Draw;
                     }
                 };
+                if reconnecting {
+                    self.clear_machine_provider_reconnect();
+                }
                 let MachineActionResult {
                     ui,
                     replacement,
@@ -4256,6 +4726,9 @@ impl App {
                         let _ = worker.abort_replacement(action_id);
                     }
                     self.machine_action_in_flight = false;
+                    if self.take_machine_action_was_provider_reconnect() {
+                        self.schedule_machine_provider_reconnect();
+                    }
                     self.status_message = Some(format!(
                         "{}: {}",
                         localization::catalog().sidebar.machine_action_failed,
@@ -4272,6 +4745,9 @@ impl App {
                 {
                     self.pending_machine_replacement.take();
                     self.machine_action_in_flight = false;
+                    if self.take_machine_action_was_provider_reconnect() {
+                        self.schedule_machine_provider_reconnect();
+                    }
                     self.status_message = Some(format!(
                         "{}: {}",
                         localization::catalog().sidebar.machine_action_failed,
@@ -4282,22 +4758,30 @@ impl App {
                 RenderAction::None
             }
             MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
+                if self
+                    .pending_machine_replacement
+                    .as_ref()
+                    .is_none_or(|pending| pending.action_id != action_id)
+                {
+                    self.status_message = Some(format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_stale
+                    ));
+                    return RenderAction::Draw;
+                }
+                let pending = self
+                    .pending_machine_replacement
+                    .take()
+                    .expect("matching pending replacement was checked");
                 self.machine_action_in_flight = false;
+                let reconnecting = self.take_machine_action_was_provider_reconnect();
                 let mut action = RenderAction::None;
                 match committed {
                     Ok(true) => {
-                        let Some(pending) = self
-                            .pending_machine_replacement
-                            .take()
-                            .filter(|pending| pending.action_id == action_id)
-                        else {
-                            self.status_message = Some(format!(
-                                "{}: {}",
-                                localization::catalog().sidebar.machine_action_failed,
-                                localization::catalog().sidebar.machine_replacement_stale
-                            ));
-                            return RenderAction::Draw;
-                        };
+                        if reconnecting {
+                            self.clear_machine_provider_reconnect();
+                        }
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
                             pending.action;
                         self.install_prepared_machine_session(session);
@@ -4311,10 +4795,16 @@ impl App {
                         }
                     }
                     Ok(false) => {
-                        self.pending_machine_replacement.take();
+                        drop(pending);
+                        if reconnecting {
+                            self.schedule_machine_provider_reconnect();
+                        }
                     }
                     Err(error) => {
-                        self.pending_machine_replacement.take();
+                        drop(pending);
+                        if reconnecting {
+                            self.schedule_machine_provider_reconnect();
+                        }
                         self.status_message = Some(format!(
                             "{}: {error}",
                             localization::catalog().sidebar.machine_action_failed
@@ -4454,7 +4944,9 @@ impl App {
             ));
         }
         if session_available {
-            self.session.set_cell_pixel_size(self.cell_pixels.0, self.cell_pixels.1);
+            if publishes_global_cell_metrics(self.surface_only) {
+                self.session.set_cell_pixel_size(self.cell_pixels.0, self.cell_pixels.1);
+            }
             self.session.apply_config(self.config.clone());
             self.session.refresh_clients_background();
         }
@@ -4588,6 +5080,9 @@ impl App {
     }
 
     fn apply_session_completion(&mut self, completion: SessionCompletion) {
+        if self.surface_only.is_some() {
+            return;
+        }
         match completion.action {
             SessionCompletionAction::SurfaceCreated { surface } => {
                 self.select_created_surface(surface);
@@ -4737,6 +5232,12 @@ impl App {
         if self.session.remote {
             preserve_client_view(&self.tree, &mut tree);
         }
+        if let Some(surface) = self.surface_only
+            && !tree.select_surface(surface)
+        {
+            tree = TreeView::default();
+            self.quit = true;
+        }
         let live_browsers = tree
             .workspaces
             .iter()
@@ -4813,6 +5314,7 @@ impl App {
             self.drag = None;
         }
         self.render_states.remove(&surface);
+        self.rendered_terminal_sizes.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
@@ -4936,9 +5438,30 @@ impl App {
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
     ) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         terminal.draw(|f| crate::ui::draw(self, f))?;
+        if let Some(sequence) =
+            outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
+        {
+            let mut stdout = std::io::stdout();
+            stdout.write_all(sequence.as_bytes())?;
+            stdout.flush()?;
+            self.applied_outer_cursor = Some(self.desired_outer_cursor);
+        }
         Ok(())
+    }
+
+    pub(crate) fn reset_frame_cursor_spec(&mut self) {
+        self.desired_outer_cursor = OuterCursorSpec::Reset;
+    }
+
+    pub(crate) fn use_terminal_cursor_spec(
+        &mut self,
+        color: Rgb,
+        shape: CursorShape,
+        blinking: bool,
+    ) {
+        self.desired_outer_cursor = OuterCursorSpec::Terminal { color, shape, blinking };
     }
 
     fn frame_only_browser_update(&self, id: SurfaceId) -> bool {
@@ -5004,29 +5527,40 @@ impl App {
     fn browser_graphic_occluded(&self, rect: Rect) -> bool {
         self.menu.as_ref().is_some_and(|menu| menu.intersects(rect))
             || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
+            || self.shortcut_help.as_ref().is_some_and(|help| rects_intersect(rect, help.rect))
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
-        let next = crate::ui::graphics::detect_cell_pixels(query_fallback);
+        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels), query_fallback);
         if self.cell_pixels != next {
             if !self.prepare_pty_input_before_mutation() {
                 return;
             }
             self.cell_pixels = next;
             self.browser_input.clear_resize_failures();
-            self.session.set_cell_pixel_size(next.0, next.1);
+            if publishes_global_cell_metrics(self.surface_only) {
+                self.session.set_cell_pixel_size(next.0, next.1);
+            }
         }
     }
 
     fn reload_config(&mut self) {
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
+        let shortcut_rows = self
+            .shortcut_help
+            .as_ref()
+            .map(|_| ShortcutHelp::resolved_rows(&config, self.surface_only.is_some()));
         self.sidebar_plugin_error = None;
         self.sidebar_plugin_retry_after_ms = None;
         self.sidebar_plugin_retry_at = None;
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
+        if let (Some(help), Some(rows)) = (self.shortcut_help.as_mut(), shortcut_rows) {
+            help.rows = rows;
+            help.scroll_offset = help.scroll_offset.min(help.max_scroll(help.rows.len()));
+        }
         self.sidebar_followed_surface = None;
     }
 
@@ -5074,7 +5608,7 @@ impl App {
 
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         let mut stdout = std::io::stdout();
         stdout.write_all(&cmux_tui_core::server::window_title_osc(title))?;
         stdout.flush()?;
@@ -5085,14 +5619,23 @@ impl App {
     /// (each pane's border box eats one cell on every side), and push
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
-        self.sidebar_layout = sidebar_layout_for(
-            &self.config,
-            self.sidebar_visible,
-            self.machine_ui.is_some(),
-            size,
-            self.sidebar_width_override,
-            self.machine_sidebar_width_override,
-        );
+        let (width, height) = size;
+        self.sidebar_layout = if self.surface_only.is_some() {
+            SidebarLayout {
+                content: Rect { x: 0, y: 0, width, height },
+                ..SidebarLayout::default()
+            }
+        } else {
+            sidebar_layout_for(
+                &self.config,
+                self.sidebar_visible,
+                self.sidebar_compact,
+                self.machine_ui.is_some(),
+                size,
+                self.sidebar_width_override,
+                self.machine_sidebar_width_override,
+            )
+        };
         self.sidebar_width = self.sidebar_layout.workspace.map_or(0, |rect| rect.width);
         self.machine_sidebar_width = self.sidebar_layout.machine.map_or(0, |rect| rect.width);
         if self.sidebar_width == 0 && self.focus == FocusTarget::WorkspaceRail {
@@ -5103,17 +5646,23 @@ impl App {
         }
         let area = self.sidebar_layout.content;
         self.content_area = area;
-        let _ = self.sync_sidebar_plugin(false);
+        if self.surface_only.is_none() {
+            let _ = self.sync_sidebar_plugin(false);
+        }
         self.replace_tree(self.session.tree());
-        self.sidebar_workspace_selection =
-            self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
-        self.sync_sidebar_files_to_focus(false);
+        if self.surface_only.is_none() {
+            self.sidebar_workspace_selection =
+                self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
+            self.sync_sidebar_files_to_focus(false);
+        }
         let layout = self
             .tree
             .active_screen()
             .map(|screen| {
-                if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
+                if self.surface_only.is_some() {
+                    layout_screen(&Node::Leaf(screen.active_pane), area, Some(screen.active_pane))
+                } else if let Some(pane) = screen.zoomed_pane {
+                    layout_screen(&Node::Leaf(pane), area, Some(pane))
                 } else {
                     layout_screen(&screen.layout, area, Some(screen.active_pane))
                 }
@@ -5142,7 +5691,9 @@ impl App {
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
                 pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let (bar, omnibar, content, track) = if stacked_headers.contains(&pane_id) {
+            let (bar, omnibar, content, track) = if self.surface_only.is_some() {
+                (None, None, rect, None)
+            } else if stacked_headers.contains(&pane_id) {
                 stacked_header_parts_for_rect(rect)
             } else {
                 pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar)
@@ -5192,6 +5743,9 @@ impl App {
             }
             let Some(pane) = screen.pane(area.pane) else { continue };
             for tab in &pane.tabs {
+                if self.surface_only.is_some_and(|surface| surface != tab.surface) {
+                    continue;
+                }
                 if self.session.has_surface(tab.surface) {
                     continue;
                 }
@@ -5491,6 +6045,10 @@ impl App {
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.retire_surface_state(id);
                 self.remove_surface_from_tree(id);
+                if self.surface_only == Some(id) {
+                    self.quit = true;
+                    return Ok(RenderAction::None);
+                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
@@ -5778,7 +6336,7 @@ impl App {
             AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
-                if self.pairing_dialog.is_some() {
+                if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
                     Ok(RenderAction::Draw)
                 } else if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
@@ -5823,6 +6381,9 @@ impl App {
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
+                // Keep the dimensions of the frame that remains visible until
+                // the next draw publishes a replacement. Clearing this cache
+                // would briefly make newly exposed blank margins clickable.
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }
@@ -5869,6 +6430,9 @@ impl App {
                     ..
                 }),
                 Some(Drag::PtyMouse { .. })
+            ) | (
+                Event::Mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), .. }),
+                Some(Drag::WorkspaceArm { .. } | Drag::TabArm { .. })
             )
         )
     }
@@ -5948,6 +6512,7 @@ impl App {
         match input {
             Event::Key(_) | Event::Paste(_)
                 if self.prompt.is_none()
+                    && self.shortcut_help.is_none()
                     && self.omnibar.is_none()
                     && self.focus == FocusTarget::Pane =>
             {
@@ -6116,6 +6681,10 @@ impl App {
         }
     }
 
+    pub fn dragging_workspace_scrollbar(&self) -> bool {
+        matches!(self.drag, Some(Drag::WorkspaceScrollbar { .. }))
+    }
+
     fn enqueue_surface_resize(
         &mut self,
         surface_id: SurfaceId,
@@ -6232,8 +6801,8 @@ impl App {
         }
     }
 
-    fn new_pane_smart(&mut self) -> anyhow::Result<()> {
-        let Some(pane) = self.active_pane() else {
+    fn new_pane_smart(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
+        let Some(pane) = pane.or_else(|| self.active_pane()) else {
             return Ok(());
         };
         let Some(hint) = self.tree.active_screen().and_then(|screen| {
@@ -6638,6 +7207,9 @@ impl App {
         self.status_message = None;
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_key(key);
+        }
+        if self.shortcut_help.is_some() {
+            return Ok(self.handle_shortcut_help_key(key));
         }
         if self.prompt.is_some() {
             return self.handle_prompt_key(key);
@@ -7210,6 +7782,90 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    fn handle_shortcut_help_key(&mut self, key: KeyEvent) -> RenderAction {
+        let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+        let total_rows = help.rows.len();
+        let page = help.visible_rows.max(1) as isize;
+        let previous_offset = help.scroll_offset;
+        let mut close = false;
+        match key.code {
+            KeyCode::Esc => close = true,
+            KeyCode::Char('?')
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                close = true;
+            }
+            KeyCode::Up | KeyCode::Char('k') => help.scroll_by(-1, total_rows),
+            KeyCode::Down | KeyCode::Char('j') => help.scroll_by(1, total_rows),
+            KeyCode::PageUp => help.scroll_by(-page, total_rows),
+            KeyCode::PageDown => help.scroll_by(page, total_rows),
+            KeyCode::Home => help.scroll_offset = 0,
+            KeyCode::End => help.scroll_offset = help.max_scroll(total_rows),
+            _ => {}
+        }
+        if close {
+            self.shortcut_help = None;
+            RenderAction::Paint
+        } else if help.scroll_offset != previous_offset {
+            RenderAction::Paint
+        } else {
+            RenderAction::None
+        }
+    }
+
+    fn handle_shortcut_help_mouse(&mut self, mouse: MouseEvent) -> RenderAction {
+        let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+        let total_rows = help.rows.len();
+        let mut changed = false;
+        let mut close = false;
+        match mouse.kind {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let previous_offset = help.scroll_offset;
+                let delta = if mouse.kind == MouseEventKind::ScrollUp { -1 } else { 1 };
+                help.scroll_by(delta, total_rows);
+                changed = help.scroll_offset != previous_offset;
+            }
+            MouseEventKind::Down(MouseButton::Left)
+                if help.close_button.contains(mouse.column, mouse.row) =>
+            {
+                close = true;
+            }
+            MouseEventKind::Down(MouseButton::Left)
+                if help.scrollbar_track.contains(mouse.column, mouse.row) =>
+            {
+                let previous_offset = help.scroll_offset;
+                let was_dragging = help.scrollbar_dragging();
+                help.start_scrollbar_drag(mouse.row, total_rows);
+                changed = help.scroll_offset != previous_offset || !was_dragging;
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                let previous_offset = help.scroll_offset;
+                help.drag_scrollbar(mouse.row, total_rows);
+                changed = help.scroll_offset != previous_offset;
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                changed = help.scrollbar_dragging();
+                help.scrollbar_drag = None;
+            }
+            MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
+                if !help.rect.contains(mouse.column, mouse.row) =>
+            {
+                close = true;
+            }
+            _ => {}
+        }
+        if close {
+            self.shortcut_help = None;
+            RenderAction::Paint
+        } else if changed {
+            RenderAction::Paint
+        } else {
+            RenderAction::None
+        }
+    }
+
     fn handle_pairing_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         let Some(dialog) = self.pairing_dialog.as_ref() else { return Ok(RenderAction::None) };
         if dialog.approve.contains(x, y) {
@@ -7330,15 +7986,6 @@ impl App {
     }
 
     fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        // Prefix twice forwards the prefix chord literally.
-        if self.config.keys.prefix.matches(&key) {
-            if self.workspace_sidebar_focused() {
-                self.forward_sidebar_key(&key);
-            } else {
-                self.forward_key(&key);
-            }
-            return Ok(RenderAction::Draw);
-        }
         let Some(action) = self.config.keys.action_for(&key) else {
             if self.focus != FocusTarget::Pane {
                 self.focus = FocusTarget::Pane;
@@ -7346,6 +7993,9 @@ impl App {
             return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
         let was_sidebar_focused = self.workspace_sidebar_focused();
+        if was_sidebar_focused && action == Action::SendPrefix {
+            return self.run_action(action);
+        }
         self.focus = FocusTarget::Pane;
         if was_sidebar_focused && action == Action::FocusSidebar {
             return Ok(RenderAction::Draw);
@@ -7364,16 +8014,38 @@ impl App {
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
     fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
+        if action == Action::SendPrefix && self.workspace_sidebar_focused() {
+            let prefix = self.config.keys.prefix;
+            self.forward_sidebar_key(&KeyEvent::new(prefix.code, prefix.mods));
+            return Ok(RenderAction::Draw);
+        }
+        let pane = self.active_pane();
+        self.run_action_for_pane(action, pane)
+    }
+
+    /// Execute an action against an explicit pane. Context menus use this
+    /// shared path because right-clicking does not change keyboard focus.
+    fn run_action_for_pane(
+        &mut self,
+        action: Action,
+        pane: Option<PaneId>,
+    ) -> anyhow::Result<RenderAction> {
+        if !self.action_available(action) {
+            return Ok(RenderAction::Draw);
+        }
         if action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(RenderAction::None);
         }
-        let pane = self.active_pane();
         match action {
+            Action::SendPrefix => {
+                let prefix = self.config.keys.prefix;
+                self.forward_key_to_pane(&KeyEvent::new(prefix.code, prefix.mods), pane);
+            }
             Action::NewTab => {
                 self.new_terminal_tab(pane)?;
             }
             Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
-            Action::NewPaneSmart => self.new_pane_smart()?,
+            Action::NewPaneSmart => self.new_pane_smart(pane)?,
             Action::NextTab => self.select_tab_for_client(pane, None, Some(1)),
             Action::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
             Action::SelectTab(_) => {
@@ -7394,8 +8066,10 @@ impl App {
             Action::CloseTab => {
                 // Close the active tab; the pane collapses with its last
                 // tab, so this is also "close pane" for single-tab panes.
-                if let Some(surface) = self.active_surface() {
-                    self.render_states.remove(&surface);
+                if let Some(surface) = pane
+                    .and_then(|pane| self.tree.pane(pane))
+                    .and_then(|pane| pane.active_surface())
+                {
                     self.session.close_surface(surface);
                 }
             }
@@ -7420,14 +8094,25 @@ impl App {
                 }
             }
             Action::NewScreen => self.new_screen()?,
+            Action::PrevWorkspace => self.select_workspace_for_client(None, Some(-1)),
             Action::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
             Action::NewWorkspace => self.new_workspace()?,
+            Action::CloseWorkspace => {
+                if let Some(workspace) = self.tree.active_workspace().map(|workspace| workspace.id)
+                {
+                    self.request_delete_workspace(workspace);
+                }
+            }
             Action::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
                     self.focus = FocusTarget::Pane;
                 }
+            }
+            Action::ToggleSidebarCompact => {
+                self.sidebar_compact = !self.sidebar_compact;
+                self.sidebar_visible = true;
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
@@ -7459,6 +8144,19 @@ impl App {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
                 }
+                return Ok(RenderAction::Draw);
+            }
+            Action::ShowShortcuts => {
+                self.shortcut_help = if self.shortcut_help.is_some() {
+                    None
+                } else {
+                    self.finish_active_drag_for_overlay();
+                    Some(ShortcutHelp::from_config(&self.config, self.surface_only.is_some()))
+                };
+                self.menu = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.selection = None;
                 return Ok(RenderAction::Draw);
             }
             Action::Detach => {
@@ -7671,6 +8369,54 @@ impl App {
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
+        match action {
+            MenuAction::TogglePaneZoom { pane, zoomed } => {
+                if self.active_pane() != Some(pane) {
+                    self.focus_pane_after_input(pane);
+                }
+                self.session.set_pane_zoom(pane, !zoomed);
+                return Ok(());
+            }
+            MenuAction::NewPaneSmart(pane) => {
+                self.run_action_for_pane(Action::NewPaneSmart, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::NewTab(pane) => {
+                self.run_action_for_pane(Action::NewTab, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::NewBrowserTab(pane) => {
+                self.run_action_for_pane(Action::NewBrowserTab, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::SplitRight(pane) => {
+                self.run_action_for_pane(Action::SplitRight, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::SplitDown(pane) => {
+                self.run_action_for_pane(Action::SplitDown, Some(pane))?;
+                return Ok(());
+            }
+            MenuAction::ToggleSidebar { .. } => {
+                self.run_action(Action::ToggleSidebar)?;
+                return Ok(());
+            }
+            MenuAction::ToggleSidebarCompact { .. } => {
+                self.run_action(Action::ToggleSidebarCompact)?;
+                return Ok(());
+            }
+            MenuAction::FocusSidebar => {
+                if !self.workspace_sidebar_focused() && self.prepare_pty_input_before_mutation() {
+                    self.focus_sidebar();
+                }
+                return Ok(());
+            }
+            MenuAction::ShowShortcuts => {
+                self.run_action(Action::ShowShortcuts)?;
+                return Ok(());
+            }
+            _ => {}
+        }
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
@@ -7759,19 +8505,22 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::NewTab(id) => {
-                self.new_terminal_tab(Some(id))?;
-            }
-            MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
-            MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
-            MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
+            MenuAction::NewPaneSmart(_)
+            | MenuAction::NewTab(_)
+            | MenuAction::NewBrowserTab(_)
+            | MenuAction::SplitRight(_)
+            | MenuAction::SplitDown(_) => unreachable!("shared menu actions return above"),
             MenuAction::CloseTab(id) => {
                 if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
-                    self.render_states.remove(&surface);
                     self.session.close_surface(surface);
                 }
             }
             MenuAction::ClosePane(id) => self.session.close_pane(id),
+            MenuAction::TogglePaneZoom { .. }
+            | MenuAction::ToggleSidebar { .. }
+            | MenuAction::ToggleSidebarCompact { .. }
+            | MenuAction::FocusSidebar
+            | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { client, enabled } => {
                 self.session.set_client_sizing(client, enabled);
             }
@@ -7891,6 +8640,13 @@ impl App {
             self.sidebar_focus_pending = false;
             return;
         }
+        self.focus_sidebar();
+    }
+
+    fn focus_sidebar(&mut self) {
+        if self.workspace_sidebar_focused() || self.sidebar_focus_pending {
+            return;
+        }
         self.sidebar_visible = true;
         let requested = self.config.sidebar.plugin.is_some() && self.sync_sidebar_plugin(true);
         if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
@@ -7950,8 +8706,38 @@ impl App {
             self.forward_browser_key(key);
             return;
         }
-        let Some(input) = keys::key_input_from(key) else { return };
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
+        self.forward_pty_key_to_surface(key, surface_id, surface);
+    }
+
+    fn forward_key_to_pane(&mut self, key: &KeyEvent, pane: Option<PaneId>) {
+        if pane == self.active_pane() {
+            self.forward_key(key);
+            return;
+        }
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return;
+        }
+        let Some(surface_id) =
+            pane.and_then(|pane| self.tree.pane(pane)).and_then(|pane| pane.active_surface())
+        else {
+            return;
+        };
+        let Some(surface) = self.session.surface(surface_id) else { return };
+        if surface.kind() == SurfaceKind::Pty {
+            self.forward_pty_key_to_surface(key, surface_id, surface);
+        }
+    }
+
+    fn forward_pty_key_to_surface(
+        &mut self,
+        key: &KeyEvent,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+    ) {
+        let Some(input) = keys::key_input_from(key) else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
         let Some(encoded) = surface.with_terminal(|term| {
@@ -8175,6 +8961,9 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
+        if self.pairing_dialog.is_none() && self.shortcut_help.is_some() {
+            return Ok(self.handle_shortcut_help_mouse(mouse));
+        }
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
@@ -8325,9 +9114,7 @@ impl App {
         {
             return PtyMousePressResult::NotOwned;
         }
-        let Some(content) = self.terminal_input_rect(&area) else {
-            return PtyMousePressResult::NotOwned;
-        };
+        let content = self.canonical_pty_content(area.surface, area.content);
         if !content.contains(x, y) {
             return PtyMousePressResult::NotOwned;
         }
@@ -8622,6 +9409,38 @@ impl App {
         }
     }
 
+    fn finish_active_drag_for_overlay(&mut self) {
+        if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
+            self.cancel_pty_mouse_drag();
+            return;
+        }
+        match self.drag.take() {
+            Some(Drag::Browser { surface, content, position }) => {
+                self.send_browser_mouse(
+                    surface,
+                    content,
+                    position.0,
+                    position.1,
+                    BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
+                );
+            }
+            Some(Drag::ResizeSplit { .. }) => self.session.settle_split_ratio(),
+            Some(
+                Drag::MachineArm { .. }
+                | Drag::TabArm { .. }
+                | Drag::Tab { .. }
+                | Drag::WorkspaceArm { .. }
+                | Drag::Workspace { .. }
+                | Drag::Select { .. }
+                | Drag::Scrollbar { .. }
+                | Drag::WorkspaceScrollbar { .. }
+                | Drag::RailResize(_),
+            )
+            | None => {}
+            Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
+        }
+    }
+
     fn forward_pty_mouse_at(
         &mut self,
         x: u16,
@@ -8639,12 +9458,10 @@ impl App {
         {
             return false;
         }
-        let Some(content) = self.terminal_input_rect(&area) else { return false };
-        if !content.contains(x, y) {
-            return false;
-        }
+        let content = self.canonical_pty_content(area.surface, area.content);
         if action == MouseAction::Motion {
-            return self.forward_pty_mouse_motion_if_uncontended(
+            let inside = content.contains(x, y);
+            let owned = self.forward_pty_mouse_motion_if_uncontended(
                 area.surface,
                 content,
                 (x, y),
@@ -8652,6 +9469,19 @@ impl App {
                 modifiers,
                 any_button_pressed,
             );
+            // A no-button motion outside the canonical viewport is
+            // intentionally suppressed by Ghostty. Reset dedupe so re-entering
+            // through the same edge cell still reports a fresh hover sample.
+            if !inside
+                && !any_button_pressed
+                && let Some(surface) = self.session.surface(area.surface)
+            {
+                surface.reset_mouse_motion_dedupe();
+            }
+            return owned;
+        }
+        if !content.contains(x, y) {
+            return false;
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
@@ -8877,14 +9707,15 @@ impl App {
             {
                 screen.active_pane = pane;
                 true
-            } else if !self.session.remote {
-                self.session.focus_pane(pane);
-                true
             } else {
-                false
+                !self.session.remote
             };
             if focused {
                 self.pane_focus_history.record(pane);
+                // Remote frontends update their mirror optimistically above,
+                // but focus is still shared session state. Forward the same
+                // mutation so every frontend receives the authoritative tree.
+                self.session.focus_pane(pane);
             }
         }
     }
@@ -8909,9 +9740,11 @@ impl App {
                     as usize;
             }
         }
-        if !self.session.remote {
-            self.session.select_tab(pane, index, delta);
-        }
+        // Attached frontends keep the immediate optimistic update above, then
+        // publish the same selection to the owner mux. Without this command a
+        // remote TUI can visibly switch tabs while every other frontend still
+        // observes the old active surface in list-workspaces.
+        self.session.select_tab(pane, index, delta);
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
@@ -8933,9 +9766,7 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        if !self.session.remote {
-            self.session.select_screen(index, delta);
-        }
+        self.session.select_screen(index, delta);
     }
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
@@ -8954,9 +9785,7 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        if !self.session.remote {
-            self.session.select_workspace(index, delta);
-        }
+        self.session.select_workspace(index, delta);
     }
 
     fn terminal_input_rect(&self, area: &PaneArea) -> Option<Rect> {
@@ -8967,7 +9796,11 @@ impl App {
         self.pane_areas
             .iter()
             .find(|area| area.surface == surface)
-            .and_then(|area| self.terminal_input_rect(area))
+            .map(|area| self.canonical_pty_content(surface, area.content))
+    }
+
+    fn canonical_pty_content(&self, surface: SurfaceId, content: Rect) -> Rect {
+        canonical_terminal_content(content, self.rendered_terminal_sizes.get(&surface).copied())
     }
 
     fn cancel_pty_release_reservation(&self) {
@@ -9038,7 +9871,7 @@ impl App {
         self.pointer_shape = want_pointer;
         let shape = if want_pointer { "pointer" } else { "default" };
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]22;{shape}\x07");
         let _ = stdout.flush();
@@ -9106,7 +9939,10 @@ impl App {
                     .filter(|hit| {
                         matches!(
                             hit,
-                            Hit::NewTab { .. } | Hit::TabScroll { .. } | Hit::Scrollbar { .. }
+                            Hit::NewTab { .. }
+                                | Hit::TabScroll { .. }
+                                | Hit::Scrollbar { .. }
+                                | Hit::WorkspaceScrollbar { .. }
                         )
                     })
                     .map(|hit| format!("{hit:?}"))
@@ -9368,6 +10204,11 @@ impl App {
                 Hit::Scrollbar { surface, track } => {
                     self.start_scrollbar_drag(surface, track, y);
                 }
+                Hit::WorkspaceScrollbar { track, total_rows, visible_rows } => {
+                    self.focus = FocusTarget::WorkspaceRail;
+                    self.workspace_rail_follow_selection = false;
+                    self.start_workspace_scrollbar_drag(track, total_rows, visible_rows, y);
+                }
                 Hit::RailResize(kind) => {
                     self.focus = match kind {
                         RailKind::Machine => FocusTarget::MachineRail,
@@ -9397,8 +10238,11 @@ impl App {
                         y,
                         BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
                     );
-                    self.drag =
-                        Some(Drag::Browser { surface: area.surface, content: area.content });
+                    self.drag = Some(Drag::Browser {
+                        surface: area.surface,
+                        content: area.content,
+                        position: (x, y),
+                    });
                 } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers)
                     != PtyMousePressResult::NotOwned
                 {
@@ -9480,7 +10324,7 @@ impl App {
                 self.drag = Some(Drag::Select { content, auto_scroll, col: cx - content.x });
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::Browser { surface, content }) => {
+            Some(Drag::Browser { surface, content, .. }) => {
                 let (surface, content) = (*surface, *content);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
@@ -9491,6 +10335,7 @@ impl App {
                     cy,
                     BrowserMouseDispatch::new("mouseMoved", Some("left"), Some(1)),
                 );
+                self.drag = Some(Drag::Browser { surface, content, position: (cx, cy) });
                 Ok(RenderAction::Draw)
             }
             Some(Drag::PtyMouse { .. }) => Ok(RenderAction::None),
@@ -9500,12 +10345,33 @@ impl App {
                 self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
                 Ok(RenderAction::Draw)
             }
+            Some(Drag::WorkspaceScrollbar {
+                track,
+                total_rows,
+                visible_rows,
+                anchor_y,
+                anchor_offset,
+            }) => {
+                let (track, total_rows, visible_rows, anchor_y, anchor_offset) =
+                    (*track, *total_rows, *visible_rows, *anchor_y, *anchor_offset);
+                self.workspace_rail_scroll = viewport_drag_offset(
+                    total_rows,
+                    visible_rows,
+                    track.height,
+                    anchor_offset,
+                    y as i128 - anchor_y as i128,
+                );
+                Ok(RenderAction::Draw)
+            }
             Some(Drag::RailResize(kind)) => {
                 let kind = *kind;
                 if let Some(width) = rail_drag_width(&self.config, self.sidebar_layout, kind, x) {
                     match kind {
                         RailKind::Machine => self.machine_sidebar_width_override = Some(width),
-                        RailKind::Workspace => self.sidebar_width_override = Some(width),
+                        RailKind::Workspace => {
+                            self.sidebar_compact = false;
+                            self.sidebar_width_override = Some(width);
+                        }
                     }
                 }
                 Ok(RenderAction::Draw)
@@ -9578,7 +10444,7 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        if let Some(Drag::Browser { surface, content }) = self.drag {
+        if let Some(Drag::Browser { surface, content, .. }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
             let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
@@ -9637,7 +10503,7 @@ impl App {
     fn copy_text_to_clipboard(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
@@ -9696,6 +10562,37 @@ impl App {
         if let Some(anchor_offset) = anchor_offset {
             self.drag = Some(Drag::Scrollbar { surface, track, anchor_y: y, anchor_offset });
         }
+    }
+
+    /// Start a workspace viewport scrollbar drag, jumping on track clicks.
+    fn start_workspace_scrollbar_drag(
+        &mut self,
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+        y: u16,
+    ) {
+        if track.height == 0 {
+            return;
+        }
+        let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let (thumb_y, thumb_height) = viewport_thumb_geometry(
+            total_rows,
+            visible_rows,
+            self.workspace_rail_scroll,
+            track.height,
+        );
+        if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
+            self.workspace_rail_scroll =
+                viewport_jump_offset(total_rows, visible_rows, track.height, relative);
+        }
+        self.drag = Some(Drag::WorkspaceScrollbar {
+            track,
+            total_rows,
+            visible_rows,
+            anchor_y: y,
+            anchor_offset: self.workspace_rail_scroll,
+        });
     }
 
     /// Map an anchored scrollbar drag delta to a viewport offset.
@@ -9777,8 +10674,14 @@ impl App {
                 1.0,
             ),
         };
+        let ratio = clamp_split_ratio_for_tab_bars(
+            &screen.layout,
+            target.split,
+            target.area.height,
+            current + delta * sign,
+        );
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_split_ratio(target.split, (current + delta * sign).clamp(0.05, 0.95));
+            self.session.set_split_ratio(target.split, ratio);
         }
     }
 
@@ -9808,10 +10711,77 @@ impl App {
         if extent == 0 {
             return;
         }
-        let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
+        let requested = coord.saturating_sub(start) as f32 / extent as f32;
+        let ratio = clamp_split_ratio_for_tab_bars(
+            &screen.layout,
+            target.split,
+            target.area.height,
+            requested,
+        );
         if self.prepare_pty_input_before_mutation() {
             self.session.set_split_ratio_deferred(target.split, ratio);
         }
+    }
+
+    fn menu_item(&self, action: MenuAction) -> MenuItem {
+        self.menu_action_matches_keyboard_target(action)
+            .then(|| keyboard_action_for_menu(action))
+            .flatten()
+            .and_then(|bound| self.config.keys.shortcut_label(bound))
+            .map(|shortcut| MenuItem::ActionWithShortcut { action, shortcut })
+            .unwrap_or(MenuItem::Action(action))
+    }
+
+    fn menu_action_matches_keyboard_target(&self, action: MenuAction) -> bool {
+        match action {
+            MenuAction::RenameWorkspace(workspace) | MenuAction::CloseWorkspace(workspace) => {
+                self.tree.active_workspace().is_some_and(|active| active.id == workspace)
+            }
+            MenuAction::RenameScreen(screen) | MenuAction::CloseScreen(screen) => {
+                self.tree.active_screen().is_some_and(|active| active.id == screen)
+            }
+            MenuAction::BrowserBack(pane)
+            | MenuAction::BrowserForward(pane)
+            | MenuAction::BrowserReload(pane)
+            | MenuAction::BrowserEditUrl(pane)
+            | MenuAction::RenameTab(pane)
+            | MenuAction::NewPaneSmart(pane)
+            | MenuAction::NewTab(pane)
+            | MenuAction::NewBrowserTab(pane)
+            | MenuAction::SplitRight(pane)
+            | MenuAction::SplitDown(pane)
+            | MenuAction::CloseTab(pane)
+            | MenuAction::ClosePane(pane)
+            | MenuAction::TogglePaneZoom { pane, .. } => self.active_pane() == Some(pane),
+            _ => true,
+        }
+    }
+
+    fn menu_group(&self, actions: impl IntoIterator<Item = MenuAction>) -> Vec<MenuItem> {
+        actions
+            .into_iter()
+            .filter(|action| {
+                keyboard_action_for_menu(*action)
+                    .is_none_or(|keyboard_action| self.action_available(keyboard_action))
+            })
+            .map(|action| self.menu_item(action))
+            .collect()
+    }
+
+    pub(crate) fn action_available(&self, action: Action) -> bool {
+        action_available_in_mode(action, self.surface_only.is_some())
+    }
+
+    fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
+        vec![
+            MenuAction::ToggleSidebar { visible: self.sidebar_visible },
+            MenuAction::ToggleSidebarCompact { compact: self.sidebar_compact },
+            MenuAction::FocusSidebar,
+        ]
+    }
+
+    fn global_menu_actions(&self) -> Vec<MenuAction> {
+        vec![MenuAction::ShowShortcuts]
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
@@ -9819,90 +10789,89 @@ impl App {
         self.menu = None;
         self.omnibar = None;
         self.session.refresh_clients_background();
-        match self.hit_at(x, y) {
-            Some(Hit::Machine { key, .. }) => {
-                let Some(machine) = self.managed_machine(key) else { return };
-                let mut actions = Vec::new();
-                match machine.status {
-                    ManagedMachineStatus::Active => {
-                        if machine.capabilities.rename {
-                            actions.push(MenuAction::RenameManagedMachine(key));
+        let hit = self.hit_at(x, y);
+        if self.total_sidebar_width() > 0 && x < self.total_sidebar_width() {
+            let mut groups = Vec::new();
+            match hit {
+                Some(Hit::Machine { key, .. }) => {
+                    if let Some(machine) = self.managed_machine(key) {
+                        let mut actions = Vec::new();
+                        match machine.status {
+                            ManagedMachineStatus::Active => {
+                                if machine.capabilities.rename {
+                                    actions.push(MenuAction::RenameManagedMachine(key));
+                                }
+                                if machine.capabilities.delete {
+                                    actions.push(MenuAction::DeleteManagedMachine(key));
+                                }
+                            }
+                            ManagedMachineStatus::Recoverable => {
+                                if machine.capabilities.restore {
+                                    actions.push(MenuAction::RestoreManagedMachine(key));
+                                }
+                                if machine.capabilities.purge {
+                                    actions.push(MenuAction::PurgeManagedMachine(key));
+                                }
+                            }
                         }
-                        if machine.capabilities.delete {
-                            actions.push(MenuAction::DeleteManagedMachine(key));
-                        }
-                    }
-                    ManagedMachineStatus::Recoverable => {
-                        if machine.capabilities.restore {
-                            actions.push(MenuAction::RestoreManagedMachine(key));
-                        }
-                        if machine.capabilities.purge {
-                            actions.push(MenuAction::PurgeManagedMachine(key));
-                        }
+                        groups.push(self.menu_group(actions));
                     }
                 }
-                if !actions.is_empty() {
-                    self.menu = Some(ContextMenu::at(x, y, vec![actions]));
+                Some(Hit::Workspace { id, .. }) => {
+                    if self.provider_manages_current_workspace_session() {
+                        if let Some(workspace) = self.managed_workspace_for_view(id) {
+                            let mut actions = Vec::new();
+                            if workspace.capabilities.rename {
+                                actions.push(MenuAction::RenameManagedWorkspace(id));
+                            }
+                            if workspace.capabilities.delete {
+                                actions.push(MenuAction::DeleteManagedWorkspace(id));
+                            }
+                            groups.push(self.menu_group(actions));
+                        }
+                    } else {
+                        groups.push(self.menu_group([
+                            MenuAction::RenameWorkspace(id),
+                            MenuAction::CloseWorkspace(id),
+                        ]));
+                        groups.push(self.menu_group([MenuAction::CopyWorkspaceId(id)]));
+                    }
                 }
-                return;
+                Some(Hit::RecoverableWorkspace { index }) => {
+                    if let Some(workspace) = self
+                        .machine_ui
+                        .as_ref()
+                        .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                    {
+                        let mut actions = Vec::new();
+                        if workspace.capabilities.restore {
+                            actions.push(MenuAction::RestoreManagedWorkspace(index));
+                        }
+                        if workspace.capabilities.purge {
+                            actions.push(MenuAction::PurgeManagedWorkspace(index));
+                        }
+                        groups.push(self.menu_group(actions));
+                    }
+                }
+                _ => {}
             }
-            Some(Hit::Workspace { id, .. }) => {
-                if self.provider_manages_current_workspace_session() {
-                    if self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active).is_none() {
-                        self.reject_inactive_managed_workspace_machine();
-                        return;
-                    }
-                    let Some(workspace) = self.managed_workspace_for_view(id) else {
-                        self.reject_unavailable_managed_workspace_operation();
-                        return;
-                    };
-                    let mut actions = Vec::new();
-                    if workspace.capabilities.rename {
-                        actions.push(MenuAction::RenameManagedWorkspace(id));
-                    }
-                    if workspace.capabilities.delete {
-                        actions.push(MenuAction::DeleteManagedWorkspace(id));
-                    }
-                    if actions.is_empty() {
-                        self.reject_disallowed_managed_workspace_operation();
-                        return;
-                    }
-                    self.menu = Some(ContextMenu::at(x, y, vec![actions]));
-                    return;
-                }
-                self.menu = Some(ContextMenu::at(
+            groups.push(self.menu_group(self.sidebar_menu_actions()));
+            groups.push(self.menu_group(self.global_menu_actions()));
+            self.menu = Some(ContextMenu::with_groups(x, y, groups));
+            return;
+        }
+        match hit {
+            Some(Hit::ScreenEntry { id, .. }) => {
+                self.menu = Some(ContextMenu::with_groups(
                     x,
                     y,
                     vec![
-                        vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
-                        vec![MenuAction::CopyWorkspaceId(id)],
+                        self.menu_group([
+                            MenuAction::RenameScreen(id),
+                            MenuAction::CloseScreen(id),
+                        ]),
+                        self.menu_group(self.global_menu_actions()),
                     ],
-                ));
-                return;
-            }
-            Some(Hit::RecoverableWorkspace { index }) => {
-                let Some(workspace) = self
-                    .machine_ui
-                    .as_ref()
-                    .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
-                else {
-                    return;
-                };
-                let mut actions = Vec::new();
-                if workspace.capabilities.restore {
-                    actions.push(MenuAction::RestoreManagedWorkspace(index));
-                }
-                if workspace.capabilities.purge {
-                    actions.push(MenuAction::PurgeManagedWorkspace(index));
-                }
-                self.menu = Some(ContextMenu::at(x, y, vec![actions]));
-                return;
-            }
-            Some(Hit::ScreenEntry { id, .. }) => {
-                self.menu = Some(ContextMenu::at(
-                    x,
-                    y,
-                    vec![vec![MenuAction::RenameScreen(id), MenuAction::CloseScreen(id)]],
                 ));
                 return;
             }
@@ -9918,11 +10887,23 @@ impl App {
                 self.browser_source(area.surface) == Some(BrowserSource::External);
             let mut groups = pane_context_menu_groups(area.pane, is_browser, external_browser)
                 .into_iter()
-                .map(|group| group.into_iter().map(MenuItem::Action).collect())
+                .map(|group| self.menu_group(group))
                 .collect::<Vec<Vec<MenuItem>>>();
-            if let Some(clients) = client_menu_item(&self.clients, area.surface) {
+            if self.surface_only.is_none() {
+                let zoomed = self
+                    .tree
+                    .active_screen()
+                    .is_some_and(|screen| screen.zoomed_pane == Some(area.pane));
+                groups.push(
+                    self.menu_group([MenuAction::TogglePaneZoom { pane: area.pane, zoomed }]),
+                );
+            }
+            if self.surface_only.is_none()
+                && let Some(clients) = client_menu_item(&self.clients, area.surface)
+            {
                 groups.push(vec![clients]);
             }
+            groups.push(self.menu_group(self.global_menu_actions()));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
         }
     }
@@ -10028,6 +11009,10 @@ impl App {
             }
             return Ok(RenderAction::None);
         }
+        let canonical_content = self.canonical_pty_content(surface_id, area.content);
+        if !canonical_content.contains(x, y) {
+            return Ok(RenderAction::None);
+        }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
                 x,
@@ -10087,6 +11072,11 @@ impl App {
         }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
+        }
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && !self.canonical_pty_content(area.surface, area.content).contains(x, y)
+        {
+            return Ok(RenderAction::None);
         }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
@@ -10168,6 +11158,43 @@ impl App {
     }
 }
 
+fn canonical_terminal_content(content: Rect, rendered_size: Option<(u16, u16)>) -> Rect {
+    let (cols, rows) = rendered_size.unwrap_or((content.width, content.height));
+    Rect {
+        x: content.x,
+        y: content.y,
+        width: content.width.min(cols),
+        height: content.height.min(rows),
+    }
+}
+
+fn outer_cursor_escape_if_changed(
+    applied: Option<OuterCursorSpec>,
+    desired: OuterCursorSpec,
+) -> Option<String> {
+    (applied != Some(desired)).then(|| outer_cursor_escape(desired))
+}
+
+fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
+    match spec {
+        OuterCursorSpec::Reset => "\x1b]112\x07\x1b[0 q".to_string(),
+        OuterCursorSpec::Terminal { color, shape, blinking } => {
+            let style = match (shape, blinking) {
+                (CursorShape::Block, true) => 1,
+                (CursorShape::Block, false) => 2,
+                (CursorShape::Underline, true) => 3,
+                (CursorShape::Underline, false) => 4,
+                (CursorShape::Bar, true) => 5,
+                (CursorShape::Bar, false) => 6,
+                // DECSCUSR has no hollow-block form. A steady block preserves
+                // shape and avoids inventing blink behavior.
+                (CursorShape::BlockHollow, _) => 2,
+            };
+            format!("\x1b]12;#{:02x}{:02x}{:02x}\x07\x1b[{style} q", color.r, color.g, color.b)
+        }
+    }
+}
+
 fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
     let mut out = 0;
     if modifiers.contains(KeyModifiers::ALT) {
@@ -10195,16 +11222,36 @@ fn browser_only_action(action: Action) -> bool {
     )
 }
 
+fn publishes_global_cell_metrics(surface_only: Option<SurfaceId>) -> bool {
+    surface_only.is_none()
+}
+
+fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
+    !surface_only
+        || matches!(
+            action,
+            Action::SendPrefix
+                | Action::CloseTab
+                | Action::RenameTab
+                | Action::ScrollUp
+                | Action::ScrollDown
+                | Action::ShowShortcuts
+                | Action::Detach
+        )
+}
+
 fn action_prepares_pty_release(action: Action) -> bool {
     !matches!(
         action,
-        Action::RenameTab
+        Action::SendPrefix
+            | Action::RenameTab
             | Action::RenameScreen
             | Action::RenameWorkspace
             | Action::NewWorkspace
             | Action::ScrollUp
             | Action::ScrollDown
             | Action::BrowserEditUrl
+            | Action::ShowShortcuts
     )
 }
 
@@ -10303,16 +11350,18 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, PaneArea, PaneFocusHistory, PendingSessionMutation,
-        PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
-        RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed, client_menu_item,
-        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
-        start_ordered_session,
+        OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
+        PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
+        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision,
+        SurfaceResizeOwnership, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
+        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
+        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -10323,19 +11372,23 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
-        SurfaceOptions, layout_screen,
+        SurfaceOptions, ZoomMode, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
+        CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
+        RenderState, Rgb,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Modifier;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
-    use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
+    use crate::config::{
+        Action, ChromeTheme, Config, ScrollbarPosition, SidebarView, action_definitions,
+    };
     use crate::localization;
     use crate::machine::{
         MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
@@ -10361,6 +11414,47 @@ mod tests {
     }
 
     #[test]
+    fn zero_width_startup_hides_sidebar_without_panicking() {
+        let config = Config::default();
+        let layout = sidebar_layout_for(&config, true, false, false, (0, 24), None, None);
+        assert!(layout.workspace.is_none());
+        assert_eq!(layout.content.width, 0);
+    }
+
+    #[test]
+    fn panic_restore_waits_for_a_concurrent_stdout_owner() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let (held_tx, held_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let owner_lock = lock.clone();
+        let owner = std::thread::spawn(move || {
+            let _guard = owner_lock.lock();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (restored_tx, restored_rx) = std::sync::mpsc::sync_channel(1);
+        let restore_lock = lock.clone();
+        let restorer = std::thread::spawn(move || {
+            with_panic_stdout_lock(&restore_lock, || restored_tx.send(()).unwrap());
+        });
+        let restored_while_owned = restored_rx.recv_timeout(Duration::from_millis(50)).is_ok();
+        release_tx.send(()).unwrap();
+        owner.join().unwrap();
+        restorer.join().unwrap();
+
+        assert!(!restored_while_owned, "panic cleanup bypassed another stdout owner");
+
+        let _owner_guard = lock.lock();
+        let reentrant_restore = AtomicBool::new(false);
+        with_panic_stdout_lock(&lock, || {
+            reentrant_restore.store(true, Ordering::SeqCst);
+        });
+        assert!(reentrant_restore.load(Ordering::SeqCst));
+    }
+
+    #[test]
     fn pane_context_menu_groups_current_tab_creation_layout_and_ids() {
         let pane = 7;
         let menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, false, false));
@@ -10371,6 +11465,7 @@ mod tests {
                 MenuItem::Action(MenuAction::RenameTab(pane)),
                 MenuItem::Action(MenuAction::CloseTab(pane)),
                 MenuItem::Separator,
+                MenuItem::Action(MenuAction::NewPaneSmart(pane)),
                 MenuItem::Action(MenuAction::NewTab(pane)),
                 MenuItem::Action(MenuAction::NewBrowserTab(pane)),
                 MenuItem::Separator,
@@ -10382,6 +11477,770 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
+    }
+
+    #[test]
+    fn context_menus_scope_pane_and_sidebar_actions_to_the_clicked_region() {
+        let mux = Mux::new("shortcut-menu-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(41, false);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 20;
+        app.pane_areas.push(PaneArea {
+            pane: 2,
+            surface: 41,
+            rect: Rect { x: 20, y: 0, width: 80, height: 24 },
+            bar: None,
+            omnibar: None,
+            content: Rect { x: 20, y: 0, width: 80, height: 24 },
+            track: None,
+        });
+
+        app.open_context_menu(30, 10);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        let shortcut = |target| {
+            items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
+        };
+        assert_eq!(shortcut(MenuAction::NewPaneSmart(2)), Some("Alt-n"));
+        assert_eq!(shortcut(MenuAction::CloseTab(2)), Some("Ctrl-b x"));
+        assert_eq!(shortcut(MenuAction::ClosePane(2)), Some("Ctrl-b X"));
+        assert_eq!(
+            shortcut(MenuAction::TogglePaneZoom { pane: 2, zoomed: false }),
+            Some("Ctrl-b z")
+        );
+        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), None);
+        assert_eq!(shortcut(MenuAction::ToggleSidebarCompact { compact: false }), None);
+        assert_eq!(shortcut(MenuAction::FocusSidebar), None);
+        assert_eq!(shortcut(MenuAction::ShowShortcuts), Some("Ctrl-b ?"));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Alt-n"));
+        assert!(rendered.contains("Ctrl-b z"));
+
+        app.open_context_menu(5, 10);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        let shortcut = |target| {
+            items.iter().find(|item| item.action() == Some(target)).and_then(MenuItem::shortcut)
+        };
+        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), Some("Ctrl-b s"));
+        assert_eq!(shortcut(MenuAction::ToggleSidebarCompact { compact: false }), Some("Ctrl-b m"));
+        assert_eq!(shortcut(MenuAction::FocusSidebar), Some("Ctrl-b S"));
+        assert_eq!(shortcut(MenuAction::ShowShortcuts), Some("Ctrl-b ?"));
+        assert!(!items.iter().any(|item| item.label() == Some("Show files in sidebar")));
+
+        let workspace = app.tree.active_workspace().unwrap().id;
+        app.hits.push((
+            Rect { x: 2, y: 3, width: 10, height: 2 },
+            super::Hit::Workspace { index: 0, id: workspace },
+        ));
+        app.open_context_menu(3, 3);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::CloseWorkspace(workspace)))
+                .and_then(MenuItem::shortcut),
+            Some("Ctrl-b D")
+        );
+
+        let screen = app.tree.active_screen().unwrap().id;
+        app.hits.push((
+            Rect { x: 30, y: 30, width: 10, height: 1 },
+            super::Hit::ScreenEntry { index: 0, id: screen },
+        ));
+        app.open_context_menu(30, 30);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert!(items.iter().any(|item| item.action() == Some(MenuAction::RenameScreen(screen))));
+        assert!(items.iter().any(|item| item.action() == Some(MenuAction::ShowShortcuts)));
+        assert!(!items.iter().any(|item| {
+            matches!(
+                item.action(),
+                Some(
+                    MenuAction::ToggleSidebar { .. }
+                        | MenuAction::ToggleSidebarCompact { .. }
+                        | MenuAction::FocusSidebar
+                )
+            )
+        }));
+        app.activate_menu(MenuAction::ShowShortcuts).unwrap();
+        assert!(app.shortcut_help.is_some());
+
+        let mut inactive_workspace = app.tree.workspaces[0].clone();
+        inactive_workspace.id = 14;
+        app.tree.workspaces.push(inactive_workspace);
+        app.hits.clear();
+        app.hits.push((
+            Rect { x: 2, y: 6, width: 10, height: 1 },
+            super::Hit::Workspace { index: 1, id: 14 },
+        ));
+        app.open_context_menu(3, 6);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::CloseWorkspace(14)))
+                .and_then(MenuItem::shortcut),
+            None
+        );
+
+        let mut inactive_screen = app.tree.active_screen().unwrap().clone();
+        inactive_screen.id = 13;
+        app.tree.workspaces[0].screens.push(inactive_screen);
+        app.hits.clear();
+        app.hits.push((
+            Rect { x: 30, y: 30, width: 10, height: 1 },
+            super::Hit::ScreenEntry { index: 1, id: 13 },
+        ));
+        app.open_context_menu(30, 30);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::CloseScreen(13)))
+                .and_then(MenuItem::shortcut),
+            None
+        );
+
+        let mut inactive_pane = app.tree.active_screen().unwrap().panes[0].clone();
+        inactive_pane.id = 12;
+        inactive_pane.tabs[0].surface = 51;
+        app.tree.workspaces[0].screens[0].panes.push(inactive_pane);
+        app.pane_areas.push(PaneArea {
+            pane: 12,
+            surface: 51,
+            rect: Rect { x: 20, y: 25, width: 80, height: 10 },
+            bar: None,
+            omnibar: None,
+            content: Rect { x: 20, y: 25, width: 80, height: 10 },
+            track: None,
+        });
+        app.hits.clear();
+        app.open_context_menu(30, 26);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::ClosePane(12)))
+                .and_then(MenuItem::shortcut),
+            None
+        );
+    }
+
+    #[test]
+    fn pane_context_new_pane_runs_the_same_smart_layout_action_as_alt_n() {
+        let (mux, _) = test_mux("context-new-pane-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let pane = app.active_pane().unwrap();
+        let before = app.tree.active_screen().unwrap().panes.len();
+        let content = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().content;
+
+        app.open_context_menu(content.x, content.y);
+        assert!(
+            app.menu.as_ref().unwrap().levels[0]
+                .items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::NewPaneSmart(pane)))
+        );
+        app.activate_menu(MenuAction::NewPaneSmart(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert_eq!(app.tree.active_screen().unwrap().panes.len(), before + 1);
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn pane_context_maximize_focuses_the_explicit_inactive_pane() {
+        let (mux, first) = test_mux("context-maximize-focus-test", None);
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        assert_eq!(mux.with_state(|state| state.active_pane()), Some(second_pane));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+
+        app.activate_menu(MenuAction::TogglePaneZoom { pane: first_pane, zoomed: false }).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        let active_pane = app.tree.active_screen().unwrap().active_pane;
+        let zoomed_pane = app.session.tree().active_screen().unwrap().zoomed_pane;
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+        assert_eq!(zoomed_pane, Some(first_pane));
+        assert_eq!(active_pane, first_pane);
+    }
+
+    #[test]
+    fn pane_context_maximize_preserves_its_explicit_intent_after_remote_state_changes() {
+        let (mux, first) = test_mux("context-maximize-intent-test", None);
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let menu_intent = MenuAction::TogglePaneZoom { pane: second_pane, zoomed: false };
+        mux.zoom_pane(Some(second_pane), ZoomMode::On).unwrap();
+        app.activate_menu(menu_intent).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let zoomed_pane = app.session.tree().active_screen().unwrap().zoomed_pane;
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+        assert_eq!(zoomed_pane, Some(second_pane));
+    }
+
+    #[test]
+    fn surface_only_context_menu_omits_client_management() {
+        let (mux, surface) = test_mux("surface-only-context-clients-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.sidebar_visible = false;
+        app.clients = vec![ClientInfo {
+            client: 7,
+            transport: "unix".to_string(),
+            name: Some("peer".to_string()),
+            kind: Some("tui".to_string()),
+            connected_seconds: 1,
+            attached: vec![surface.id],
+            sizes: vec![ClientSizeInfo { surface: surface.id, cols: Some(80), rows: Some(24) }],
+            is_self: false,
+            size_participating: true,
+        }];
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let content = app.pane_areas[0].content;
+
+        app.open_context_menu(content.x, content.y);
+
+        assert!(!app.menu.as_ref().unwrap().levels[0].items.iter().any(|item| {
+            matches!(item, MenuItem::Submenu { label, .. } if label.starts_with("Connected clients"))
+        }));
+        assert!(
+            !app.menu.as_ref().unwrap().levels[0].items.iter().any(|item| {
+                matches!(
+                    item.action(),
+                    Some(
+                        MenuAction::NewPaneSmart(_)
+                            | MenuAction::NewTab(_)
+                            | MenuAction::NewBrowserTab(_)
+                            | MenuAction::SplitRight(_)
+                            | MenuAction::SplitDown(_)
+                    )
+                )
+            }),
+            "single-surface context menu exposed a topology-creating action"
+        );
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let target_local = |action| {
+            matches!(
+                action,
+                Action::SendPrefix
+                    | Action::CloseTab
+                    | Action::RenameTab
+                    | Action::ScrollUp
+                    | Action::ScrollDown
+                    | Action::ShowShortcuts
+                    | Action::Detach
+            )
+        };
+        for definition in action_definitions() {
+            let action = definition.action;
+            assert_eq!(
+                action_available_in_mode(action, true),
+                target_local(action),
+                "single-surface action policy mismatched {}",
+                definition.label_en
+            );
+            if target_local(action) {
+                continue;
+            }
+            assert!(
+                !app.shortcut_help
+                    .as_ref()
+                    .unwrap()
+                    .rows
+                    .iter()
+                    .any(|(candidate, _)| { *candidate == action }),
+                "single-surface shortcut help exposed {}",
+                action.definition().label_en
+            );
+        }
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_surface_client_rejects_hidden_pane_closure() {
+        let (mux, attached) = test_mux("single-surface-close-pane-test", None);
+        let pane = mux.with_state(|state| state.pane_of(attached.id).unwrap());
+        let hidden = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.surface_only = Some(attached.id);
+        app.replace_tree(app.session.tree());
+
+        app.run_action_for_pane(Action::ClosePane, Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert!(mux.surface(attached.id).is_some());
+        assert!(mux.surface(hidden.id).is_some());
+        mux.close_surface(attached.id).unwrap();
+        mux.close_surface(hidden.id).unwrap();
+    }
+
+    #[test]
+    fn single_surface_client_rejects_hidden_browser_creation() {
+        let (mux, surface) = test_mux("single-surface-browser-creation-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let initial_surfaces = mux.with_state(|state| state.surfaces.len());
+
+        app.run_action_for_pane(Action::NewBrowserTab, Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        assert_eq!(surfaces.len(), initial_surfaces);
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn close_tab_action_honors_its_explicit_pane_target() {
+        let mux = Mux::new("explicit-close-tab-target-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        assert_eq!(mux.active_surface(), Some(second.id));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        app.run_action_for_pane(Action::CloseTab, Some(first_pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert!(!app.session.has_surface(first.id));
+        assert!(app.session.has_surface(second.id));
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn doubled_prefix_runs_the_shared_send_prefix_action() {
+        let (mux, _) = test_mux("send-prefix-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let prefix = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+
+        app.handle_key(prefix).unwrap();
+        assert!(app.prefix_armed);
+        app.handle_key(prefix).unwrap();
+
+        assert!(!app.prefix_armed);
+        assert_eq!(app.encode_buf, b"\x02");
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn doubled_prefix_keeps_the_focused_sidebar_plugin_target() {
+        let (mux, sidebar_surface) = test_mux("sidebar-send-prefix-test", None);
+        mux.new_workspace(Some("pane".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["unused".to_string()],
+            cwd: None,
+        });
+        app.sidebar_plugin_surface = Some(sidebar_surface.id);
+        app.focus = FocusTarget::WorkspaceRail;
+        let prefix = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+
+        app.handle_key(prefix).unwrap();
+        app.handle_key(prefix).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.sidebar_plugin_surface, Some(sidebar_surface.id));
+        assert_eq!(app.encode_buf, b"\x02");
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn shortcut_help_occludes_overlapping_browser_graphics() {
+        let mux = Mux::new("shortcut-help-graphics-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let browser_rect = Rect { x: 10, y: 5, width: 40, height: 20 };
+
+        assert!(!app.browser_graphic_occluded(browser_rect));
+        app.shortcut_help = Some(ShortcutHelp {
+            rect: Rect { x: 20, y: 10, width: 30, height: 10 },
+            ..ShortcutHelp::default()
+        });
+        assert!(app.browser_graphic_occluded(browser_rect));
+
+        app.shortcut_help.as_mut().unwrap().rect = Rect { x: 60, y: 10, width: 10, height: 10 };
+        assert!(!app.browser_graphic_occluded(browser_rect));
+    }
+
+    #[test]
+    fn shortcut_help_closes_when_the_terminal_cannot_render_it() {
+        let mux = Mux::new("shortcut-help-small-terminal-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.shortcut_help = Some(ShortcutHelp::default());
+        let mut terminal = Terminal::new(TestBackend::new(23, 6)).unwrap();
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert!(app.shortcut_help.is_none());
+    }
+
+    #[test]
+    fn shortcut_help_mouse_repaints_only_when_modal_state_changes() {
+        let mux = Mux::new("shortcut-help-mouse-render-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let help = app.shortcut_help.as_ref().unwrap();
+        let content_x = help.rect.x + 2;
+        let content_y = help.rect.y + 3;
+
+        assert_eq!(
+            app.handle_shortcut_help_mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: content_x,
+                row: content_y,
+                modifiers: KeyModifiers::NONE,
+            }),
+            RenderAction::None
+        );
+
+        let previous_offset = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        assert_eq!(
+            app.handle_shortcut_help_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: content_x,
+                row: content_y,
+                modifiers: KeyModifiers::NONE,
+            }),
+            RenderAction::Paint
+        );
+        assert!(app.shortcut_help.as_ref().unwrap().scroll_offset > previous_offset);
+    }
+
+    #[test]
+    fn opening_shortcut_help_releases_an_active_pty_mouse_press() {
+        let mux = Mux::new("shortcut-help-pty-release-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.drag = Some(Drag::PtyMouse {
+            surface: surface.id,
+            handle: None,
+            reservation_id: 41,
+            release_bytes: PtyInputBytes::from_slice(b"fallback-release"),
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+        assert_eq!(app.encode_buf, b"fallback-release");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn opening_shortcut_help_releases_an_active_browser_mouse_press() {
+        let mux = Mux::new(
+            format!("shortcut-help-browser-release-test-{}", std::process::id()),
+            SurfaceOptions::default(),
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let (dispatcher, received) = BrowserInputDispatcher::blocked(2);
+        app.browser_input = dispatcher;
+        let content = Rect { x: 1, y: 1, width: 20, height: 8 };
+        app.drag = Some(Drag::Browser { surface: surface.id, content, position: (5, 4) });
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+        assert!(matches!(
+            received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
+            Some(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+        ));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn opening_shortcut_help_finishes_an_active_split_resize() {
+        let mux = Mux::new("shortcut-help-split-release-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn prefix_bar_and_shortcut_modal_use_the_resolved_action_catalog() {
+        let (mux, _) = test_mux("shortcut-help-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((180, 30));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+        assert!(app.prefix_armed);
+        let mut terminal = Terminal::new(TestBackend::new(180, 30)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        let mut lines = rendered.lines().rev();
+        let status = lines.next().unwrap();
+        let guide = lines.next().unwrap();
+        assert!(status.contains("screens"), "{status}");
+        assert!(guide.contains("Ctrl-b"), "{guide}");
+        assert!(guide.contains("Send prefix"), "{guide}");
+        assert!(guide.contains("?  Keyboard shortcuts"), "{guide}");
+        assert!(guide.contains("x  Close tab"), "{guide}");
+        let prefix_x = guide.find("Ctrl-b").unwrap() as u16;
+        let prefix_label_x = guide.find("Send prefix").unwrap() as u16;
+        let prefix_cell = &terminal.backend().buffer()[(prefix_x, 28)];
+        let prefix_label_cell = &terminal.backend().buffer()[(prefix_label_x, 28)];
+        assert_eq!(prefix_cell.bg, prefix_label_cell.bg);
+        assert_eq!(prefix_cell.fg, app.config.theme.border_active);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT)).unwrap();
+        assert!(app.shortcut_help.is_some());
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Keyboard shortcuts"), "{rendered}");
+        assert!(rendered.contains("New pane"), "{rendered}");
+        assert!(rendered.contains("Alt-n"), "{rendered}");
+        assert!(rendered.contains("[Esc close]"), "{rendered}");
+        assert!(!rendered.contains('×'), "{rendered}");
+        let help_rect = app.shortcut_help.as_ref().unwrap().rect;
+        let buffer = terminal.backend().buffer();
+        let find_in_help = |needle: &str| {
+            let symbols = needle.chars().map(|symbol| symbol.to_string()).collect::<Vec<_>>();
+            (help_rect.y..help_rect.y + help_rect.height).find_map(|y| {
+                let last_x = help_rect.x + help_rect.width.saturating_sub(symbols.len() as u16);
+                (help_rect.x..=last_x)
+                    .find(|x| {
+                        symbols.iter().enumerate().all(|(offset, symbol)| {
+                            buffer[(*x + offset as u16, y)].symbol() == symbol.as_str()
+                        })
+                    })
+                    .map(|x| (y, x))
+            })
+        };
+        let (shortcut_y, shortcut_x) = find_in_help("Alt-n").unwrap();
+        let (_, shortcut_label_x) = find_in_help("New pane").unwrap();
+        let shortcut_cell = &terminal.backend().buffer()[(shortcut_x, shortcut_y)];
+        let shortcut_label_cell = &terminal.backend().buffer()[(shortcut_label_x, shortcut_y)];
+        assert_eq!(shortcut_cell.bg, shortcut_label_cell.bg);
+        assert_eq!(shortcut_cell.fg, app.chrome.prompt_title_fg);
+        let help = app.shortcut_help.as_ref().unwrap();
+        assert!(help.scrollbar_track.height > 0);
+        assert!(help.scrollbar_thumb.height > 0);
+        assert_eq!(
+            terminal.backend().buffer()[(help.scrollbar_thumb.x, help.scrollbar_thumb.y)].symbol(),
+            "▕"
+        );
+        let track = help.scrollbar_track;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        let jumped = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        assert!(jumped > 0);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scroll_offset < jumped);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scroll_offset > 0);
+        let close = app.shortcut_help.as_ref().unwrap().close_button;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: close.x + 1,
+            row: close.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.is_none());
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let tall_height = app.config.keys.resolved_shortcuts().len() as u16 + 6;
+        let mut tall_terminal = Terminal::new(TestBackend::new(180, tall_height)).unwrap();
+        tall_terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let help = app.shortcut_help.as_ref().unwrap();
+        assert_eq!(help.scrollbar_track, Rect::default());
+        assert_eq!(help.scrollbar_thumb, Rect::default());
+        let scrollbar_x = help.rect.x + help.rect.width - 2;
+        assert!((help.rect.y + 2..help.rect.y + help.rect.height - 2).all(|y| {
+            !matches!(tall_terminal.backend().buffer()[(scrollbar_x, y)].symbol(), "▕" | "▐")
+        }));
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert!(app.shortcut_help.is_none());
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn focused_sidebar_uses_an_accent_header_and_divider() {
+        let (mux, _) = test_mux("focused-sidebar-style-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.sidebar.width = 20;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((60, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(terminal.backend().buffer()[(19, 0)].symbol(), "│");
+
+        app.focus = FocusTarget::WorkspaceRail;
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let divider = &terminal.backend().buffer()[(19, 0)];
+        assert_eq!(divider.symbol(), "┃");
+        assert_eq!(divider.fg, app.config.theme.border_active);
+        assert!(divider.modifier.contains(Modifier::BOLD));
+        let header = &terminal.backend().buffer()[(1, 0)];
+        assert_eq!(header.bg, app.chrome.status_active_bg);
+        assert_eq!(header.fg, app.config.theme.border_active);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn compact_sidebar_width_and_action_preserve_the_full_width() {
+        let mut config = Config::default();
+        config.sidebar.width = 28;
+        config.sidebar.compact_width = 10;
+        let full = sidebar_layout_for(&config, true, false, false, (100, 30), Some(35), None);
+        assert_eq!(full.workspace.map(|area| area.width), Some(35));
+        let compact = sidebar_layout_for(&config, true, true, false, (100, 30), Some(35), None);
+        assert_eq!(compact.workspace.map(|area| area.width), Some(10));
+        let hidden = sidebar_layout_for(&config, false, true, false, (100, 30), Some(35), None);
+        assert_eq!(hidden.workspace, None);
+
+        let mux = Mux::new("compact-sidebar-action-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        assert!(app.run_action(Action::ToggleSidebarCompact).is_ok());
+        assert!(app.sidebar_visible);
+        assert!(app.sidebar_compact);
+        assert!(app.run_action(Action::ToggleSidebarCompact).is_ok());
+        assert!(!app.sidebar_compact);
+    }
+
+    #[test]
+    fn single_surface_layout_uses_every_terminal_cell_without_chrome() {
+        let (mux, surface) = test_mux("single-surface-layout-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+
+        app.sync_layout((80, 24));
+
+        assert_eq!(app.sidebar_width, 0);
+        assert_eq!(app.content_area, Rect { x: 0, y: 0, width: 80, height: 24 });
+        assert_eq!(app.pane_areas.len(), 1);
+        let area = app.pane_areas[0];
+        assert_eq!(area.surface, surface.id);
+        assert_eq!(area.rect, app.content_area);
+        assert_eq!(area.content, app.content_area);
+        assert!(area.bar.is_none());
+        assert!(area.track.is_none());
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_surface_status_overlays_the_terminal_without_a_status_bar() {
+        let (mux, surface) = test_mux("single-surface-status-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.status_message = Some("isolated attach error".to_string());
+        app.sync_layout((40, 8));
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(rendered.contains("isolated attach error"), "{rendered}");
+        assert!(!rendered.contains("screens"), "{rendered}");
+        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, ratatui::style::Color::Red);
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -10486,12 +12345,20 @@ mod tests {
         app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().rect.height = 0;
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
-        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        assert_eq!(
+            Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane,
+            bottom_right
+        );
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10522,7 +12389,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10552,7 +12419,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10567,7 +12434,7 @@ mod tests {
             app.sync_layout((200, 40));
             app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
             while app.session.has_pending_mutations() {
-                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
                 app.handle(event).unwrap();
             }
         }
@@ -10598,7 +12465,7 @@ mod tests {
             app.sync_layout((200, 40));
             app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
             while app.session.has_pending_mutations() {
-                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
                 app.handle(event).unwrap();
             }
         }
@@ -10637,8 +12504,115 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn vertical_split_drag_keeps_nested_pane_tab_bars_visible() {
+        let mux = Mux::new("nested-pane-minimum-height-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 18))).unwrap();
+        let first = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(first, SplitDir::Down, Some((80, 9))).unwrap();
+        assert!(mux.focus_pane(first));
+        mux.split(first, SplitDir::Down, Some((80, 5))).unwrap();
+        let nested_bottom = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 19));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        for y in [0, 17] {
+            app.resize_split(nested_bottom, PaneEdge::Bottom, 0, y);
+            app.session.settle_split_ratio();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+            app.sync_layout((80, 19));
+
+            assert_eq!(app.pane_areas.len(), 3);
+            assert!(
+                app.pane_areas.iter().all(|area| area.rect.height >= 3 && area.bar.is_some()),
+                "every pane must retain its tab bar after dragging to y={y}: {:?}",
+                app.pane_areas
+                    .iter()
+                    .map(|area| (area.pane, area.rect, area.bar))
+                    .collect::<Vec<_>>()
+            );
+
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn ancestor_split_minimum_accounts_for_descendant_ratios() {
+        let root = Node::Split {
+            id: 1,
+            dir: SplitDir::Down,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 2,
+                dir: SplitDir::Down,
+                ratio: 0.05,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let clamped = clamp_split_ratio_for_tab_bars(&root, 1, 100, 0.05);
+        let mut resized = root;
+        let Node::Split { ratio, .. } = &mut resized else {
+            unreachable!();
+        };
+        *ratio = clamped;
+
+        let layout = layout_screen(&resized, Rect { x: 0, y: 0, width: 80, height: 100 }, Some(1));
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.height >= 3),
+            "nested ratios must preserve every pane minimum: {:?}",
+            layout.panes
+        );
+    }
+
+    #[test]
+    fn infeasible_full_minimum_falls_back_to_bar_only_minimums() {
+        let root = Node::Split {
+            id: 1,
+            dir: SplitDir::Down,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 2,
+                dir: SplitDir::Down,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let clamped = clamp_split_ratio_for_tab_bars(&root, 1, 8, 0.05);
+        let mut resized = root;
+        let Node::Split { ratio, .. } = &mut resized else {
+            unreachable!();
+        };
+        *ratio = clamped;
+
+        let layout = layout_screen(&resized, Rect { x: 0, y: 0, width: 80, height: 8 }, Some(1));
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.height >= 1),
+            "bar-only fallback must keep every pane visible: {:?}",
+            layout.panes
+        );
     }
 
     #[test]
@@ -10652,7 +12626,7 @@ mod tests {
             app.sync_layout((200, 40));
             app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
             while app.session.has_pending_mutations() {
-                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
                 app.handle(event).unwrap();
             }
         }
@@ -10664,7 +12638,7 @@ mod tests {
         app.sync_layout((200, 4));
         app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
         while app.session.has_pending_mutations() {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
             app.handle(event).unwrap();
         }
 
@@ -10676,7 +12650,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10917,7 +12891,7 @@ mod tests {
             .position(|item| item.action() == Some(MenuAction::CopyPaneId(pane)))
             .unwrap();
 
-        assert_eq!(menu.levels[0].items.len(), 19);
+        assert_eq!(menu.levels[0].items.len(), 20);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
             4
@@ -10926,13 +12900,13 @@ mod tests {
         assert_eq!(menu.levels[0].items.len(), 18);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
-            3
+            2
         );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
         assert_eq!(menu.levels[0].rect.height, 20);
 
-        menu.fit_to_rows(19);
-        assert_eq!(menu.levels[0].items.len(), 19);
+        menu.fit_to_rows(20);
+        assert_eq!(menu.levels[0].items.len(), 20);
         assert_eq!(
             menu.levels[0].items.iter().filter(|item| **item == MenuItem::Separator).count(),
             4
@@ -10976,6 +12950,32 @@ mod tests {
             pane_parts_for_rect(rect, ScrollbarPosition::Border, true);
         assert_eq!(omnibar, None);
         assert_eq!(content, Rect { x: 1, y: 1, width: 18, height: 1 });
+    }
+
+    #[test]
+    fn tiny_pane_reserves_its_first_row_for_the_tab_bar() {
+        for height in [1, 2] {
+            let rect = Rect { x: 4, y: 5, width: 20, height };
+            let (bar, omnibar, content, track) =
+                pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+            assert_eq!(bar, Some(Rect { height: 1, ..rect }));
+            assert_eq!(omnibar, None);
+            assert_eq!(content.height, 0);
+            assert_eq!(track, None);
+        }
+    }
+
+    #[test]
+    fn narrow_tall_pane_keeps_unboxed_terminal_content() {
+        let rect = Rect { x: 4, y: 5, width: 2, height: 20 };
+        let (bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+        assert_eq!(bar, None);
+        assert_eq!(omnibar, None);
+        assert_eq!(content, rect);
+        assert_eq!(track, None);
     }
 
     #[test]
@@ -11145,13 +13145,13 @@ mod tests {
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
-    fn foreign_viewport_rejects_pty_mouse_input_outside_rendered_grid() {
+    fn pty_mouse_uses_the_canonical_rendered_grid_during_resize_margins() {
         let mux = Mux::new(
-            "foreign-viewport-mouse-test",
+            "mouse-canonical-grid-test",
             SurfaceOptions {
                 command: Some(vec![
                     "/bin/sh".to_string(),
@@ -11161,14 +13161,13 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((12, 5))).unwrap();
-        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().unwrap().active_pane;
         let content = Rect { x: 2, y: 3, width: 20, height: 8 };
-        let live = Rect { x: content.x, y: content.y, width: 12, height: 5 };
         app.pane_areas.push(PaneArea {
             pane,
             surface: surface.id,
@@ -11178,104 +13177,157 @@ mod tests {
             content,
             track: None,
         });
-        app.rendered_terminal_bounds.insert(surface.id, live);
+        // The pane has already grown, but the only frame visible to the user
+        // is still 12x5. The remaining cells are renderer-owned margins.
+        app.rendered_terminal_sizes.insert(surface.id, (12, 5));
+        app.handle(AppEvent::Input(Event::Resize(40, 12))).unwrap();
+        assert_eq!(
+            app.rendered_terminal_sizes.get(&surface.id),
+            Some(&(12, 5)),
+            "outer resize must retain the dimensions of the still-visible frame"
+        );
 
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x + live.width - 1,
-            row: live.y + live.height - 1,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<0;12;5M");
-        assert!(matches!(app.drag, Some(Drag::PtyMouse { content: rect, .. }) if rect == live));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: live.x + live.width - 1,
-            row: live.y + live.height - 1,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-
-        app.encode_buf.clear();
-        let dead_column = live.x + live.width;
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        let outside = (content.x + 15, content.y + 2);
+        assert_eq!(
+            app.begin_pty_mouse_drag(outside.0, outside.1, MouseButton::Left, KeyModifiers::NONE,),
+            PtyMousePressResult::NotOwned
+        );
+        assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
-        assert!(app.drag.is_none());
-        assert!(app.selection.is_none());
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-        assert!(app.menu.is_some());
-        app.menu = None;
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert!(app.selection.is_none());
-        assert!(app.drag.is_none());
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x + 1,
-            row: live.y + 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert!(matches!(app.drag, Some(Drag::Select { content: rect, .. }) if rect == live));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Drag(MouseButton::Left),
-            column: content.x + content.width - 1,
-            row: content.y + content.height - 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert_eq!(app.selection.map(|selection| selection.head), Some((11, 4)));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: content.x + content.width - 1,
-            row: content.y + content.height - 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::ScrollDown,
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        assert_eq!(
+            app.handle_scroll(outside.0, outside.1, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
+        assert!(app.encode_buf.is_empty());
+        assert_eq!(
+            app.handle_horizontal_scroll(outside.0, outside.1, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
         assert!(app.encode_buf.is_empty());
 
-        app.rendered_terminal_bounds.remove(&surface.id);
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        // Leaving through a blank margin suppresses no-button motion, then
+        // clears Ghostty's cell dedupe so the same edge cell reports on reentry.
+        let edge = (content.x + 11, content.y + 2);
+        assert!(app.forward_pty_mouse_at(
+            edge.0,
+            edge.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<35;12;3M");
+        assert!(!app.forward_pty_mouse_at(
+            outside.0,
+            outside.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
         assert!(app.encode_buf.is_empty());
-        assert!(app.selection.is_none());
+        assert!(app.forward_pty_mouse_at(
+            edge.0,
+            edge.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<35;12;3M");
+
+        // A press that starts inside keeps capture while crossing the margin;
+        // Ghostty reports the edge cell and, critically, always emits release.
+        let inside = (content.x + 4, content.y + 2);
+        assert_eq!(
+            app.begin_pty_mouse_drag(inside.0, inside.1, MouseButton::Left, KeyModifiers::NONE,),
+            PtyMousePressResult::Started
+        );
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3M");
+        assert!(app.forward_pty_mouse_drag(
+            outside.0,
+            outside.1,
+            MouseButton::Left,
+            KeyModifiers::NONE,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<32;12;3M");
+        assert!(app.finish_pty_mouse_drag(
+            outside.0,
+            outside.1,
+            MouseButton::Left,
+            KeyModifiers::NONE,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<0;12;3m");
         assert!(app.drag.is_none());
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn canonical_terminal_content_clamps_to_the_visible_pane() {
+        let content = Rect { x: 7, y: 11, width: 20, height: 8 };
+        assert_eq!(canonical_terminal_content(content, None), content);
+        assert_eq!(
+            canonical_terminal_content(content, Some((12, 5))),
+            Rect { x: 7, y: 11, width: 12, height: 5 }
+        );
+        assert_eq!(
+            canonical_terminal_content(content, Some((40, 30))),
+            content,
+            "a stale larger frame must never claim cells outside its pane"
+        );
+    }
+
+    #[test]
+    fn outer_cursor_escapes_cover_color_shape_blink_and_reset() {
+        let color = Rgb { r: 0x12, g: 0x34, b: 0x56 };
+        let terminal = |shape, blinking| OuterCursorSpec::Terminal { color, shape, blinking };
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Block, true)),
+            "\x1b]12;#123456\x07\x1b[1 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Block, false)),
+            "\x1b]12;#123456\x07\x1b[2 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Underline, true)),
+            "\x1b]12;#123456\x07\x1b[3 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Underline, false)),
+            "\x1b]12;#123456\x07\x1b[4 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Bar, true)),
+            "\x1b]12;#123456\x07\x1b[5 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Bar, false)),
+            "\x1b]12;#123456\x07\x1b[6 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::BlockHollow, true)),
+            "\x1b]12;#123456\x07\x1b[2 q",
+            "DECSCUSR has no hollow block, so it degrades to steady block"
+        );
+        assert_eq!(outer_cursor_escape(OuterCursorSpec::Reset), "\x1b]112\x07\x1b[0 q");
+    }
+
+    #[test]
+    fn outer_cursor_state_suppresses_redundant_global_terminal_writes() {
+        let desired = OuterCursorSpec::Terminal {
+            color: Rgb { r: 1, g: 2, b: 3 },
+            shape: CursorShape::Bar,
+            blinking: false,
+        };
+        assert!(outer_cursor_escape_if_changed(None, desired).is_some());
+        assert!(outer_cursor_escape_if_changed(Some(desired), desired).is_none());
+        assert!(outer_cursor_escape_if_changed(Some(desired), OuterCursorSpec::Reset).is_some());
+        assert!(
+            outer_cursor_escape_if_changed(Some(OuterCursorSpec::Reset), OuterCursorSpec::Reset)
+                .is_none()
+        );
     }
 
     #[test]
@@ -11324,7 +13376,7 @@ mod tests {
 
         release_tx.send(()).unwrap();
         holder.join().unwrap();
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11385,7 +13437,7 @@ mod tests {
         input.join().unwrap();
 
         assert_eq!(result.unwrap(), PtyMousePressResult::Started);
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11420,7 +13472,7 @@ mod tests {
         assert!(app.workspace_sidebar_focused());
         assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11548,7 +13600,7 @@ mod tests {
             PtyInputEnqueueResult::Failed,
         );
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11585,7 +13637,7 @@ mod tests {
         }))
         .unwrap();
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11914,6 +13966,220 @@ mod tests {
     }
 
     #[test]
+    fn attached_tab_selection_is_published_to_owner_mux() {
+        let mux = Mux::new("attached-tab-selection-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        // Exercise the attached-client branch without a socket fixture. The
+        // OrderedSession still targets the owner mux, while `remote` enables
+        // the optimistic mirror update used by `cmux-tui attach`.
+        app.session.remote = true;
+        app.select_tab_for_client(Some(pane), Some(1), None);
+        assert_eq!(app.active_surface(), Some(second.id));
+
+        events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(mux.active_surface(), Some(second.id));
+
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
+    fn attached_workspace_mouse_click_uses_both_rendered_rows_and_survives_routing_refresh() {
+        let mux = Mux::new(
+            "attached-workspace-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+
+        // Exercise the attached-client branch while keeping a local owner mux
+        // available for an immediate authoritative-state assertion.
+        app.session.remote = true;
+        app.sidebar_width = 18;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+
+        for row in 0..2 {
+            mux.select_workspace(Some(1), None);
+            // A remote replace deliberately preserves this client's view, so
+            // install the owner's reset snapshot directly between subcases.
+            app.tree = app.session.tree();
+            app.rebuild_tab_locations();
+            terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+            let mut alpha_rows = app
+                .hits
+                .iter()
+                .filter_map(|(rect, hit)| match hit {
+                    super::Hit::Workspace { index: 0, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            alpha_rows.sort_by_key(|rect| rect.y);
+            assert_eq!(alpha_rows.len(), 2, "name and subtitle must both be clickable");
+            let hit = alpha_rows[row];
+            let event = |kind| {
+                AppEvent::Input(Event::Mouse(MouseEvent {
+                    kind,
+                    column: hit.x + hit.width.saturating_sub(1) / 2,
+                    row: hit.y,
+                    modifiers: KeyModifiers::NONE,
+                }))
+            };
+
+            app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
+            assert!(matches!(app.drag, Some(Drag::WorkspaceArm { .. })));
+
+            // A concurrent frontend can invalidate routing after the press.
+            // The release still belongs to the armed stable workspace ID.
+            app.routing_refresh_pending = true;
+            app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+            assert_eq!(app.tree.active_workspace, 0);
+
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(settled).unwrap();
+            app.routing_refresh_pending = false;
+            assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        }
+
+        let workspaces: Vec<_> =
+            mux.with_state(|state| state.workspaces.iter().map(|workspace| workspace.id).collect());
+        for workspace in workspaces {
+            mux.close_workspace(workspace);
+        }
+    }
+
+    #[test]
+    fn attached_tab_mouse_click_uses_rendered_hit_and_survives_routing_refresh() {
+        let mux = Mux::new(
+            "attached-tab-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.session.remote = true;
+        app.replace_tree(app.session.tree());
+
+        let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
+        let (bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+        app.sidebar_visible = false;
+        app.sidebar_width = 0;
+        app.content_area = rect;
+        app.pane_areas =
+            vec![PaneArea { pane, surface: second.id, rect, bar, omnibar, content, track }];
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Tab { pane: hit_pane, index: 0 } if *hit_pane == pane => Some(*rect),
+                _ => None,
+            })
+            .expect("first rendered tab hit");
+        let event = |kind| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: first_tab.x + first_tab.width.saturating_sub(1) / 2,
+                row: first_tab.y,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+
+        app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::TabArm { surface, .. }) if surface == first.id));
+
+        app.routing_refresh_pending = true;
+        app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+        assert_eq!(app.active_surface(), Some(first.id));
+
+        while app.session.has_pending_mutations() {
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(settled).unwrap();
+        }
+        app.routing_refresh_pending = false;
+        assert_eq!(mux.active_surface(), Some(first.id));
+
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
+    fn attached_workspace_release_without_press_is_a_no_op() {
+        let mux = Mux::new(
+            "attached-workspace-release-only-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.session.remote = true;
+        app.sidebar_width = 18;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let alpha = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Workspace { index: 0, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("rendered Alpha workspace hit");
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: alpha.x + alpha.width.saturating_sub(1) / 2,
+            row: alpha.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(mux.with_state(|state| state.active_workspace), 1);
+        assert!(events.try_recv().is_err());
+
+        let workspaces: Vec<_> =
+            mux.with_state(|state| state.workspaces.iter().map(|workspace| workspace.id).collect());
+        for workspace in workspaces {
+            mux.close_workspace(workspace);
+        }
+    }
+
+    #[test]
     fn tab_switch_moves_size_lease_without_dropping_hidden_surface() {
         let mux = Mux::new("visible-tab-sizing-test", SurfaceOptions::default());
         let first = mux.new_workspace(None, Some((120, 40))).unwrap();
@@ -12230,6 +14496,34 @@ mod tests {
         assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));
         assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(2))));
         assert!(matches!(forwarder.join().unwrap(), ForwardMuxOutcome::Continue));
+    }
+
+    #[test]
+    fn single_surface_mux_forwarder_drops_unrelated_output_and_titles() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+        let tx = SessionEventSender::filtered(tx, 41);
+        let titles = MuxTitleIngress::default();
+
+        assert!(matches!(
+            forward_mux_event(
+                MuxEvent::TitleChanged { surface: 42, title: "other".into() },
+                &tx,
+                &titles,
+            ),
+            ForwardMuxOutcome::Continue
+        ));
+        assert!(matches!(
+            forward_mux_event(MuxEvent::SurfaceOutput(42), &tx, &titles),
+            ForwardMuxOutcome::Continue
+        ));
+        assert!(rx.try_recv().is_err());
+        assert!(titles.take_dirty().is_empty());
+
+        assert!(matches!(
+            forward_mux_event(MuxEvent::SurfaceOutput(41), &tx, &titles),
+            ForwardMuxOutcome::Continue
+        ));
+        assert!(matches!(rx.try_recv().unwrap(), AppEvent::Mux(MuxEvent::SurfaceOutput(41))));
     }
 
     #[test]
@@ -13396,6 +15690,25 @@ mod tests {
     }
 
     #[test]
+    fn single_surface_client_ignores_creation_completion_selection() {
+        let mux = Mux::new("single-surface-completion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let created_surface = 41;
+        let attached_surface = 42;
+        app.surface_only = Some(attached_surface);
+        app.tree = browser_completion_tree(created_surface, attached_surface);
+        app.pane_areas.push(browser_completion_area(attached_surface));
+
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 4,
+            action: SessionCompletionAction::BrowserTabCreated { surface: created_surface },
+        });
+
+        assert_eq!(app.tree.active_surface(), Some(attached_surface));
+        assert!(app.omnibar.is_none());
+    }
+
+    #[test]
     fn failed_mutation_discards_input_deferred_for_its_destination() {
         let mux = Mux::new("failed-mutation-input-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -13444,10 +15757,8 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag = Some(Drag::ResizeSplit {
-            horizontal: Some((1, super::PaneEdge::Right)),
-            vertical: None,
-        });
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
@@ -13590,8 +15901,11 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag =
-            Some(Drag::Browser { surface: 42, content: Rect { x: 2, y: 3, width: 20, height: 8 } });
+        app.drag = Some(Drag::Browser {
+            surface: 42,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
+        });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Up(MouseButton::Left),
@@ -13793,7 +16107,7 @@ mod tests {
             Some("PTY input queue is full; input was not sent")
         );
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -13834,7 +16148,8 @@ mod tests {
         assert_eq!(buffer[(12, 2)].symbol(), "│");
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.notification_warning));
         assert!(row_contains(buffer, 1, "•"), "tab bar should contain unread dot");
-        assert_eq!(buffer[(0, 2)].symbol(), "•", "sidebar should contain unread dot");
+        assert_eq!(buffer[(0, 2)].symbol(), "▎", "sidebar should retain the active rail");
+        assert_eq!(buffer[(1, 2)].symbol(), "•", "sidebar should contain unread dot");
 
         app.replace_tree(notify_tree(surface.id, false));
         let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
@@ -13846,9 +16161,9 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.border_active));
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
-        assert_ne!(buffer[(0, 2)].symbol(), "•", "sidebar dot should clear");
+        assert_ne!(buffer[(1, 2)].symbol(), "•", "sidebar dot should clear");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -13892,7 +16207,67 @@ mod tests {
             "plugin sidebar must register the workspace rail resize hit on the divider column"
         );
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn pane_cursor_and_active_border_yield_to_builtin_and_plugin_sidebars() {
+        let mux = Mux::new("sidebar-cursor-focus-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 0, y: 0, width: 22, height: 10 },
+            bar: Some(Rect { x: 0, y: 0, width: 22, height: 1 }),
+            omnibar: None,
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            track: None,
+        });
+
+        for plugin in [false, true] {
+            app.config.sidebar.plugin = plugin.then(|| cmux_tui_core::SidebarPluginOptions {
+                command: vec!["/bin/sh".to_string()],
+                cwd: None,
+            });
+            app.focus = FocusTarget::Pane;
+            app.reset_frame_cursor_spec();
+            let mut pane_cursors = crate::ui::pane::DrawCursors::default();
+            let mut terminal = Terminal::new(TestBackend::new(30, 12)).unwrap();
+            terminal
+                .draw(|frame| pane_cursors = crate::ui::pane::draw_all(&mut app, frame))
+                .unwrap();
+            assert!(
+                pane_cursors.terminal.is_some(),
+                "active pane cursor missing for plugin={plugin}"
+            );
+            assert!(matches!(app.desired_outer_cursor, OuterCursorSpec::Terminal { .. }));
+            assert_eq!(
+                terminal.backend().buffer()[(0, 1)].fg,
+                app.config.theme.border_active,
+                "active pane border missing for plugin={plugin}"
+            );
+
+            app.focus = FocusTarget::WorkspaceRail;
+            app.reset_frame_cursor_spec();
+            terminal
+                .draw(|frame| pane_cursors = crate::ui::pane::draw_all(&mut app, frame))
+                .unwrap();
+            assert!(
+                pane_cursors.terminal.is_none(),
+                "sidebar leaked pane cursor for plugin={plugin}"
+            );
+            assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+            assert_eq!(
+                terminal.backend().buffer()[(0, 1)].fg,
+                app.config.theme.border_inactive,
+                "sidebar focus left pane border active for plugin={plugin}"
+            );
+        }
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     fn test_mouse_motion() -> MouseInput {
@@ -13986,7 +16361,7 @@ mod tests {
         assert!(text.contains("known-sidebar-file"), "{text}");
         assert!(text.lines().next().is_some_and(|line| line.contains("• 1")), "{text}");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -14022,7 +16397,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_files.query(), "áb");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -14049,7 +16424,7 @@ mod tests {
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         assert!(buffer_text(terminal.backend().buffer()).contains("toggle-marker"));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -14066,7 +16441,21 @@ mod tests {
 
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(!app.workspace_sidebar_focused());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn sidebar_context_menu_focus_is_idempotent() {
+        let (mux, surface) = test_mux("sidebar-menu-focus-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.tree = notify_tree(surface.id, false);
+        app.sidebar_visible = true;
+        app.focus = FocusTarget::WorkspaceRail;
+
+        app.activate_menu(MenuAction::FocusSidebar).unwrap();
+
+        assert!(app.workspace_sidebar_focused());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -14092,7 +16481,7 @@ mod tests {
             );
         }
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -14280,6 +16669,24 @@ mod tests {
             Some(vec![
                 MenuItem::Action(MenuAction::RestoreManagedMachine(MachineKey(42))),
                 MenuItem::Action(MenuAction::PurgeManagedMachine(MachineKey(42))),
+                MenuItem::Separator,
+                MenuItem::ActionWithShortcut {
+                    action: MenuAction::ToggleSidebar { visible: true },
+                    shortcut: "Ctrl-b s".into(),
+                },
+                MenuItem::ActionWithShortcut {
+                    action: MenuAction::ToggleSidebarCompact { compact: false },
+                    shortcut: "Ctrl-b m".into(),
+                },
+                MenuItem::ActionWithShortcut {
+                    action: MenuAction::FocusSidebar,
+                    shortcut: "Ctrl-b S".into(),
+                },
+                MenuItem::Separator,
+                MenuItem::ActionWithShortcut {
+                    action: MenuAction::ShowShortcuts,
+                    shortcut: "Ctrl-b ?".into(),
+                },
             ])
         );
         app.activate_menu(MenuAction::PurgeManagedMachine(MachineKey(42))).unwrap();
@@ -14616,6 +17023,147 @@ mod tests {
     }
 
     #[test]
+    fn failed_provider_reconnect_remains_pending_for_retry() {
+        let mux = Mux::new("provider-reconnect-retry-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Fail("provider is still offline"),
+                    FakeMachineAction::Return(Box::new(MachineActionResult::ui(
+                        provider_machine_ui(),
+                    ))),
+                ]),
+                requests: requests.clone(),
+            }),
+        );
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::ReconnectProvider)
+        );
+        assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::ReconnectProvider]);
+        assert_eq!(app.machine_provider_reconnect_attempts, 1);
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+        assert_eq!(app.process_machine_requests(), RenderAction::None);
+        assert_eq!(requests.lock().unwrap().len(), 1);
+
+        app.machine_provider_reconnect_retry_at = Some(Instant::now() - Duration::from_millis(1));
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            requests.lock().unwrap().as_slice(),
+            &[MachineRequest::ReconnectProvider, MachineRequest::ReconnectProvider]
+        );
+        assert_eq!(app.machine_provider_reconnect_attempts, 0);
+        assert!(app.machine_provider_reconnect_retry_at.is_none());
+    }
+
+    #[test]
+    fn queued_user_action_runs_before_failed_provider_reconnect_retry() {
+        let mux = Mux::new("provider-reconnect-user-action-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Return(Box::new(MachineActionResult::ui(
+                        provider_machine_ui(),
+                    ))),
+                    FakeMachineAction::Return(Box::new(MachineActionResult::ui(
+                        provider_machine_ui(),
+                    ))),
+                ]),
+                requests: requests.clone(),
+            }),
+        );
+        let user_request = MachineRequest::SelectProviderScope("team".into());
+        app.machine_action_in_flight = true;
+        app.machine_action_request = Some(MachineRequest::ReconnectProvider);
+        app.machine_ui.as_mut().unwrap().request = Some(user_request.clone());
+
+        app.apply_machine_controller_completion(super::MachineControllerCompletion::Action {
+            result: Err("provider is still offline".into()),
+            updates: None,
+        });
+
+        assert_eq!(app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()), Some(&user_request));
+        app.machine_provider_reconnect_retry_at = Some(Instant::now() - Duration::from_millis(1));
+
+        settle_machine_action(&mut app, &events);
+        assert_eq!(requests.lock().unwrap().as_slice(), &[user_request]);
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+
+        settle_machine_action(&mut app, &events);
+        assert_eq!(
+            requests.lock().unwrap().as_slice(),
+            &[
+                MachineRequest::SelectProviderScope("team".into()),
+                MachineRequest::ReconnectProvider,
+            ]
+        );
+        assert_eq!(app.machine_provider_reconnect_attempts, 0);
+        assert!(app.machine_provider_reconnect_retry_at.is_none());
+    }
+
+    #[test]
+    fn stale_replacement_settlement_preserves_newer_reconnect_action() {
+        for (case, committed) in [
+            ("committed", Ok(true)),
+            ("rejected", Ok(false)),
+            ("failed", Err("stale failure".into())),
+        ] {
+            let mux = Mux::new(format!("stale-replacement-{case}"), SurfaceOptions::default());
+            let mut app = test_app(Session::Local(mux));
+            app.machine_ui = Some(provider_machine_ui());
+            app.machine_action_in_flight = true;
+            app.machine_action_request = Some(MachineRequest::ReconnectProvider);
+            app.machine_provider_reconnect_attempts = 3;
+            let retry_at = Instant::now() + Duration::from_secs(10);
+            app.machine_provider_reconnect_retry_at = Some(retry_at);
+            app.pending_machine_replacement =
+                Some(pending_machine_replacement(&app, 2, &format!("newer-replacement-{case}")));
+
+            let action = app.apply_machine_controller_completion(
+                super::MachineControllerCompletion::ReplacementSettled {
+                    action_id: 1,
+                    committed,
+                    updates: None,
+                },
+            );
+
+            assert_eq!(action, RenderAction::Draw);
+            assert_eq!(
+                app.pending_machine_replacement.as_ref().map(|pending| pending.action_id),
+                Some(2)
+            );
+            assert!(app.machine_action_in_flight);
+            assert_eq!(app.machine_action_request, Some(MachineRequest::ReconnectProvider));
+            assert_eq!(app.machine_provider_reconnect_attempts, 3);
+            assert_eq!(app.machine_provider_reconnect_retry_at, Some(retry_at));
+            assert_eq!(
+                app.status_message.as_deref(),
+                Some(
+                    format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_stale
+                    )
+                    .as_str()
+                )
+            );
+        }
+    }
+
+    #[test]
     fn rejected_provider_workspace_mirror_commit_surfaces_the_session_error() {
         let mux = Mux::new("managed-workspace-rejected-mirror-test", SurfaceOptions::default());
         let placement = mux
@@ -14921,6 +17469,24 @@ mod tests {
             })
         );
         assert!(!app.quit);
+    }
+
+    #[test]
+    fn personal_scope_row_does_not_repeat_the_same_label() {
+        let mux = Mux::new("provider-personal-scope-style-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = provider_controls_ui();
+        let mut provider = ui.provider.clone().unwrap();
+        provider.selected_scope_id = "personal".into();
+        ui.set_provider_presentation(provider);
+        app.machine_ui = Some(ui);
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains(" Personal ▾"), "{text}");
+        assert!(!text.contains("personal · Personal"), "{text}");
     }
 
     #[test]
@@ -15384,6 +17950,104 @@ mod tests {
     }
 
     #[test]
+    fn workspace_rail_scrollbar_is_visible_clickable_and_draggable() {
+        let mux = Mux::new("workspace-rail-scrollbar-test", SurfaceOptions::default());
+        for index in 0..6 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 10));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let (track, total_rows, visible_rows) = app
+            .hits
+            .iter()
+            .find_map(|(_, hit)| match hit {
+                super::Hit::WorkspaceScrollbar { track, total_rows, visible_rows } => {
+                    Some((*track, *total_rows, *visible_rows))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let divider = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+            })
+            .unwrap();
+        let (thumb_y, _) = crate::ui::viewport_thumb_geometry(
+            total_rows,
+            visible_rows,
+            app.workspace_rail_scroll,
+            track.height,
+        );
+        assert_eq!(track.x + 1, divider.x);
+        assert_eq!(terminal.backend().buffer()[(track.x, track.y + thumb_y)].symbol(), "▕");
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        let jumped = app.workspace_rail_scroll;
+        assert!(jumped > 0);
+        assert!(!app.workspace_rail_follow_selection);
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.workspace_rail_scroll < jumped);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn workspace_rail_hides_scrollbar_when_every_row_fits() {
+        let mux = Mux::new("workspace-rail-no-scrollbar-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 30));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert!(
+            !app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::WorkspaceScrollbar { .. }))
+        );
+        let divider = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                (*hit == super::Hit::RailResize(RailKind::Workspace)).then_some(*rect)
+            })
+            .unwrap();
+        let scrollbar_x = divider.x - 1;
+        assert!(
+            (1..29).all(|y| !matches!(
+                terminal.backend().buffer()[(scrollbar_x, y)].symbol(),
+                "▕" | "▐"
+            ))
+        );
+    }
+
+    #[test]
     fn catalog_refresh_preserves_machine_and_workspace_selection_identity_and_scroll() {
         let descriptor = |key| MachineDescriptor {
             key: MachineKey(key),
@@ -15473,6 +18137,45 @@ mod tests {
             default_colors: cmux_tui_core::DefaultColors::default(),
             generation: 2,
             pty_input: dispatcher.sender(),
+            surface_filter: None,
+        }
+    }
+
+    fn pending_machine_replacement(
+        app: &App,
+        action_id: u64,
+        label: &str,
+    ) -> super::PendingMachineReplacement {
+        let mux = Mux::new(label, SurfaceOptions::default());
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let generation = app.session_generation.wrapping_add(1).max(1);
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(mux),
+            dispatcher.sender(),
+            app.app_events.clone(),
+            generation,
+            None,
+        )
+        .unwrap();
+        let tree = session.tree();
+        super::PendingMachineReplacement {
+            action_id,
+            action: super::PreparedMachineAction {
+                ui: provider_machine_ui(),
+                session_mutation: None,
+                session_label: None,
+                session: super::PreparedMachineSession {
+                    session,
+                    event_worker,
+                    generation,
+                    mux_titles,
+                    mux_recovery_generation,
+                    tree,
+                    label: label.into(),
+                    session_available: true,
+                    color_error: None,
+                },
+            },
         }
     }
 
@@ -15712,6 +18415,7 @@ mod tests {
             pty_input.sender(),
             app.app_events.clone(),
             2,
+            None,
         )
         .unwrap();
         let tree = session.tree();
@@ -15732,6 +18436,51 @@ mod tests {
             app.status_message.as_deref(),
             Some("ターミナルの色を適用できませんでした: offline")
         );
+    }
+
+    #[test]
+    fn single_surface_machine_session_install_does_not_publish_global_cell_metrics() {
+        let first = Mux::new("surface-only-cell-metrics-first", SurfaceOptions::default());
+        let first_surface = first.new_workspace(None, Some((80, 24))).unwrap();
+        let second = Mux::new("surface-only-cell-metrics-second", SurfaceOptions::default());
+        let second_surface = second.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(first.clone()));
+        app.surface_only = Some(second_surface.id);
+        app.cell_pixels = (13, 27);
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second.clone()),
+            pty_input.sender(),
+            app.app_events.clone(),
+            2,
+            Some(second_surface.id),
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: true,
+            color_error: None,
+        });
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert_eq!(
+            second.cell_pixel_size(),
+            (8, 16),
+            "surface-only attach published host metrics to the shared session"
+        );
+        let _ = first.close_surface(first_surface.id);
+        let _ = second.close_surface(second_surface.id);
     }
 
     #[test]
@@ -15850,7 +18599,8 @@ mod tests {
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let (events, _receiver) = std::sync::mpsc::sync_channel(4_096);
         let (_session, mut worker, _, _) =
-            start_ordered_session(Session::Local(mux), pty_input.sender(), events, 7).unwrap();
+            start_ordered_session(Session::Local(mux), pty_input.sender(), events, 7, None)
+                .unwrap();
 
         worker.stop_and_join();
 
@@ -15862,9 +18612,14 @@ mod tests {
         let mux = Mux::new("prepared-machine-session-events", SurfaceOptions::default());
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
-        let (_session, mut worker, _, _) =
-            prepare_ordered_session(Session::Local(mux.clone()), pty_input.sender(), events, 7)
-                .unwrap();
+        let (_session, mut worker, _, _) = prepare_ordered_session(
+            Session::Local(mux.clone()),
+            pty_input.sender(),
+            events,
+            7,
+            None,
+        )
+        .unwrap();
 
         mux.new_workspace(None, None).unwrap();
         assert!(matches!(
@@ -15895,6 +18650,9 @@ mod tests {
             app_events: events,
             machine_action_worker: None,
             machine_action_in_flight: false,
+            machine_action_request: None,
+            machine_provider_reconnect_attempts: 0,
+            machine_provider_reconnect_retry_at: None,
             pending_machine_replacement: None,
             machine_update_pump: None,
             machine_update_generation: 0,
@@ -15904,9 +18662,12 @@ mod tests {
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
+            rendered_terminal_sizes: HashMap::new(),
+            desired_outer_cursor: OuterCursorSpec::Reset,
+            applied_outer_cursor: None,
             graphics_writer: None,
             graphics_supported: false,
-            stdout_lock: Arc::new(Mutex::new(())),
+            stdout_lock: Arc::new(StdoutLock::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
             rendered_terminal_bounds: HashMap::new(),
@@ -15914,7 +18675,9 @@ mod tests {
             pending_size_releases: HashSet::new(),
             prefix_armed: false,
             session_label: "test".to_string(),
+            surface_only: None,
             sidebar_visible: true,
+            sidebar_compact: false,
             focus: FocusTarget::Pane,
             sidebar_focus_pending: false,
             machine_ui: None,
@@ -15949,6 +18712,7 @@ mod tests {
             prompt: None,
             pairing_dialog: None,
             pairing_queue: VecDeque::new(),
+            shortcut_help: None,
             omnibar: None,
             toast: None,
             shake_frames: 0,

@@ -21,7 +21,6 @@ struct MacComputerDetailView: View {
     let instanceTag: String?
     @Environment(\.dismiss) private var dismiss
 
-    @State private var pendingRemoval = false
     /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
     /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
     /// its id while its host/port is refreshed, so id-keying would show a stale
@@ -50,7 +49,13 @@ struct MacComputerDetailView: View {
         }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
-        store.macConnectionStatuses[macDeviceID]
+        MobileShellComposite.exactPairingConnectionStatus(
+            deviceStatus: store.macConnectionStatuses[macDeviceID],
+            connectedMacDeviceID: store.connectedMacDeviceID,
+            connectedMacInstanceTag: store.connectedMacInstanceTag,
+            rowMacDeviceID: macDeviceID,
+            rowInstanceTag: instanceTag
+        )
     }
     private var presence: PresenceMap.DeviceSummary? {
         store.presenceSummary(
@@ -91,23 +96,6 @@ struct MacComputerDetailView: View {
             if let hex = mac?.customColor, let color = Color(hexString: hex) {
                 customColorPick = color
             }
-        }
-        .confirmationDialog(
-            "\(L10n.string("mobile.computers.removeTitlePrefix", defaultValue: "Remove")) \(displayTitle)?",
-            isPresented: $pendingRemoval,
-            titleVisibility: .visible
-        ) {
-            Button(L10n.string("mobile.computers.remove", defaultValue: "Remove"), role: .destructive) {
-                let id = macDeviceID
-                Task {
-                    await store.forgetMac(macDeviceID: id, instanceTag: instanceTag)
-                    await store.loadPairedMacs()
-                }
-                dismiss()
-            }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
-        } message: {
-            Text(removeMessage)
         }
     }
 
@@ -239,13 +227,6 @@ struct MacComputerDetailView: View {
                 customIcon: icon
             )
         }
-    }
-
-    private var removeMessage: String {
-        L10n.string(
-            "mobile.computers.removeMessage",
-            defaultValue: "This computer and its workspaces stop appearing here. To recover it later, open cmux on that Mac, sign in to this same account, then tap Recover Deleted Computer."
-        )
     }
 
     @ViewBuilder
@@ -456,12 +437,23 @@ struct MacComputerDetailView: View {
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }
-            Button(role: .destructive) {
-                pendingRemoval = true
+            Button {
+                let id = macDeviceID
+                let tag = instanceTag
+                Task {
+                    // Scope the hide to this exact pairing; the alias-based
+                    // overload would also hide sibling app instances (e.g. DEV
+                    // vs. stable) the user is not viewing here.
+                    await store.hideMac(macDeviceID: id, instanceTag: tag)
+                }
+                dismiss()
             } label: {
-                Label(L10n.string("mobile.computers.remove", defaultValue: "Remove"), systemImage: "trash")
+                Label(
+                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
+                    systemImage: "eye.slash"
+                )
             }
-            .accessibilityIdentifier("MobileComputerDetailRemove")
+            .accessibilityIdentifier("MobileComputerDetailHide")
         }
     }
 

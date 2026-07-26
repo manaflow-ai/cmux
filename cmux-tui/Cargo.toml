@@ -60,10 +60,13 @@ smallvec = "1"
 getrandom = "0.3"
 bytes = "1"
 diffy = "0.4"
+fs4 = "1.1.0"
 futures-util = "0.3"
 hmac = "0.12"
 http = "1"
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
+parking_lot = "0.12"
+rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"] }
 sha2 = "0.10"
 socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"

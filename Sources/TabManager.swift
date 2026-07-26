@@ -392,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
@@ -476,10 +477,12 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore ?? WorkspaceDirectoryCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
@@ -543,6 +546,7 @@ class TabManager: ObservableObject {
         workspaceGrouping.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
+            titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
@@ -946,6 +950,7 @@ class TabManager: ObservableObject {
     }
 
     func makeWorkspaceForCreation(
+        id: UUID? = nil,
         title: String,
         workingDirectory: String?,
         portOrdinal: Int,
@@ -961,6 +966,7 @@ class TabManager: ObservableObject {
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         Workspace(
+            id: id,
             title: title,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
@@ -1076,7 +1082,9 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func addWorkspace(
+        id: UUID? = nil,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .user,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
@@ -1093,6 +1101,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1147,6 +1156,7 @@ class TabManager: ObservableObject {
                 defaultTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
             }
             let newWorkspace = makeWorkspaceForCreation(
+                id: id,
                 title: title ?? defaultTitle,
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
@@ -1166,8 +1176,13 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
+            if shouldApplyWorkspaceDirectoryCustomization {
+                applyWorkspaceDirectoryCustomization(
+                    to: newWorkspace,
+                    rootDirectory: workingDirectory,
+                    explicitTitle: title,
+                    explicitTitleSource: titleSource
+                )
             }
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
@@ -1743,20 +1758,13 @@ class TabManager: ObservableObject {
 
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.setCustomColor(color)
+        applyWorkspaceColor(color, to: [tab])
     }
 
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
-        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
-            setTabColor(tabId: workspaceId, color: color)
-            return
-        }
-
         let targetIds = Set(workspaceIds)
-        for tab in tabs where targetIds.contains(tab.id) {
-            tab.setCustomColor(color)
-        }
+        applyWorkspaceColor(color, to: tabs.filter { targetIds.contains($0.id) })
     }
 
     func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
@@ -1824,7 +1832,7 @@ class TabManager: ObservableObject {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -1835,7 +1843,7 @@ class TabManager: ObservableObject {
             title: title,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
         )
     }
 
@@ -1918,6 +1926,7 @@ class TabManager: ObservableObject {
     ) -> Workspace {
         addWorkspace(
             title: title,
+            titleSource: .auto,
             workingDirectory: workingDirectory,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
@@ -1935,7 +1944,7 @@ class TabManager: ObservableObject {
         initialBrowserOmnibarVisible: Bool,
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool
+        select: Bool, shouldApplyWorkspaceDirectoryCustomization: Bool
     ) -> Workspace {
         addWorkspace(
             title: title,
@@ -1946,7 +1955,7 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
         )
     }
 
@@ -3381,7 +3390,6 @@ class TabManager: ObservableObject {
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
         guard !tab.isRemoteTmuxMirror else { return }
         if tab.focusedPanelId == panelId {
-            tab.applyProcessTitle(title)
             if selectedTabId == tabId {
                 updateWindowTitle(for: tab)
             }
@@ -3403,9 +3411,8 @@ class TabManager: ObservableObject {
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = workspacesById[tabId],
               !tab.isRemoteTmuxMirror,
-              let focusedPanelId = tab.focusedPanelId,
-              let title = tab.panelTitles[focusedPanelId] else { return }
-        tab.applyProcessTitle(title)
+              let focusedPanelId = tab.focusedPanelId else { return }
+        tab.applyFocusedPanelTitle(panelId: focusedPanelId)
         if selectedTabId == tabId { updateWindowTitle(for: tab) }
     }
     func focusTab(
@@ -4088,8 +4095,8 @@ class TabManager: ObservableObject {
         )
     }
 
-    /// Reopen the most recently closed browser panel (Cmd+Shift+T).
-    /// No-op when no browser panel restore snapshot is available.
+    /// Reopen the most recently closed item, retaining the legacy API name.
+    /// Falls back to the pre-unified browser-panel history when needed.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
         if reopenMostRecentlyClosedItem() {
@@ -4214,15 +4221,33 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
+    func restoreClosedWorkspace(
+        _ entry: ClosedWorkspaceHistoryEntry,
+        excludingStableIdentities callerExcludedStableIdentities: Set<UUID> = [],
+        excludingWorkspaceIds callerExcludedWorkspaceIds: Set<UUID> = []
+    ) -> Bool {
         let preRestoreFocus = currentFocusHistoryEntry
+        var reservedWorkspaceIds = callerExcludedWorkspaceIds
+        reservedWorkspaceIds.formUnion(liveWorkspaceIdSet())
+        let sourceWorkspaceIdIsAmbiguous = reservedWorkspaceIds.contains(entry.workspaceId)
+        var excludedStableIdentities = callerExcludedStableIdentities
+        excludedStableIdentities.formUnion(liveStableIdentitySet())
+        let identitySelector = WorkspaceSessionRestoreIdentity()
+        let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
+            persistedWorkspaceId: entry.snapshot.workspaceId,
+            stableId: entry.snapshot.stableId,
+            reservedWorkspaceIds: &reservedWorkspaceIds,
+            excludingStableIdentities: excludedStableIdentities
+        )
         let workspace = addWorkspace(
+            id: restoredWorkspaceId,
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            shouldApplyWorkspaceDirectoryCustomization: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
+        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
@@ -4231,6 +4256,7 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
+        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and
         // reopen). Drop those stale references so the restored workspace
@@ -4244,11 +4270,13 @@ class TabManager: ObservableObject {
         // different group section after intervening reorders. Renormalize
         // so the restored member lands beside its group.
         let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
-        ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
-            from: entry.workspaceId,
-            to: workspace.id,
-            panelIdMap: restoredPanelIds
-        )
+        if !sourceWorkspaceIdIsAmbiguous {
+            ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+                from: entry.workspaceId,
+                to: workspace.id,
+                panelIdMap: restoredPanelIds
+            )
+        }
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
             let removed = tabs.remove(at: currentIndex)
@@ -5644,6 +5672,7 @@ extension TabManager {
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.customizationDirectory ?? "")
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
@@ -5962,17 +5991,18 @@ extension TabManager {
         )
     }
 
-    private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
+    private func releaseRestoredAwayWorkspace(_ workspace: Workspace, clearNotifications: Bool = true) {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        if clearNotifications {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        }
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
     }
-
-    private static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
+    static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
         _ snapshots: S,
         selectedWorkspaceIndex: Int?
     ) -> ([SessionWorkspaceSnapshot], Int?) where S.Element == SessionWorkspaceSnapshot {
@@ -5989,14 +6019,8 @@ extension TabManager {
         let keptCloudIndex = selectedManagedCloudIndex ?? managedCloudIndexes.first
         var indexMap: [Int: Int] = [:]
         var filtered: [SessionWorkspaceSnapshot] = []
-
-        if let keptCloudIndex {
-            indexMap[keptCloudIndex] = filtered.count
-            filtered.append(snapshots[keptCloudIndex])
-        }
-
         for (index, snapshot) in snapshots.enumerated() {
-            if cloudIndexes.contains(index) {
+            if cloudIndexes.contains(index), index != keptCloudIndex {
                 continue
             }
             indexMap[index] = filtered.count
@@ -6013,6 +6037,7 @@ extension TabManager {
         _ snapshot: SessionTabManagerSnapshot,
         remapClosedPanelHistory: Bool = true,
         excludingStableIdentities: Set<UUID> = [],
+        excludingWorkspaceIds: Set<UUID> = [],
         workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
     ) -> [[UUID: UUID]] {
         isRestoringSessionSnapshot = true
@@ -6038,8 +6063,7 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
 
-        // Build the new workspace list locally to avoid intermediate @Published
-        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // Build locally to avoid intermediate @Published emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
@@ -6049,11 +6073,21 @@ extension TabManager {
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        var restoredDirectoryCustomizations = cachedWorkspaceDirectoryCustomizations(afterRestoring: Array(workspaceSnapshots))
         var restoredOriginalWorkspaceIds: [UUID?] = []
+        var reservedWorkspaceIds = excludingWorkspaceIds
+        let identitySelector = WorkspaceSessionRestoreIdentity()
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let restoredWorkspaceId = identitySelector.restoredWorkspaceId(
+                persistedWorkspaceId: workspaceSnapshot.workspaceId,
+                stableId: workspaceSnapshot.stableId,
+                reservedWorkspaceIds: &reservedWorkspaceIds,
+                excludingStableIdentities: excludingStableIdentities
+            )
             let workspace = Workspace(
+                id: restoredWorkspaceId,
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
@@ -6063,6 +6097,7 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            reconcileWorkspaceDirectoryCustomization(afterRestoring: workspaceSnapshot, to: workspace, cachedCustomizations: &restoredDirectoryCustomizations)
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
@@ -6073,7 +6108,11 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let fallbackWorkspaceId = identitySelector.freshWorkspaceId(
+                reservingIn: &reservedWorkspaceIds
+            )
             let fallback = Workspace(
+                id: fallbackWorkspaceId,
                 title: "Terminal 1",
                 portOrdinal: ordinal,
                 settings: settings,
@@ -6081,6 +6120,7 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
+            applyWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }
@@ -6097,6 +6137,7 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
             let workspaceIdsByGroupId: [UUID: [UUID]] = {
@@ -6112,11 +6153,10 @@ extension TabManager {
             return groupSnapshots.compactMap { groupSnapshot in
                 guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
                       seen.insert(groupSnapshot.id).inserted else { return nil }
-                // Resolve anchor: prefer the restore-stable index (since each
-                // restored workspace gets a fresh UUID, the old
-                // anchorWorkspaceId rarely matches). Fall back to the in-process
-                // UUID hint, then to "first member by tab order" for very old
-                // snapshots that pre-date both fields.
+                // Resolve anchor: prefer the restore-stable index, then the
+                // persisted UUID hint. The UUID hint matches on ordinary
+                // session restore, but duplicate/corrupt snapshots can still
+                // mint fresh workspace ids.
                 let anchorId: UUID = {
                     if let index = groupSnapshot.anchorMemberIndex,
                        members.indices.contains(index) {
@@ -6149,8 +6189,9 @@ extension TabManager {
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarMultiSelection.intersectSelection(with: existingIds)
+        let restoredWorkspaceIds = Set(newTabs.map(\.id))
         for workspace in previousTabs {
-            releaseRestoredAwayWorkspace(workspace)
+            releaseRestoredAwayWorkspace(workspace, clearNotifications: !restoredWorkspaceIds.contains(workspace.id))
         }
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
@@ -6164,7 +6205,8 @@ extension TabManager {
         if remapClosedPanelHistory {
             remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: restoredOriginalWorkspaceIds,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                ambiguousOriginalWorkspaceIds: excludingWorkspaceIds
             )
         }
 
@@ -6180,13 +6222,20 @@ extension TabManager {
 
     func remapClosedPanelHistoryAfterSessionRestore(
         originalWorkspaceIds: [UUID?],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        ambiguousOriginalWorkspaceIds: Set<UUID> = []
     ) {
         let count = min(originalWorkspaceIds.count, tabs.count)
         guard count > 0 else { return }
+        let originalWorkspaceIdCounts = originalWorkspaceIds.reduce(into: [UUID: Int]()) { counts, workspaceId in
+            guard let workspaceId else { return }
+            counts[workspaceId, default: 0] += 1
+        }
         var didRequestHistoryRemap = false
         for index in 0..<count {
             guard let originalWorkspaceId = originalWorkspaceIds[index],
+                  originalWorkspaceIdCounts[originalWorkspaceId] == 1,
+                  !ambiguousOriginalWorkspaceIds.contains(originalWorkspaceId),
                   originalWorkspaceId != tabs[index].id else {
                 continue
             }
@@ -6207,19 +6256,28 @@ extension TabManager {
 
     func remapClosedPanelHistoryAfterWindowRestore(
         originalWorkspaceIds: [UUID],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        ambiguousOriginalWorkspaceIds: Set<UUID> = []
     ) {
         guard !originalWorkspaceIds.isEmpty else { return }
         let count = min(originalWorkspaceIds.count, tabs.count)
         guard count > 0 else { return }
+        let originalWorkspaceIdCounts = originalWorkspaceIds.reduce(into: [UUID: Int]()) { counts, workspaceId in
+            counts[workspaceId, default: 0] += 1
+        }
         var didRequestHistoryRemap = false
         for index in 0..<count {
+            let originalWorkspaceId = originalWorkspaceIds[index]
+            guard originalWorkspaceIdCounts[originalWorkspaceId] == 1,
+                  !ambiguousOriginalWorkspaceIds.contains(originalWorkspaceId) else {
+                continue
+            }
             didRequestHistoryRemap = true
             let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
             ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
-                from: originalWorkspaceIds[index],
+                from: originalWorkspaceId,
                 to: tabs[index].id,
                 panelIdMap: panelIdMap
             )

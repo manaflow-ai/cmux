@@ -56,6 +56,15 @@ extension WorkspaceListView {
     var workspaceTable: WorkspaceListTable {
         let grouped = rendersGroupedSections
         let enablesReorder = enablesWorkspaceReorder
+        // Bound outside the member-wise init: the ternary between `nil` and a
+        // closure literal inside this large expression overwhelms the type
+        // checker ("failed to produce diagnostic").
+        let openChanges: (@MainActor (MobileWorkspacePreview) -> Void)? =
+            store == nil
+                ? nil
+                : { @MainActor workspace in
+                    openWorkspaceChanges(workspace)
+                }
         return WorkspaceListTable(
             items: workspaceTableItems,
             workspacesByID: Dictionary(
@@ -70,9 +79,10 @@ extension WorkspaceListView {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize,
             connectionStatus: connectionStatus,
+            workspaceChangesCapable: workspaceChangesCapable,
+            workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
+            openWorkspaceChanges: openChanges,
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
@@ -102,6 +112,7 @@ extension WorkspaceListView {
             setUnread: setUnread,
             setPinned: setPinned,
             renameRequest: requestWorkspaceRename,
+            customizeRequest: requestWorkspaceCustomization,
             createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
             renameWorkspaceGroup: renameWorkspaceGroup,
             setGroupPinned: setGroupPinned,

@@ -296,7 +296,7 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { await team.value },
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
 
         let staleReconnect = Task {
@@ -323,7 +323,7 @@ import Testing
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
 
         store.currentTeamDidChange()
