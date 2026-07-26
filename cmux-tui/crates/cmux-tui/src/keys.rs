@@ -495,6 +495,20 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_non_ascii_shortcut_keeps_shift_identity() {
+        let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('é'), KeyModifiers::SHIFT),
+            shifted_key: Some('É'),
+            base_layout_key: Some('e'),
+            text: "É".to_string(),
+        });
+
+        let (logical, physical) = input.shortcut_keys();
+        assert_eq!(logical, KeyEvent::new(KeyCode::Char('é'), KeyModifiers::SHIFT));
+        assert_eq!(physical, Some(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::SHIFT)));
+    }
+
+    #[test]
     fn alt_shift_base_keys_preserve_shifted_text_for_legacy_terminals() {
         let encode = |code, shifted| {
             let event = EnhancedKeyEvent {
