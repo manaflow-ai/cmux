@@ -240,6 +240,7 @@ extension BrowserDesignModeController {
             let beforeViewBounds = webView.bounds
             let pageScreenshotPath: String?
             var selectionScreenshotPaths: [String: String] = [:]
+            var viewportCaptureImage: NSImage?
             do {
                 let pageImage = try await screenshotEvaluator.captureFullPage(from: webView)
                 let pageURL = try await saveHandoffScreenshot(
@@ -261,11 +262,33 @@ extension BrowserDesignModeController {
                     selectionScreenshotPaths[selection.selector] = annotationPath
                     continue
                 }
-                let captureRect = selection.documentCaptureRect(
-                    webViewBounds: beforeViewBounds
-                )
-                let selectionImage = try await screenshotEvaluator
-                    .captureDocumentRect(captureRect, from: webView)
+                let selectionImage: NSImage
+                if selection.usesViewportCaptureCoordinates {
+                    let viewportImage: NSImage
+                    if let viewportCaptureImage {
+                        viewportImage = viewportCaptureImage
+                    } else {
+                        let captured = try await screenshotEvaluator
+                            .captureVisibleViewport(from: webView)
+                        viewportCaptureImage = captured
+                        viewportImage = captured
+                    }
+                    selectionImage = try BrowserScreenshotCrop.croppedImage(
+                        from: viewportImage,
+                        selectionInView: BrowserDesignModeSupport.captureRect(
+                            selection: selection.bounds,
+                            viewport: selection.viewport,
+                            viewBounds: beforeViewBounds
+                        ),
+                        viewBounds: beforeViewBounds
+                    )
+                } else {
+                    let captureRect = selection.documentCaptureRect(
+                        webViewBounds: beforeViewBounds
+                    )
+                    selectionImage = try await screenshotEvaluator
+                        .captureDocumentRect(captureRect, from: webView)
+                }
                 let selectionURL = try await saveHandoffScreenshot(
                     selectionImage,
                     lease: lease

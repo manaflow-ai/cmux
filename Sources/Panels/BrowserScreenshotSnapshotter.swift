@@ -195,10 +195,12 @@ enum BrowserScreenshotWebViewSnapshotter {
     static func captureDocumentRect(
         _ rect: NSRect,
         from webView: WKWebView,
-        afterScreenUpdates: Bool = true
+        afterScreenUpdates: Bool = true,
+        onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
         let metrics = try await webContentMetrics(for: webView)
+        onProgress()
         let bounds = webView.bounds
         let scaleX = bounds.width / metrics.viewportSize.width
         let scaleY = bounds.height / metrics.viewportSize.height
@@ -220,7 +222,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             metrics: metrics,
             maximumPixelCount: Int(BrowserScreenshotCaptureBounds.maximumSelectionPixels),
             afterScreenUpdates: afterScreenUpdates,
-            onProgress: {}
+            onProgress: onProgress
         )
     }
 

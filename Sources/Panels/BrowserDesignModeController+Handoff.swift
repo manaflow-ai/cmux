@@ -52,8 +52,12 @@ extension BrowserDesignModeController {
             id: lease
         )
         if let previousLease {
-            await previousLease.artifactStore.releaseHandoff(previousLease.id)
+            Task {
+                await previousLease.artifactStore.releaseHandoff(previousLease.id)
+            }
         }
-        return operation == operationRevision
+        // The clipboard now references this lease. Later UI invalidation must
+        // not make the caller discard artifacts that were already delivered.
+        return true
     }
 }

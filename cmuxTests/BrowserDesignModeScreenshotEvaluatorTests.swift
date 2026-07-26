@@ -80,36 +80,26 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
     }
 
     @Test func progressingDocumentCaptureCanOutliveSingleDeadline() async throws {
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
-        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
-        let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
-            loadedContinuation.yield()
-            loadedContinuation.finish()
-        }
-        webView.navigationDelegate = navigationDelegate
-        webView.loadHTMLString(
-            """
-            <style>
-              html, body { margin: 0; width: 640px; height: 32000px; background: blue; }
-            </style>
-            """,
-            baseURL: nil
-        )
-        var loadedIterator = loaded.makeAsyncIterator()
-        _ = await loadedIterator.next()
+        let expected = NSImage(size: NSSize(width: 20, height: 40))
         let evaluator = BrowserDesignModeScreenshotEvaluator(
-            timeout: 1.5,
-            cleanupTimeout: 2
+            timeout: 0.2,
+            visibleViewportCapture: { _, _ in },
+            fullPageCapture: { _, _ in expected },
+            documentRectCapture: { _, _, onProgress in
+                for _ in 0..<5 {
+                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                    onProgress()
+                }
+                return expected
+            }
         )
 
-        let image = try await evaluator.captureDocumentRect(
-            NSRect(x: 0, y: 0, width: 640, height: 32_000),
-            from: webView
+        let captured = try await evaluator.captureDocumentRect(
+            NSRect(x: 0, y: 0, width: 20, height: 40),
+            from: WKWebView()
         )
 
-        let representation = try #require(image.representations.first)
-        #expect(representation.pixelsWide * representation.pixelsHigh <= 4_194_304)
-        _ = navigationDelegate
+        #expect(captured === expected)
     }
 
     @Test func timeoutWaitsForCaptureCleanupBeforeCallerStartsFallback() async throws {
@@ -133,7 +123,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
                     throw error
                 }
             },
-            documentRectCapture: { _, _ in
+            documentRectCapture: { _, _, _ in
                 events.append("fallback")
                 return NSImage(size: NSSize(width: 10, height: 10))
             }
@@ -231,7 +221,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
                     captureStartedContinuation.yield()
                 }
             },
-            documentRectCapture: { _, _ in
+            documentRectCapture: { _, _, _ in
                 didStartFallback = true
                 return NSImage(size: NSSize(width: 10, height: 10))
             }

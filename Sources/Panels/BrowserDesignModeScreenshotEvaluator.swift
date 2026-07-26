@@ -6,6 +6,7 @@ import WebKit
 @MainActor
 final class BrowserDesignModeScreenshotEvaluator {
     private typealias PendingCancellation = (
+        operationID: UUID,
         continuation: CheckedContinuation<NSImage, any Error>,
         captureTask: Task<Void, Never>?
     )
@@ -20,16 +21,25 @@ final class BrowserDesignModeScreenshotEvaluator {
         @escaping @MainActor () -> Void
     ) async throws -> NSImage
     typealias DocumentRectCapture = @MainActor (WKWebView, NSRect) async throws -> NSImage
+    typealias ProgressiveDocumentRectCapture = @MainActor (
+        WKWebView,
+        NSRect,
+        @escaping @MainActor () -> Void
+    ) async throws -> NSImage
 
     private let timeout: TimeInterval
     private let cleanupTimeout: TimeInterval
     private let visibleViewportCapture: Capture
     private let fullPageCapture: ProgressiveCapture
-    private let documentRectCapture: DocumentRectCapture
+    private let documentRectCapture: ProgressiveDocumentRectCapture
     private let fullPageUsesInactivityTimeout: Bool
     private var continuations: [UUID: CheckedContinuation<NSImage, any Error>] = [:]
     private var timeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var captureTasks: [UUID: Task<Void, Never>] = [:]
+    private var cleanupContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    private var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    private var operationIDsByWebView: [ObjectIdentifier: UUID] = [:]
+    private var webViewIDsByOperation: [UUID: ObjectIdentifier] = [:]
 
     init(timeout: TimeInterval = 5, cleanupTimeout: TimeInterval = 2) {
         self.timeout = timeout
@@ -47,10 +57,11 @@ final class BrowserDesignModeScreenshotEvaluator {
                 onProgress: onProgress
             )
         }
-        documentRectCapture = { webView, rect in
+        documentRectCapture = { webView, rect, onProgress in
             try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
                 rect,
-                from: webView
+                from: webView,
+                onProgress: onProgress
             )
         }
         fullPageUsesInactivityTimeout = true
@@ -93,7 +104,9 @@ final class BrowserDesignModeScreenshotEvaluator {
         self.fullPageCapture = { webView, _ in
             try await fullPageCapture(webView)
         }
-        self.documentRectCapture = documentRectCapture
+        self.documentRectCapture = { webView, rect, _ in
+            try await documentRectCapture(webView, rect)
+        }
         fullPageUsesInactivityTimeout = false
     }
 
@@ -102,10 +115,11 @@ final class BrowserDesignModeScreenshotEvaluator {
         cleanupTimeout: TimeInterval = 2,
         visibleViewportCapture: @escaping Capture,
         fullPageCapture: @escaping ProgressiveCapture,
-        documentRectCapture: @escaping DocumentRectCapture = { webView, rect in
+        documentRectCapture: @escaping ProgressiveDocumentRectCapture = { webView, rect, onProgress in
             try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
                 rect,
-                from: webView
+                from: webView,
+                onProgress: onProgress
             )
         }
     ) {
@@ -118,7 +132,10 @@ final class BrowserDesignModeScreenshotEvaluator {
     }
 
     func captureVisibleViewport(from webView: WKWebView) async throws -> NSImage {
-        try await captureImage(usesTimeout: true) { [visibleViewportCapture] operationID in
+        try await captureImage(
+            from: webView,
+            usesTimeout: true
+        ) { [visibleViewportCapture] operationID in
             visibleViewportCapture(webView) { [weak self] result in
                 self?.finish(operationID, with: result)
             }
@@ -127,10 +144,12 @@ final class BrowserDesignModeScreenshotEvaluator {
 
     func captureFullPage(from webView: WKWebView) async throws -> NSImage {
         try await captureImage(
+            from: webView,
             usesTimeout: fullPageUsesInactivityTimeout
         ) { [weak self, fullPageCapture] operationID in
             guard let self else { return }
             self.captureTasks[operationID] = Task { @MainActor [weak self] in
+                defer { self?.captureTaskDidExit(operationID) }
                 do {
                     let image = try await fullPageCapture(webView) { [weak self] in
                         self?.resetTimeout(operationID)
@@ -144,11 +163,20 @@ final class BrowserDesignModeScreenshotEvaluator {
     }
 
     func captureDocumentRect(_ rect: NSRect, from webView: WKWebView) async throws -> NSImage {
-        try await captureImage(usesTimeout: true) { [weak self, documentRectCapture] operationID in
+        try await captureImage(
+            from: webView,
+            usesTimeout: true
+        ) { [weak self, documentRectCapture] operationID in
             guard let self else { return }
             self.captureTasks[operationID] = Task { @MainActor [weak self] in
+                defer { self?.captureTaskDidExit(operationID) }
                 do {
-                    let image = try await documentRectCapture(webView, rect)
+                    let image = try await documentRectCapture(
+                        webView,
+                        rect
+                    ) { [weak self] in
+                        self?.resetTimeout(operationID)
+                    }
                     self?.finish(operationID, returning: image)
                 } catch {
                     self?.finish(operationID, throwing: error)
@@ -158,10 +186,21 @@ final class BrowserDesignModeScreenshotEvaluator {
     }
 
     private func captureImage(
+        from webView: WKWebView,
         usesTimeout: Bool,
         start: @escaping @MainActor (_ operationID: UUID) -> Void
     ) async throws -> NSImage {
+        let webViewID = ObjectIdentifier(webView)
+        guard operationIDsByWebView[webViewID] == nil else {
+            throw CancellationError()
+        }
         let operationID = UUID()
+        operationIDsByWebView[webViewID] = operationID
+        webViewIDsByOperation[operationID] = webViewID
+        if Task.isCancelled {
+            releaseWebViewGate(operationID)
+            throw CancellationError()
+        }
         do {
             let image = try await withTaskCancellationHandler {
                 try Task.checkCancellation()
@@ -211,7 +250,7 @@ final class BrowserDesignModeScreenshotEvaluator {
         }
         for cancellation in cancellations {
             Task { @MainActor [cleanupTimeout] in
-                await Self.resumeAfterCleanup(
+                await self.resumeAfterCleanup(
                     cancellation,
                     throwing: CancellationError(),
                     cleanupTimeout: cleanupTimeout
@@ -246,7 +285,7 @@ final class BrowserDesignModeScreenshotEvaluator {
         throwing error: any Error
     ) async {
         guard let cancellation = beginCancellation(operationID) else { return }
-        await Self.resumeAfterCleanup(
+        await resumeAfterCleanup(
             cancellation,
             throwing: error,
             cleanupTimeout: cleanupTimeout
@@ -258,25 +297,26 @@ final class BrowserDesignModeScreenshotEvaluator {
     ) -> PendingCancellation? {
         timeoutTasks.removeValue(forKey: operationID)?.cancel()
         guard let continuation = continuations.removeValue(forKey: operationID) else { return nil }
-        let captureTask = captureTasks.removeValue(forKey: operationID)
+        let captureTask = captureTasks[operationID]
         captureTask?.cancel()
-        return (continuation, captureTask)
+        return (operationID, continuation, captureTask)
     }
 
-    private static func resumeAfterCleanup(
+    private func resumeAfterCleanup(
         _ cancellation: PendingCancellation,
         throwing error: any Error,
         cleanupTimeout: TimeInterval
     ) async {
-        let cleanupCompleted: Bool
-        if let captureTask = cancellation.captureTask {
-            cleanupCompleted = await BrowserDesignModeCaptureCleanupWaiter.wait(
-                for: captureTask,
-                timeout: cleanupTimeout
-            )
-        } else {
-            cleanupCompleted = true
+        guard cancellation.captureTask != nil else {
+            // Callback-based WebKit capture has no cancellable task to await.
+            // Keep its web-view gate until the callback eventually arrives.
+            cancellation.continuation.resume(throwing: error)
+            return
         }
+        let cleanupCompleted = await waitForCaptureCleanup(
+            cancellation.operationID,
+            timeout: cleanupTimeout
+        )
         // An uncooperative WebKit callback must not defeat the timeout or let
         // the caller start selection fallback against a page still in capture.
         cancellation.continuation.resume(
@@ -284,54 +324,62 @@ final class BrowserDesignModeScreenshotEvaluator {
         )
     }
 
-    private func removeOperation(
-        _ operationID: UUID
-    ) -> CheckedContinuation<NSImage, any Error>? {
-        timeoutTasks.removeValue(forKey: operationID)?.cancel()
-        captureTasks.removeValue(forKey: operationID)?.cancel()
-        return continuations.removeValue(forKey: operationID)
-    }
-}
-
-@MainActor
-private final class BrowserDesignModeCaptureCleanupWaiter {
-    private var continuation: CheckedContinuation<Bool, Never>?
-    private var timeoutTask: Task<Void, Never>?
-
-    static func wait(
-        for captureTask: Task<Void, Never>,
+    private func waitForCaptureCleanup(
+        _ operationID: UUID,
         timeout: TimeInterval
     ) async -> Bool {
-        let waiter = BrowserDesignModeCaptureCleanupWaiter()
-        return await waiter.wait(for: captureTask, timeout: timeout)
-    }
-
-    private func wait(
-        for captureTask: Task<Void, Never>,
-        timeout: TimeInterval
-    ) async -> Bool {
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            Task { @MainActor [weak self] in
-                await captureTask.value
-                self?.finish(cleanupCompleted: true)
-            }
-            timeoutTask = Task { @MainActor [weak self] in
+        guard captureTasks[operationID] != nil else { return true }
+        return await withCheckedContinuation { continuation in
+            cleanupContinuations[operationID] = continuation
+            cleanupTimeoutTasks[operationID] = Task { @MainActor [weak self] in
                 do {
-                    try await ContinuousClock().sleep(for: .seconds(max(0, timeout)))
+                    try await ContinuousClock().sleep(
+                        for: .seconds(max(0, timeout))
+                    )
                 } catch {
                     return
                 }
-                self?.finish(cleanupCompleted: false)
+                self?.finishCleanupWait(
+                    operationID,
+                    cleanupCompleted: false
+                )
             }
         }
     }
 
-    private func finish(cleanupCompleted: Bool) {
-        guard let continuation else { return }
-        self.continuation = nil
-        timeoutTask?.cancel()
-        timeoutTask = nil
+    private func captureTaskDidExit(_ operationID: UUID) {
+        captureTasks.removeValue(forKey: operationID)
+        finishCleanupWait(operationID, cleanupCompleted: true)
+        releaseWebViewGate(operationID)
+    }
+
+    private func finishCleanupWait(
+        _ operationID: UUID,
+        cleanupCompleted: Bool
+    ) {
+        guard let continuation = cleanupContinuations.removeValue(
+            forKey: operationID
+        ) else { return }
+        cleanupTimeoutTasks.removeValue(forKey: operationID)?.cancel()
         continuation.resume(returning: cleanupCompleted)
+    }
+
+    private func releaseWebViewGate(_ operationID: UUID) {
+        guard let webViewID = webViewIDsByOperation.removeValue(
+            forKey: operationID
+        ) else { return }
+        if operationIDsByWebView[webViewID] == operationID {
+            operationIDsByWebView.removeValue(forKey: webViewID)
+        }
+    }
+
+    private func removeOperation(
+        _ operationID: UUID
+    ) -> CheckedContinuation<NSImage, any Error>? {
+        timeoutTasks.removeValue(forKey: operationID)?.cancel()
+        if captureTasks[operationID] == nil {
+            releaseWebViewGate(operationID)
+        }
+        return continuations.removeValue(forKey: operationID)
     }
 }

@@ -2,6 +2,13 @@ import AppKit
 import CmuxBrowser
 
 extension BrowserDesignModeSelection {
+    var usesViewportCaptureCoordinates: Bool {
+        guard let position = computedStyles["position"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() else { return false }
+        return position == "fixed" || position == "sticky"
+    }
+
     func documentCaptureRect(webViewBounds: NSRect) -> NSRect {
         let values = [
             bounds.x,
