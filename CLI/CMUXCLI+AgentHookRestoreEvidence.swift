@@ -260,6 +260,14 @@ extension CMUXCLI {
         guard !permissionArguments.isEmpty else {
             return launchCommand
         }
+        // Environment-only captures intentionally have no argv. Establish the
+        // logical executable before appending repaired flags, or the first flag
+        // becomes argv[0] and the saved command tries to execute `--yolo`.
+        if launchCommand.arguments.isEmpty {
+            launchCommand.arguments = [
+                normalizedHookValue(launchCommand.executablePath) ?? "codex"
+            ]
+        }
         launchCommand.arguments.append(contentsOf: permissionArguments)
         return launchCommand
     }
