@@ -29,6 +29,24 @@ struct WorkspaceIsStaleAgentHookBindingTests {
     }
 
     @Test
+    func snapshotPreservesDurableAgentHookBindingWhenProcessScanIsEmpty() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = Self.agentHookBinding(launchFlavor: .local)
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+
+        #expect(snapshot.panels.first?.terminal?.resumeBinding == binding)
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
+    }
+
+    @Test
     func localAgentHookBindingWithNoLiveProcessIsStale() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
