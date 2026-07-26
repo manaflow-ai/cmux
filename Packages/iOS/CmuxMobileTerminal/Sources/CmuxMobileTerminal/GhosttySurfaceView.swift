@@ -2668,7 +2668,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // never use-after-free against the free, and no two of them ever touch
         // the surface concurrently. `processOutput`'s main-actor guard stops new
         // work from being enqueued once `surface` is nil, so only the bounded
-        // backlog drains before the free. libghostty owns bridge userdata through final destruction and every app-action lease.
+        // backlog drains before the free. The host-owned bridge retain stays
+        // alive until synchronous libghostty teardown has stopped callbacks.
         enqueueSurfaceFree(surface, generation: surfaceGeneration, on: currentQueue)
     }
 
@@ -2679,7 +2680,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) {
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
         queue.async { [weak self] in
+            let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
+            GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
             Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
         }
     }
@@ -3654,13 +3657,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         surfaceConfig.io_write_userdata = bridgePointer
-        // A C function pointer can only be formed from a global func or a
-        // capture-free closure literal, not a static method reference.
-        guard let createdSurface = ghostty_surface_new_with_owned_userdata(
-            app, &surfaceConfig, { userdata in
-                GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
-            }
-        ) else {
+        guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
             retainedBridge.release()
             return nil
         }
@@ -3672,6 +3669,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)
+            retainedBridge.release()
             return nil
         }
         return createdSurface
