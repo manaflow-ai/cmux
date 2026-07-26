@@ -378,6 +378,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
     /// fresh instance by default unless they intentionally model two windows.
     @MainActor
     final class Arbiter {
+        private static let maximumDeferredCoordinatorJoinCount = 256
+
         private var deferredCoordinatorJoins:
             [DeferredCoordinatorJoin] = []
         private var deferredCoordinatorJoinHead = 0
@@ -403,6 +405,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
         }
 
+        @discardableResult
         fileprivate func deferCoordinatorJoin(
             _ change: WorkspaceTerminalFontSizeChange,
             workspace: Workspace,
@@ -411,7 +414,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             preferredCoordinator:
                 WorkspaceTerminalFontSizeCoordinator,
             deferFlush: Bool
-        ) {
+        ) -> Bool {
             let lastIndex = deferredCoordinatorJoins.indices.last
             if let lastIndex,
                lastIndex >= deferredCoordinatorJoinHead,
@@ -424,18 +427,29 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 existing.deferFlush =
                     existing.deferFlush && deferFlush
                 deferredCoordinatorJoins[lastIndex] = existing
-            } else {
-                deferredCoordinatorJoins.append(
-                    DeferredCoordinatorJoin(
-                        workspaceId: workspace.id,
-                        workspaceReference: workspaceReference,
-                        windowDockSlot: windowDockSlot,
-                        preferredCoordinator: preferredCoordinator,
-                        change: change,
-                        deferFlush: deferFlush
-                    )
-                )
+                return true
             }
+
+            // Preserve every accepted join's order, but stop accepting new
+            // distinct pairs once blocked owners fill the bounded backlog.
+            // Adjacent repeats above still coalesce into constant-size
+            // transforms at the limit.
+            guard deferredCoordinatorJoins.count
+                    - deferredCoordinatorJoinHead
+                    < Self.maximumDeferredCoordinatorJoinCount else {
+                return false
+            }
+            deferredCoordinatorJoins.append(
+                DeferredCoordinatorJoin(
+                    workspaceId: workspace.id,
+                    workspaceReference: workspaceReference,
+                    windowDockSlot: windowDockSlot,
+                    preferredCoordinator: preferredCoordinator,
+                    change: change,
+                    deferFlush: deferFlush
+                )
+            )
+            return true
         }
 
         fileprivate func promoteDeferredCoordinatorJoins() {
@@ -480,7 +494,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     workspaceCoordinator
                     ?? windowDockCoordinator
                     ?? preferred
-                eventCoordinator.signalMutationRetry()
+                eventCoordinator.signalMutationRetry(
+                    scheduleIfOutstanding: false
+                )
                 eventCoordinator.claimWorkspace(workspace)
                 eventCoordinator.claimWindowDockSlot(
                     join.windowDockSlot
@@ -807,7 +823,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             workspaceCoordinator
             ?? windowDockCoordinator
             ?? self
-        eventCoordinator.signalMutationRetry()
+        eventCoordinator.signalMutationRetry(
+            scheduleIfOutstanding: false
+        )
         eventCoordinator.claimWorkspace(workspace)
         eventCoordinator.claimWindowDockSlot(windowDockSlot)
         eventCoordinator.appendEvent(
@@ -887,7 +905,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         arbiter.promoteDeferredCoordinatorJoins()
         if activeRequest != nil || hasPendingRequests {
             retainWhileOutstanding()
-            signalMutationRetry()
+            signalMutationRetry(scheduleIfOutstanding: false)
             scheduleOutstandingContinuation()
         } else {
             releaseRetentionIfIdle()
@@ -899,13 +917,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     func debugFlushOneDrain() {
         invalidateScheduledDrain()
-        signalMutationRetry()
+        signalMutationRetry(scheduleIfOutstanding: false)
         drain()
     }
 
     func debugDrainAll() {
         invalidateScheduledDrain()
-        signalMutationRetry()
+        signalMutationRetry(scheduleIfOutstanding: false)
         while activeRequest != nil || hasPendingRequests {
             if mutationRetryDisposition == .backoff {
                 mutationRetryDisposition = .ready
@@ -1561,7 +1579,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         resourceKey: RequestResourceKey,
         processImmediately: Bool
     ) {
-        signalMutationRetry()
+        signalMutationRetry(scheduleIfOutstanding: false)
 #if DEBUG
         debugLastSynchronousTransferRequestVisitCount = 0
 #endif
@@ -2155,8 +2173,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     /// A new user request or terminal ownership transition is evidence that
     /// the failed native path may be viable again.
-    private func signalMutationRetry() {
+    private func signalMutationRetry(
+        scheduleIfOutstanding: Bool = true
+    ) {
+        let wasBlocked =
+            mutationRetryDisposition != .ready
+        if wasBlocked, scheduleIfOutstanding {
+            invalidateScheduledDrain()
+        }
         resetMutationRetryState()
+        if wasBlocked, scheduleIfOutstanding {
+            scheduleOutstandingContinuation()
+        }
     }
 
     private func recordMutationSuccess() {
