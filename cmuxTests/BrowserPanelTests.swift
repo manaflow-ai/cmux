@@ -3475,7 +3475,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testSingleEntryAnchorResizeDoesNotScheduleRedundantFullSync() {
+    func testSingleEntryAnchorResizeDoesNotScheduleRedundantFullSync() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -3494,22 +3494,29 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor)
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
-        advanceAnimations()
+        await waitForNextMainTurn()
 
         let conversionCountBeforeResize = anchor.windowConversionCount
         anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        let conversionCountAfterResize = anchor.windowConversionCount
+        XCTAssertEqual(
+            conversionCountAfterResize - conversionCountBeforeResize,
+            1,
+            "A single hosted browser should synchronize its changed anchor once"
+        )
+
+        await waitForNextMainTurn()
 
         XCTAssertEqual(
-            anchor.windowConversionCount - conversionCountBeforeResize,
-            1,
-            "A single hosted browser should synchronize its changed anchor once without a redundant deferred all-entry pass"
+            anchor.windowConversionCount,
+            conversionCountAfterResize,
+            "A single hosted browser should not receive a redundant deferred all-entry pass"
         )
     }
 
-    func testPortalAnchorResizeDoesNotForceHostedWebViewPresentationRefresh() {
+    func testPortalAnchorResizeDoesNotForceHostedWebViewPresentationRefresh() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -3531,7 +3538,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        await waitForNextMainTurn()
 
         guard let slot = webView.superview as? WindowBrowserSlotView else {
             XCTFail("Expected browser slot")
@@ -3544,7 +3551,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        let setNeedsDisplayCountAfterResize = webView.setNeedsDisplayCount
+        let displayCountAfterResize = webView.displayIfNeededCount
+        let reattachCountAfterResize = webView.reattachRenderingStateCount
 
         XCTAssertFalse(slot.isHidden, "Anchor resize should keep the portal-hosted browser visible")
         XCTAssertEqual(slot.frame.origin.x, 52, accuracy: 0.5)
@@ -3552,23 +3561,31 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 178, accuracy: 0.5)
         XCTAssertGreaterThan(
-            webView.setNeedsDisplayCount,
+            setNeedsDisplayCountAfterResize,
             initialSetNeedsDisplayCount,
             "Pure anchor geometry updates should invalidate the hosted browser for redraw"
         )
         XCTAssertEqual(
-            webView.displayIfNeededCount,
+            displayCountAfterResize,
             initialDisplayCount,
             "Pure anchor geometry updates must not synchronously flush WebKit display"
         )
         XCTAssertEqual(
-            webView.reattachRenderingStateCount,
+            reattachCountAfterResize,
             initialReattachCount,
             "Pure anchor geometry updates should not trigger the WebKit reattach path"
         )
+
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            reattachCountAfterResize,
+            "Pure anchor geometry updates must not enqueue a delayed WebKit reattach"
+        )
     }
 
-    func testActiveViewportAnchorResizeKeepsHostedWebViewAttached() throws {
+    func testActiveViewportAnchorResizeKeepsHostedWebViewAttached() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -3595,7 +3612,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        await waitForNextMainTurn()
 
         XCTAssertTrue(webView.superview === viewportHost)
         guard let slot = viewportHost.superview as? WindowBrowserSlotView else {
@@ -3628,7 +3645,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(viewportHost.needsDisplay)
     }
 
-    func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() {
+    func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 360),
             styleMask: [.titled, .closable],
@@ -3673,7 +3690,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
-        advanceAnimations()
+        await waitForNextMainTurn()
 
         guard let slot = webView.superview as? WindowBrowserSlotView else {
             XCTFail("Expected browser slot")
@@ -3688,7 +3705,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         splitView.setPosition(280, ofDividerAt: 0)
         contentView.layoutSubtreeIfNeeded()
         NotificationCenter.default.post(name: NSSplitView.didResizeSubviewsNotification, object: splitView)
-        advanceAnimations()
+        let displayCountAfterResizeRequest = webView.displayIfNeededCount
+
+        await waitForNextMainTurn()
 
         XCTAssertFalse(slot.isHidden, "App split resize should keep the browser slot visible")
         XCTAssertLessThan(
@@ -3702,9 +3721,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "External split resize should invalidate the hosted browser for redraw"
         )
         XCTAssertEqual(
-            webView.displayIfNeededCount,
+            displayCountAfterResizeRequest,
             initialDisplayCount,
-            "External split resize must not synchronously flush WebKit display"
+            "External split resize request must not synchronously flush WebKit display"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
