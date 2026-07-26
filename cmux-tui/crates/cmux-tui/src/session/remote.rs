@@ -1789,8 +1789,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stack_layouts_require_protocol_9() {
-        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 9);
+    fn guarded_browser_pointer_input_requires_a_server_capability() {
+        let error =
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "cmux-tui protocol 9 server does not support guarded browser pointer input; restart the cmux-tui server"
+        );
     }
 
     #[test]
@@ -1804,8 +1809,13 @@ mod tests {
     }
 
     #[test]
-    fn protocol_9_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
+    fn protocol_9_identity_with_guarded_pointer_capability_is_accepted() {
+        validate_remote_identity(&json!({
+            "app": "cmux-tui",
+            "protocol": 9,
+            "capabilities": ["browser-pointer-frame-guard-v1"],
+        }))
+        .unwrap();
     }
 
     #[test]
@@ -1970,7 +1980,11 @@ mod tests {
                 (_, "identify") => json!({
                     "id": id,
                     "ok": true,
-                    "data": {"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION},
+                    "data": {
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    },
                 }),
                 (_, "set-client-info" | "subscribe") => {
                     json!({"id": id, "ok": true, "data": null})
@@ -2166,7 +2180,11 @@ mod tests {
                 let request: Value = serde_json::from_str(&line).unwrap();
                 assert_eq!(request["cmd"], expected_command);
                 let data = if expected_command == "identify" {
-                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
                 } else {
                     Value::Null
                 };
@@ -2503,6 +2521,23 @@ mod tests {
             "height": 40,
             "data": "Zmlyc3Q=",
         }));
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+        }));
+        assert_eq!(surface.browser_frame_seq(), None, "missing pointer admission must fail closed");
+
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(surface.browser_frame_seq(), Some(9));
+
         surface.update_browser_state(&json!({
             "url": "https://next.test",
             "title": "next",

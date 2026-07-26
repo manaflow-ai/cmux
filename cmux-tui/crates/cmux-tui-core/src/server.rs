@@ -5109,6 +5109,47 @@ mod tests {
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PROTOCOL_VERSION, 9);
+        assert!(
+            identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
+                .iter()
+                .any(|capability| capability == "browser-pointer-frame-guard-v1")),
+            "the server must advertise guarded browser pointer input"
+        );
+    }
+
+    #[test]
+    fn browser_pointer_commands_require_a_numeric_frame_guard() {
+        for cmd in ["browser-mouse", "browser-wheel"] {
+            let mut request = json!({
+                "id": 1,
+                "cmd": cmd,
+                "surface": 7,
+                "x_px": 1.0,
+                "y_px": 2.0,
+                "frame_seq": 9,
+            });
+            if cmd == "browser-mouse" {
+                request["kind"] = json!("down");
+            } else {
+                request["delta_y_px"] = json!(3.0);
+            }
+            assert!(
+                serde_json::from_value::<Request>(request.clone()).is_ok(),
+                "{cmd} must accept a numeric frame guard"
+            );
+
+            request.as_object_mut().unwrap().remove("frame_seq");
+            assert!(
+                serde_json::from_value::<Request>(request.clone()).is_err(),
+                "{cmd} must reject a missing frame guard"
+            );
+
+            request["frame_seq"] = Value::Null;
+            assert!(
+                serde_json::from_value::<Request>(request).is_err(),
+                "{cmd} must reject a null frame guard"
+            );
+        }
     }
 
     #[test]

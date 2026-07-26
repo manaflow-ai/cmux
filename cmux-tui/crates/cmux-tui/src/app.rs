@@ -6394,6 +6394,12 @@ impl App {
             && area.content.height > 0
     }
 
+    #[cfg(test)]
+    fn track_graphics_submission(&mut self, submission: u64, snapshot: Vec<GraphicIdentity>) {
+        self.pending_graphics_submission = Some(submission);
+        self.pending_graphics_snapshot = Some(snapshot);
+    }
+
     fn emit_graphics(&mut self) -> anyhow::Result<()> {
         if !self.graphics_supported {
             return Ok(());
@@ -14892,6 +14898,52 @@ mod tests {
         assert!(app.pointer_route_is_stale_for_mouse(&covered));
         assert!(app.pointer_route_is_stale_for_mouse(&newly_covered));
         assert!(!app.pointer_route_is_stale_for_mouse(&unchanged));
+    }
+
+    #[test]
+    fn superseded_graphics_presentations_keep_intermediate_cells_blocked() {
+        let mux = Mux::new("graphics-presentation-union-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let intermediate = GraphicIdentity {
+            session_generation: app.session_generation,
+            surface: 11,
+            rect: Rect { x: 2, y: 2, width: 8, height: 4 },
+            seq: 13,
+        };
+        let covered = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+
+        app.track_graphics_submission(2, vec![intermediate]);
+        app.track_graphics_submission(3, Vec::new());
+
+        assert!(
+            app.pointer_route_is_stale_for_mouse(&covered),
+            "A→B→A must block cells touched by the intermediate B presentation"
+        );
+
+        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+            id: 2,
+            frames: vec![(11, 13)],
+        });
+        assert_eq!(app.last_graphics_snapshot, vec![intermediate]);
+        assert_eq!(app.pending_graphics_submission, Some(3));
+        assert!(
+            app.pointer_route_is_stale_for_mouse(&covered),
+            "the cell must stay blocked while the replacement A presentation is pending"
+        );
+
+        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+            id: 3,
+            frames: Vec::new(),
+        });
+        assert!(app.last_graphics_snapshot.is_empty());
+        assert_eq!(app.pending_graphics_submission, None);
+        assert!(!app.pointer_route_is_stale_for_mouse(&covered));
     }
 
     #[test]
