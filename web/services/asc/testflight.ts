@@ -98,9 +98,10 @@ export async function enrollTester(
 
   const tester = await findBetaTesterByEmail(normalizedEmail);
   if (!tester) throw new AscApiError("Existing beta tester could not be found", 409);
-  if (await testerIsInProGroup(tester.id)) return;
-  const added = await addTesterToGroup(tester.id);
-  if (added) await sendTesterInvitation(tester.id);
+  if (!(await testerIsInProGroup(tester.id))) {
+    await addTesterToGroup(tester.id);
+  }
+  await sendTesterInvitation(tester.id);
 }
 
 export async function removeTester(email: string): Promise<void> {
@@ -119,7 +120,7 @@ export async function removeTester(email: string): Promise<void> {
   }
 }
 
-async function addTesterToGroup(testerId: string): Promise<boolean> {
+async function addTesterToGroup(testerId: string): Promise<void> {
   try {
     await ascFetch(`/v1/betaGroups/${encodeURIComponent(PRO_TESTFLIGHT_GROUP_ID)}/relationships/betaTesters`, {
       method: "POST",
@@ -127,9 +128,8 @@ async function addTesterToGroup(testerId: string): Promise<boolean> {
         data: [{ type: "betaTesters", id: testerId }],
       }),
     });
-    return true;
   } catch (error) {
-    if (isAlreadyExistsError(error)) return false;
+    if (isAlreadyExistsError(error)) return;
     throw error;
   }
 }
