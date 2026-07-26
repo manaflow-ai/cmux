@@ -727,12 +727,13 @@ pub(crate) fn incompatible_server_message(identity: &ServerIdentity, path: &Path
         .join(messages.reason_separator);
     let launcher = current_launcher_command();
     let command = format!("{launcher} server stop --socket {}", shell_quote(path));
+    let replay = current_replay_command();
     let restart = format!(
         "{}{}{}{}{}",
         messages.restart_before_command,
         command,
         messages.restart_between_commands,
-        launcher,
+        replay,
         messages.restart_after_command
     );
     format!(
@@ -758,6 +759,22 @@ fn current_launcher_command() -> String {
     let override_command = std::env::var_os(LAUNCHER_COMMAND_ENV);
     let argv0 = std::env::args_os().next();
     launcher_command_from(override_command.as_deref(), argv0.as_deref())
+}
+
+fn current_replay_command() -> String {
+    replay_command_from(current_launcher_command(), std::env::args_os().skip(1))
+}
+
+fn replay_command_from<I, S>(mut command: String, arguments: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    for argument in arguments {
+        command.push(' ');
+        command.push_str(&shell_quote(Path::new(argument.as_ref())));
+    }
+    command
 }
 
 fn launcher_command_from(override_command: Option<&OsStr>, argv0: Option<&OsStr>) -> String {
@@ -1004,9 +1021,11 @@ fn connection_is_gone(path: &Path) -> bool {
 
 fn shell_quote(path: &Path) -> String {
     let value = path.display().to_string();
-    if value.chars().all(|character| {
-        character.is_ascii_alphanumeric() || matches!(character, '/' | '.' | '_' | '-')
-    }) {
+    if !value.is_empty()
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '/' | '.' | '_' | '-')
+        })
+    {
         value
     } else {
         format!("'{}'", value.replace('\'', "'\"'\"'"))
@@ -1124,6 +1143,14 @@ mod tests {
         assert_eq!(
             launcher_command_from(Some(OsStr::new("bad\ncommand")), Some(argv0)),
             "/tmp/ephemeral/bin/cmux"
+        );
+    }
+
+    #[test]
+    fn replay_command_preserves_quoted_and_empty_arguments() {
+        assert_eq!(
+            replay_command_from("cmux-tui".to_string(), ["--session", "two words", "", "it's"]),
+            "cmux-tui --session 'two words' '' 'it'\"'\"'s'"
         );
     }
 

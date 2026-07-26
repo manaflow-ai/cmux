@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::io;
 use std::time::{Duration, Instant};
 
+use cmux_tui_core::process_session::StableProcessHandle;
+
 const PROCESS_TREE_MAX_ROUNDS: usize = 64;
 const PROCESS_TREE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 #[cfg(test)]
@@ -46,24 +48,13 @@ impl ProcessIdentity {
     }
 
     fn signal(self, signal: libc::c_int) -> io::Result<ExactSignalResult> {
-        let Some(current) = Self::capture(self.pid)? else {
+        let Some(process) = self.stable_handle()? else {
             return Ok(ExactSignalResult::Gone);
         };
-        if current != self {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
-        }
-        // SAFETY: the PID was range-checked and its birth identity was
-        // revalidated immediately before this signal.
-        #[cfg(test)]
-        RAW_PID_SIGNAL_COUNT.set(RAW_PID_SIGNAL_COUNT.get() + 1);
-        if unsafe { libc::kill(self.pid, signal) } == 0 {
-            return Ok(ExactSignalResult::Signaled);
-        }
-        let error = io::Error::last_os_error();
-        if error.raw_os_error() == Some(libc::ESRCH) {
-            Ok(ExactSignalResult::Gone)
+        if process.signal(signal)? {
+            Ok(ExactSignalResult::Signaled)
         } else {
-            Err(error)
+            Ok(ExactSignalResult::Gone)
         }
     }
 
@@ -72,13 +63,11 @@ impl ProcessIdentity {
         session: libc::pid_t,
         signal: libc::c_int,
     ) -> io::Result<ExactSignalResult> {
-        let Some(current) = Self::capture(self.pid)? else {
+        let Some(process) = self.stable_handle()? else {
             return Ok(ExactSignalResult::Gone);
         };
-        if current != self {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
-        }
-        // SAFETY: getsid only queries the exact process revalidated above.
+        // Bracket the PID-based session query with the stable handle. If the
+        // PID is recycled during getsid(2), no signal reaches its new owner.
         let current_session = unsafe { libc::getsid(self.pid) };
         if current_session < 0 {
             let error = io::Error::last_os_error();
@@ -88,10 +77,30 @@ impl ProcessIdentity {
                 Err(error)
             };
         }
-        if current_session != session {
+        if current_session != session || !process.matches_current()? {
             return Ok(ExactSignalResult::Gone);
         }
-        self.signal(signal)
+        if process.signal(signal)? {
+            Ok(ExactSignalResult::Signaled)
+        } else {
+            Ok(ExactSignalResult::Gone)
+        }
+    }
+
+    fn stable_handle(self) -> io::Result<Option<StableProcessHandle>> {
+        let Some(process) = StableProcessHandle::capture(self.pid)? else {
+            return Ok(None);
+        };
+        let Some(current) = Self::capture(self.pid)? else {
+            return Ok(None);
+        };
+        if current != self {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
+        }
+        if !process.matches_current()? {
+            return Ok(None);
+        }
+        Ok(Some(process))
     }
 }
 

@@ -403,7 +403,8 @@ fn signal_if_still_member(
     let Some(process) = stable_process_in_session(pid, session)? else {
         return Ok(());
     };
-    process.signal(signal)
+    let _ = process.signal(signal)?;
+    Ok(())
 }
 
 fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
@@ -419,8 +420,8 @@ fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
 fn stable_process_in_session(
     pid: libc::pid_t,
     session: libc::pid_t,
-) -> io::Result<Option<StableProcess>> {
-    let Some(process) = StableProcess::capture(pid)? else { return Ok(None) };
+) -> io::Result<Option<StableProcessHandle>> {
+    let Some(process) = StableProcessHandle::capture(pid)? else { return Ok(None) };
     // Bracket the PID-based session query with a stable process identity. If
     // the PID is recycled during getsid(2), the final identity check fails
     // closed and no signal is sent.
@@ -437,7 +438,8 @@ fn stable_process_in_session(
 
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct StableProcess {
+/// An OS-backed reference to one process instance that cannot retarget after PID reuse.
+pub struct StableProcessHandle {
     pid: libc::pid_t,
     audit_token: MacAuditToken,
 }
@@ -450,8 +452,9 @@ struct MacAuditToken {
 }
 
 #[cfg(target_os = "macos")]
-impl StableProcess {
-    fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+impl StableProcessHandle {
+    /// Capture the process currently using `pid`, or return `None` if it is already gone.
+    pub fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
         const TASK_AUDIT_TOKEN: libc::task_flavor_t = 15;
         let mut task = 0;
         // SAFETY: mach_task_self returns the calling process's send right.
@@ -504,20 +507,27 @@ impl StableProcess {
         Ok(Some(Self { pid, audit_token }))
     }
 
-    fn matches_current(&self) -> io::Result<bool> {
+    /// Return whether this exact process instance is still alive.
+    pub fn matches_current(&self) -> io::Result<bool> {
         Ok(Self::capture(self.pid)?.is_some_and(|current| current == *self))
     }
 
-    fn signal(&self, signal: libc::c_int) -> io::Result<()> {
+    /// Signal this exact process instance, returning false if it is already gone.
+    pub fn signal(&self, signal: libc::c_int) -> io::Result<bool> {
         let mut token = self.audit_token;
         loop {
             // SAFETY: the audit token came from TASK_AUDIT_TOKEN for this
             // process instance; libproc validates its PID generation.
             let result = unsafe { proc_signal_with_audittoken(&mut token, signal) };
-            if result == 0 || result == libc::ESRCH {
+            if result == 0 {
                 #[cfg(test)]
                 STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
-                return Ok(());
+                return Ok(true);
+            }
+            if result == libc::ESRCH {
+                #[cfg(test)]
+                STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
+                return Ok(false);
             }
             if result != libc::EINTR {
                 return Err(io::Error::from_raw_os_error(result));
@@ -561,13 +571,15 @@ unsafe extern "C" {
 
 #[cfg(target_os = "linux")]
 #[derive(Debug)]
-struct StableProcess {
+/// An OS-backed reference to one process instance that cannot retarget after PID reuse.
+pub struct StableProcessHandle {
     pidfd: std::os::fd::OwnedFd,
 }
 
 #[cfg(target_os = "linux")]
-impl StableProcess {
-    fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+impl StableProcessHandle {
+    /// Capture the process currently using `pid`, or return `None` if it is already gone.
+    pub fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
         use std::os::fd::FromRawFd;
 
         // SAFETY: pidfd_open receives a validated integer PID and zero flags.
@@ -582,15 +594,17 @@ impl StableProcess {
         Ok(Some(Self { pidfd: unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor) } }))
     }
 
-    fn matches_current(&self) -> io::Result<bool> {
+    /// Return whether this exact process instance is still alive.
+    pub fn matches_current(&self) -> io::Result<bool> {
         self.signal_result(0)
     }
 
-    fn signal(&self, signal: libc::c_int) -> io::Result<()> {
-        let _ = self.signal_result(signal)?;
+    /// Signal this exact process instance, returning false if it is already gone.
+    pub fn signal(&self, signal: libc::c_int) -> io::Result<bool> {
+        let signaled = self.signal_result(signal)?;
         #[cfg(test)]
         STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
-        Ok(())
+        Ok(signaled)
     }
 
     fn signal_result(&self, signal: libc::c_int) -> io::Result<bool> {
@@ -616,22 +630,26 @@ impl StableProcess {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-struct StableProcess;
+/// Placeholder on platforms without stable process signaling.
+pub struct StableProcessHandle;
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-impl StableProcess {
-    fn capture(_pid: libc::pid_t) -> io::Result<Option<Self>> {
+impl StableProcessHandle {
+    /// Report that stable process handles are unsupported on this platform.
+    pub fn capture(_pid: libc::pid_t) -> io::Result<Option<Self>> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "stable process signaling is unavailable on this platform",
         ))
     }
 
-    fn matches_current(&self) -> io::Result<bool> {
+    /// Return false because no stable process handle is available.
+    pub fn matches_current(&self) -> io::Result<bool> {
         Ok(false)
     }
 
-    fn signal(&self, _signal: libc::c_int) -> io::Result<()> {
+    /// Report that stable process signaling is unsupported on this platform.
+    pub fn signal(&self, _signal: libc::c_int) -> io::Result<bool> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "stable process signaling is unavailable on this platform",
