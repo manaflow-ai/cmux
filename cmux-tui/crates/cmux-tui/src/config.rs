@@ -1554,6 +1554,11 @@ impl Keys {
         let prefix = self.prefix;
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
     }
+
+    #[cfg(test)]
+    pub(crate) fn apply_for_test(&mut self, raw: &HashMap<String, Value>) {
+        self.apply(raw);
+    }
 }
 
 fn key_values(value: &Value) -> Vec<&str> {
@@ -1599,6 +1604,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
             }
         }
     }
+
     let code = code?;
     // Store a shifted ASCII result so `D` and `shift+d` stay equivalent.
     // Shift stays explicit when the character itself cannot represent it.

@@ -6023,6 +6023,35 @@ mod tests {
     }
 
     #[test]
+    fn scheduler_retains_connection_permit_until_dispatcher_exit() {
+        let active = Arc::new(AtomicU64::new(0));
+        let permit = claim_connection(&active).unwrap();
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
+            Arc::new(ServerSurfaceOperationAdmission::default()),
+            permit,
+        ));
+        scheduler.state.lock().unwrap().dispatcher_started = true;
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker_scheduler = scheduler.clone();
+        let dispatcher = std::thread::spawn(move || {
+            release_rx.recv().unwrap();
+            worker_scheduler.finish_dispatcher();
+        });
+        *scheduler.dispatcher.lock().unwrap() = Some(dispatcher);
+
+        assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
+        assert_eq!(
+            active.load(Ordering::Acquire),
+            1,
+            "timed-out shutdown released admission while its dispatcher was live"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(scheduler.close_and_wait(Duration::from_secs(1)));
+        assert_eq!(active.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
     fn surface_worker_limit_is_mux_wide_across_connections() {
         assert!(
             active_clear_lanes_across_connections(17, 0) <= 16,
