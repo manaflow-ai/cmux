@@ -48,6 +48,81 @@ struct ClaudeUsageAdapterTests {
         let snap = try ClaudeUsageAdapter.parseUsage(headers: h, now: Date())
         #expect(snap.account.accountId == "default")
     }
+
+    // MARK: Token resolution (synthetic fixtures only — never a real token)
+
+    private static let fakeToken = "sk-ant-oat-FAKE000TESTONLY"
+
+    @Test func envFileParsesExportedToken() {
+        let data = Data("export CLAUDE_CODE_OAUTH_TOKEN=\(Self.fakeToken)\n".utf8)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(data) == Self.fakeToken)
+    }
+
+    @Test func envFileParsesBareAndQuotedAmongOtherLines() {
+        let bare = Data("FOO=1\nCLAUDE_CODE_OAUTH_TOKEN=\(Self.fakeToken)\nBAR=2\n".utf8)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(bare) == Self.fakeToken)
+        let quoted = Data("export CLAUDE_CODE_OAUTH_TOKEN=\"\(Self.fakeToken)\"\n".utf8)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(quoted) == Self.fakeToken)
+    }
+
+    @Test func envFileFailsClosedOnAbsentOrEmpty() {
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(nil) == nil)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(Data("OTHER=x\n".utf8)) == nil)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(Data("export CLAUDE_CODE_OAUTH_TOKEN=\n".utf8)) == nil)
+        // Oversized input is rejected (size cap).
+        let big = Data(("export CLAUDE_CODE_OAUTH_TOKEN=" + String(repeating: "a", count: ClaudeUsageAdapter.maxCredentialFileBytes + 1)).utf8)
+        #expect(ClaudeUsageAdapter.tokenFromEnvFile(big) == nil)
+    }
+
+    @Test func credentialsJSONParsesAccessToken() {
+        let data = Data("{\"claudeAiOauth\":{\"accessToken\":\"\(Self.fakeToken)\"}}".utf8)
+        #expect(ClaudeUsageAdapter.tokenFromCredentialsJSON(data) == Self.fakeToken)
+    }
+
+    @Test func credentialsJSONFailsClosedOnDrift() {
+        #expect(ClaudeUsageAdapter.tokenFromCredentialsJSON(nil) == nil)
+        #expect(ClaudeUsageAdapter.tokenFromCredentialsJSON(Data("not json".utf8)) == nil)
+        #expect(ClaudeUsageAdapter.tokenFromCredentialsJSON(Data("{\"claudeAiOauth\":{}}".utf8)) == nil)
+        #expect(ClaudeUsageAdapter.tokenFromCredentialsJSON(Data("{\"claudeAiOauth\":{\"accessToken\":\"\"}}".utf8)) == nil)
+    }
+
+    @Test func resolveTokenPrefersEnvironmentThenFiles() {
+        let home = URL(fileURLWithPath: "/fake/home")
+        // Environment wins outright.
+        let fromEnv = ClaudeUsageAdapter.resolveToken(
+            environment: ["CLAUDE_CODE_OAUTH_TOKEN": Self.fakeToken],
+            homeDirectory: home,
+            readFile: { _ in Data("export CLAUDE_CODE_OAUTH_TOKEN=other".utf8) }
+        )
+        #expect(fromEnv == Self.fakeToken)
+
+        // No env → credentials.json used before .env.
+        let fromCreds = ClaudeUsageAdapter.resolveToken(
+            environment: [:],
+            homeDirectory: home,
+            readFile: { url in
+                url.lastPathComponent == ".credentials.json"
+                    ? Data("{\"claudeAiOauth\":{\"accessToken\":\"\(Self.fakeToken)\"}}".utf8)
+                    : Data("export CLAUDE_CODE_OAUTH_TOKEN=envfile".utf8)
+            }
+        )
+        #expect(fromCreds == Self.fakeToken)
+
+        // No env, no creds file → .env fallback.
+        let fromEnvFile = ClaudeUsageAdapter.resolveToken(
+            environment: [:],
+            homeDirectory: home,
+            readFile: { url in
+                url.lastPathComponent == ".env"
+                    ? Data("export CLAUDE_CODE_OAUTH_TOKEN=\(Self.fakeToken)".utf8)
+                    : nil
+            }
+        )
+        #expect(fromEnvFile == Self.fakeToken)
+
+        // Nothing anywhere → nil.
+        #expect(ClaudeUsageAdapter.resolveToken(environment: [:], homeDirectory: home, readFile: { _ in nil }) == nil)
+    }
 }
 
 struct GrokUsageAdapterTests {
