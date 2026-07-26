@@ -105,6 +105,9 @@ def test_npm_launcher_preserves_replayable_invocation(tmp_path: Path) -> None:
     launcher.parent.mkdir(parents=True)
     shutil.copyfile(NPM_LAUNCHER, launcher)
     launcher.chmod(0o755)
+    (launcher.parent.parent / "package.json").write_text(
+        '{"name":"cmux","version":"1.2.3"}\n'
+    )
     package_root = tmp_path / "node_modules" / package
     package_root.mkdir(parents=True)
     (package_root / "package.json").write_text(
@@ -119,7 +122,7 @@ def test_npm_launcher_preserves_replayable_invocation(tmp_path: Path) -> None:
     one_shot_env["npm_command"] = "exec"
     one_shot = run([node, launcher], cwd=tmp_path, env=one_shot_env)
     assert one_shot.returncode == 0, one_shot.stderr
-    assert one_shot.stdout.strip() == "npx cmux"
+    assert one_shot.stdout.strip() == "npx cmux@1.2.3"
 
     installed_env = os.environ.copy()
     installed_env.pop("npm_command", None)
@@ -177,7 +180,7 @@ def test_pypi_launcher_preserves_uvx_invocation(tmp_path: Path) -> None:
         env=environment,
     )
     assert launched.returncode == 0, launched.stderr
-    assert launched.stdout.strip() == "uvx cmux"
+    assert launched.stdout.strip() == "uvx cmux==1.2.3"
 
 
 def main() -> None:
