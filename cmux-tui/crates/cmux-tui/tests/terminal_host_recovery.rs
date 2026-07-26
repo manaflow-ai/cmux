@@ -2312,10 +2312,7 @@ fn attach_state(path: &Path, surface: u64) -> serde_json::Value {
     state
 }
 
-fn wait_for_attach_response(
-    reader: &mut BufReader<Box<dyn transport::Stream>>,
-    request_id: u64,
-) {
+fn wait_for_attach_response(reader: &mut BufReader<Box<dyn transport::Stream>>, request_id: u64) {
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).expect("attach stream closed before response");

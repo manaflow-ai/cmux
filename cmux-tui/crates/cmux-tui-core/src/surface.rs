@@ -654,6 +654,8 @@ fn mark_hosted_runtime_exited(
             host.disconnect();
         }
         *runtime = PtyRuntime::ExitedHosted;
+        drop(runtime);
+        pty.finish_hosted_exit();
     }
 }
 
@@ -1194,7 +1196,6 @@ impl Surface {
                         mark_hosted_runtime_exited(pty, &identity);
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
-                        pty.dead.store(true, Ordering::Release);
                         if let Some(mux) = mux.upgrade() {
                             mux.surface_exited(surface.id);
                         }
@@ -1235,7 +1236,6 @@ impl Surface {
                                     TerminalHostConnectionState::Exited as u8,
                                     Ordering::Release,
                                 );
-                                pty.dead.store(true, Ordering::Release);
                                 if let Some(mux) = mux.upgrade() {
                                     mux.surface_exited(surface.id);
                                 }
@@ -2047,17 +2047,19 @@ impl Surface {
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
-        let mut taps = pty.taps.lock().unwrap();
-        if taps.is_empty() {
-            *pty.last_attach_colors.lock().unwrap() =
-                Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
+        if !pty.dead.load(Ordering::Acquire) {
+            let mut taps = pty.taps.lock().unwrap();
+            if taps.is_empty() {
+                *pty.last_attach_colors.lock().unwrap() =
+                    Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
+            }
+            taps.push(AttachTap {
+                sender: tx,
+                lifecycle: lifecycle.clone(),
+                queued_bytes: queued_bytes.clone(),
+                max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
+            });
         }
-        taps.push(AttachTap {
-            sender: tx,
-            lifecycle: lifecycle.clone(),
-            queued_bytes: queued_bytes.clone(),
-            max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
-        });
         Ok(AttachStream {
             cols,
             rows,
@@ -2081,7 +2083,9 @@ impl Surface {
         let initial = {
             let mut render = pty.render.lock().unwrap();
             let initial = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
-            render.taps.push(tx);
+            if !pty.dead.load(Ordering::Acquire) {
+                render.taps.push(tx);
+            }
             initial
         };
         Ok(RenderAttachStream { initial, stream: rx })
@@ -2367,6 +2371,19 @@ impl PtySurface {
         let mut term = self.term.lock().unwrap();
         let generation = self.render_generation.load(Ordering::Acquire);
         let _ = self.build_frame_locked(&mut term, generation, true);
+    }
+
+    /// Preserve the last hosted frame, then end every live attachment while
+    /// retaining the exited surface as a stable, snapshot-renderable tab.
+    fn finish_hosted_exit(&self) {
+        let mut term = self.term.lock().unwrap();
+        if self.dead.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let generation = self.render_generation.load(Ordering::Acquire);
+        let _ = self.build_frame_locked(&mut term, generation, true);
+        self.taps.lock().unwrap().clear();
+        self.render.lock().unwrap().taps.clear();
     }
 
     /// Build and fan out one immutable frame while the caller holds `term`.
