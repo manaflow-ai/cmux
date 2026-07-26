@@ -6397,6 +6397,23 @@ mod tests {
     }
 
     #[test]
+    fn disconnect_explicitly_wakes_browser_pointer_cleanup() {
+        let source = include_str!("server.rs");
+        let production =
+            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production server source");
+        let disconnect = production
+            .split("fn disconnect_client(")
+            .nth(1)
+            .and_then(|source| source.split("\npub fn detach_control_client").next())
+            .expect("disconnect_client body");
+
+        assert!(
+            disconnect.contains("wake_browser_pointer_cleanup"),
+            "client teardown must wake browser workers that otherwise block without a deadline"
+        );
+    }
+
+    #[test]
     fn rejected_attach_rollback_keeps_registry_at_actual_size() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();

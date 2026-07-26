@@ -5436,6 +5436,19 @@ mod tests {
     }
 
     #[test]
+    fn idle_browser_worker_has_no_fixed_pointer_cleanup_poll() {
+        let source = include_str!("browser.rs");
+        let production =
+            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production browser source");
+
+        assert!(
+            !production.contains("BROWSER_WORKER_IDLE_TICK")
+                && production.contains("next_pointer_lifecycle_deadline"),
+            "an idle browser worker must block until a command or an actual pointer deadline"
+        );
+    }
+
+    #[test]
     fn disconnected_client_pointer_capture_is_balanced() {
         let (runtime, server) = runtime_accepting_mouse_dispatches(vec!["mouseReleased"]);
         let surface = test_surface();
@@ -6120,7 +6133,7 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_guarded_release_failure_retains_release_ownership() {
+    fn ambiguous_guarded_release_failure_gets_one_bounded_retry() {
         let (runtime, server) = runtime_rejecting_one_mouse_dispatch();
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -6134,7 +6147,7 @@ mod tests {
         let mut active_pointer_presses = std::collections::HashMap::from([(
             "left".to_string(),
             super::ActivePointerPress::new(
-                super::BrowserPointerOwner::Legacy,
+                super::BrowserPointerOwner::Local,
                 capture_generation,
                 1.0,
                 1.0,
@@ -6144,7 +6157,7 @@ mod tests {
 
         let result = browser.mouse_event_blocking(
             super::BrowserMouseDispatch {
-                input_owner: super::BrowserPointerOwner::Legacy,
+                input_owner: super::BrowserPointerOwner::Local,
                 event_type: "mouseReleased",
                 x: 1.0,
                 y: 1.0,
@@ -6160,8 +6173,23 @@ mod tests {
             active_pointer_presses.contains_key("left"),
             "a timed-out release must remain retryable"
         );
-        runtime.shutdown();
         server.join().unwrap();
+
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses = active_pointer_presses;
+        super::release_abandoned_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            Instant::now() + Duration::from_secs(1),
+        );
+        assert!(
+            failures.active_pointer_presses.is_empty(),
+            "the worker must consume an ambiguous release through one scheduled retry"
+        );
+
+        runtime.shutdown();
     }
 
     #[test]
