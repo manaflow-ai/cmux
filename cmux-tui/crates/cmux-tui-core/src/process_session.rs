@@ -97,6 +97,7 @@ pub(crate) fn reap_reserved_session_leader(
 #[cfg(test)]
 thread_local! {
     static PROCESS_TABLE_SCAN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static RAW_PID_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 pub(crate) struct SessionProcessSnapshot {
@@ -403,6 +404,8 @@ fn signal_if_still_member(
     }
     // SAFETY: membership was revalidated above and `signal` is a platform
     // signal constant supplied by this module's callers.
+    #[cfg(test)]
+    RAW_PID_SIGNAL_COUNT.set(RAW_PID_SIGNAL_COUNT.get() + 1);
     if unsafe { libc::kill(pid, signal) } == 0 {
         return Ok(());
     }
@@ -597,6 +600,24 @@ mod tests {
         assert!(!members.contains(&current));
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn session_members_are_never_signaled_through_a_reusable_pid() {
+        let mut child = spawn_session_child();
+        let session = libc::pid_t::try_from(child.id()).unwrap();
+        RAW_PID_SIGNAL_COUNT.set(0);
+
+        signal_until(session, libc::SIGCONT, Instant::now() + Duration::from_secs(1)).unwrap();
+        let raw_signals = RAW_PID_SIGNAL_COUNT.get();
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(
+            raw_signals, 0,
+            "session cleanup used a reusable PID instead of a stable process identity"
+        );
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
