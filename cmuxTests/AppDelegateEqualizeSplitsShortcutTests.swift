@@ -2285,6 +2285,159 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testReconciledFailedFontSizeActionDoesNotReplayRelativeDelta() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelID) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                applyAttemptCount += 1
+                let outcome = cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+                return applyAttemptCount == 1 ? .failed : outcome
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        XCTAssertEqual(
+            applyAttemptCount,
+            1,
+            "Observed target state must reconcile a fallible native action"
+        )
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19,
+            "A reconciled relative mutation must not replay its delta"
+        )
+    }
+
+    func testPersistentFontSizeFailureBacksOffThenWaitsForSignal() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelID) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, candidate, _ in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                applyAttemptCount += 1
+                return .failed
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        XCTAssertEqual(applyAttemptCount, 1)
+        XCTAssertEqual(scheduler.delays.count, 2)
+        XCTAssertEqual(
+            scheduler.delays[1],
+            0.05,
+            accuracy: 0.001,
+            "The only automatic retry must use a nonzero backoff"
+        )
+
+        scheduler.fire(at: 1)
+
+        XCTAssertEqual(applyAttemptCount, 2)
+        XCTAssertEqual(
+            scheduler.delays.count,
+            2,
+            "A persistent failure must park until an external retry signal"
+        )
+    }
+
+    func testHibernatedFontFollowerPredictsFromConfiguredBaseline() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(12, isExplicitOverride: false)
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            configTemplate: template,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        panel.surface.surface =
+            UnsafeMutableRawPointer(bitPattern: 0x8791)
+        panel.surface.surface = nil
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 12,
+                isExplicitOverride: false
+            )
+        )
+
+        let context = TerminalFontSizeChangeInheritanceContext(
+            token: UUID(),
+            change: .relative([-1]),
+            configuredRuntimePoints: 16,
+            preferredSourcePanel: panel,
+            fallbackLineage: nil
+        )
+
+        XCTAssertEqual(
+            context.fallbackLineage,
+            TerminalFontSizeLineage(
+                basePoints: 15,
+                isExplicitOverride: true
+            )
+        )
+        XCTAssertEqual(
+            context.inheritedLineage(from: panel),
+            context.fallbackLineage,
+            "Inheritance and mutation must use the same hibernated baseline"
+        )
+    }
+
     func testFailedTransferRetriesAfterPanelLeavesCoordinatorOwnership() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
