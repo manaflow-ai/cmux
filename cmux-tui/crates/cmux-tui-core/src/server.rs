@@ -5675,7 +5675,10 @@ mod tests {
     fn global_render_pressure_does_not_starve_control_replies() {
         let overflow = attach_overflow_json(1);
         let render = json!({"event": "render-state", "data": "x".repeat(300)});
-        let render_bytes = serde_json::to_vec(&render).unwrap().len();
+        let render_bytes = {
+            let probe = RenderService::new_with_outbound_budget(usize::MAX);
+            probe.serialize(&render).unwrap().retained_bytes
+        };
         let service = Arc::new(RenderService::new_with_outbound_budgets(render_bytes, 1_024));
         let render_outbound = Arc::new(BoundedOutbound::default());
         let control_outbound = Arc::new(BoundedOutbound::default());
