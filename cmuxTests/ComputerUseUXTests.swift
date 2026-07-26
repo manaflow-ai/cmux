@@ -696,7 +696,7 @@ struct ComputerUseUXTests {
                     && $0.accessibilityLabel() == allowLabel
             }
         #expect(allowButtons.count == 2)
-        #expect(allowButtons.allSatisfy(\.isAccessibilityEnabled))
+        #expect(allowButtons.allSatisfy { $0.isAccessibilityEnabled() })
     }
 
     @Test @MainActor
@@ -731,9 +731,8 @@ struct ComputerUseUXTests {
         NSColor(calibratedRed: 1, green: 0, blue: 1, alpha: 1).setFill()
         NSRect(x: 0, y: 0, width: 32, height: 32).fill()
         artwork.unlockFocus()
-        let bitmap = try #require(
-            NSBitmapImageRep(data: try #require(artwork.tiffRepresentation))
-        )
+        let artworkTIFF = try #require(artwork.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: artworkTIFF))
         let imageData = try #require(bitmap.representation(using: .png, properties: [:]))
         try imageData.write(
             to: helperResourcesURL.appendingPathComponent("AppIcon.icns")
@@ -742,9 +741,8 @@ struct ComputerUseUXTests {
         let iconBundle = try #require(Bundle(url: bundleURL))
         let runtime = ComputerUseRuntimeService(bundle: iconBundle)
         let icon = try #require(runtime.presentationIcon)
-        let rendered = try #require(
-            NSBitmapImageRep(data: try #require(icon.tiffRepresentation))
-        )
+        let iconTIFF = try #require(icon.tiffRepresentation)
+        let rendered = try #require(NSBitmapImageRep(data: iconTIFF))
         let center = try #require(rendered.colorAt(
             x: rendered.pixelsWide / 2,
             y: rendered.pixelsHigh / 2
