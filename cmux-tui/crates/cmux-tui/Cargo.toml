@@ -32,3 +32,4 @@ getrandom.workspace = true
 libc.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
+parking_lot.workspace = true
