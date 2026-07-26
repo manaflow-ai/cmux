@@ -2724,6 +2724,25 @@ mod tests {
     }
 
     #[test]
+    fn prompt_semantic_tracking_ignores_control_string_payload_newlines() {
+        for introducer in [b'P', b'X', b'^', b'_'] {
+            let mut tracker = PromptSemanticTracker::default();
+            tracker.feed(b"\x1b]133;I\x07");
+            assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::InputUntilEndOfLine);
+
+            tracker.feed(&[0x1b, introducer, b'q', b'\n', 0x1b, b'\\']);
+            assert_eq!(
+                tracker.semantic(Screen::Primary),
+                PromptSemantic::InputUntilEndOfLine,
+                "control-string introducer {introducer:#x} leaked its payload"
+            );
+
+            tracker.feed(b"\n");
+            assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+        }
+    }
+
+    #[test]
     fn prompt_semantic_tracking_rejects_suffixes_without_an_option_separator() {
         let mut tracker = PromptSemanticTracker::default();
         tracker.feed(b"\x1b]133;C\x07");
