@@ -379,6 +379,10 @@ final class BrowserProfileStore: ObservableObject {
         repository.profileDefinition(id: id)
     }
 
+    func resolveProfileSelection(_ selector: String) -> BrowserProfileSelectionResolution {
+        repository.resolveProfileSelection(selector)
+    }
+
     func displayName(for id: UUID) -> String {
         repository.displayName(for: id)
     }

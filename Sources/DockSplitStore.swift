@@ -314,6 +314,7 @@ final class DockSplitStore: BonsplitDelegate {
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
+        preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
@@ -328,7 +329,8 @@ final class DockSplitStore: BonsplitDelegate {
                 requestedWorkingDirectory: workingDirectory,
                 sourcePanelId: source
             ),
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            preferredProfileID: preferredProfileID
         ) else { return nil }
 
         guard let source, let sourcePaneId = paneId(forPanelId: source) else {

@@ -325,6 +325,44 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
 }
 
 #[cfg(unix)]
+#[test]
+fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
+    let machine_agent = Command::new(bin())
+        .env("LC_ALL", "C")
+        .env("LC_MESSAGES", "C")
+        .env("LANG", "C")
+        .args(["machine-agent", "--help"])
+        .output()
+        .unwrap();
+    assert_success(&machine_agent);
+    let help = String::from_utf8(machine_agent.stdout).unwrap();
+    assert!(help.starts_with("cmux machine-agent - share one local cmux session"));
+    assert!(help.contains("Authenticate with the configured host before retrying."));
+    assert!(!help.contains("cmux machine register"));
+    assert!(!help.contains("BatchMode"));
+
+    let version = Command::new(bin()).arg("--version").output().unwrap();
+    assert_success(&version);
+    assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux-tui "));
+}
+
+#[cfg(unix)]
+#[test]
+fn machine_agent_runtime_failures_are_stable_and_localized() {
+    let output = Command::new(bin())
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .args(["machine-agent", "--session", ""])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("machine-agent を開始または続行できませんでした"));
+    assert!(!stderr.contains("session name"));
+}
+
+#[cfg(unix)]
 struct PtyChild {
     child: Child,
     output_drain: Option<std::thread::JoinHandle<()>>,
@@ -389,6 +427,7 @@ fn startup_config_helper_inherits_no_provider_secrets() {
     fs::create_dir_all(&dir).unwrap();
     let helper = dir.join("ghostty-secret-probe");
     let capture = dir.join("inherited-env.txt");
+    let socket = dir.join("mux.sock");
     fs::write(
         &helper,
         r#"#!/bin/sh
@@ -410,7 +449,8 @@ fi
     fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
 
     let output = Command::new(bin())
-        .args(["--machine-provider", "/does/not/exist", "--headless"])
+        .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])
+        .arg(&socket)
         .env("GHOSTTY_BIN", &helper)
         .env("CMUX_TEST_SECRET_CAPTURE", &capture)
         .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")
@@ -452,6 +492,76 @@ fn plain_launch_attaches_to_existing_local_session() {
     }
 
     panic!("plain launch never attached as a TUI client");
+}
+
+#[cfg(unix)]
+#[test]
+fn surface_attach_uses_the_full_terminal_and_attaches_only_its_target() {
+    let server = HeadlessServer::start("single-surface-attach");
+    let created = cli(&server, &["new-workspace", "--name", "single"]);
+    assert_success(&created);
+    let target = String::from_utf8(created.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let pane = tree["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+    let second = cli(&server, &["new-tab", "--pane", &pane.to_string()]);
+    assert_success(&second);
+
+    let mut tui = PtyChild::start(&[
+        "attach",
+        "--socket",
+        server.socket.to_str().unwrap(),
+        "--surface",
+        &target.to_string(),
+    ]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            panic!("single-surface attach exited unexpectedly: {status}");
+        }
+        let clients = cli(&server, &["--json", "list-clients"]);
+        if clients.status.success() {
+            let clients: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+            if let Some(client) = clients
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|client| client["kind"].as_str() == Some("tui"))
+            {
+                if client["attached"].as_array().is_some_and(Vec::is_empty) {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+                assert_eq!(client["attached"], serde_json::json!([target]));
+                let Some(size) = client["sizes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|size| size["surface"].as_u64() == Some(target))
+                else {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                };
+                assert_eq!(size["cols"].as_u64(), Some(80));
+                assert_eq!(size["rows"].as_u64(), Some(24));
+                let closed = cli(&server, &["close-surface", "--surface", &target.to_string()]);
+                assert_success(&closed);
+                let exit_deadline = Instant::now() + Duration::from_secs(5);
+                while Instant::now() < exit_deadline {
+                    if let Some(status) = tui.child.try_wait().unwrap() {
+                        assert!(status.success(), "single-surface attach exited with {status}");
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                panic!("single-surface attach stayed open after its terminal closed");
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("single-surface attach never registered its target");
 }
 
 #[cfg(unix)]

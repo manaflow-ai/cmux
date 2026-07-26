@@ -49,7 +49,13 @@ struct MacComputerDetailView: View {
         }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
-        store.macConnectionStatuses[macDeviceID]
+        MobileShellComposite.exactPairingConnectionStatus(
+            deviceStatus: store.macConnectionStatuses[macDeviceID],
+            connectedMacDeviceID: store.connectedMacDeviceID,
+            connectedMacInstanceTag: store.connectedMacInstanceTag,
+            rowMacDeviceID: macDeviceID,
+            rowInstanceTag: instanceTag
+        )
     }
     private var presence: PresenceMap.DeviceSummary? {
         store.presenceSummary(
