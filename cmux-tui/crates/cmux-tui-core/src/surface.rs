@@ -1959,6 +1959,14 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
     }
 
+    pub fn local_cwd(&self) -> Option<String> {
+        self.pwd()
+            .as_deref()
+            .and_then(platform::terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned())
+            .or_else(|| self.spawn_cwd())
+    }
+
     pub fn process_id(&self) -> Option<u32> {
         self.as_pty().and_then(|pty| pty.pid)
     }

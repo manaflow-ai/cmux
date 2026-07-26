@@ -5007,7 +5007,7 @@ impl Mux {
             let active = state.panes.get(&pane)?.active_surface()?;
             state.surfaces.get(&active).cloned()
         };
-        surface.and_then(|surface| surface.pwd().or_else(|| surface.spawn_cwd()))
+        surface.and_then(|surface| surface.local_cwd())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {

@@ -3713,7 +3713,7 @@ fn handle_command(
             Ok(json!({
                 "pid": surface.process_id(),
                 "command": surface.spawn_command(),
-                "cwd": surface.pwd().or_else(|| surface.spawn_cwd()),
+                "cwd": surface.local_cwd(),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {

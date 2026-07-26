@@ -661,6 +661,54 @@ pub fn home_dir() -> Option<PathBuf> {
     })
 }
 
+/// Convert a terminal-reported OSC 7 working directory into a local path.
+///
+/// Shells normally report `file://host/path`. A URI from another host cannot
+/// name a safe local spawn directory, so callers should fall back to the
+/// surface's original working directory when this returns `None`.
+pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    let plain = Path::new(value);
+    if plain.is_absolute() {
+        return Some(plain.to_owned());
+    }
+
+    let mut url = url::Url::parse(value).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+    if let Some(host) = url.host_str()
+        && !terminal_pwd_host_is_local(host)
+    {
+        return None;
+    }
+    if url.host_str().is_some() {
+        url.set_host(Some("localhost")).ok()?;
+    }
+    url.to_file_path().ok().filter(|path| path.is_absolute())
+}
+
+fn terminal_pwd_host_is_local(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || local_hostname().is_some_and(|local| host.eq_ignore_ascii_case(&local))
+}
+
+#[cfg(unix)]
+fn local_hostname() -> Option<String> {
+    let mut hostname = [0_u8; 256];
+    if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
+        return None;
+    }
+    let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+    std::str::from_utf8(&hostname[..end]).ok().filter(|value| !value.is_empty()).map(str::to_owned)
+}
+
+#[cfg(windows)]
+fn local_hostname() -> Option<String> {
+    std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
+}
+
 fn env_path(name: &str) -> Option<PathBuf> {
     let value = std::env::var_os(name)?;
     (!value.is_empty()).then(|| PathBuf::from(value))
@@ -860,8 +908,7 @@ mod tests {
     fn terminal_pwd_converts_local_osc7_urls_without_trusting_remote_hosts() {
         let mut hostname = [0_u8; 256];
         assert_eq!(unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) }, 0);
-        let hostname_end =
-            hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+        let hostname_end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
         let hostname = std::str::from_utf8(&hostname[..hostname_end]).unwrap();
 
         assert_eq!(
@@ -872,10 +919,7 @@ mod tests {
             terminal_pwd_to_local_path("file://localhost/tmp/local"),
             Some(PathBuf::from("/tmp/local"))
         );
-        assert_eq!(
-            terminal_pwd_to_local_path("/tmp/plain"),
-            Some(PathBuf::from("/tmp/plain"))
-        );
+        assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), Some(PathBuf::from("/tmp/plain")));
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
     }
 }
