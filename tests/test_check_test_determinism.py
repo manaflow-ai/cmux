@@ -1962,6 +1962,35 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertEqual(len(findings), 1, result.stdout)
         self.assertIn("fixtures/mixed.swift:3:", findings[0])
 
+        timer_result = self.run_checker(
+            {
+                "mixed-timer-alias.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "await delay(1)\n"
+                    "expect(finished).toBe(true)\n"
+                    "run(async (delay) => {\n"
+                    "    await delay(1)\n"
+                    "    expect(virtualFinished).toBe(true)\n"
+                    "})\n"
+                )
+            }
+        )
+        self.assertEqual(
+            timer_result.returncode,
+            1,
+            timer_result.stdout + timer_result.stderr,
+        )
+        timer_findings = [
+            line
+            for line in timer_result.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(timer_findings), 1, timer_result.stdout)
+        self.assertIn(
+            "fixtures/mixed-timer-alias.ts:2:",
+            timer_findings[0],
+        )
+
     def test_non_strict_mode_reports_without_failing(self) -> None:
         result = self.run_checker(
             {"delay.py": "time.sleep(0.01)\nassert finished\n"},
