@@ -4,6 +4,8 @@ import CmuxAppKitSupportUI
 import Observation
 import SwiftUI
 import Testing
+import WebKit
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -74,14 +76,19 @@ import Testing
         window.contentView?.addSubview(slot)
         slot.addSubview(originalPresentationView)
         slot.pinHostedWebView(originalWebView)
+        let loadProbe = BrowserPanelLoadProbe()
+        originalWebView.navigationDelegate = loadProbe
         originalWebView.loadHTMLString("<html><body>loaded</body></html>", baseURL: nil)
         window.makeKeyAndOrderFront(nil)
+        let loadResult = XCTWaiter.wait(for: [loadProbe.didFinish], timeout: 5)
 
         defer {
             window.orderOut(nil)
             window.contentView = nil
         }
 
+        #expect(loadResult == .completed)
+        #expect(loadProbe.error == nil)
         #expect(discardManager.delegate === panel)
         #expect(originalPresentationView.superview === slot)
 
@@ -116,6 +123,29 @@ import Testing
     private func render(_ window: NSWindow) {
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
+    }
+}
+
+private final class BrowserPanelLoadProbe: NSObject, WKNavigationDelegate {
+    let didFinish = XCTestExpectation(description: "browser page finished loading")
+    private(set) var error: Error?
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        didFinish.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        didFinish.fulfill()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        self.error = error
+        didFinish.fulfill()
     }
 }
 
