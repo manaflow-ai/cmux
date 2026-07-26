@@ -340,12 +340,26 @@ extension SimulatorWorkerClient {
         clearHeldInputState()
     }
 
-    func replaceWorkerForAttachmentIfNeeded() async {
+    func replaceWorkerForAttachmentIfNeeded() async throws {
         guard child != nil || lastAttachment != nil else { return }
+        let cleanup = cameraCleanupSnapshot()
         discardWorker(intentional: true, clearReplayState: true)
         // Existing correlated attach waiters must fail immediately. The new
         // attachment subscribes only after this terminal event is broadcast.
         await broadcast(.workerStopped)
+        await enqueueCameraCleanup(cleanup)
+        guard await waitForCameraCleanup() else {
+            try Task.checkCancellation()
+            if let cameraCleanupFailure { throw cameraCleanupFailure }
+            throw SimulatorFailure(
+                code: "simulator_camera_cleanup_pending",
+                message: String(
+                    localized: "simulator.failure.cameraCleanupPending",
+                    defaultValue: "Camera cleanup is still running. Retry after it finishes."
+                ),
+                isRecoverable: true
+            )
+        }
     }
 
     func clearHeldInputState() {

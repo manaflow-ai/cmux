@@ -538,9 +538,9 @@ extension SimulatorWorkerClientTests {
         let activation = Task {
             try await client.activateDevice(id: secondDeviceIdentifier, geometry: nil)
         }
-        for _ in 0..<1_000 {
-            if await control.isBlocked { break }
-            await Task.yield()
+        let cleanupDeadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while ContinuousClock().now < cleanupDeadline, !(await control.isBlocked) {
+            try? await ContinuousClock().sleep(for: .milliseconds(1))
         }
 
         #expect(await control.isBlocked)

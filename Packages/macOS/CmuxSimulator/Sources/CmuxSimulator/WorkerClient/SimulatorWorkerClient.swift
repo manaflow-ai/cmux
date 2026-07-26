@@ -235,7 +235,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         }
 
         prepareExplicitRecovery()
-        await replaceWorkerForAttachmentIfNeeded()
+        try await replaceWorkerForAttachmentIfNeeded()
         prepareForAttachment(deviceIdentifier: id)
         let attached: Bool = try await requestWorkerValue(
             sending: .attach(udid: id, geometry: geometry),
