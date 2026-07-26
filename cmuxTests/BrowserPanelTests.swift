@@ -4105,6 +4105,83 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
     }
 
+    func testForcedPortalRefreshBypassesInspectorDividerAdjustmentSkip() async {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webViewId = ObjectIdentifier(webView)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        await waitForNextMainTurn()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        let initialInspectorWidth: CGFloat = 80
+        let preferredInspectorWidth: CGFloat = 120
+        webView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: slot.bounds.width - initialInspectorWidth,
+            height: slot.bounds.height
+        )
+        let inspectorContainer = NSView(
+            frame: NSRect(
+                x: webView.frame.maxX,
+                y: 0,
+                width: initialInspectorWidth,
+                height: slot.bounds.height
+            )
+        )
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+        slot.onHostedInspectorLayout = nil
+        slot.recordPreferredHostedInspectorWidth(
+            preferredInspectorWidth,
+            containerBounds: slot.bounds
+        )
+        let initialEnterInWindowCount = webView.enterInWindowCount
+        let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+
+        portal.forceRefreshWebView(withId: webViewId, reason: "inspectorRedock")
+        let refreshedEnterInWindowCount = webView.enterInWindowCount
+        let refreshedEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+
+        XCTAssertEqual(inspectorContainer.frame.width, preferredInspectorWidth, accuracy: 0.5)
+        XCTAssertEqual(
+            refreshedEnterInWindowCount - initialEnterInWindowCount,
+            1,
+            "An explicit refresh must still enter WebKit after adjusting the hosted inspector divider"
+        )
+        XCTAssertEqual(
+            refreshedEndDeferringCount - initialEndDeferringCount,
+            1,
+            "An explicit refresh must still end deferred WebKit changes after adjusting the inspector divider"
+        )
+
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(webView.enterInWindowCount, refreshedEnterInWindowCount)
+        XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
+    }
+
     func testRegistryBindOwnsOneSynchronousPresentationRefresh() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
