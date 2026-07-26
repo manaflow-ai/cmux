@@ -16,9 +16,11 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         fileManager: FileManager = FileManager()
     ) {
         if let directory {
+            let pathsMatch = legacyDirectory.map {
+                $0.standardizedFileURL.path == directory.standardizedFileURL.path
+            } ?? false
             self.directory = directory
-            self.legacyDirectory = legacyDirectory?.standardizedFileURL
-                == directory.standardizedFileURL ? nil : legacyDirectory
+            self.legacyDirectory = pathsMatch ? nil : legacyDirectory
         } else {
             let directory = fileManager.urls(
                 for: .applicationSupportDirectory,
@@ -29,9 +31,12 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             let legacyDirectory = legacyDirectory ?? fileManager.temporaryDirectory
                 .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
                 .appendingPathComponent("camera-authorizations", isDirectory: true)
+            let pathsMatch = directory.map {
+                legacyDirectory.standardizedFileURL.path
+                    == $0.standardizedFileURL.path
+            } ?? false
             self.directory = directory
-            self.legacyDirectory = legacyDirectory.standardizedFileURL
-                == directory?.standardizedFileURL ? nil : legacyDirectory
+            self.legacyDirectory = pathsMatch ? nil : legacyDirectory
         }
         journalMutationGate = SimulatorMutationGate()
     }
