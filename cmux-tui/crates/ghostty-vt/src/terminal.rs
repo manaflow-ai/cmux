@@ -575,6 +575,7 @@ pub struct Terminal {
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
+    vt_boundary: VtBoundaryTracker,
     prompt_semantic: PromptSemanticTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
@@ -583,6 +584,162 @@ pub struct Terminal {
     palette_override: Box<PaletteOverrideTracker>,
     color_overrides: ColorOverrideTracker,
     c1_normalizer: C1Normalizer,
+}
+
+/// Tracks whether Ghostty's persistent VT stream is between complete
+/// sequences and UTF-8 code points.
+///
+/// Emulator-owned VT bytes may only be inserted at that boundary. The state
+/// transitions mirror Ghostty's DEC ANSI parser, while ground-state bytes use
+/// its UTF-8 stream behavior. Invalid UTF-8 may keep this tracker unsafe
+/// slightly longer than Ghostty, but can never make an incomplete stream look
+/// safe.
+#[derive(Default)]
+struct VtBoundaryTracker {
+    state: VtBoundaryState,
+    utf8_remaining: u8,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum VtBoundaryState {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    CsiEntry,
+    CsiIntermediate,
+    CsiParam,
+    CsiIgnore,
+    DcsEntry,
+    DcsParam,
+    DcsIntermediate,
+    DcsPassthrough,
+    DcsIgnore,
+    OscString,
+    SosPmApcString,
+}
+
+impl VtBoundaryTracker {
+    fn feed(&mut self, data: &[u8]) {
+        for &byte in data {
+            self.feed_byte(byte);
+        }
+    }
+
+    fn is_safe(&self) -> bool {
+        self.state == VtBoundaryState::Ground && self.utf8_remaining == 0
+    }
+
+    fn feed_byte(&mut self, byte: u8) {
+        if self.state == VtBoundaryState::Ground {
+            self.feed_ground(byte);
+            return;
+        }
+
+        self.state = match byte {
+            0x18 | 0x1a | 0x80..=0x8f | 0x91..=0x97 | 0x99 | 0x9a | 0x9c => VtBoundaryState::Ground,
+            0x1b => VtBoundaryState::Escape,
+            0x98 | 0x9e | 0x9f => VtBoundaryState::SosPmApcString,
+            0x9b => VtBoundaryState::CsiEntry,
+            0x90 => VtBoundaryState::DcsEntry,
+            0x9d => VtBoundaryState::OscString,
+            _ => self.state.transition(byte),
+        };
+    }
+
+    fn feed_ground(&mut self, byte: u8) {
+        if self.utf8_remaining != 0 {
+            if matches!(byte, 0x80..=0xbf) {
+                self.utf8_remaining -= 1;
+                return;
+            }
+            // Ghostty replaces the incomplete code point and retries this byte
+            // from the UTF-8 accept state.
+            self.utf8_remaining = 0;
+        }
+
+        match byte {
+            0x1b => self.state = VtBoundaryState::Escape,
+            0xc2..=0xdf => self.utf8_remaining = 1,
+            0xe0..=0xef => self.utf8_remaining = 2,
+            0xf0..=0xf4 => self.utf8_remaining = 3,
+            _ => {}
+        }
+    }
+}
+
+impl VtBoundaryState {
+    fn transition(self, byte: u8) -> Self {
+        match self {
+            Self::Ground => Self::Ground,
+            Self::Escape => match byte {
+                0x20..=0x2f => Self::EscapeIntermediate,
+                0x30..=0x4f | 0x51..=0x57 | 0x59..=0x5a | 0x5c | 0x60..=0x7e => Self::Ground,
+                0x50 => Self::DcsEntry,
+                0x58 | 0x5e | 0x5f => Self::SosPmApcString,
+                0x5b => Self::CsiEntry,
+                0x5d => Self::OscString,
+                _ => Self::Escape,
+            },
+            Self::EscapeIntermediate => {
+                if matches!(byte, 0x30..=0x7e) {
+                    Self::Ground
+                } else {
+                    self
+                }
+            }
+            Self::CsiEntry => match byte {
+                0x40..=0x7e => Self::Ground,
+                0x3a => Self::CsiIgnore,
+                0x20..=0x2f => Self::CsiIntermediate,
+                0x30..=0x39 | 0x3b..=0x3f => Self::CsiParam,
+                _ => self,
+            },
+            Self::CsiParam => match byte {
+                0x40..=0x7e => Self::Ground,
+                0x3c..=0x3f => Self::CsiIgnore,
+                0x20..=0x2f => Self::CsiIntermediate,
+                _ => self,
+            },
+            Self::CsiIntermediate => match byte {
+                0x40..=0x7e => Self::Ground,
+                0x30..=0x3f => Self::CsiIgnore,
+                _ => self,
+            },
+            Self::CsiIgnore => {
+                if matches!(byte, 0x40..=0x7e) {
+                    Self::Ground
+                } else {
+                    self
+                }
+            }
+            Self::DcsEntry => match byte {
+                0x20..=0x2f => Self::DcsIntermediate,
+                0x3a => Self::DcsIgnore,
+                0x30..=0x39 | 0x3b..=0x3f => Self::DcsParam,
+                0x40..=0x7e => Self::DcsPassthrough,
+                _ => self,
+            },
+            Self::DcsParam => match byte {
+                0x3a | 0x3c..=0x3f => Self::DcsIgnore,
+                0x20..=0x2f => Self::DcsIntermediate,
+                0x40..=0x7e => Self::DcsPassthrough,
+                _ => self,
+            },
+            Self::DcsIntermediate => match byte {
+                0x30..=0x3f => Self::DcsIgnore,
+                0x40..=0x7e => Self::DcsPassthrough,
+                _ => self,
+            },
+            Self::DcsPassthrough | Self::DcsIgnore | Self::SosPmApcString | Self::OscString => {
+                if self == Self::OscString && byte == 0x07 {
+                    Self::Ground
+                } else {
+                    self
+                }
+            }
+        }
+    }
 }
 
 /// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
@@ -1488,6 +1645,7 @@ impl Terminal {
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
+            vt_boundary: VtBoundaryTracker::default(),
             prompt_semantic: PromptSemanticTracker::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
@@ -1548,6 +1706,7 @@ impl Terminal {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
         let normalized = self.c1_normalizer.normalize(data);
+        self.vt_boundary.feed(&normalized);
         self.prompt_semantic.feed(&normalized);
         self.cursor_override.write(&normalized);
         self.palette_override.write(&normalized);
@@ -1812,12 +1971,13 @@ impl Terminal {
     /// metadata, only scrollback is cleared because visible rows may contain
     /// hard-newline input whose boundary cannot be inferred. Cursor movement
     /// is skipped when pending-wrap or origin-mode state cannot be restored
-    /// exactly. If preserved content begins in scrollback, no mutation is
-    /// applied because clearing it would truncate active input.
+    /// exactly. If preserved content begins in scrollback, or the persistent
+    /// VT parser is inside a partial sequence or UTF-8 code point, no mutation
+    /// is applied.
     pub fn clear_history_preserving_prompt(&mut self) -> ClearHistoryOutcome {
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
 
-        if self.active_screen() == Screen::Alternate {
+        if self.active_screen() == Screen::Alternate || !self.vt_boundary.is_safe() {
             return ClearHistoryOutcome::Unchanged;
         }
 
@@ -2742,9 +2902,11 @@ mod tests {
     #[test]
     fn clear_history_fails_closed_at_every_partial_vt_boundary() {
         let sequences: &[(&str, &[u8])] = &[
+            ("escape-intermediate", b"\x1b(B"),
             ("csi", b"\x1b[31m"),
             ("osc-bel", b"\x1b]2;title\x07"),
             ("osc-st", b"\x1b]2;title\x1b\\"),
+            ("c1-osc", b"\x9d2;title\x9c"),
             ("dcs", b"\x1bP1;2qpayload\x1b\\"),
             ("apc", b"\x1b_payload\x1b\\"),
             ("utf8", "🙂".as_bytes()),
@@ -2778,6 +2940,13 @@ mod tests {
                 assert!(
                     terminal.viewport_text().unwrap().contains('Z'),
                     "{name} split at byte {split}"
+                );
+                assert!(
+                    matches!(
+                        terminal.clear_history_preserving_prompt(),
+                        ClearHistoryOutcome::Cleared(_)
+                    ),
+                    "{name} remained unsafe after completing split at byte {split}"
                 );
             }
         }
