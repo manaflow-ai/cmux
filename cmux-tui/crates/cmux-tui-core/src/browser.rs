@@ -2906,7 +2906,7 @@ mod tests {
     }
 
     #[test]
-    fn full_command_queue_waits_for_mouse_release_capacity() {
+    fn full_command_queue_retains_mouse_release_without_blocking() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
@@ -2938,19 +2938,12 @@ mod tests {
             enqueued_tx.send(result).unwrap();
         });
         attempting_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(
-            matches!(
-                enqueued_rx.recv_timeout(Duration::from_millis(100)),
-                Err(mpsc::RecvTimeoutError::Timeout)
-            ),
-            "a full command queue must not report a mouse release as accepted before retaining it"
-        );
+        enqueued_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("retaining a mouse release must not wait for regular queue capacity")
+            .unwrap();
 
         release.send(()).unwrap();
-        enqueued_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("mouse release did not enqueue after capacity opened")
-            .unwrap();
         enqueue.join().unwrap();
         drop(sender);
         browser.kill();

@@ -11687,10 +11687,6 @@ mod tests {
                     | Action::RenameTab
                     | Action::ScrollUp
                     | Action::ScrollDown
-                    | Action::BrowserBack
-                    | Action::BrowserForward
-                    | Action::BrowserReload
-                    | Action::BrowserEditUrl
                     | Action::ShowShortcuts
                     | Action::Detach
             )
