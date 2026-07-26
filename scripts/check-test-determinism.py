@@ -571,14 +571,24 @@ def _swift_parameter_names(parameters: str) -> set[str]:
     return result
 
 
-def _swift_function_parameter_scopes(text: str) -> dict[int, set[str]]:
-    """Map function-body opening braces to their lexically bound parameters."""
+def _swift_callable_parameter_scopes(text: str) -> dict[int, set[str]]:
+    """Map callable-body opening braces to their lexically bound parameters."""
     result: dict[int, set[str]] = {}
-    for function in re.finditer(r"(?<![.$\w])func\b", text):
-        opening = text.find("(", function.end())
+    callable_pattern = re.compile(
+        r"(?<![.$\w])(?:func\b|init[!?]?(?=\s*\()|subscript\b)"
+    )
+    for declaration in callable_pattern.finditer(text):
+        line_start = text.rfind("\n", 0, declaration.start()) + 1
+        prefix = text[line_start : declaration.start()].strip()
+        if any(
+            delimiter in prefix
+            for delimiter in ("=", ".", "(", ")", "{", "}", ";", ",")
+        ):
+            continue
+        opening = text.find("(", declaration.end())
         if opening < 0:
             continue
-        intervening = text[function.end() : opening]
+        intervening = text[declaration.end() : opening]
         if "{" in intervening or "}" in intervening or ";" in intervening:
             continue
         closing = _swift_matching_parenthesis(text, opening)
@@ -591,7 +601,7 @@ def _swift_function_parameter_scopes(text: str) -> dict[int, set[str]]:
         if (
             ";" in suffix
             or "}" in suffix
-            or re.search(r"(?<![.$\w])func\b", suffix)
+            or callable_pattern.search(suffix)
         ):
             continue
         result[body_opening] = _swift_parameter_names(
@@ -621,6 +631,36 @@ def _swift_type_scopes(text: str) -> set[int]:
     return result
 
 
+def _swift_type_member_bindings(
+    text: str,
+    type_scopes: set[int],
+) -> dict[int, dict[str, bool]]:
+    """Pre-index direct type members because Swift ignores declaration order."""
+    result = {opening: {} for opening in type_scopes}
+    scope_openings: list[Optional[int]] = [None]
+    for event in _SWIFT_CLOCK_EVENT.finditer(text):
+        if event.group("open_brace") is not None:
+            scope_openings.append(event.start())
+            continue
+        if event.group("close_brace") is not None:
+            if len(scope_openings) > 1:
+                scope_openings.pop()
+            continue
+
+        current = scope_openings[-1]
+        if current not in type_scopes:
+            continue
+        if (
+            event.group("typed_let") is not None
+            or event.group("inferred_let") is not None
+        ):
+            name = event.group("typed_name") or event.group("inferred_name")
+            result[current][name] = True
+        elif event.group("simple_binding") is not None:
+            result[current][event.group("binding_name")] = False
+    return result
+
+
 def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
     """Return simple closure parameters introduced immediately after a brace."""
     candidate = re.match(
@@ -637,8 +677,9 @@ def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
 
 def _swift_named_clock_sleep_positions(text: str) -> set[int]:
     """Resolve immutable standard-clock bindings through lexical Swift scopes."""
-    function_parameters = _swift_function_parameter_scopes(text)
+    callable_parameters = _swift_callable_parameter_scopes(text)
     type_scopes = _swift_type_scopes(text)
+    type_members = _swift_type_member_bindings(text, type_scopes)
     scopes: list[tuple[str, dict[str, bool]]] = [("file", {})]
     result: set[int] = set()
 
@@ -646,15 +687,16 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
         if event.group("open_brace") is not None:
             scope_kind = (
                 "function"
-                if event.start() in function_parameters
+                if event.start() in callable_parameters
                 else "type"
                 if event.start() in type_scopes
                 else "block"
             )
-            bindings = {
+            bindings = type_members.get(event.start(), {}).copy()
+            bindings.update({
                 name: False
-                for name in function_parameters.get(event.start(), set())
-            }
+                for name in callable_parameters.get(event.start(), set())
+            })
             for name in _swift_closure_parameter_names(text, event.start()):
                 bindings[name] = False
             scopes.append((scope_kind, bindings))
