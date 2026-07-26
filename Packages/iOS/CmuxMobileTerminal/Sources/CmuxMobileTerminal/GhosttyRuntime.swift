@@ -266,10 +266,7 @@ public final class GhosttyRuntime {
         if action.tag == GHOSTTY_ACTION_RENDER {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                   let surface = target.target.surface,
-                  let bridge = GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(surface)) else { return false }
-            Task { @MainActor [bridge] in
-                bridge.surfaceView?.drawForWakeup()
-            }
+                  scheduleRenderWakeup(for: surface) != nil else { return false }
             return true
         }
 
@@ -369,6 +366,23 @@ public final class GhosttyRuntime {
                 clipboardWriter(value)
             }
             return
+        }
+    }
+
+    /// Captures the callback bridge before hopping to the main actor, then
+    /// re-checks attachment at delivery time. The returned task makes the final
+    /// delivered-or-dropped outcome explicit to callers that need to await it.
+    @discardableResult
+    nonisolated static func scheduleRenderWakeup(
+        for surface: ghostty_surface_t
+    ) -> Task<Bool, Never>? {
+        guard let bridge = GhosttySurfaceBridge.fromOpaque(
+            ghostty_surface_userdata(surface)
+        ) else {
+            return nil
+        }
+        return Task { @MainActor [bridge] in
+            bridge.requestRenderWakeup()
         }
     }
 

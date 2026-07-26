@@ -48,6 +48,17 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Delivers one renderer continuation only while the terminal is attached.
+    /// The explicit result distinguishes a dropped detached continuation from
+    /// one handed to the terminal without adding per-frame bookkeeping.
+    @MainActor
+    @discardableResult
+    func requestRenderWakeup() -> Bool {
+        guard let surfaceView else { return false }
+        surfaceView.drawForWakeup()
+        return true
+    }
+
     func handleWrite(_ bytes: Data) {
         Task { @MainActor [weak self] in
             guard let surfaceView = self?.surfaceView else { return }
