@@ -900,7 +900,7 @@ def _javascript_timer_aliases(
     raw_text: str,
     masked_text: str,
 ) -> set[str]:
-    """Return unshadowed promise-timer aliases from trusted ESM imports."""
+    """Return promise-timer aliases imported from trusted ESM modules."""
     aliases: set[str] = set()
     for timer_import in _JAVASCRIPT_TIMER_IMPORT.finditer(raw_text):
         if not masked_text.startswith("import", timer_import.start()):
@@ -913,21 +913,128 @@ def _javascript_timer_aliases(
             )
             if imported is not None:
                 aliases.add(imported.group("alias") or "setTimeout")
+    return aliases
 
-    result: set[str] = set()
-    for alias in aliases:
-        escaped = re.escape(alias)
-        shadow_patterns = (
-            rf"\b(?:let|const|var|function|class)\s+{escaped}\b",
-            rf"(?<![.$\w]){escaped}\s*=(?!=|>)",
-            rf"\bfunction\b[^()]*\([^)]*\b{escaped}\b[^)]*\)",
-            rf"\([^)]*\b{escaped}\b[^)]*\)\s*=>",
-            rf"(?<![.$\w]){escaped}\s*=>",
-            rf"\bcatch\s*\(\s*{escaped}\b",
+
+def _javascript_parameter_aliases(
+    text: str,
+    opening: int,
+    aliases: set[str],
+) -> set[str]:
+    """Return trusted alias names shadowed by one function-like scope."""
+    prefix = text[max(0, opening - 2048) : opening]
+    patterns = (
+        r"\bfunction(?:\s+[$\w]+)?\s*\((?P<parameters>[^()]*)\)\s*$",
+        r"(?:\basync\s*)?\((?P<parameters>[^()]*)\)\s*=>\s*$",
+        rf"(?:\basync\s+)?(?P<parameters>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
+        r"\s*=>\s*$",
+        r"\bcatch\s*\((?P<parameters>[^()]*)\)\s*$",
+    )
+    parameters: Optional[str] = None
+    for pattern in patterns:
+        signature = re.search(pattern, prefix)
+        if signature is not None:
+            parameters = signature.group("parameters")
+            break
+    if parameters is None:
+        return set()
+
+    return {
+        alias
+        for alias in aliases
+        if re.search(
+            rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
+            parameters,
         )
-        if any(re.search(pattern, masked_text) for pattern in shadow_patterns):
+    }
+
+
+def _javascript_timer_alias_positions(
+    text: str,
+    aliases: set[str],
+) -> set[int]:
+    """Resolve imported timer aliases independently at each lexical call site."""
+    if not aliases:
+        return set()
+
+    alias_pattern = "|".join(
+        re.escape(alias)
+        for alias in sorted(aliases, key=len, reverse=True)
+    )
+    event_pattern = re.compile(
+        "|".join(
+            (
+                r"(?P<open_brace>\{)",
+                r"(?P<close_brace>\})",
+                rf"(?P<declaration>\b(?:let|const|var|function|class)\s+"
+                rf"(?P<declared>{alias_pattern})(?![$\w]))",
+                rf"(?P<assignment>(?<![.$\w])"
+                rf"(?P<assigned>{alias_pattern})(?![$\w])\s*=(?!=|>))",
+                rf"(?P<call>(?<![.$\w])"
+                rf"(?P<called>{alias_pattern})(?![$\w])\s*\()",
+            )
+        )
+    )
+
+    declarations: dict[Optional[int], set[str]] = {None: set()}
+    scope_openings: list[Optional[int]] = [None]
+    for event in event_pattern.finditer(text):
+        if event.group("open_brace") is not None:
+            scope_openings.append(event.start())
+            declarations.setdefault(event.start(), set())
+        elif event.group("close_brace") is not None:
+            if len(scope_openings) > 1:
+                scope_openings.pop()
+        elif event.group("declaration") is not None:
+            declarations.setdefault(scope_openings[-1], set()).add(
+                event.group("declared")
+            )
+
+    scopes: list[dict[str, bool]] = [
+        {
+            alias: alias not in declarations[None]
+            for alias in aliases
+        }
+    ]
+    result: set[int] = set()
+    for event in event_pattern.finditer(text):
+        if event.group("open_brace") is not None:
+            bindings = {
+                alias: False
+                for alias in declarations.get(event.start(), set())
+            }
+            bindings.update(
+                {
+                    alias: False
+                    for alias in _javascript_parameter_aliases(
+                        text,
+                        event.start(),
+                        aliases,
+                    )
+                }
+            )
+            scopes.append(bindings)
             continue
-        result.add(alias)
+        if event.group("close_brace") is not None:
+            if len(scopes) > 1:
+                scopes.pop()
+            continue
+        if event.group("declaration") is not None:
+            scopes[-1][event.group("declared")] = False
+            continue
+        if event.group("assignment") is not None:
+            scopes[-1][event.group("assigned")] = False
+            continue
+        if event.group("call") is None:
+            continue
+
+        alias = event.group("called")
+        for scope in reversed(scopes):
+            if alias not in scope:
+                continue
+            if scope[alias]:
+                result.add(event.start("called"))
+            break
     return result
 
 
@@ -954,17 +1061,16 @@ def _javascript_real_sleep_positions(
         line_start = text.rfind("\n", 0, sleep_offset) + 1
         positions.setdefault(line, set()).add(sleep_offset - line_start)
 
-    for alias in _javascript_timer_aliases(raw_text, text):
-        call_pattern = re.compile(
-            rf"(?<![.$\w])(?P<alias>{re.escape(alias)})\s*\("
+    timer_aliases = _javascript_timer_aliases(raw_text, text)
+    for sleep_offset in _javascript_timer_alias_positions(
+        text,
+        timer_aliases,
+    ):
+        line = text.count("\n", 0, sleep_offset)
+        line_start = text.rfind("\n", 0, sleep_offset) + 1
+        positions.setdefault(line, set()).add(
+            sleep_offset - line_start
         )
-        for call in call_pattern.finditer(text):
-            sleep_offset = call.start("alias")
-            line = text.count("\n", 0, sleep_offset)
-            line_start = text.rfind("\n", 0, sleep_offset) + 1
-            positions.setdefault(line, set()).add(
-                sleep_offset - line_start
-            )
     return positions
 
 
