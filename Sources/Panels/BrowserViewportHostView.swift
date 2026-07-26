@@ -12,9 +12,6 @@ import WebKit
 final class BrowserViewportHostView: NSView {
     private(set) weak var webView: WKWebView?
     private(set) var appliedLayout: BrowserViewportLayout?
-#if DEBUG
-    private(set) var browserPortalInvalidationCountForTesting = 0
-#endif
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -60,9 +57,6 @@ final class BrowserViewportHostView: NSView {
     }
 
     func invalidateBrowserPortalPresentation() {
-#if DEBUG
-        browserPortalInvalidationCountForTesting += 1
-#endif
         needsLayout = true
         setNeedsDisplay(bounds)
     }
