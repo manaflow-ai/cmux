@@ -3167,6 +3167,59 @@ mod unix {
         }
 
         #[test]
+        fn clear_history_control_write_failure_after_header_is_ambiguous() {
+            let (record_path, record, lease) =
+                record_fixture("clear-history-partial-control-write");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses {
+                    waiters: Mutex::new(HashMap::new()),
+                }),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let peer = thread::spawn(move || {
+                let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
+                Read::read_exact(&mut host, &mut header).unwrap();
+                host.shutdown(std::net::Shutdown::Both).unwrap();
+            });
+
+            let failure = attachment
+                .send_control_request(
+                    MessageKind::ClearHistory,
+                    MessageKind::ClearHistoryAck,
+                    vec![b'x'; MAX_FRAME_PAYLOAD],
+                )
+                .unwrap_err();
+            peer.join().unwrap();
+
+            assert_eq!(
+                failure.delivery(),
+                ClearHistoryDelivery::Ambiguous,
+                "a delivered frame header means the host may have received the complete request"
+            );
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn clear_history_ack_status_preserves_reason_and_delivery() {
             for (message, expected) in [
                 (CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_ACK_PRESERVATION_FAILED),
