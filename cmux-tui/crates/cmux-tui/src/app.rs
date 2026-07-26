@@ -2649,7 +2649,7 @@ pub enum PromptTarget {
     Surface(SurfaceId),
     ConnectMachine,
     ProviderAction(usize),
-    ConfirmProviderAction(usize),
+    ConfirmProviderAction,
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
@@ -4621,7 +4621,7 @@ impl App {
                 matches!(
                     prompt.target,
                     PromptTarget::ProviderAction(_)
-                        | PromptTarget::ConfirmProviderAction(_)
+                        | PromptTarget::ConfirmProviderAction
                         | PromptTarget::ManagedWorkspace(_)
                         | PromptTarget::ConfirmPurgeManagedWorkspace(_)
                         | PromptTarget::ManagedMachine(_)
@@ -7183,7 +7183,7 @@ impl App {
                 self.prompt = Some(Prompt::new(
                     localization::catalog().sidebar.confirm_destructive_action,
                     String::new(),
-                    PromptTarget::ConfirmProviderAction(index),
+                    PromptTarget::ConfirmProviderAction,
                 ));
             }
             Some(Ok((request, false))) => {
@@ -7377,7 +7377,7 @@ impl App {
                     self.prompt = Some(Prompt::new(
                         localization::catalog().sidebar.confirm_destructive_action,
                         String::new(),
-                        PromptTarget::ConfirmProviderAction(index),
+                        PromptTarget::ConfirmProviderAction,
                     ));
                 }
                 Some(Ok((request, false))) => {
@@ -7394,7 +7394,7 @@ impl App {
             }
             return;
         }
-        if let PromptTarget::ConfirmProviderAction(_) = prompt.target {
+        if let PromptTarget::ConfirmProviderAction = prompt.target {
             if input.trim() == "CONFIRM" {
                 if let (Some(request), Some(ui)) =
                     (self.pending_provider_action.take(), self.machine_ui.as_mut())
@@ -7450,7 +7450,7 @@ impl App {
             | PromptTarget::ConfirmDeleteManagedMachine(_)
             | PromptTarget::ConfirmPurgeManagedMachine(_)
             | PromptTarget::ProviderAction(_)
-            | PromptTarget::ConfirmProviderAction(_)
+            | PromptTarget::ConfirmProviderAction
             | PromptTarget::ManagedWorkspace(_)
             | PromptTarget::ConfirmPurgeManagedWorkspace(_) => {
                 unreachable!("handled before session mutation")
@@ -15785,7 +15785,7 @@ mod tests {
                 ProviderActionDescriptor {
                     id: "invite-member".into(),
                     label: "Invite member".into(),
-                    target: crate::machine::ProviderActionTarget::Scope,
+                    target: ProviderActionTarget::Scope,
                     destructive: false,
                     fields: vec![ProviderActionFieldDescriptor {
                         id: "email".into(),
@@ -15801,7 +15801,7 @@ mod tests {
                 ProviderActionDescriptor {
                     id: "manage-billing".into(),
                     label: "Manage billing".into(),
-                    target: crate::machine::ProviderActionTarget::Scope,
+                    target: ProviderActionTarget::Scope,
                     destructive: false,
                     fields: Vec::new(),
                 },
@@ -15933,7 +15933,7 @@ mod tests {
         app.handle_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert!(matches!(
             app.prompt.as_ref().map(|prompt| &prompt.target),
-            Some(PromptTarget::ConfirmProviderAction(2))
+            Some(PromptTarget::ConfirmProviderAction)
         ));
         assert!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()).is_none(),
