@@ -4103,6 +4103,53 @@ mod tests {
     }
 
     #[test]
+    fn post_commit_screencast_frame_does_not_claim_document_authority() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+
+        let navigation_epoch = browser.frame_epoch.advance_navigation();
+        handle_frame_navigated(
+            browser,
+            json!({
+                "frame": {
+                    "id": "main-frame",
+                    "loaderId": "next-loader",
+                    "url": "https://next.test"
+                }
+            }),
+            navigation_epoch,
+        );
+        browser.store_frame_for_epoch(test_frame(2), navigation_epoch);
+
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "a streamed frame without committed-loader paint proof must remain non-interactive"
+        );
+    }
+
+    #[test]
+    fn unguarded_pointer_input_requires_a_current_admitted_frame() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        {
+            let mut state = browser.state.lock().unwrap();
+            super::BrowserSurface::set_pointer_frame_locked(&mut state, None);
+        }
+
+        assert!(
+            browser.scale_guarded_input_point(None, 1.0, 1.0).is_none(),
+            "legacy mouse input must not bypass an invalidated presentation frame"
+        );
+        assert!(
+            browser.scale_guarded_wheel(None, 1.0, 1.0, 1.0).is_none(),
+            "legacy wheel input must not bypass an invalidated presentation frame"
+        );
+    }
+
+    #[test]
     fn queued_frame_before_navigation_barrier_stays_non_authoritative() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");

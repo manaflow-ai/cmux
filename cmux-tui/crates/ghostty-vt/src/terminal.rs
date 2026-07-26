@@ -2089,6 +2089,23 @@ mod tests {
     }
 
     #[test]
+    fn unrelated_dec_modes_do_not_probe_ambiguous_mouse_modes() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let probes_after_modes = terminal.mouse_mode_probe.signature_calls();
+
+        for _ in 0..128 {
+            terminal.vt_write(b"\x1b[?2026hpaint\x1b[?2026l");
+        }
+
+        assert_eq!(
+            terminal.mouse_mode_probe.signature_calls(),
+            probes_after_modes,
+            "synchronized-output framing must not run synthetic mouse encodes"
+        );
+    }
+
+    #[test]
     fn mouse_mode_detector_keeps_controls_inside_escape_and_csi() {
         let mut detector = MouseModeChangeDetector::default();
 

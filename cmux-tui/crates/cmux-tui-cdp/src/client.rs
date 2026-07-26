@@ -1435,7 +1435,7 @@ mod tests {
     }
 
     #[test]
-    fn child_same_document_navigation_does_not_advance_main_frame_epoch() {
+    fn same_document_navigation_does_not_advance_main_frame_epoch() {
         let (inner, _outbound_rx) = test_inner();
         let frame_epoch = Arc::new(FrameEpoch::default());
         inner.frame_epochs.lock().unwrap().insert(
@@ -1478,7 +1478,11 @@ mod tests {
             })
             .to_string(),
         );
-        assert_eq!(frame_epoch.current(), 2);
+        assert_eq!(
+            frame_epoch.current(),
+            1,
+            "same-document navigation must not invalidate the current document's pointer authority"
+        );
     }
 
     #[test]
