@@ -3677,7 +3677,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
-    func testFullConfigurationReloadStagesAppearanceUntilConfigurationCommit() {
+    func testFullConfigurationReloadStagesAppearanceUntilConfigurationCommit()
+        throws {
 #if DEBUG
         let app = GhosttyApp.shared
         let originalProfile =

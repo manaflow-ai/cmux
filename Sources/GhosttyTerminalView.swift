@@ -1949,6 +1949,10 @@ class GhosttyApp {
             effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
             cmuxThemeValue: currentCmuxAppSupportThemeValue()
         )
+        let previousRuntimeColorScheme =
+            appliedGhosttyRuntimeColorScheme
+        let previousEffectiveColorScheme =
+            effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
@@ -1969,6 +1973,15 @@ class GhosttyApp {
         }
 
         guard let newConfig = ghostty_config_new() else {
+            if let previousRuntimeColorScheme {
+                synchronizeGhosttyRuntimeColorScheme(
+                    previousRuntimeColorScheme,
+                    colorScheme:
+                        previousEffectiveColorScheme,
+                    source:
+                        "reloadConfiguration:\(source):restore"
+                )
+            }
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
             completion()
             return
@@ -1977,22 +1990,32 @@ class GhosttyApp {
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
-        updateDefaultBackground(
-            from: newConfig,
-            source: "reloadConfiguration(source=\(source))",
-            scope: .unscoped,
-            forceNotify: renderingModeChanged
-        )
+        let stagedBaselineAppearance =
+            defaultBackgroundValues(from: newConfig)
         GhosttyConfig.invalidateLoadCache()
-        updateDefaultBackgroundFromResolvedGhosttyConfig(
-            source: "reloadConfiguration(source=\(source))",
-            preferredColorScheme: reloadColorScheme,
-            baselineConfig: newConfig,
-            scope: .unscoped,
-            forceNotify: renderingModeChanged
-        )
-        let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
-        synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+        let stagedResolvedAppearance =
+            resolvedDefaultBackgroundValues(
+                preferredColorScheme: reloadColorScheme,
+                baselineConfig: newConfig
+            )
+        let effectiveReloadColorScheme =
+            Self.terminalRuntimeColorSchemePreference(
+                forBackgroundColor:
+                    stagedResolvedAppearance
+                        .backgroundColor
+            )
+        // Ghostty consults its runtime scheme while loading conditional
+        // themes. Restore the applied scheme before incremental capture so
+        // neither the renderer nor surrounding UI exposes the staged theme.
+        if let previousRuntimeColorScheme {
+            synchronizeGhosttyRuntimeColorScheme(
+                previousRuntimeColorScheme,
+                colorScheme:
+                    previousEffectiveColorScheme,
+                source:
+                    "reloadConfiguration:\(source):staged"
+            )
+        }
         let terminalFontConfiguration =
             terminalFontConfigurationSnapshot(
                 config: newConfig,
@@ -2080,13 +2103,35 @@ class GhosttyApp {
                     self.appliedGlobalFontMagnificationPercent =
                         reloadMagnificationPercent
                     self.terminalFontConfigurationGeneration &+= 1
-                    DispatchQueue.main.async {
-                        self.applyBackgroundToKeyWindow()
-                    }
                     if let oldConfig = self.config {
                         ghostty_config_free(oldConfig)
                     }
                     self.config = newConfig
+                    let appearanceSource =
+                        "reloadConfiguration(source=\(source))"
+                    self.applyDefaultBackground(
+                        stagedBaselineAppearance,
+                        source: appearanceSource,
+                        scope: .unscoped,
+                        forceNotify:
+                            renderingModeChanged
+                    )
+                    self.applyDefaultBackground(
+                        stagedResolvedAppearance,
+                        source:
+                            "\(appearanceSource).resolvedGhosttyConfig",
+                        scope: .unscoped,
+                        forceNotify:
+                            renderingModeChanged
+                    )
+                    self.synchronizeGhosttyRuntimeColorScheme(
+                        effectiveReloadColorScheme,
+                        source:
+                            "reloadConfiguration:\(source):resolved"
+                    )
+                    DispatchQueue.main.async {
+                        self.applyBackgroundToKeyWindow()
+                    }
                 }
             ) { [weak self] in
                 guard let self else {
@@ -2326,16 +2371,8 @@ class GhosttyApp {
     ) {
         guard let config else { return }
 
-        let resolved = defaultBackgroundValues(from: config)
         applyDefaultBackground(
-            color: resolved.backgroundColor,
-            opacity: resolved.backgroundOpacity,
-            backgroundBlur: resolved.backgroundBlur,
-            foregroundColor: resolved.foregroundColor,
-            cursorColor: resolved.cursorColor,
-            cursorTextColor: resolved.cursorTextColor,
-            selectionBackground: resolved.selectionBackground,
-            selectionForeground: resolved.selectionForeground,
+            defaultBackgroundValues(from: config),
             source: source,
             scope: scope,
             forceNotify: forceNotify
@@ -2407,6 +2444,112 @@ class GhosttyApp {
         return unspecifiedFallbackValue
     }
 
+    private func resolvedDefaultBackgroundValues(
+        preferredColorScheme:
+            GhosttyConfig.ColorSchemePreference,
+        baselineConfig: ghostty_config_t?,
+        useOnDiskResolvedConfig: Bool = true
+    ) -> DefaultBackgroundValues {
+        let baseline =
+            defaultBackgroundValues(from: baselineConfig)
+        guard useOnDiskResolvedConfig else {
+            return baseline
+        }
+        let resolved = GhosttyConfig.load(
+            preferredColorScheme: preferredColorScheme,
+            useCache: false,
+            globalFontMagnificationPercent:
+                GlobalFontMagnification.storedPercent
+        )
+        let fallbackForUnspecified =
+            Self
+                .shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
+            ? defaultBackgroundValues(from: nil)
+            : baseline
+        return DefaultBackgroundValues(
+            backgroundColor: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundColor,
+                baselineValue: baseline.backgroundColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.backgroundColor,
+                hasParsedDirective:
+                    resolved.hasParsedBackgroundColor,
+                hasDirective:
+                    resolved.hasBackgroundColorDirective
+            ),
+            backgroundOpacity: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundOpacity,
+                baselineValue: baseline.backgroundOpacity,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.backgroundOpacity,
+                hasParsedDirective:
+                    resolved.hasParsedBackgroundOpacity,
+                hasDirective:
+                    resolved.hasBackgroundOpacityDirective
+            ),
+            backgroundBlur: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundBlur,
+                baselineValue: baseline.backgroundBlur,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.backgroundBlur,
+                hasParsedDirective:
+                    resolved.hasParsedBackgroundBlur,
+                hasDirective:
+                    resolved.hasBackgroundBlurDirective
+            ),
+            foregroundColor: resolvedAppearanceValue(
+                parsedValue: resolved.foregroundColor,
+                baselineValue: baseline.foregroundColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.foregroundColor,
+                hasParsedDirective:
+                    resolved.hasParsedForegroundColor,
+                hasDirective:
+                    resolved.hasForegroundColorDirective
+            ),
+            cursorColor: resolvedAppearanceValue(
+                parsedValue: resolved.cursorColor,
+                baselineValue: baseline.cursorColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.cursorColor,
+                hasParsedDirective:
+                    resolved.hasParsedCursorColor,
+                hasDirective:
+                    resolved.hasCursorColorDirective
+            ),
+            cursorTextColor: resolvedAppearanceValue(
+                parsedValue: resolved.cursorTextColor,
+                baselineValue: baseline.cursorTextColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.cursorTextColor,
+                hasParsedDirective:
+                    resolved.hasParsedCursorTextColor,
+                hasDirective:
+                    resolved.hasCursorTextColorDirective
+            ),
+            selectionBackground: resolvedAppearanceValue(
+                parsedValue: resolved.selectionBackground,
+                baselineValue: baseline.selectionBackground,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.selectionBackground,
+                hasParsedDirective:
+                    resolved.hasParsedSelectionBackground,
+                hasDirective:
+                    resolved.hasSelectionBackgroundDirective
+            ),
+            selectionForeground: resolvedAppearanceValue(
+                parsedValue: resolved.selectionForeground,
+                baselineValue: baseline.selectionForeground,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.selectionForeground,
+                hasParsedDirective:
+                    resolved.hasParsedSelectionForeground,
+                hasDirective:
+                    resolved.hasSelectionForegroundDirective
+            )
+        )
+    }
+
     private func updateDefaultBackgroundFromResolvedGhosttyConfig(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -2415,83 +2558,12 @@ class GhosttyApp {
         useOnDiskResolvedConfig: Bool = true,
         forceNotify: Bool = false
     ) {
-        let baseline = defaultBackgroundValues(from: baselineConfig)
-        guard useOnDiskResolvedConfig else {
-            applyDefaultBackground(
-                color: baseline.backgroundColor,
-                opacity: baseline.backgroundOpacity,
-                backgroundBlur: baseline.backgroundBlur,
-                foregroundColor: baseline.foregroundColor,
-                cursorColor: baseline.cursorColor,
-                cursorTextColor: baseline.cursorTextColor,
-                selectionBackground: baseline.selectionBackground,
-                selectionForeground: baseline.selectionForeground,
-                source: source,
-                scope: scope,
-                forceNotify: forceNotify
-            )
-            return
-        }
-        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false, globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
-        let fallbackForUnspecified = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
-            ? defaultBackgroundValues(from: nil)
-            : baseline
         applyDefaultBackground(
-            color: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundColor,
-                baselineValue: baseline.backgroundColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundColor,
-                hasParsedDirective: resolved.hasParsedBackgroundColor,
-                hasDirective: resolved.hasBackgroundColorDirective
-            ),
-            opacity: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundOpacity,
-                baselineValue: baseline.backgroundOpacity,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundOpacity,
-                hasParsedDirective: resolved.hasParsedBackgroundOpacity,
-                hasDirective: resolved.hasBackgroundOpacityDirective
-            ),
-            backgroundBlur: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundBlur,
-                baselineValue: baseline.backgroundBlur,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundBlur,
-                hasParsedDirective: resolved.hasParsedBackgroundBlur,
-                hasDirective: resolved.hasBackgroundBlurDirective
-            ),
-            foregroundColor: resolvedAppearanceValue(
-                parsedValue: resolved.foregroundColor,
-                baselineValue: baseline.foregroundColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.foregroundColor,
-                hasParsedDirective: resolved.hasParsedForegroundColor,
-                hasDirective: resolved.hasForegroundColorDirective
-            ),
-            cursorColor: resolvedAppearanceValue(
-                parsedValue: resolved.cursorColor,
-                baselineValue: baseline.cursorColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.cursorColor,
-                hasParsedDirective: resolved.hasParsedCursorColor,
-                hasDirective: resolved.hasCursorColorDirective
-            ),
-            cursorTextColor: resolvedAppearanceValue(
-                parsedValue: resolved.cursorTextColor,
-                baselineValue: baseline.cursorTextColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.cursorTextColor,
-                hasParsedDirective: resolved.hasParsedCursorTextColor,
-                hasDirective: resolved.hasCursorTextColorDirective
-            ),
-            selectionBackground: resolvedAppearanceValue(
-                parsedValue: resolved.selectionBackground,
-                baselineValue: baseline.selectionBackground,
-                unspecifiedFallbackValue: fallbackForUnspecified.selectionBackground,
-                hasParsedDirective: resolved.hasParsedSelectionBackground,
-                hasDirective: resolved.hasSelectionBackgroundDirective
-            ),
-            selectionForeground: resolvedAppearanceValue(
-                parsedValue: resolved.selectionForeground,
-                baselineValue: baseline.selectionForeground,
-                unspecifiedFallbackValue: fallbackForUnspecified.selectionForeground,
-                hasParsedDirective: resolved.hasParsedSelectionForeground,
-                hasDirective: resolved.hasSelectionForegroundDirective
+            resolvedDefaultBackgroundValues(
+                preferredColorScheme: preferredColorScheme,
+                baselineConfig: baselineConfig,
+                useOnDiskResolvedConfig:
+                    useOnDiskResolvedConfig
             ),
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
@@ -2584,6 +2656,27 @@ class GhosttyApp {
         if (features & (1 << 2)) != 0 {
             NSApp.requestUserAttention(.informationalRequest)
         }
+    }
+
+    private func applyDefaultBackground(
+        _ values: DefaultBackgroundValues,
+        source: String,
+        scope: GhosttyDefaultBackgroundUpdateScope,
+        forceNotify: Bool = false
+    ) {
+        applyDefaultBackground(
+            color: values.backgroundColor,
+            opacity: values.backgroundOpacity,
+            backgroundBlur: values.backgroundBlur,
+            foregroundColor: values.foregroundColor,
+            cursorColor: values.cursorColor,
+            cursorTextColor: values.cursorTextColor,
+            selectionBackground: values.selectionBackground,
+            selectionForeground: values.selectionForeground,
+            source: source,
+            scope: scope,
+            forceNotify: forceNotify
+        )
     }
 
     private func applyDefaultBackground(
