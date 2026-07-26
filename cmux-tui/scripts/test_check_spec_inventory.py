@@ -140,6 +140,37 @@ impl TreeDeltaKind {
             finally:
                 CHECKER.TUI = original_tui
 
+    def test_event_discovery_ignores_event_shaped_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            mux = tui / "crates/cmux-tui-core/src/mux.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text(
+                """\
+//! This is documentation, not a serializer: {"event": "comment-only"}
+fn tree_delta_json() {
+    let _ = json!({"event": "tree-changed"});
+}
+"""
+            )
+            mux.write_text(
+                """\
+impl TreeDeltaKind {
+    fn wire_name(&self) -> &str {
+        "workspace-added"
+    }
+}
+"""
+            )
+
+            original_tui = CHECKER.TUI
+            CHECKER.TUI = tui
+            try:
+                self.assertNotIn("comment-only", CHECKER.event_names())
+            finally:
+                CHECKER.TUI = original_tui
+
     def test_new_workspace_route_covers_provider_owned_sessions(self) -> None:
         actions = {
             action["variant"]: action
