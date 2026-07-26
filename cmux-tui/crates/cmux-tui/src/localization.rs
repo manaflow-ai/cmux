@@ -632,6 +632,8 @@ mod tests {
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_vm, "new machine");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_vm, "新規マシン");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"

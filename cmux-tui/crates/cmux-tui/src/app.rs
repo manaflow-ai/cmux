@@ -17786,7 +17786,8 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("machines"), "{text}");
         assert!(text.contains("no machines"), "{text}");
-        assert!(text.contains("new VM"), "{text}");
+        assert!(text.contains("new machine"), "{text}");
+        assert!(!text.contains("new VM"), "{text}");
         assert!(text.contains("connect machine"), "{text}");
         assert!(text.contains("workspaces"), "{text}");
         assert!(
