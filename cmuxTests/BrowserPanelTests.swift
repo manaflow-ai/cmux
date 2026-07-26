@@ -2903,6 +2903,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
         private(set) var reattachRenderingStateCount = 0
+        private(set) var enterInWindowCount = 0
+        private(set) var endDeferringViewInWindowChangesCount = 0
         private(set) var setNeedsDisplayCount = 0
 
         override func setNeedsDisplay(_ invalidRect: NSRect) {
@@ -2917,11 +2919,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         @objc(_enterInWindow)
         func cmuxUnitTestEnterInWindow() {
+            enterInWindowCount += 1
             reattachRenderingStateCount += 1
         }
 
         @objc(_endDeferringViewInWindowChangesSync)
         func cmuxUnitTestEndDeferringViewInWindowChangesSync() {
+            endDeferringViewInWindowChangesCount += 1
             reattachRenderingStateCount += 1
         }
     }
@@ -3928,12 +3932,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
         let initialDisplayCount = webView.displayIfNeededCount
-        let initialReattachCount = webView.reattachRenderingStateCount
+        let initialEnterInWindowCount = webView.enterInWindowCount
+        let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
         let hiddenDisplayCount = webView.displayIfNeededCount
+        let hiddenEnterInWindowCount = webView.enterInWindowCount
+        let hiddenEndDeferringCount = webView.endDeferringViewInWindowChangesCount
         let hiddenReattachCount = webView.reattachRenderingStateCount
         let hiddenSetNeedsDisplayCount = webView.setNeedsDisplayCount
 
@@ -3943,9 +3950,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(hiddenDisplayCount, initialDisplayCount)
         XCTAssertEqual(
-            hiddenReattachCount,
-            initialReattachCount,
-            "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
+            hiddenEnterInWindowCount,
+            initialEnterInWindowCount,
+            "Hiding a portal-hosted browser should not itself enter the WebKit window"
+        )
+        XCTAssertEqual(
+            hiddenEndDeferringCount,
+            initialEndDeferringCount,
+            "Hiding a portal-hosted browser should not itself end deferred WebKit window changes"
         )
         XCTAssertGreaterThan(
             webView.setNeedsDisplayCount,

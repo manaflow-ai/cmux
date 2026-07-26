@@ -59,12 +59,31 @@ import Testing
         )
     }
 
-    @Test func closeReleasesLoadedWebViewWhilePanelRemainsRetained() {
+    @Test func closeReleasesLoadedWebViewFromLocalInlineHostWhilePanelRemainsRetained() {
         let panel = BrowserPanel(workspaceId: UUID())
         let originalWebView = panel.webView
+        let originalPresentationView = originalWebView.cmuxBrowserViewportPresentationView
         let discardManager = panel.hiddenWebViewDiscardManager
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let slot = WindowBrowserSlotView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(slot)
+        slot.addSubview(originalPresentationView)
+        slot.pinHostedWebView(originalWebView)
+        originalWebView.loadHTMLString("<html><body>loaded</body></html>", baseURL: nil)
+        window.makeKeyAndOrderFront(nil)
+
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
 
         #expect(discardManager.delegate === panel)
+        #expect(originalPresentationView.superview === slot)
 
         panel.close()
 
@@ -74,6 +93,7 @@ import Testing
         #expect(panel.webView.url == nil)
         #expect(originalWebView.navigationDelegate == nil)
         #expect(originalWebView.uiDelegate == nil)
+        #expect(originalPresentationView.superview == nil)
         #expect(originalWebView.superview == nil)
     }
 
