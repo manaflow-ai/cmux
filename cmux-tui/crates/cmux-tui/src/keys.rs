@@ -107,6 +107,10 @@ impl KeyboardInput {
         self.associated_text.len()
     }
 
+    pub fn is_release(&self) -> bool {
+        self.key_event.kind == KeyEventKind::Release
+    }
+
     pub fn suppresses_alt_shortcut(&self) -> bool {
         self.suppress_alt_shortcut
     }
