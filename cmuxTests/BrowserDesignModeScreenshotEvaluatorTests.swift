@@ -60,6 +60,50 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
     }
 
+    @Test func droppedVisibleCaptureCallbackRecoversAfterBoundedQuarantine() async {
+        let expected = NSImage(size: NSSize(width: 20, height: 10))
+        var captureStartCount = 0
+        var firstCompletion: (@MainActor (Result<NSImage, any Error>) -> Void)?
+        let webView = WKWebView()
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 0.01,
+            cleanupTimeout: 0.02
+        ) { _, completion in
+            captureStartCount += 1
+            if captureStartCount == 1 {
+                firstCompletion = completion
+            } else {
+                completion(.success(expected))
+            }
+        }
+
+        do {
+            _ = try await evaluator.captureVisibleViewport(from: webView)
+            Issue.record("Expected first capture timeout")
+        } catch {
+            #expect(error as? BrowserDesignModeError == .operationTimedOut)
+        }
+
+        do {
+            _ = try await evaluator.captureVisibleViewport(from: webView)
+            Issue.record("Expected quarantine to block an immediate retry")
+        } catch {
+            #expect(error is CancellationError)
+        }
+        #expect(captureStartCount == 1)
+
+        try? await ContinuousClock().sleep(for: .milliseconds(40))
+        do {
+            let captured = try await evaluator.captureVisibleViewport(from: webView)
+            #expect(captured === expected)
+        } catch {
+            Issue.record("Expected capture to recover after quarantine: \(error)")
+        }
+        #expect(captureStartCount == 2)
+
+        firstCompletion?(.success(expected))
+    }
+
     @Test func fullPageCaptureCanOutliveSingleViewportDeadline() async throws {
         let expected = NSImage(size: NSSize(width: 20, height: 40))
         let evaluator = BrowserDesignModeScreenshotEvaluator(
