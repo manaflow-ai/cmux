@@ -26,7 +26,9 @@ public struct SimulatorCameraCleanupOwnershipScope: Sendable {
     }
 
     /// Waits for every cleanup already owned by this app scope, including work
-    /// that outlived the pane or worker client that scheduled it.
+    /// that outlived the pane or worker client that scheduled it. A retained
+    /// failure is retried once per call so a later quit can recover a transient
+    /// rollback failure without allowing concurrent camera owners.
     /// - Returns: `true` when every observed cleanup completed successfully.
     public func waitForPendingCleanup() async -> Bool {
         await coordinator.waitForPendingCleanup()

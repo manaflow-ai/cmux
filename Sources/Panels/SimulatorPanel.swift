@@ -223,9 +223,15 @@ final class SimulatorPanel: Panel {
             await pendingShutdown?.value
             _ = await startupTask?.value
             await coordinator.close()
-            _ = await TerminalController.shared.simulatorCameraCleanupOwnershipScope
+            let cleanupSucceeded = await TerminalController.shared
+                .simulatorCameraCleanupOwnershipScope
                 .waitForPendingCleanup()
-            Self.pendingCleanupTasks.removeValue(forKey: panelID)
+            // A completed Task remains the durable app-level obligation when
+            // rollback fails. The next quit can then retry the shared cleanup
+            // even after this panel and its worker client have deallocated.
+            if cleanupSucceeded {
+                Self.pendingCleanupTasks.removeValue(forKey: panelID)
+            }
         }
         shutdownTask = finalShutdown
         Self.pendingCleanupTasks[panelID] = finalShutdown

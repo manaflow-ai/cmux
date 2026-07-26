@@ -1,5 +1,8 @@
 import Foundation
 
+typealias SimulatorCameraCleanupOperation =
+    @Sendable () async -> SimulatorCameraCleanupResult
+
 /// Serializes camera cleanup per Simulator application across worker-client
 /// replacement without blocking unrelated devices or bundle identifiers.
 actor SimulatorCameraCleanupCoordinator {
@@ -7,12 +10,16 @@ actor SimulatorCameraCleanupCoordinator {
         [SimulatorCameraCleanupTarget: Task<SimulatorCameraCleanupResult, Never>] = [:]
     private var revisionByTarget: [SimulatorCameraCleanupTarget: UInt64] = [:]
     private var ownerByTarget: [SimulatorCameraCleanupTarget: UUID] = [:]
+    private var recoveryIdentifierByTarget: [SimulatorCameraCleanupTarget: UUID] = [:]
+    private var recoveryOperationByIdentifier:
+        [UUID: SimulatorCameraCleanupOperation] = [:]
     private let ownershipStore: SimulatorCrossProcessOwnershipStore
 
     var trackedTargetCount: Int {
         Set(tailByTarget.keys)
             .union(revisionByTarget.keys)
             .union(ownerByTarget.keys)
+            .union(recoveryIdentifierByTarget.keys)
             .count
     }
 
@@ -33,11 +40,9 @@ actor SimulatorCameraCleanupCoordinator {
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
-        if tailByTarget[target] != nil {
-            let pendingCleanup = Task<SimulatorCameraCleanupResult, Never> {
-                await self.waitForCurrentCleanup(of: target)
-            }
-            defer { pendingCleanup.cancel() }
+        var retriedRecoveryIdentifiers = Set<UUID>()
+        while let pendingCleanup = tailByTarget[target],
+              let revision = revisionByTarget[target] {
             let outcome = await SimulatorCameraCleanupWaitState().wait(
                 for: pendingCleanup,
                 timeout: timeout,
@@ -45,8 +50,19 @@ actor SimulatorCameraCleanupCoordinator {
             )
             switch outcome {
             case .completed(.completed):
-                break
+                guard revisionByTarget[target] == revision else { continue }
+                clearSuccessfulCleanup(target: target, revision: revision)
             case let .completed(.failed(failure)):
+                guard revisionByTarget[target] == revision else { continue }
+                if let recoveryIdentifier = recoveryIdentifierByTarget[target],
+                   !retriedRecoveryIdentifiers.contains(recoveryIdentifier),
+                   retryRetainedCleanup(
+                       target: target,
+                       revision: revision
+                   ) != nil {
+                    retriedRecoveryIdentifiers.insert(recoveryIdentifier)
+                    continue
+                }
                 throw failure
             case .timedOut:
                 throw SimulatorFailure(
@@ -88,7 +104,7 @@ actor SimulatorCameraCleanupCoordinator {
     func enqueue(
         deviceIdentifier: String,
         bundleIdentifiers: [String],
-        _ operation: @escaping @Sendable () async -> SimulatorCameraCleanupResult
+        _ operation: @escaping SimulatorCameraCleanupOperation
     ) -> Task<SimulatorCameraCleanupResult, Never> {
         let targets = Set(bundleIdentifiers.filter { !$0.isEmpty }.map {
             SimulatorCameraCleanupTarget(
@@ -96,10 +112,58 @@ actor SimulatorCameraCleanupCoordinator {
                 bundleIdentifier: $0
             )
         })
+        guard !targets.isEmpty else {
+            return Task { await operation() }
+        }
+        return schedule(
+            targets: targets,
+            recoveryIdentifier: UUID(),
+            operation: operation
+        )
+    }
+
+    func waitForPendingCleanup() async -> Bool {
+        var allCleanupCompleted = true
+        var retriedRecoveryIdentifiers = Set<UUID>()
+        var observedRevisions: [SimulatorCameraCleanupTarget: UInt64] = [:]
+        while true {
+            let pending = revisionByTarget.compactMap { target, revision in
+                tailByTarget[target].map { (target, revision, $0) }
+            }
+            guard !pending.isEmpty else { return allCleanupCompleted }
+            for (target, revision, task) in pending {
+                let result = await task.value
+                guard revisionByTarget[target] == revision else { continue }
+                observedRevisions[target] = revision
+                switch result {
+                case .completed:
+                    clearSuccessfulCleanup(target: target, revision: revision)
+                case .failed:
+                    if let recoveryIdentifier = recoveryIdentifierByTarget[target],
+                       !retriedRecoveryIdentifiers.contains(recoveryIdentifier),
+                       retryRetainedCleanup(
+                           target: target,
+                           revision: revision
+                       ) != nil {
+                        retriedRecoveryIdentifiers.insert(recoveryIdentifier)
+                    } else {
+                        allCleanupCompleted = false
+                    }
+                }
+            }
+            let hasNewCleanup = revisionByTarget.contains { target, revision in
+                observedRevisions[target] != revision
+            }
+            if !hasNewCleanup { return allCleanupCompleted }
+        }
+    }
+
+    private func schedule(
+        targets: Set<SimulatorCameraCleanupTarget>,
+        recoveryIdentifier: UUID,
+        operation: @escaping SimulatorCameraCleanupOperation
+    ) -> Task<SimulatorCameraCleanupResult, Never> {
         let previous = targets.compactMap { tailByTarget[$0] }
-        let owners = Dictionary(uniqueKeysWithValues: targets.compactMap { target in
-            ownerByTarget[target].map { (target, $0) }
-        })
         let task = Task<SimulatorCameraCleanupResult, Never> {
             for pendingCleanup in previous {
                 _ = await pendingCleanup.value
@@ -109,69 +173,85 @@ actor SimulatorCameraCleanupCoordinator {
             }
             return await operation()
         }
+        recoveryOperationByIdentifier[recoveryIdentifier] = operation
+        var displacedRecoveryIdentifiers = Set<UUID>()
         var revisions: [SimulatorCameraCleanupTarget: UInt64] = [:]
         for target in targets {
+            if let displaced = recoveryIdentifierByTarget.updateValue(
+                recoveryIdentifier,
+                forKey: target
+            ), displaced != recoveryIdentifier {
+                displacedRecoveryIdentifiers.insert(displaced)
+            }
             let revision = (revisionByTarget[target] ?? 0) &+ 1
             revisionByTarget[target] = revision
             tailByTarget[target] = task
             revisions[target] = revision
         }
+        for displaced in displacedRecoveryIdentifiers {
+            pruneRecoveryOperationIfUnused(displaced)
+        }
         Task { [weak self] in
             let result = await task.value
-            await self?.finish(revisions: revisions, owners: owners, result: result)
+            await self?.finish(
+                revisions: revisions,
+                recoveryIdentifier: recoveryIdentifier,
+                result: result
+            )
         }
         return task
     }
 
-    func waitForPendingCleanup() async -> Bool {
-        var allCleanupCompleted = true
-        var observedRevisions: [SimulatorCameraCleanupTarget: UInt64] = [:]
-        while true {
-            let pending = revisionByTarget.compactMap { target, revision in
-                tailByTarget[target].map { (target, revision, $0) }
-            }
-            guard !pending.isEmpty else { return allCleanupCompleted }
-            for (target, revision, task) in pending {
-                if await task.value != .completed {
-                    allCleanupCompleted = false
-                }
-                observedRevisions[target] = revision
-            }
-            let hasNewCleanup = revisionByTarget.contains { target, revision in
-                observedRevisions[target] != revision
-            }
-            if !hasNewCleanup { return allCleanupCompleted }
+    private func retryRetainedCleanup(
+        target: SimulatorCameraCleanupTarget,
+        revision: UInt64
+    ) -> UUID? {
+        guard revisionByTarget[target] == revision,
+              let recoveryIdentifier = recoveryIdentifierByTarget[target],
+              let operation = recoveryOperationByIdentifier[recoveryIdentifier]
+        else { return nil }
+        let targets = Set(recoveryIdentifierByTarget.compactMap {
+            $0.value == recoveryIdentifier ? $0.key : nil
+        })
+        guard !targets.isEmpty else { return nil }
+        _ = schedule(
+            targets: targets,
+            recoveryIdentifier: recoveryIdentifier,
+            operation: operation
+        )
+        return recoveryIdentifier
+    }
+
+    private func clearSuccessfulCleanup(
+        target: SimulatorCameraCleanupTarget,
+        revision: UInt64
+    ) {
+        guard revisionByTarget[target] == revision else { return }
+        tailByTarget.removeValue(forKey: target)
+        revisionByTarget.removeValue(forKey: target)
+        ownerByTarget.removeValue(forKey: target)
+        if let recoveryIdentifier = recoveryIdentifierByTarget.removeValue(forKey: target) {
+            pruneRecoveryOperationIfUnused(recoveryIdentifier)
         }
     }
 
     private func finish(
         revisions: [SimulatorCameraCleanupTarget: UInt64],
-        owners: [SimulatorCameraCleanupTarget: UUID],
+        recoveryIdentifier: UUID,
         result: SimulatorCameraCleanupResult
     ) {
         guard result == .completed else { return }
         for (target, revision) in revisions
         where revisionByTarget[target] == revision {
-            tailByTarget.removeValue(forKey: target)
-            revisionByTarget.removeValue(forKey: target)
-            if let owner = owners[target], ownerByTarget[target] == owner {
-                ownerByTarget.removeValue(forKey: target)
-            }
+            clearSuccessfulCleanup(target: target, revision: revision)
         }
+        pruneRecoveryOperationIfUnused(recoveryIdentifier)
     }
 
-    private func waitForCurrentCleanup(
-        of target: SimulatorCameraCleanupTarget
-    ) async -> SimulatorCameraCleanupResult {
-        while !Task.isCancelled,
-              let pendingCleanup = tailByTarget[target] {
-            let observedRevision = revisionByTarget[target]
-            let result = await pendingCleanup.value
-            guard revisionByTarget[target] == observedRevision else { continue }
-            return result
+    private func pruneRecoveryOperationIfUnused(_ recoveryIdentifier: UUID) {
+        guard !recoveryIdentifierByTarget.values.contains(recoveryIdentifier) else {
+            return
         }
-        return Task.isCancelled
-            ? .failed(simulatorCameraCleanupCancellationFailure())
-            : .completed
+        recoveryOperationByIdentifier.removeValue(forKey: recoveryIdentifier)
     }
 }

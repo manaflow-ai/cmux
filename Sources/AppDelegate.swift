@@ -1916,8 +1916,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for cleanupTask in simulatorCleanupTasks {
                     await cleanupTask.value
                 }
-                _ = await TerminalController.shared.simulatorCameraCleanupOwnershipScope
+                let simulatorCleanupSucceeded = await TerminalController.shared
+                    .simulatorCameraCleanupOwnershipScope
                     .waitForPendingCleanup()
+                guard simulatorCleanupSucceeded else {
+                    self.cancelTerminationAfterSimulatorCleanupFailure()
+                    return
+                }
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
@@ -1939,6 +1944,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return true
+    }
+
+    private func cancelTerminationAfterSimulatorCleanupFailure() {
+        StartupBreadcrumbLog.append(
+            "appDelegate.shouldTerminate.simulatorCleanupFailed"
+        )
+        isTerminatingApp = false
+        isQuitWarningConfirmed = false
+        replyToTerminateOnce(false)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.simulatorCameraCleanupFailed.title",
+            defaultValue: "Couldn’t Finish Simulator Cleanup"
+        )
+        alert.informativeText = String(
+            localized: "dialog.simulatorCameraCleanupFailed.message",
+            defaultValue: "cmux stayed open because it could not restore a Simulator app’s camera state. Quit again to retry cleanup."
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        _ = alert.runCmuxModal()
     }
 
     private func clearMarkedRemoteTmuxKills() {

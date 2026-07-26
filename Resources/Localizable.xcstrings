@@ -89760,6 +89760,40 @@
         }
       }
     },
+    "dialog.simulatorCameraCleanupFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux stayed open because it could not restore a Simulator app’s camera state. Quit again to retry cleanup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator アプリのカメラ状態を復元できなかったため、cmux は終了しませんでした。もう一度終了してクリーンアップを再試行してください。"
+          }
+        }
+      }
+    },
+    "dialog.simulatorCameraCleanupFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Finish Simulator Cleanup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator のクリーンアップを完了できませんでした"
+          }
+        }
+      }
+    },
     "dialog.sshURL.blocked.ok": {
       "extractionState": "manual",
       "localizations": {
