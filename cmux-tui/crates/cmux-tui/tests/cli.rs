@@ -66,7 +66,9 @@ fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
     assert_success(&machine_agent);
     let help = String::from_utf8(machine_agent.stdout).unwrap();
     assert!(help.starts_with("cmux machine-agent - share one local cmux session"));
-    assert!(help.contains("`cmux machine register`"));
+    assert!(help.contains("Authenticate with the configured host before retrying."));
+    assert!(!help.contains("cmux machine register"));
+    assert!(!help.contains("BatchMode"));
 
     let version = Command::new(bin()).arg("--version").output().unwrap();
     assert_success(&version);

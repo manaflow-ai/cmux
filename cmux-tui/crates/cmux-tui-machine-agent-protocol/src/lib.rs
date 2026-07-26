@@ -672,6 +672,17 @@ mod tests {
             }
         });
         assert!(serde_json::from_value::<Envelope>(unknown).is_err());
+
+        let unknown_wrapper_field = json!({
+            "protocol": "cmux.machine-agent",
+            "version": 1,
+            "message": {
+                "type": "ping",
+                "body": {"nonce": 1},
+                "extra": "future-semantics"
+            }
+        });
+        assert!(serde_json::from_value::<Envelope>(unknown_wrapper_field).is_err());
         assert!(PairingCode::new(" code").is_err());
         assert!(PairingCode::new("CODE\n123").is_err());
         assert!(OpaqueId::new("x".repeat(MAX_ID_BYTES + 1)).is_err());

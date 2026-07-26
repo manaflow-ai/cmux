@@ -3102,6 +3102,69 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_external_connect_does_not_fall_back_after_capability_revocation() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut supported = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        supported.capabilities.connect_external_machine = true;
+        let mut revoked = supported.clone();
+        revoked.revision = 2;
+        revoked.capabilities.connect_external_machine = false;
+        let server = thread::spawn(move || {
+            {
+                let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                    &listener,
+                    supported.clone(),
+                    &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+                );
+                serve_runtime_refresh(&mut stream, &mut reader, &supported, None);
+                let request: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(
+                    request.request,
+                    protocol::ProviderRequest::ConnectExternalMachine(_)
+                ));
+            }
+
+            let (stream, mut reader) =
+                serve_initial_snapshot_with_capabilities(&listener, revoked, &[]);
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => {}
+                Ok(_) => panic!("ambiguous retry was rerouted after capability loss: {unexpected}"),
+                Err(error) => panic!("provider read failed: {error}"),
+            }
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+        };
+        assert!(controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into())).is_err());
+        controller.provider.reconnect_control().unwrap();
+
+        let Err(error) = controller.perform_request(MachineRequest::Connect("PAIR 4J7K".into()))
+        else {
+            panic!("ambiguous retry fell back after capability revocation");
+        };
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.machine_provider_disconnected
+        );
+
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn unnegotiated_external_connect_preserves_client_local_validation() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
