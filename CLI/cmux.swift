@@ -1974,7 +1974,11 @@ final class SocketClient {
         deadline: Date? = nil
     ) throws -> String {
         if relayEndpoint != nil, socketFD < 0 {
-            try connect()
+            if let deadline {
+                try connect(deadline: deadline)
+            } else {
+                try connect()
+            }
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let shouldCloseAfterSend = relayEndpoint != nil
