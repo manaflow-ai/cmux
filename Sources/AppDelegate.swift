@@ -12848,7 +12848,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         soft: Bool = false,
         source: String,
         reloadSettingsFromFile: Bool = true,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
+        completion: @escaping
+            GhosttyApp.ConfigurationReloadCompletion = {}
     ) {
 #if DEBUG
         cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
@@ -12857,7 +12859,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
-            preferredColorScheme: preferredColorScheme
+            preferredColorScheme: preferredColorScheme,
+            completion: completion
         )
     }
 

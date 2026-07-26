@@ -309,8 +309,11 @@ public protocol ControlSidebarContext: AnyObject {
 
     // MARK: Misc ops
 
-    /// Reloads the Ghostty configuration (`reload_config`).
-    func controlSidebarReloadConfig()
+    /// Reloads the Ghostty configuration (`reload_config`) and invokes the
+    /// completion after the replacement configuration commits.
+    func controlSidebarReloadConfig(
+        completion: @escaping @MainActor () -> Void
+    )
 
     /// Force-refreshes the selected workspace's terminal panels
     /// (`refresh_surfaces`); returns the refreshed count.

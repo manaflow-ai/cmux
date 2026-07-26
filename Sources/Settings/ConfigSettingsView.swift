@@ -207,16 +207,25 @@ struct ConfigSettingsView: View {
 
     private func reloadFromDisk() {
         refreshSnapshots(preserveCmuxDraft: false)
-        if let appDelegate = AppDelegate.shared {
-            appDelegate.reloadConfiguration(source: "settings.configWindow.reload")
-        } else {
-            GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.reload")
+        let completion: GhosttyApp.ConfigurationReloadCompletion = {
+            statusMessage = String(
+                localized: "settings.config.status.reloaded",
+                defaultValue:
+                    "Reloaded configuration from disk."
+            )
+            statusIsError = false
         }
-        statusMessage = String(
-            localized: "settings.config.status.reloaded",
-            defaultValue: "Reloaded configuration from disk."
-        )
-        statusIsError = false
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(
+                source: "settings.configWindow.reload",
+                completion: completion
+            )
+        } else {
+            GhosttyApp.shared.reloadConfiguration(
+                source: "settings.configWindow.reload",
+                completion: completion
+            )
+        }
     }
 
     private func saveCmuxConfig() {
@@ -226,16 +235,27 @@ struct ConfigSettingsView: View {
             try environment.writeCmuxConfigContents(cmuxDraft)
             cmuxLastLoadedContents = cmuxDraft
             refreshSnapshots(preserveCmuxDraft: true)
+            let completion:
+                GhosttyApp.ConfigurationReloadCompletion = {
+                    statusMessage = String(
+                        localized:
+                            "settings.config.status.saved",
+                        defaultValue:
+                            "Saved to cmux config and reloaded."
+                    )
+                    statusIsError = false
+                }
             if let appDelegate = AppDelegate.shared {
-                appDelegate.reloadConfiguration(source: "settings.configWindow.save")
+                appDelegate.reloadConfiguration(
+                    source: "settings.configWindow.save",
+                    completion: completion
+                )
             } else {
-                GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
+                GhosttyApp.shared.reloadConfiguration(
+                    source: "settings.configWindow.save",
+                    completion: completion
+                )
             }
-            statusMessage = String(
-                localized: "settings.config.status.saved",
-                defaultValue: "Saved to cmux config and reloaded."
-            )
-            statusIsError = false
         } catch {
             NSSound.beep()
             statusMessage = String(

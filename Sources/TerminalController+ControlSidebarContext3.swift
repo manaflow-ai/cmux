@@ -343,11 +343,19 @@ extension TerminalController {
 
     // MARK: - Misc ops
 
-    func controlSidebarReloadConfig() {
+    func controlSidebarReloadConfig(
+        completion: @escaping @MainActor () -> Void = {}
+    ) {
         if let appDelegate = AppDelegate.shared {
-            appDelegate.reloadConfiguration(source: "socket.reload_config")
+            appDelegate.reloadConfiguration(
+                source: "socket.reload_config",
+                completion: completion
+            )
         } else {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            GhosttyApp.shared.reloadConfiguration(
+                source: "socket.reload_config",
+                completion: completion
+            )
         }
     }
 

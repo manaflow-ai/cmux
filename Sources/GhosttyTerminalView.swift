@@ -451,12 +451,15 @@ class GhosttyApp {
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
     private var reloadConfigurationDepth = 0
+    typealias ConfigurationReloadCompletion =
+        @MainActor () -> Void
     private struct PendingConfigurationReload {
         var soft: Bool
         var source: String
         var reloadSettingsFromFile: Bool
         var preferredColorScheme:
             GhosttyConfig.ColorSchemePreference?
+        var completions: [ConfigurationReloadCompletion]
 
         mutating func merge(_ newer: PendingConfigurationReload) {
             soft = soft && newer.soft
@@ -465,6 +468,9 @@ class GhosttyApp {
                 reloadSettingsFromFile
                 || newer.reloadSettingsFromFile
             preferredColorScheme = newer.preferredColorScheme
+            completions.append(
+                contentsOf: newer.completions
+            )
         }
     }
     private var pendingConfigurationReload:
@@ -1811,13 +1817,15 @@ class GhosttyApp {
         soft: Bool = false,
         source: String = "unspecified",
         reloadSettingsFromFile: Bool = true,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
+        completion: @escaping ConfigurationReloadCompletion = {}
     ) {
         let request = PendingConfigurationReload(
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
-            preferredColorScheme: preferredColorScheme
+            preferredColorScheme: preferredColorScheme,
+            completions: [completion]
         )
         if Thread.isMainThread {
             MainActor.assumeIsolated {
@@ -1838,6 +1846,7 @@ class GhosttyApp {
             logThemeAction(
                 "reload skipped source=\(request.source) soft=\(request.soft) reason=reentrant"
             )
+            request.completions.forEach { $0() }
             return
         }
         if var pendingConfigurationReload {
@@ -1889,11 +1898,13 @@ class GhosttyApp {
         pendingConfigurationReload = nil
         performConfigurationReload(request) { [weak self] in
             guard let self else {
+                request.completions.forEach { $0() }
                 completion()
                 return
             }
             self.isWaitingForFontSizeWorkBeforeConfigurationReload =
                 false
+            request.completions.forEach { $0() }
             self.schedulePendingConfigurationReload()
             completion()
         }

@@ -1127,6 +1127,8 @@ class TerminalController {
                 // debug.sidebar.simulate_drag precedent).
                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
 #endif
+            case "reload_config":
+                return (true, reloadConfigurationAndWait(args))
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -1151,6 +1153,24 @@ class TerminalController {
                 return (true, "ERROR: internal: v1 worker command '\(cmd)' has no worker handler")
             }
         }
+    }
+
+    private nonisolated func reloadConfigurationAndWait(
+        _ args: String
+    ) -> String {
+        guard args.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty else {
+            return "ERROR: Usage: reload_config"
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            self.controlSidebarReloadConfig {
+                semaphore.signal()
+            }
+        }
+        semaphore.wait()
+        return "OK Reloaded config"
     }
 
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {

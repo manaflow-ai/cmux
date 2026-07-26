@@ -227,7 +227,11 @@ extension ControlSidebarContext {
 
     func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
 
-    func controlSidebarReloadConfig() {}
+    func controlSidebarReloadConfig(
+        completion: @escaping @MainActor () -> Void
+    ) {
+        completion()
+    }
     func controlSidebarRefreshSurfaces() -> Int { 0 }
     func controlSidebarSurfaceHealth(tabArg: String) -> [ControlSidebarSurfaceHealthRow]? { nil }
 }
