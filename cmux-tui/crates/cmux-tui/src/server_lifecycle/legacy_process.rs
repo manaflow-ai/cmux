@@ -159,23 +159,38 @@ struct CapturedSession {
 
 impl CapturedSession {
     fn kill_until_empty(&self, deadline: Instant) -> io::Result<bool> {
-        let Some(mut probe) = SessionProbe::acquire(self)? else {
-            if cmux_tui_core::process_session::session_is_empty(self.id)? {
-                return Ok(true);
+        loop {
+            let error = match SessionProbe::acquire(self) {
+                Ok(Some(mut probe)) => {
+                    match cmux_tui_core::process_session::kill_until_only_reserved(
+                        self.id,
+                        probe.process.pid,
+                        deadline,
+                    ) {
+                        Ok(true) => match probe.kill() {
+                            Ok(()) => return Ok(true),
+                            Err(error) => error,
+                        },
+                        Ok(false) => return Ok(false),
+                        Err(error) => error,
+                    }
+                }
+                Ok(None) => match cmux_tui_core::process_session::session_is_empty(self.id) {
+                    Ok(true) => return Ok(true),
+                    Ok(false) => io::Error::other(
+                        "captured PTY session lost every exact process before termination",
+                    ),
+                    Err(error) => error,
+                },
+                Err(error) => error,
+            };
+            if Instant::now() >= deadline {
+                return Err(error);
             }
-            return Err(io::Error::other(
-                "captured PTY session lost every exact process before termination",
-            ));
-        };
-        if !cmux_tui_core::process_session::kill_until_only_reserved(
-            self.id,
-            probe.process.pid,
-            deadline,
-        )? {
-            return Ok(false);
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+            );
         }
-        probe.kill()?;
-        Ok(true)
     }
 }
 
@@ -195,10 +210,7 @@ impl SessionProbe {
             {
                 continue;
             }
-            if ProcessIdentity::capture(process.pid)? == Some(*process) {
-                return Ok(Some(Self { process: *process, session: session.id, armed: true }));
-            }
-            let _ = process.signal(libc::SIGCONT);
+            return Ok(Some(Self { process: *process, session: session.id, armed: true }));
         }
         Ok(None)
     }
