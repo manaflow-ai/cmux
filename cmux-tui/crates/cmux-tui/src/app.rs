@@ -49,7 +49,7 @@ use crate::machine::{
     MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
     MachineSession, MachineUiState, MachineUpdate, MachineUpdateStream, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
+    ManagedWorkspaceStatus, ProviderActionContext, ProviderActionInputError, WorkspaceCreationMode,
     WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
@@ -2855,7 +2855,7 @@ pub enum PromptTarget {
     Surface(SurfaceId),
     ConnectMachine(MachineConnectRoute),
     ProviderAction(usize),
-    ConfirmProviderAction(usize),
+    ConfirmProviderAction,
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
@@ -3279,6 +3279,7 @@ pub struct App {
     pub clients: Vec<ClientInfo>,
     pub client_border_labels: HashMap<SurfaceId, String>,
     pub prompt: Option<Prompt>,
+    pending_provider_action: Option<MachineRequest>,
     pub pairing_dialog: Option<PairingDialog>,
     pairing_queue: VecDeque<PairingChallenge>,
     pub shortcut_help: Option<ShortcutHelp>,
@@ -4361,6 +4362,7 @@ pub fn run_with_machine_updates(
         clients: Vec::new(),
         client_border_labels: HashMap::new(),
         prompt: None,
+        pending_provider_action: None,
         pairing_dialog: None,
         pairing_queue: VecDeque::new(),
         shortcut_help: None,
@@ -5048,7 +5050,7 @@ impl App {
                 matches!(
                     prompt.target,
                     PromptTarget::ProviderAction(_)
-                        | PromptTarget::ConfirmProviderAction(_)
+                        | PromptTarget::ConfirmProviderAction
                         | PromptTarget::ManagedWorkspace(_)
                         | PromptTarget::ConfirmPurgeManagedWorkspace(_)
                         | PromptTarget::ManagedMachine(_)
@@ -5057,6 +5059,7 @@ impl App {
                 )
             }) {
                 self.prompt = None;
+                self.pending_provider_action = None;
             }
         }
         if let Some(previous) = self.machine_ui.as_ref() {
@@ -7776,14 +7779,7 @@ impl App {
             return;
         };
         match action.fields.as_slice() {
-            [] if action.destructive => {
-                self.prompt = Some(Prompt::new(
-                    localization::catalog().sidebar.confirm_destructive_action,
-                    String::new(),
-                    PromptTarget::ConfirmProviderAction(index),
-                ));
-            }
-            [] => self.submit_provider_action(index, None),
+            [] => self.stage_provider_action(index, None),
             [field] => {
                 self.prompt = Some(Prompt::new(
                     field.label.clone(),
@@ -7799,15 +7795,56 @@ impl App {
         }
     }
 
-    fn submit_provider_action(&mut self, index: usize, input: Option<&str>) {
-        let result = self
-            .machine_ui
+    fn provider_action_context(&self) -> ProviderActionContext {
+        let Some(ui) = self.machine_ui.as_ref() else {
+            return ProviderActionContext::default();
+        };
+        let Some(active) = ui.snapshot.active.filter(|active| ui.is_provider_machine(*active))
+        else {
+            return ProviderActionContext::default();
+        };
+        let machine_id = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.key == active)
+            .map(|machine| machine.id.clone());
+        let workspace_id = self
+            .tree
+            .active_workspace()
+            .map(|workspace| workspace.key.clone())
+            .filter(|id| !id.is_empty())
+            .filter(|id| ui.managed_workspace(id).is_some());
+        ProviderActionContext { machine_id, workspace_id }
+    }
+
+    fn bound_provider_action(
+        &self,
+        index: usize,
+        input: Option<&str>,
+    ) -> Option<Result<(MachineRequest, bool), ProviderActionInputError>> {
+        let context = self.provider_action_context();
+        self.machine_ui
             .as_ref()
             .and_then(|ui| ui.provider.as_ref())
             .and_then(|provider| provider.actions.get(index))
-            .map(|action| action.request(input));
+            .map(|action| {
+                action.request(input, &context).map(|request| (request, action.destructive))
+            })
+    }
+
+    fn stage_provider_action(&mut self, index: usize, input: Option<&str>) {
+        let result = self.bound_provider_action(index, input);
         match result {
-            Some(Ok(request)) => {
+            Some(Ok((request, true))) => {
+                self.pending_provider_action = Some(request);
+                self.prompt = Some(Prompt::new(
+                    localization::catalog().sidebar.confirm_destructive_action,
+                    String::new(),
+                    PromptTarget::ConfirmProviderAction,
+                ));
+            }
+            Some(Ok((request, false))) => {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(request);
                 }
@@ -7992,14 +8029,17 @@ impl App {
             return;
         }
         if let PromptTarget::ProviderAction(index) = prompt.target {
-            let result = self
-                .machine_ui
-                .as_ref()
-                .and_then(|ui| ui.provider.as_ref())
-                .and_then(|provider| provider.actions.get(index))
-                .map(|action| action.request(Some(&input)));
+            let result = self.bound_provider_action(index, Some(&input));
             match result {
-                Some(Ok(request)) => {
+                Some(Ok((request, true))) => {
+                    self.pending_provider_action = Some(request);
+                    self.prompt = Some(Prompt::new(
+                        localization::catalog().sidebar.confirm_destructive_action,
+                        String::new(),
+                        PromptTarget::ConfirmProviderAction,
+                    ));
+                }
+                Some(Ok((request, false))) => {
                     if let Some(ui) = self.machine_ui.as_mut() {
                         ui.request = Some(request);
                     }
@@ -8013,9 +8053,13 @@ impl App {
             }
             return;
         }
-        if let PromptTarget::ConfirmProviderAction(index) = prompt.target {
+        if let PromptTarget::ConfirmProviderAction = prompt.target {
             if input.trim() == "CONFIRM" {
-                self.submit_provider_action(index, None);
+                if let (Some(request), Some(ui)) =
+                    (self.pending_provider_action.take(), self.machine_ui.as_mut())
+                {
+                    ui.request = Some(request);
+                }
             } else {
                 self.status_message =
                     Some(localization::catalog().sidebar.confirmation_mismatch.to_string());
@@ -8065,7 +8109,7 @@ impl App {
             | PromptTarget::ConfirmDeleteManagedMachine(_)
             | PromptTarget::ConfirmPurgeManagedMachine(_)
             | PromptTarget::ProviderAction(_)
-            | PromptTarget::ConfirmProviderAction(_)
+            | PromptTarget::ConfirmProviderAction
             | PromptTarget::ManagedWorkspace(_)
             | PromptTarget::ConfirmPurgeManagedWorkspace(_) => {
                 unreachable!("handled before session mutation")
@@ -8081,6 +8125,7 @@ impl App {
     fn close_prompt(&mut self) {
         self.shake_frames = 0;
         self.prompt = None;
+        self.pending_provider_action = None;
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
@@ -11612,6 +11657,12 @@ fn provider_action_error_message(error: ProviderActionInputError) -> &'static st
         ProviderActionInputError::InvalidInteger => messages.action_invalid_integer,
         ProviderActionInputError::BelowMinimum => messages.action_below_minimum,
         ProviderActionInputError::AboveMaximum => messages.action_above_maximum,
+        ProviderActionInputError::MissingSelectedMachine => {
+            messages.action_missing_selected_machine
+        }
+        ProviderActionInputError::MissingSelectedWorkspace => {
+            messages.action_missing_selected_workspace
+        }
         ProviderActionInputError::UnsupportedFieldCount => {
             messages.action_multiple_fields_unsupported
         }
@@ -11720,9 +11771,10 @@ mod tests {
         MachineRailSelection, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
         MachineUpdate, ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
         ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-        ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
-        ProviderActionFieldKind, ProviderActionValue, ProviderPresentation,
-        ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+        ManagedWorkspaceStatus, ProviderActionContext, ProviderActionDescriptor,
+        ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionTarget,
+        ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind,
+        WorkspaceCreationMode, WorkspaceCreationPolicy,
     };
     use crate::pty_input::{
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
@@ -17854,6 +17906,7 @@ mod tests {
                 ProviderActionDescriptor {
                     id: "invite-member".into(),
                     label: "Invite member".into(),
+                    target: ProviderActionTarget::Scope,
                     destructive: false,
                     fields: vec![ProviderActionFieldDescriptor {
                         id: "email".into(),
@@ -17869,6 +17922,7 @@ mod tests {
                 ProviderActionDescriptor {
                     id: "manage-billing".into(),
                     label: "Manage billing".into(),
+                    target: ProviderActionTarget::Scope,
                     destructive: false,
                     fields: Vec::new(),
                 },
@@ -17958,9 +18012,146 @@ mod tests {
                     "email".into(),
                     ProviderActionValue::Text("person@example.com".into())
                 )]),
+                machine_id: None,
+                workspace_id: None,
             })
         );
         assert!(!app.quit);
+    }
+
+    #[test]
+    fn destructive_workspace_action_binds_context_before_confirmation() {
+        let mux = Mux::new("provider-workspace-action-test", SurfaceOptions::default());
+        let workspace_key = "00000000-0000-4000-8000-000000000123";
+        mux.create_empty_workspace(Some("ports".into()), Some(workspace_key.into()), None).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        ui.provider.as_mut().unwrap().actions.push(ProviderActionDescriptor {
+            id: "workspace.port.make_public".into(),
+            label: "Make workspace port public".into(),
+            target: ProviderActionTarget::SelectedWorkspace,
+            destructive: true,
+            fields: vec![ProviderActionFieldDescriptor {
+                id: "port".into(),
+                label: "Port".into(),
+                kind: ProviderActionFieldKind::Integer,
+                required: true,
+                max_length: None,
+                minimum: Some(1),
+                maximum: Some(i64::from(u16::MAX)),
+                placeholder: None,
+            }],
+        });
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![ManagedWorkspaceDescriptor {
+                id: workspace_key.into(),
+                name: "ports".into(),
+                mode: WorkspaceCreationMode::Isolated,
+                status: ManagedWorkspaceStatus::Active,
+                version: 1,
+                recoverable_until: None,
+                capabilities: ManagedWorkspaceCapabilities::default(),
+            }],
+        );
+        app.machine_ui = Some(ui);
+
+        app.begin_provider_action(2);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let input = app.prompt.as_ref().unwrap().input_rect;
+        terminal.backend_mut().assert_cursor_position((input.x, input.y));
+        app.prompt.as_mut().unwrap().input.insert_str("3000");
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| &prompt.target),
+            Some(PromptTarget::ConfirmProviderAction)
+        ));
+        assert!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()).is_none(),
+            "destructive action must wait for explicit confirmation"
+        );
+
+        app.prompt.as_mut().unwrap().input.insert_str("CONFIRM");
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let ok = app.prompt.as_ref().unwrap().ok;
+        app.handle_prompt_click(ok.x, ok.y).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::InvokeProviderAction {
+                action_id: "workspace.port.make_public".into(),
+                values: BTreeMap::from([("port".into(), ProviderActionValue::Integer(3_000))]),
+                machine_id: Some("managed-41".into()),
+                workspace_id: Some(workspace_key.into()),
+            })
+        );
+    }
+
+    #[test]
+    fn provider_action_context_excludes_a_client_local_overlay_machine() {
+        let mux = Mux::new("provider-action-local-overlay-test", SurfaceOptions::default());
+        mux.create_empty_workspace(
+            Some("local".into()),
+            Some("00000000-0000-4000-8000-000000000123".into()),
+            None,
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
+        ui.snapshot.machines.push(MachineDescriptor {
+            key: local_key,
+            id: "managed-41".into(),
+            name: "Local".into(),
+            subtitle: "client local".into(),
+            status: MachineStatus::Running,
+        });
+        ui.snapshot.active = Some(local_key);
+        ui.selection = ui.snapshot.active_index().unwrap();
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+
+        assert_eq!(app.provider_action_context(), ProviderActionContext::default());
+    }
+
+    #[test]
+    fn provider_action_context_accepts_only_the_active_provider_machines_workspaces() {
+        let mux = Mux::new("provider-action-workspace-ownership-test", SurfaceOptions::default());
+        let stale_workspace = "00000000-0000-4000-8000-000000000123";
+        mux.create_empty_workspace(Some("stale".into()), Some(stale_workspace.into()), None)
+            .unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let mut ui = provider_controls_ui();
+        app.machine_ui = Some(ui.clone());
+
+        assert_eq!(
+            app.provider_action_context(),
+            ProviderActionContext { machine_id: Some("managed-41".into()), workspace_id: None }
+        );
+
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![ManagedWorkspaceDescriptor {
+                id: stale_workspace.into(),
+                name: "owned".into(),
+                mode: WorkspaceCreationMode::Isolated,
+                status: ManagedWorkspaceStatus::Active,
+                version: 1,
+                recoverable_until: None,
+                capabilities: ManagedWorkspaceCapabilities::default(),
+            }],
+        );
+        app.machine_ui = Some(ui);
+        assert_eq!(
+            app.provider_action_context(),
+            ProviderActionContext {
+                machine_id: Some("managed-41".into()),
+                workspace_id: Some(stale_workspace.into()),
+            }
+        );
     }
 
     #[test]
@@ -19642,6 +19833,7 @@ mod tests {
             clients: Vec::new(),
             client_border_labels: HashMap::new(),
             prompt: None,
+            pending_provider_action: None,
             pairing_dialog: None,
             pairing_queue: VecDeque::new(),
             shortcut_help: None,

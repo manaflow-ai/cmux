@@ -842,11 +842,15 @@ impl ProviderClient {
         &self,
         action_id: OpaqueId,
         values: BTreeMap<String, ActionValue>,
+        machine_id: Option<OpaqueId>,
+        workspace_id: Option<OpaqueId>,
         mutation_id: OpaqueId,
     ) -> ProviderResult<InvokeActionResult> {
         self.request(ProviderRequest::InvokeAction(InvokeActionParams {
             action_id,
             values,
+            machine_id,
+            workspace_id,
             mutation_id,
         }))
     }

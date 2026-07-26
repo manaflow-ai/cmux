@@ -619,11 +619,35 @@ pub struct ProviderCapabilities {
     pub connect_external_machine: bool,
 }
 
+pub mod provider_action_id {
+    pub const LIST_WORKSPACE_PORTS: &str = "workspace.ports.list";
+    pub const MAKE_WORKSPACE_PORT_PUBLIC: &str = "workspace.port.make_public";
+    pub const MAKE_WORKSPACE_PORT_PRIVATE: &str = "workspace.port.make_private";
+    pub const OPEN_PRIVATE_WORKSPACE_PORT: &str = "workspace.port.open_private";
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderActionTarget {
+    #[default]
+    Scope,
+    SelectedMachine,
+    SelectedWorkspace,
+    #[serde(other)]
+    Unsupported,
+}
+
+fn provider_action_target_is_scope(target: &ProviderActionTarget) -> bool {
+    *target == ProviderActionTarget::Scope
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderAction {
     pub id: OpaqueId,
     pub label: String,
+    #[serde(default, skip_serializing_if = "provider_action_target_is_scope")]
+    pub target: ProviderActionTarget,
     #[serde(default)]
     pub destructive: bool,
     #[serde(default)]
@@ -924,6 +948,10 @@ pub struct InvokeActionParams {
     pub action_id: OpaqueId,
     #[serde(default)]
     pub values: BTreeMap<String, ActionValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<OpaqueId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<OpaqueId>,
     pub mutation_id: OpaqueId,
 }
 
@@ -1197,6 +1225,43 @@ mod tests {
     }
 
     #[test]
+    fn provider_action_context_is_additive_and_legacy_compatible() {
+        let legacy: ProviderAction = serde_json::from_value(serde_json::json!({
+            "id": "legacy.action",
+            "label": "Legacy action"
+        }))
+        .unwrap();
+        assert_eq!(legacy.target, ProviderActionTarget::Scope);
+        let encoded = serde_json::to_value(&legacy).unwrap();
+        assert!(encoded.get("target").is_none());
+
+        let params: InvokeActionParams = serde_json::from_value(serde_json::json!({
+            "action_id": "legacy.action",
+            "mutation_id": "mutation-1"
+        }))
+        .unwrap();
+        assert_eq!(params.machine_id, None);
+        assert_eq!(params.workspace_id, None);
+    }
+
+    #[test]
+    fn unknown_provider_action_targets_do_not_reject_the_action_list() {
+        let actions: Vec<ProviderAction> = serde_json::from_value(serde_json::json!([
+            {
+                "id": "workspace.pane.inspect",
+                "label": "Inspect selected pane",
+                "target": "selected_pane"
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            serde_json::to_value(actions[0].target).unwrap(),
+            serde_json::json!("unsupported")
+        );
+    }
+
+    #[test]
     fn snapshot_request_matches_the_v1_golden_document() {
         let request = RequestEnvelope::new(
             id("17"),
@@ -1358,6 +1423,7 @@ mod tests {
             actions: vec![ProviderAction {
                 id: id("team.invite"),
                 label: "Invite member".into(),
+                target: ProviderActionTarget::Scope,
                 destructive: false,
                 fields: vec![ActionField {
                     id: "email".into(),
@@ -1703,6 +1769,8 @@ mod tests {
             ProviderRequest::InvokeAction(InvokeActionParams {
                 action_id: id("team.invite"),
                 values: action_values,
+                machine_id: Some(id("machine")),
+                workspace_id: Some(id("workspace")),
                 mutation_id: id("mutation-action"),
             }),
             ProviderRequest::CloseMachine(CloseMachineParams { connection_id: id("connection") }),
