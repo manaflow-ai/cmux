@@ -53,6 +53,21 @@ struct HasKittyImageAliases<
         decltype(std::declval<Payload&>().kitty_image_aliases)>>
     : std::true_type {};
 
+template <typename Payload, typename = void>
+struct HasCellPixels : std::false_type {};
+
+template <typename Payload>
+struct HasCellPixels<
+    Payload,
+    std::void_t<decltype(std::declval<Payload&>().cell_width),
+                decltype(std::declval<Payload&>().cell_height)>>
+    : std::true_type {};
+
+template <typename Payload>
+constexpr size_t CellPixelSuffixLength() {
+  return HasCellPixels<Payload>::value ? 4 : 0;
+}
+
 template <typename Payload>
 using PayloadEncoder = cmux::TerminalHostProtocolError (*)(
     const Payload&,
@@ -85,9 +100,10 @@ bool KittyAliasesRoundTrip(PayloadEncoder<Payload> encode,
     constexpr std::array<uint8_t, 18> kAliasSuffix = {
         2, 0, 41, 0, 0, 0, 77, 0, 0, 0, 42, 0, 0, 0, 77, 0, 0, 0,
     };
-    return payload.size() >= kAliasSuffix.size() &&
+    const size_t trailing = CellPixelSuffixLength<Payload>();
+    return payload.size() >= kAliasSuffix.size() + trailing &&
            std::equal(kAliasSuffix.begin(), kAliasSuffix.end(),
-                      payload.end() - kAliasSuffix.size());
+                      payload.end() - trailing - kAliasSuffix.size());
   }
 }
 
@@ -142,7 +158,8 @@ bool KittyAliasDecoderRejects(PayloadEncoder<Payload> encode,
         payload.size() < 18) {
       return false;
     }
-    const size_t aliases = payload.size() - 18;
+    const size_t aliases =
+        payload.size() - 18 - CellPixelSuffixLength<Payload>();
     switch (invalid) {
       case InvalidKittyAlias::kZeroId:
         std::fill(payload.begin() + aliases + 2,
@@ -696,6 +713,8 @@ void TestSnapshotPayload() {
   cmux::TerminalHostSnapshot snapshot;
   snapshot.cols = 120;
   snapshot.rows = 41;
+  snapshot.cell_width = 9;
+  snapshot.cell_height = 18;
   snapshot.pid = 0x01020304;
   snapshot.replay = {0, 0xff, 'A'};
   snapshot.cwd = "/tmp/\xe2\x98\x83";
@@ -715,18 +734,37 @@ void TestSnapshotPayload() {
   Check(cmux::DecodeTerminalHostSnapshot(Bytes(payload), &decoded) ==
                 Error::kNone &&
             decoded == snapshot,
-        "snapshot round trips replay, metadata, and argv");
+        "snapshot round trips replay, metadata, argv, and cell pixels");
+  Check(payload.size() >= 4 &&
+            std::equal(payload.end() - 4, payload.end(),
+                       std::array<uint8_t, 4>{9, 0, 18, 0}.begin()),
+        "snapshot cell pixels match the Rust v2 suffix");
+
+  cmux::TerminalHostSnapshot golden;
+  golden.cols = 1;
+  golden.rows = 2;
+  golden.cell_width = 9;
+  golden.cell_height = 18;
+  Check(cmux::EncodeTerminalHostSnapshot(golden, &payload) == Error::kNone &&
+            payload == std::vector<uint8_t>({
+                           1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+                           0, 0, 0, 0, 0, 0, 9, 0, 18, 0,
+                       }),
+        "snapshot exact bytes match the Rust v2 golden payload");
 
   cmux::TerminalHostSnapshot empty;
   empty.cols = 0;
   empty.rows = 0;
+  empty.cell_width = 0;
+  empty.cell_height = 0;
   Check(cmux::EncodeTerminalHostSnapshot(empty, &payload) == Error::kNone,
         "empty snapshot encodes");
   Check(cmux::DecodeTerminalHostSnapshot(Bytes(payload), &decoded) ==
                 Error::kNone &&
             decoded.cols == 1 && decoded.rows == 1 && !decoded.pid &&
+            decoded.cell_width == 1 && decoded.cell_height == 1 &&
             !decoded.cwd && decoded.command.empty(),
-        "snapshot decode matches Rust zero-size clamp and zero-pid sentinel");
+        "snapshot decode matches Rust geometry clamps and zero-pid sentinel");
 
   std::vector<uint8_t> malformed = payload;
   malformed.push_back(0);
@@ -788,18 +826,18 @@ void TestProtocolV1SnapshotAndResizeCompatibility() {
             Error::kNone &&
             snapshot_payload.size() >= 2,
         "v2 snapshot fixture encodes");
-  snapshot_payload.resize(snapshot_payload.size() - 2);
+  snapshot_payload.resize(snapshot_payload.size() - 2 - 4);
 
   cmux::TerminalHostSnapshot decoded_snapshot;
   Check(cmux::DecodeTerminalHostSnapshotForVersion(
             Bytes(snapshot_payload), cmux::kTerminalHostProtocolVersionV1,
             &decoded_snapshot) == Error::kNone &&
             decoded_snapshot == snapshot,
-        "protocol-v1 snapshot decodes without a Kitty alias suffix");
+        "protocol-v1 snapshot decodes without Kitty aliases or cell pixels");
   Check(cmux::DecodeTerminalHostSnapshotForVersion(
             Bytes(snapshot_payload), cmux::kTerminalHostProtocolVersion,
             &decoded_snapshot) == Error::kMalformedPayload,
-        "protocol-v2 snapshot still requires its Kitty alias suffix");
+        "protocol-v2 snapshot requires Kitty aliases and cell pixels");
 
   cmux::TerminalHostResize resize;
   resize.cols = 101;

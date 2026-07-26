@@ -583,8 +583,13 @@ fn decimal_after_prefix(bytes: &[u8], prefix: &[u8]) -> Option<u64> {
 
 fn remote_progress_target(partial: &[u8]) -> Option<RemoteProgressTarget> {
     decimal_after_prefix(partial, br#"{"id":"#).map(RemoteProgressTarget::Request).or_else(|| {
-        decimal_after_prefix(partial, br#"{"event":"vt-state","surface":"#)
-            .map(RemoteProgressTarget::AttachSurface)
+        [
+            br#"{"event":"vt-state","surface":"#.as_slice(),
+            br#"{"event":"browser-state","surface":"#.as_slice(),
+        ]
+        .into_iter()
+        .find_map(|prefix| decimal_after_prefix(partial, prefix))
+        .map(RemoteProgressTarget::AttachSurface)
     })
 }
 
@@ -2030,6 +2035,12 @@ mod tests {
             Some(RemoteProgressTarget::AttachSurface(7))
         );
         assert_eq!(
+            remote_progress_target(
+                br#"{"event":"browser-state","surface":8,"frame":{"data":"partial"#
+            ),
+            Some(RemoteProgressTarget::AttachSurface(8))
+        );
+        assert_eq!(
             remote_progress_target(br#"{"event":"output","surface":7,"id":41,"data":"partial"#),
             None
         );
@@ -2500,7 +2511,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn attach_deadline_advances_while_a_large_initial_frame_is_arriving() {
+    fn browser_attach_deadline_advances_while_a_large_initial_frame_is_arriving() {
         let (client, server) = UnixStream::pair().unwrap();
         let (release_tx, release_rx) = channel();
         let peer = std::thread::spawn(move || {
@@ -2528,9 +2539,9 @@ mod tests {
             let request: Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["cmd"], "attach-surface");
             let frame = concat!(
-                "{\"event\":\"vt-state\",\"surface\":7,",
-                "\"cols\":80,\"rows\":24,\"data\":\"\",",
-                "\"kitty_image_aliases\":[]}"
+                "{\"event\":\"browser-state\",\"surface\":7,",
+                "\"cols\":80,\"rows\":24,\"status\":\"live\",",
+                "\"frame\":{\"seq\":1,\"width\":800,\"height\":600,\"data\":\"\"}}"
             );
             let first = frame.find(",\"cols\"").unwrap() + 1;
             let second = first + (frame.len() - first) / 2;
@@ -2557,9 +2568,10 @@ mod tests {
 
         let started = Instant::now();
         let surface =
-            session.try_ensure_surface_with_kind(7, SurfaceKind::Pty, None).unwrap().unwrap();
+            session.try_ensure_surface_with_kind(7, SurfaceKind::Browser, None).unwrap().unwrap();
 
         assert_eq!(surface.id, 7);
+        assert_eq!(surface.kind, SurfaceKind::Browser);
         assert!(
             started.elapsed() > REMOTE_ATTACH_IDLE_TIMEOUT,
             "attach completed before exercising the progress-aware deadline"

@@ -290,6 +290,8 @@ struct TerminalHostSnapshot {
 
   uint16_t cols = 80;
   uint16_t rows = 24;
+  uint16_t cell_width = 8;
+  uint16_t cell_height = 16;
   std::optional<uint32_t> pid;
   std::vector<uint8_t> replay;
   std::optional<std::string> cwd;

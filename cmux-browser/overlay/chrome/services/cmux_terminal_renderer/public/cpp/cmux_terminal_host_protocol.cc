@@ -920,8 +920,9 @@ TerminalHostSnapshot& TerminalHostSnapshot::operator=(TerminalHostSnapshot&&) =
 TerminalHostSnapshot::~TerminalHostSnapshot() = default;
 
 bool TerminalHostSnapshot::operator==(const TerminalHostSnapshot& other) const {
-  return cols == other.cols && rows == other.rows && pid == other.pid &&
-         replay == other.replay && cwd == other.cwd &&
+  return cols == other.cols && rows == other.rows &&
+         cell_width == other.cell_width && cell_height == other.cell_height &&
+         pid == other.pid && replay == other.replay && cwd == other.cwd &&
          command == other.command &&
          kitty_image_aliases == other.kitty_image_aliases;
 }
@@ -960,6 +961,8 @@ TerminalHostProtocolError EncodeTerminalHostSnapshot(
     }
   }
   AppendKittyImageAliases(&encoded, snapshot.kitty_image_aliases);
+  AppendU16(&encoded, std::max<uint16_t>(snapshot.cell_width, 1));
+  AppendU16(&encoded, std::max<uint16_t>(snapshot.cell_height, 1));
   if (encoded.size() > kTerminalHostMaxFramePayload) {
     return TerminalHostProtocolError::kPayloadTooLarge;
   }
@@ -1024,6 +1027,13 @@ TerminalHostProtocolError DecodeTerminalHostSnapshotForVersion(
           TerminalHostProtocolError::kNone) {
     return TerminalHostProtocolError::kMalformedPayload;
   }
+  if (protocol_version >= kTerminalHostProtocolVersion &&
+      (!reader.U16(&decoded.cell_width) ||
+       !reader.U16(&decoded.cell_height))) {
+    return TerminalHostProtocolError::kMalformedPayload;
+  }
+  decoded.cell_width = std::max<uint16_t>(decoded.cell_width, 1);
+  decoded.cell_height = std::max<uint16_t>(decoded.cell_height, 1);
   if (!reader.finished()) {
     return TerminalHostProtocolError::kMalformedPayload;
   }

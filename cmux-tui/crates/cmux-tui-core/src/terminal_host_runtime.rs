@@ -3433,6 +3433,27 @@ mod unix {
         }
 
         #[test]
+        fn snapshot_payload_matches_the_cross_language_v2_golden_bytes() {
+            let snapshot = HostSnapshot {
+                cols: 1,
+                rows: 2,
+                cell_pixels: (9, 18),
+                replay: Vec::new(),
+                kitty_image_aliases: Vec::new(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+            };
+
+            assert_eq!(
+                encode_snapshot(&snapshot).unwrap(),
+                vec![1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 18, 0,]
+            );
+        }
+
+        #[test]
         fn protocol_one_snapshot_and_resize_decode_without_alias_tails() {
             let snapshot = HostSnapshot {
                 cols: 80,
