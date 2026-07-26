@@ -42,16 +42,19 @@ public struct TerminalFontSizeConfigurationReloadState: Sendable {
     fileprivate let targetMagnificationPercent: Int?
     fileprivate var localRuntimePointDelta: Float32 = 0
     fileprivate var localInputUsesConfiguredBase = false
+    fileprivate var localInputIsExplicitOverride: Bool?
 
     mutating func recordLocalFontInput(
         runtimePointDelta: Float32,
-        usesConfiguredBase: Bool
+        usesConfiguredBase: Bool,
+        isExplicitOverride: Bool
     ) {
         if usesConfiguredBase {
             localInputUsesConfiguredBase = true
             localRuntimePointDelta = 0
         }
         localRuntimePointDelta += runtimePointDelta
+        localInputIsExplicitOverride = isExplicitOverride
         inheritanceLineage = resolvedTargetLineage()
     }
 
@@ -102,8 +105,11 @@ public struct TerminalFontSizeConfigurationReloadState: Sendable {
             baselineRuntimePoints + localRuntimePointDelta
         )
         let isExplicitOverride =
-            !startsFromConfiguredBase
-            || abs(localRuntimePointDelta) > 0.000_1
+            localInputIsExplicitOverride
+            ?? (
+                !startsFromConfiguredBase
+                || abs(localRuntimePointDelta) > 0.000_1
+            )
         let targetLineage: TerminalFontSizeLineage
         if isExplicitOverride,
            !localInputUsesConfiguredBase,

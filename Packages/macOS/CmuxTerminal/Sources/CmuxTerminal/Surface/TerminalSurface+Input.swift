@@ -37,10 +37,11 @@ extension TerminalSurface {
         )
     }
 
-    /// Records the exact native font delta produced by the observed input.
+    /// Records the native font delta and ownership produced by the input.
     ///
     /// The delta is replayed against the new configuration after reload, so a
     /// local Ghostty zoom or reset cannot be overwritten by reconciliation.
+    /// Ownership is separate because native bounds can produce a zero delta.
     @MainActor
     public func finishFontSizeExplicitInputObservation() {
         guard let baseline =
@@ -66,12 +67,16 @@ extension TerminalSurface {
         if baseline.isAdjusted, !isAdjusted {
             reloadState.recordLocalFontInput(
                 runtimePointDelta: 0,
-                usesConfiguredBase: true
+                usesConfiguredBase: true,
+                isExplicitOverride: false
             )
-        } else if isAdjusted, abs(delta) > 0.000_1 {
+        } else if isAdjusted,
+                  !baseline.isAdjusted
+                    || abs(delta) > 0.000_1 {
             reloadState.recordLocalFontInput(
                 runtimePointDelta: delta,
-                usesConfiguredBase: !baseline.isAdjusted
+                usesConfiguredBase: !baseline.isAdjusted,
+                isExplicitOverride: true
             )
         } else {
             return
