@@ -55,6 +55,45 @@ private func setFontBindingResult(_ result: Bool)
     }
 
     @Test
+    func lateDormantConfigurationFollowerExportsRebasedLineage() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(19, isExplicitOverride: false)
+        let engine = FakeTerminalEngine()
+        let surface = makeSurface(
+            configTemplate: template,
+            globalFontMagnificationPercent: 200,
+            engine: engine
+        )
+
+        engine.terminalFontConfigurationRuntimePoints = 24
+        engine.terminalFontConfigurationGeneration &+= 1
+
+        let rebasedLineage = try #require(
+            surface.fontSizeLineageSnapshot(
+                magnificationPercent: 200
+            )
+        )
+        #expect(
+            rebasedLineage == TerminalFontSizeLineage(
+                basePoints: 12,
+                isExplicitOverride: false
+            )
+        )
+
+        var descendantTemplate = CmuxSurfaceConfigTemplate()
+        descendantTemplate.fontSizeLineage = rebasedLineage
+        let descendant = makeSurface(
+            configTemplate: descendantTemplate,
+            globalFontMagnificationPercent: 200,
+            engine: engine
+        )
+        #expect(
+            descendant.runtimeCreationConfigTemplate()
+                .fontSizeLineage == rebasedLineage
+        )
+    }
+
+    @Test
     func lateDormantExplicitOverrideRetainsSeedAcrossConfigurationReload() {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(19, isExplicitOverride: true)
