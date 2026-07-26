@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxFoundation
 import CmuxRemoteSession
 import CmuxTerminalCore
+import GhosttyKit
 import XCTest
 @testable import CmuxTerminal
 
@@ -11,6 +12,17 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@_silgen_name("cmux_test_ghostty_font_state_begin")
+private func beginWorkspaceFontState(
+    _ surface: ghostty_surface_t,
+    _ runtimePoints: Float32,
+    _ adjusted: Bool,
+    _ configuredRuntimePoints: Float32
+)
+
+@_silgen_name("cmux_test_ghostty_font_state_end")
+private func endWorkspaceFontState()
 
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
@@ -930,6 +942,85 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testInheritanceCacheUsesAppliedMagnificationDuringQueuedReload() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let appliedPercent =
+            GhosttyApp.shared.appliedGlobalFontMagnificationPercent
+        let queuedPercent =
+            appliedPercent == GlobalFontMagnification.maximumPercent
+            ? GlobalFontMagnification.minimumPercent
+            : GlobalFontMagnification.maximumPercent
+        let defaults = UserDefaults.standard
+        let originalValue =
+            defaults.object(forKey: GlobalFontMagnification.percentKey)
+        defaults.set(
+            queuedPercent,
+            forKey: GlobalFontMagnification.percentKey
+        )
+        defer {
+            if let originalValue {
+                defaults.set(
+                    originalValue,
+                    forKey: GlobalFontMagnification.percentKey
+                )
+            } else {
+                defaults.removeObject(
+                    forKey: GlobalFontMagnification.percentKey
+                )
+            }
+        }
+
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let panel = TerminalPanel(
+            workspaceId: workspace.id,
+            configTemplate: template,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        workspace.panels[panel.id] = panel
+        let runtimeSurface =
+            UnsafeMutableRawPointer.allocate(
+                byteCount: 1,
+                alignment: 1
+            )
+        GhosttyApp.terminalSurfaceRegistry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: panel.id
+        )
+        panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let runtimePoints =
+            CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: 13,
+                percent: appliedPercent
+            )
+        beginWorkspaceFontState(
+            runtimeSurface,
+            runtimePoints,
+            true,
+            runtimePoints
+        )
+        defer {
+            endWorkspaceFontState()
+            panel.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        workspace.rememberTerminalConfigInheritanceSource(panel)
+
+        let cachedBasePoints = try XCTUnwrap(
+            workspace
+                .lastRememberedTerminalFontSizeLineageForConfigInheritance()?
+                .basePoints
+        )
+        XCTAssertEqual(
+            cachedBasePoints,
+            13,
+            accuracy: 0.001,
+            "A queued setting must not reinterpret a live surface before its runtime config applies"
+        )
+    }
+
     func testWorkspaceTerminalFontSizeDrainBudgetCapsLiveActionsAndPanelVisits() {
         var liveBudget = WorkspaceTerminalFontSizeDrainBudget()
         for _ in 0..<4 {
@@ -1299,6 +1390,200 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 $0.surface.fontSizeLineageSnapshot()?.basePoints == minimum
             },
             "A destination shortcut must run after the source window's older request"
+        )
+    }
+
+    func testCrossWindowTerminalTransferSerializesDestinationShortcut() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace,
+              let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId,
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace,
+              let destinationPane =
+                destinationWorkspace.bonsplitController
+                    .focusedPaneId else {
+            XCTFail("Expected source and destination panes")
+            return
+        }
+        let minimum =
+            TerminalFontSizePolicy.minimumRuntimePoints
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(
+            minimum,
+            isExplicitOverride: true
+        )
+        let movedPanel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            configTemplate: template,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        guard sourceWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: movedPanel,
+                sourceWorkspaceId: sourceWorkspace.id
+            ),
+            inPane: sourcePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a movable source terminal")
+            return
+        }
+
+        let arbiter =
+            WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let sourceCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        let destinationCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: destinationManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+        }
+
+        XCTAssertTrue(
+            sourceCoordinator.enqueue(
+                .relative([1]),
+                workspaceId: sourceWorkspace.id,
+                deferFlush: true
+            )
+        )
+        guard let detached = sourceWorkspace.detachSurface(
+            panelId: movedPanel.id
+        ),
+        destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected an unvisited cross-window terminal")
+            return
+        }
+
+        XCTAssertTrue(
+            destinationCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: destinationWorkspace.id,
+                deferFlush: false
+            )
+        )
+#if DEBUG
+        destinationCoordinator.debugDrainAll()
+        sourceCoordinator.debugDrainAll()
+        destinationCoordinator.debugDrainAll()
+#endif
+
+        XCTAssertEqual(
+            movedPanel.surface.fontSizeLineageSnapshot()?
+                .basePoints,
+            minimum,
+            "The source increase must precede the destination decrease at the native minimum"
+        )
+    }
+
+    func testSourceWindowClosePreservesTransferredTerminalWork() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace,
+              let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId,
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace,
+              let destinationPane =
+                destinationWorkspace.bonsplitController
+                    .focusedPaneId else {
+            XCTFail("Expected source and destination panes")
+            return
+        }
+        let minimum =
+            TerminalFontSizePolicy.minimumRuntimePoints
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(
+            minimum,
+            isExplicitOverride: true
+        )
+        let movedPanel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            configTemplate: template,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        guard sourceWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: movedPanel,
+                sourceWorkspaceId: sourceWorkspace.id
+            ),
+            inPane: sourcePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a movable source terminal")
+            return
+        }
+
+        let arbiter =
+            WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let sourceCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        let destinationCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: destinationManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        defer {
+            sourceCoordinator.cancelAll()
+            destinationCoordinator.cancelAll()
+        }
+
+        XCTAssertTrue(
+            sourceCoordinator.enqueue(
+                .relative([1]),
+                workspaceId: sourceWorkspace.id,
+                deferFlush: true
+            )
+        )
+        guard let detached = sourceWorkspace.detachSurface(
+            panelId: movedPanel.id
+        ),
+        destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected an unvisited cross-window terminal")
+            return
+        }
+
+        sourceCoordinator.cancelWindowOwnedWork()
+#if DEBUG
+        sourceCoordinator.debugDrainAll()
+#endif
+
+        XCTAssertEqual(
+            movedPanel.surface.fontSizeLineageSnapshot()?
+                .basePoints,
+            minimum + 1,
+            "Closing the source window must not cancel accepted work carried by a moved terminal"
         )
     }
 
