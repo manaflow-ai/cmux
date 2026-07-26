@@ -787,12 +787,10 @@ fn spawn_local_connectors(
                     stream_id: request.stream_id,
                     instance_id: request.instance_id,
                     connection,
-                }) {
-                    if let WorkerInput::LocalOpenCompleted { connection: Ok(connection), .. } =
-                        error.0
-                    {
-                        connection.control.close();
-                    }
+                }) && let WorkerInput::LocalOpenCompleted { connection: Ok(connection), .. } =
+                    error.0
+                {
+                    connection.control.close();
                 }
             }
         })?;
