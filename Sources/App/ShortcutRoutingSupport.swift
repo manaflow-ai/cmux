@@ -524,6 +524,25 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+
+/// Ghostty binding actions that move between the results of a search that is
+/// already running.
+///
+/// Ghostty parses a binding action as `action:parameter`, and its two search
+/// actions are not interchangeable:
+///
+/// - `search:<text>` starts a *new* search for `<text>`, replacing any active
+///   one. `search:next` therefore searches for the literal word "next".
+/// - `navigate_search:<previous|next>` steps through the existing results.
+///
+/// These are constants rather than literals at each call site because the two
+/// spellings drifted apart once they were duplicated: the find bar navigated
+/// with `navigate_search:`, while Find Next / Find Previous sent `search:`.
+enum TerminalSearchNavigationAction {
+    static let next = "navigate_search:next"
+    static let previous = "navigate_search:previous"
+}
+
 // Main-actor isolated: TerminalSurface.searchState carries the legacy
 // main-thread-only contract as compiler-enforced isolation after the
 // CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.

@@ -4467,6 +4467,22 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testTerminalSearchNavigationUsesNavigateSearchRatherThanStartingANewSearch() {
+        // Ghostty parses binding actions as `action:parameter`. `search:<text>`
+        // starts a new search for `<text>`, so `search:next` searched the
+        // scrollback for the literal word "next" and discarded the user's query.
+        // Only `navigate_search:<previous|next>` steps through existing results.
+        XCTAssertEqual(TerminalSearchNavigationAction.next, "navigate_search:next")
+        XCTAssertEqual(TerminalSearchNavigationAction.previous, "navigate_search:previous")
+
+        for action in [TerminalSearchNavigationAction.next, TerminalSearchNavigationAction.previous] {
+            XCTAssertTrue(
+                action.hasPrefix("navigate_search:"),
+                "\(action) must navigate existing results; a bare `search:` prefix starts a new search for the parameter text"
+            )
+        }
+    }
+
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
         _ = NSApplication.shared
 

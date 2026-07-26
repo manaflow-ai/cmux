@@ -52,8 +52,8 @@ struct SurfaceSearchOverlay: View {
                     },
                     onReturn: { isShift in
                         let action = isShift
-                            ? "navigate_search:previous"
-                            : "navigate_search:next"
+                            ? TerminalSearchNavigationAction.previous
+                            : TerminalSearchNavigationAction.next
                         onNavigateSearch(action)
                     }
                 )
@@ -85,7 +85,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.next surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:next")
+                    onNavigateSearch(TerminalSearchNavigationAction.next)
                 }) {
                     Image(systemName: "chevron.up")
                 }
@@ -96,7 +96,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.prev surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:previous")
+                    onNavigateSearch(TerminalSearchNavigationAction.previous)
                 }) {
                     Image(systemName: "chevron.down")
                 }
