@@ -89,10 +89,7 @@ fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
         .map(|character| if character.is_control() { ' ' } else { character })
         .collect::<String>();
     let text = format!("{marker}{message}");
-    let style = Style::default()
-        .fg(color)
-        .bg(app.chrome.status_bg)
-        .add_modifier(Modifier::BOLD | Modifier::REVERSED);
+    let style = Style::default().fg(app.chrome.status_bg).bg(color).add_modifier(Modifier::BOLD);
     let y = area.height - 1;
     for x in 0..area.width {
         frame.buffer_mut()[(x, y)].set_symbol(" ").set_style(style);

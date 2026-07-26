@@ -4,6 +4,8 @@ use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 use cmux_tui_machine_agent_protocol::{MachineSecret, OpaqueId, SessionName};
 use serde::{Deserialize, Serialize};
@@ -11,6 +13,7 @@ use zeroize::Zeroize;
 
 const STATE_VERSION: u16 = 1;
 const MAX_STATE_BYTES: u64 = 4096;
+const CONCURRENT_CREATE_RETRY_DELAY: Duration = Duration::from_millis(10);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MachineIdentity {
@@ -29,6 +32,17 @@ impl fmt::Display for RegistrationAlreadyRunning {
 
 impl std::error::Error for RegistrationAlreadyRunning {}
 
+#[derive(Debug)]
+struct UnexpectedLinkCount(u64);
+
+impl fmt::Display for UnexpectedLinkCount {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "private file must have exactly one link, found {}", self.0)
+    }
+}
+
+impl std::error::Error for UnexpectedLinkCount {}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredIdentity {
@@ -42,7 +56,7 @@ pub(super) fn load_or_create(path: &Path) -> anyhow::Result<MachineIdentity> {
     match fs::symlink_metadata(path) {
         Ok(_) => {
             remove_orphaned_temporary_links(path)?;
-            load(path)
+            load_with_link_retry(path)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => create(path),
         Err(error) => Err(error.into()),
@@ -113,6 +127,18 @@ fn load(path: &Path) -> anyhow::Result<MachineIdentity> {
     Ok(MachineIdentity { machine_id: stored.machine_id, secret: stored.secret })
 }
 
+fn load_with_link_retry(path: &Path) -> anyhow::Result<MachineIdentity> {
+    match load(path) {
+        Err(error)
+            if error.downcast_ref::<UnexpectedLinkCount>().is_some_and(|error| error.0 == 2) =>
+        {
+            thread::sleep(CONCURRENT_CREATE_RETRY_DELAY);
+            load(path)
+        }
+        result => result,
+    }
+}
+
 fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
     let parent = state_parent(path)?;
     let identity = MachineIdentity {
@@ -142,7 +168,11 @@ fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(false),
             Err(error) => return Err(error.into()),
         }
-        fs::remove_file(&temporary)?;
+        match fs::remove_file(&temporary) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         sync_directory(parent)?;
         Ok(true)
     })();
@@ -157,7 +187,7 @@ fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
         }
         Ok(loaded)
     } else {
-        load(path)
+        load_with_link_retry(path)
     }
 }
 
@@ -206,7 +236,7 @@ fn verify_private_file(file: &File, label: &str) -> anyhow::Result<()> {
         anyhow::bail!("{label} file must have mode 0600");
     }
     if metadata.nlink() != 1 {
-        anyhow::bail!("{label} file must have exactly one link");
+        return Err(UnexpectedLinkCount(metadata.nlink()).into());
     }
     Ok(())
 }
@@ -374,6 +404,21 @@ mod tests {
         OpenOptions::new().write(true).create_new(true).mode(0o600).open(&unrelated).unwrap();
         assert_eq!(load_or_create(&state.path).unwrap(), identity);
         assert!(unrelated.exists());
+    }
+
+    #[test]
+    fn identity_retries_the_live_two_link_creation_window_once() {
+        let state = test_state("live-creation-link");
+        let identity = load_or_create(&state.path).unwrap();
+        let temporary = state.directory.join(".identity.json.live.tmp");
+        fs::hard_link(&state.path, &temporary).unwrap();
+        let remover = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(1));
+            fs::remove_file(temporary).unwrap();
+        });
+
+        assert_eq!(load_with_link_retry(&state.path).unwrap(), identity);
+        remover.join().unwrap();
     }
 
     #[test]

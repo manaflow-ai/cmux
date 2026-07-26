@@ -69,7 +69,7 @@ To share an existing local session through cmux.cloud without a public listener,
 npx cmux machine-agent --session agents
 ```
 
-The first registration prints the one-time code used by `+ Connect machine` on cmux.cloud.
+Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ Connect machine` on cmux.cloud.
 
 ## Sessions and sockets
 

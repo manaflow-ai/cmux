@@ -428,9 +428,14 @@ impl ProviderClientInner {
                 .and_then(|retained| retained.delivery.as_ref())
                 .map(|retained| retained.sequence)
                 .unwrap_or(events.acknowledged_sequence);
-            if delivery.sequence <= retained_sequence {
+            let Some(expected_sequence) = retained_sequence.checked_add(1) else {
                 return Err(ReaderFailure::InvalidFrame(format!(
-                    "durable notice sequence {} did not advance beyond {retained_sequence}",
+                    "durable notice sequence overflowed after {retained_sequence}",
+                )));
+            };
+            if delivery.sequence != expected_sequence {
+                return Err(ReaderFailure::InvalidFrame(format!(
+                    "durable notice sequence {} did not match expected sequence {expected_sequence}",
                     delivery.sequence,
                 )));
             }
@@ -1732,7 +1737,7 @@ mod tests {
     }
 
     #[test]
-    fn durable_notice_sequences_must_advance_strictly() {
+    fn durable_notice_sequences_must_be_contiguous() {
         let socket = TestSocket::bind();
         let listener = socket.listener();
         let server = thread::spawn(move || {
@@ -1751,19 +1756,9 @@ mod tests {
                 &EventEnvelope::with_delivery(
                     ProviderEvent::Notice(ProviderNotice {
                         level: NoticeLevel::Warning,
-                        message: "newer".into(),
+                        message: "skipped".into(),
                     }),
-                    NoticeDelivery { notice_id: id("usage-warning-newer"), sequence: 2 },
-                ),
-            );
-            write_test_frame(
-                &mut stream,
-                &EventEnvelope::with_delivery(
-                    ProviderEvent::Notice(ProviderNotice {
-                        level: NoticeLevel::Warning,
-                        message: "older".into(),
-                    }),
-                    NoticeDelivery { notice_id: id("usage-warning-older"), sequence: 1 },
+                    NoticeDelivery { notice_id: id("usage-warning-skipped"), sequence: 2 },
                 ),
             );
         });

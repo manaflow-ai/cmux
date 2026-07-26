@@ -41,7 +41,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceKind, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
-use machine::{MachineActionResult, MachineController, MachineRequest, MachineUiState};
+use machine::{
+    MachineActionResult, MachineConnectRoute, MachineController, MachineRequest, MachineUiState,
+};
 #[cfg(unix)]
 use machine_provider_client::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
@@ -334,8 +336,11 @@ fn usage_for_platform(
     messages: &localization::MachineAgentMessages,
     supports_machine_agent: bool,
 ) -> String {
-    let machine_agent_usage = if supports_machine_agent { messages.usage } else { "" };
-    USAGE.replace("{machine_agent_usage}", machine_agent_usage)
+    if supports_machine_agent {
+        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", messages.usage))
+    } else {
+        USAGE.replace("  {machine_agent_usage}\n", "")
+    }
 }
 
 fn usage() -> String {
@@ -709,7 +714,9 @@ fn main() {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
             eprintln!("cmux-tui: {error}");
-            eprintln!("{}", localization::catalog().machine_agent.help);
+            if error.show_help() {
+                eprintln!("{}", localization::catalog().machine_agent.help);
+            }
             std::process::exit(1);
         }
         return;
@@ -1147,10 +1154,14 @@ impl MachineController for StaticMachineController {
     fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
         match request {
             MachineRequest::Switch(machine) => self.switch(machine),
-            MachineRequest::Connect(target) => {
+            MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let machine = self.runtime.connect_machine(&target)?;
                 self.switch(machine)
             }
+            MachineRequest::Connect { route: MachineConnectRoute::Provider, .. } => Ok(self
+                .notice(
+                    localization::catalog().sidebar.machine_catalog_provider_actions_unsupported,
+                )),
             MachineRequest::Create => {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
             }
@@ -1669,10 +1680,16 @@ mod tests {
 
     #[test]
     fn startup_help_localizes_the_machine_agent_entrypoint() {
-        let english = usage_for(&localization::catalog_for_locale("en_US.UTF-8").machine_agent);
+        let english = usage_for_platform(
+            &localization::catalog_for_locale("en_US.UTF-8").machine_agent,
+            true,
+        );
         assert!(english.contains("cmux machine-agent"));
         assert!(english.contains("Share one local session through the configured host"));
-        let japanese = usage_for(&localization::catalog_for_locale("ja_JP.UTF-8").machine_agent);
+        let japanese = usage_for_platform(
+            &localization::catalog_for_locale("ja_JP.UTF-8").machine_agent,
+            true,
+        );
         assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
         assert!(!japanese.contains("Share one local session"));
@@ -1684,6 +1701,7 @@ mod tests {
         let usage = usage_for_platform(english, false);
         assert!(!usage.contains("machine-agent"));
         assert!(usage.contains("cmux-tui relay"));
+        assert!(!usage.lines().any(|line| !line.is_empty() && line.trim().is_empty()));
     }
 
     #[test]
