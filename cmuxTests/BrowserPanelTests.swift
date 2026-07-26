@@ -3560,7 +3560,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testActiveViewportAnchorResizeInvalidatesHostedWebViewWithoutSynchronousDisplay() throws {
+    func testActiveViewportAnchorResizeKeepsHostedWebViewAttached() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -3595,8 +3595,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialPresentationInvalidationCount =
-            viewportHost.browserPortalInvalidationCountForTesting
         anchor.frame = NSRect(x: 32, y: 20, width: 400, height: 240)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3605,11 +3603,21 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.origin.y, 20, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.width, 400, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 240, accuracy: 0.5)
-        XCTAssertGreaterThan(
-            viewportHost.browserPortalInvalidationCountForTesting,
-            initialPresentationInvalidationCount,
-            "Geometry sync should request a redraw from the active viewport presentation host"
+        XCTAssertTrue(webView.superview === viewportHost)
+        XCTAssertTrue(viewportHost.superview === slot)
+    }
+
+    func testActiveViewportPresentationInvalidationMarksHostForDeferredLayoutAndDisplay() {
+        let viewportHost = BrowserViewportHostView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 180)
         )
+        viewportHost.needsLayout = false
+        viewportHost.needsDisplay = false
+
+        viewportHost.invalidateBrowserPortalPresentation()
+
+        XCTAssertTrue(viewportHost.needsLayout)
+        XCTAssertTrue(viewportHost.needsDisplay)
     }
 
     func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() {
