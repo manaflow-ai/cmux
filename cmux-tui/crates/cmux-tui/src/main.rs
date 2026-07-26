@@ -982,10 +982,9 @@ impl ServerProcessShutdownGuard {
     }
 
     fn finish(&mut self) {
+        let Some(completion) = self.completion.take() else { return };
         cmux_tui_core::server::cleanup(&self.socket_path);
-        if let Some(completion) = self.completion.take() {
-            let _ = completion.send(());
-        }
+        let _ = completion.send(());
         self.shutdown_watch.cancel();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();

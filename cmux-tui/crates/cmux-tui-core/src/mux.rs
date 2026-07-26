@@ -40,6 +40,8 @@ type ShutdownAttemptHook = Arc<dyn Fn(usize) + Send + Sync>;
 #[cfg(all(test, unix))]
 type TerminalAdoptionSurfaceFactory =
     Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
+#[cfg(test)]
+type NewPaneAfterSpawnHook = Arc<dyn Fn(Arc<Surface>) + Send + Sync>;
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
@@ -1316,7 +1318,7 @@ pub struct Mux {
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
-    new_pane_after_spawn: Mutex<Option<Arc<dyn Fn(Arc<Surface>) + Send + Sync>>>,
+    new_pane_after_spawn: Mutex<Option<NewPaneAfterSpawnHook>>,
     #[cfg(test)]
     terminal_adoption_after_attach: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(all(test, unix))]
@@ -6427,12 +6429,14 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                 });
-            } else {
-                state.surfaces.remove(&surface.id);
             }
         }
         let Some(screen) = changed_screen else {
-            surface.kill();
+            self.fail_hosted_terminal_attachment(
+                &surface,
+                "terminal-pane-attach-failed",
+                "pane-disappeared-before-attach",
+            )?;
             anyhow::bail!("pane {target} not found");
         };
         self.emit(MuxEvent::TreeDelta(delta.expect("successful new pane has a tree delta")));

@@ -2,12 +2,15 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
+// Thread exhaustion must not turn browser shutdown into an unbounded caller
+// wait. Retain exact Child ownership here and retry it with the next reaper.
+static REAPER_BACKLOG: OnceLock<Mutex<Vec<ReapRequest>>> = OnceLock::new();
 
 #[cfg(test)]
 thread_local! {
@@ -157,7 +160,25 @@ struct ReapRequest {
 }
 
 fn reap_child_detached(child: Child, profile_dir: Option<PathBuf>) {
-    let request = std::sync::Arc::new(Mutex::new(Some(ReapRequest { child, profile_dir })));
+    let mut requests = {
+        let mut backlog = REAPER_BACKLOG.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
+        let mut requests = std::mem::take(&mut *backlog);
+        requests.push(ReapRequest { child, profile_dir });
+        requests
+    };
+    let mut pending = requests.drain(..);
+    while let Some(request) = pending.next() {
+        if let Err(request) = spawn_reap_child(request) {
+            let mut backlog = REAPER_BACKLOG.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
+            backlog.push(request);
+            backlog.extend(pending);
+            break;
+        }
+    }
+}
+
+fn spawn_reap_child(request: ReapRequest) -> Result<(), ReapRequest> {
+    let request = std::sync::Arc::new(Mutex::new(Some(request)));
     let worker_request = request.clone();
     #[cfg(test)]
     let force_spawn_failure = FORCE_REAPER_SPAWN_FAILURE.get();
@@ -172,11 +193,14 @@ fn reap_child_detached(child: Child, profile_dir: Option<PathBuf>) {
             }
         })
     };
-    if spawned.is_err()
-        && let Some(request) = request.lock().unwrap().take()
-    {
-        reap_child(request);
+    if spawned.is_err() {
+        return Err(request
+            .lock()
+            .unwrap()
+            .take()
+            .expect("reaper request remains after spawn error"));
     }
+    Ok(())
 }
 
 fn reap_child(mut request: ReapRequest) {
