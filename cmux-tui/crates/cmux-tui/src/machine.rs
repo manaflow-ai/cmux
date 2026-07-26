@@ -1083,6 +1083,26 @@ mod tests {
             ),
             Err(ProviderActionInputError::MissingSelectedWorkspace)
         );
+        assert_eq!(
+            descriptor.request(None, &ProviderActionContext::default()),
+            Err(ProviderActionInputError::MissingSelectedMachine)
+        );
+
+        let mut machine_scoped = action(Vec::new());
+        machine_scoped.target = ProviderActionTarget::SelectedMachine;
+        assert_eq!(
+            machine_scoped.request(None, &context),
+            Ok(MachineRequest::InvokeProviderAction {
+                action_id: "action".into(),
+                values: BTreeMap::new(),
+                machine_id: Some("machine-1".into()),
+                workspace_id: None,
+            })
+        );
+        assert_eq!(
+            machine_scoped.request(None, &ProviderActionContext::default()),
+            Err(ProviderActionInputError::MissingSelectedMachine)
+        );
     }
 
     #[test]

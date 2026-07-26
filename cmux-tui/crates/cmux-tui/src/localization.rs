@@ -1,6 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::OnceLock;
 
+use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::Action;
@@ -545,10 +546,16 @@ pub(crate) fn catalog() -> &'static Catalog {
 pub(crate) fn provider_action_label(action_id: &str) -> Option<&'static str> {
     let messages = &catalog().sidebar;
     match action_id {
-        "workspace.ports.list" => Some(messages.action_list_workspace_ports),
-        "workspace.port.make_public" => Some(messages.action_make_workspace_port_public),
-        "workspace.port.make_private" => Some(messages.action_make_workspace_port_private),
-        "workspace.port.open_private" => Some(messages.action_open_private_workspace_port),
+        provider_action_id::LIST_WORKSPACE_PORTS => Some(messages.action_list_workspace_ports),
+        provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC => {
+            Some(messages.action_make_workspace_port_public)
+        }
+        provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE => {
+            Some(messages.action_make_workspace_port_private)
+        }
+        provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT => {
+            Some(messages.action_open_private_workspace_port)
+        }
         _ => None,
     }
 }
@@ -557,9 +564,9 @@ pub(crate) fn provider_action_field_label(action_id: &str, field_id: &str) -> Op
     matches!(
         (action_id, field_id),
         (
-            "workspace.port.make_public"
-                | "workspace.port.make_private"
-                | "workspace.port.open_private",
+            provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC
+                | provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE
+                | provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT,
             "port"
         )
     )
@@ -722,11 +729,11 @@ mod tests {
     #[test]
     fn workspace_port_provider_actions_use_localized_labels() {
         assert_eq!(
-            provider_action_label("workspace.ports.list"),
+            provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
             Some(catalog().sidebar.action_list_workspace_ports)
         );
         assert_eq!(
-            provider_action_field_label("workspace.port.make_public", "port"),
+            provider_action_field_label(provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC, "port"),
             Some(catalog().sidebar.action_workspace_port)
         );
         assert_eq!(provider_action_label("external.action"), None);

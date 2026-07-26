@@ -619,6 +619,13 @@ pub struct ProviderCapabilities {
     pub connect_external_machine: bool,
 }
 
+pub mod provider_action_id {
+    pub const LIST_WORKSPACE_PORTS: &str = "workspace.ports.list";
+    pub const MAKE_WORKSPACE_PORT_PUBLIC: &str = "workspace.port.make_public";
+    pub const MAKE_WORKSPACE_PORT_PRIVATE: &str = "workspace.port.make_private";
+    pub const OPEN_PRIVATE_WORKSPACE_PORT: &str = "workspace.port.open_private";
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderActionTarget {
