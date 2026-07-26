@@ -685,16 +685,46 @@ struct SimulatorControlServiceTests {
             value: "camera-authorization-journal\0\(fileName)"
         )
         #expect(journalKey.deviceScope == nil)
-        let lease = try await SimulatorMutationGate().acquireLocks([journalKey])
-        let completion = CameraJournalCompletionProbe()
+        let race = CameraJournalLockRaceProbe()
+        let journalMutationGate = SimulatorMutationGate(
+            lockDirectory: directory.appendingPathComponent("locks", isDirectory: true),
+            contentionWaiter: CameraJournalContentionWaiter(probe: race)
+        )
+        let lockedStore = SimulatorCameraAuthorizationStore(
+            directory: directory,
+            journalMutationGate: journalMutationGate
+        )
+        let lease = try await journalMutationGate.acquireLocks([journalKey])
+        defer { lease.release() }
         let scan = Task {
-            let result = try await store.records()
-            await completion.markCompleted()
-            return result
+            do {
+                let result = try await lockedStore.records()
+                await race.publish(.scanCompleted)
+                return result
+            } catch {
+                await race.publish(.scanFailed(String(describing: error)))
+                throw error
+            }
+        }
+        let deadline = Task {
+            do {
+                try await Task.sleep(for: .seconds(1))
+                await race.publish(.timedOut)
+            } catch {
+                // Cancellation means another race participant won.
+            }
         }
 
-        try await ContinuousClock().sleep(for: .milliseconds(100))
-        #expect(!(await completion.isCompleted))
+        let firstEvent = await race.nextEvent()
+        deadline.cancel()
+        await deadline.value
+        #expect(firstEvent == .contended)
+        guard firstEvent == .contended else {
+            lease.release()
+            scan.cancel()
+            _ = try? await scan.value
+            return
+        }
         lease.release()
         _ = try await scan.value
     }

@@ -15,6 +15,20 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         legacyDirectory: URL? = nil,
         fileManager: FileManager = FileManager()
     ) {
+        self.init(
+            directory: directory,
+            legacyDirectory: legacyDirectory,
+            fileManager: fileManager,
+            journalMutationGate: SimulatorMutationGate()
+        )
+    }
+
+    package init(
+        directory: URL?,
+        legacyDirectory: URL? = nil,
+        fileManager: FileManager = FileManager(),
+        journalMutationGate: SimulatorMutationGate
+    ) {
         if let directory {
             let pathsMatch = legacyDirectory.map {
                 $0.standardizedFileURL.path == directory.standardizedFileURL.path
@@ -38,7 +52,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             self.directory = directory
             self.legacyDirectory = pathsMatch ? nil : legacyDirectory
         }
-        journalMutationGate = SimulatorMutationGate()
+        self.journalMutationGate = journalMutationGate
     }
 
     package func save(
