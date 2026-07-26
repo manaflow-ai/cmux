@@ -4554,6 +4554,8 @@ pub fn run_with_machine_updates(
     let graphics_writer = if graphics_supported {
         let graphics_ready = tx.clone();
         Some(GraphicsWriter::spawn(stdout_lock.clone(), move || {
+            // Latency hint only. The completion stays in GraphicsWriter, and
+            // the event loop drains it after every event batch and timeout.
             let _ = graphics_ready.try_send(AppEvent::GraphicsWriterReady);
         })?)
     } else {

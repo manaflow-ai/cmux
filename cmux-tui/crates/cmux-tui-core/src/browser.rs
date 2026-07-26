@@ -1342,13 +1342,21 @@ impl BrowserSurface {
     }
 
     fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
-        self.begin_reconfigure_frame_transition();
-        let frame_epoch = self.reconfigure_blocking(
+        let invalidation = self.begin_reconfigure_frame_transition();
+        let result = self.reconfigure_blocking(
             queued.geometry.capture_pixels.0,
             queued.geometry.capture_pixels.1,
-        )?;
-        self.confirm_reconfigure(queued, frame_epoch);
-        Ok(())
+        );
+        match result {
+            Ok(frame_epoch) => {
+                self.confirm_reconfigure(queued, frame_epoch);
+                Ok(())
+            }
+            Err(error) => {
+                self.restore_pointer_frame_after_failed_command(invalidation);
+                Err(error)
+            }
+        }
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
@@ -1996,9 +2004,9 @@ impl BrowserSurface {
     ) -> anyhow::Result<T> {
         match &result {
             Ok(_) => self.settle_navigation_transition(invalidation),
-            Err(error) if is_cdp_timeout_error(&error.to_string()) => {
-                self.settle_navigation_transition(invalidation);
-            }
+            // The command may already have reached Chrome. Only a later
+            // main-frame event can safely settle this ambiguous transition.
+            Err(error) if is_cdp_timeout_error(&error.to_string()) => {}
             Err(_) => self.restore_pointer_frame_after_failed_command(invalidation),
         }
         result
