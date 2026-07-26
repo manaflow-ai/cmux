@@ -3595,7 +3595,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        webView.needsDisplay = false
+        viewportHost.needsDisplay = false
         anchor.frame = NSRect(x: 32, y: 20, width: 400, height: 240)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3605,8 +3605,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.width, 400, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 240, accuracy: 0.5)
         XCTAssertTrue(
-            webView.needsDisplay,
-            "Geometry sync should leave a nested active-viewport browser invalidated for AppKit's next display pass"
+            viewportHost.needsDisplay,
+            "Geometry sync should invalidate the active viewport presentation host for AppKit's next display pass"
         )
     }
 
