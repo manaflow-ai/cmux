@@ -18117,14 +18117,15 @@ mod tests {
     }
 
     #[test]
-    fn provider_action_context_accepts_only_the_active_provider_machines_workspaces() {
+    fn provider_action_context_binds_only_the_active_provider_session_workspace() {
         let mux = Mux::new("provider-action-workspace-ownership-test", SurfaceOptions::default());
-        let stale_workspace = "00000000-0000-4000-8000-000000000123";
-        mux.create_empty_workspace(Some("stale".into()), Some(stale_workspace.into()), None)
+        let session_workspace = "00000000-0000-4000-8000-000000000123";
+        mux.create_empty_workspace(Some("active".into()), Some(session_workspace.into()), None)
             .unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         let mut ui = provider_controls_ui();
+        ui.session_available = false;
         app.machine_ui = Some(ui.clone());
 
         assert_eq!(
@@ -18132,24 +18133,13 @@ mod tests {
             ProviderActionContext { machine_id: Some("managed-41".into()), workspace_id: None }
         );
 
-        ui.set_managed_workspaces(
-            MachineKey(41),
-            vec![ManagedWorkspaceDescriptor {
-                id: stale_workspace.into(),
-                name: "owned".into(),
-                mode: WorkspaceCreationMode::Isolated,
-                status: ManagedWorkspaceStatus::Active,
-                version: 1,
-                recoverable_until: None,
-                capabilities: ManagedWorkspaceCapabilities::default(),
-            }],
-        );
+        ui.session_available = true;
         app.machine_ui = Some(ui);
         assert_eq!(
             app.provider_action_context(),
             ProviderActionContext {
                 machine_id: Some("managed-41".into()),
-                workspace_id: Some(stale_workspace.into()),
+                workspace_id: Some(session_workspace.into()),
             }
         );
     }
