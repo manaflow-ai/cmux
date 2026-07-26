@@ -4655,6 +4655,143 @@ mod tests {
     }
 
     #[test]
+    fn canonicalized_same_document_url_still_requests_capture() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        browser
+            .begin_targeted_navigation_frame_transition(
+                "https://EXAMPLE.test:443/path#section".to_string(),
+            )
+            .expect("same-document reservation");
+
+        let observed = handle_same_document_navigated(
+            browser,
+            &json!({
+                "frameId": "main-frame",
+                "url": "https://example.test/path#section"
+            }),
+        )
+        .expect("same-document URL");
+
+        assert!(
+            browser.needs_same_document_paint(&observed),
+            "Chrome URL canonicalization must not strand the navigation authority reservation"
+        );
+    }
+
+    #[test]
+    fn failed_document_capture_releases_later_navigation_without_reopening_pointer() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            loop {
+                if stop_rx.try_recv().is_ok() {
+                    break;
+                }
+                let request = match ws.read() {
+                    Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).unwrap(),
+                    Ok(Message::Binary(bytes)) => serde_json::from_slice::<Value>(&bytes).unwrap(),
+                    Ok(_) => continue,
+                    Err(tungstenite::Error::Io(error))
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => break,
+                };
+                let method = request["method"].as_str().unwrap();
+                let response = match method {
+                    "Target.setDiscoverTargets"
+                    | "Page.stopScreencast"
+                    | "Page.startScreencast" => {
+                        json!({"id": request["id"], "result": {}})
+                    }
+                    "Page.getFrameTree" => json!({
+                        "id": request["id"],
+                        "result": {
+                            "frameTree": {
+                                "frame": {
+                                    "id": "main-frame",
+                                    "loaderId": "loader-2",
+                                    "url": "https://next.test"
+                                }
+                            }
+                        }
+                    }),
+                    "Page.captureScreenshot" => json!({
+                        "id": request["id"],
+                        "error": {
+                            "code": -32000,
+                            "message": "injected transient capture failure"
+                        }
+                    }),
+                    method => panic!("unexpected CDP method {method}"),
+                };
+                write_ws_json(&mut ws, response);
+            }
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let navigation_epoch = browser.frame_epoch.advance_navigation();
+        handle_frame_navigated(
+            browser,
+            json!({
+                "frame": {
+                    "id": "main-frame",
+                    "loaderId": "loader-2",
+                    "url": "https://next.test"
+                }
+            }),
+            navigation_epoch,
+        );
+
+        let capture = browser.authorize_document_paint_blocking(
+            "session-1",
+            "main-frame",
+            "loader-2",
+            navigation_epoch,
+        );
+        assert!(capture.is_err());
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "capture failure must not restore pointer authority to the previous document"
+        );
+        let next_navigation =
+            browser.begin_targeted_navigation_frame_transition("https://recover.test".to_string());
+
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+        let next_error = next_navigation.as_ref().err().map(ToString::to_string);
+        assert!(
+            next_navigation.is_ok(),
+            "a failed authority capture must not permanently reject later navigation: {next_error:?}"
+        );
+    }
+
+    #[test]
     fn unguarded_pointer_input_requires_a_current_admitted_frame() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");

@@ -1666,6 +1666,54 @@ mod tests {
     }
 
     #[test]
+    fn back_forward_cache_restore_requests_document_capture_without_new_paint() {
+        let (inner, _outbound_rx) = test_inner();
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession {
+                epoch: Arc::new(FrameEpoch::default()),
+                main_frame_id: None,
+                main_loader_id: None,
+                pending_document: None,
+                minimum_screencast_timestamp: None,
+            },
+        );
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.frameNavigated",
+                "sessionId": "session-1",
+                "params": {
+                    "type": "BackForwardCacheRestore",
+                    "frame": {
+                        "id": "main-frame",
+                        "loaderId": "restored-loader",
+                        "url": "https://example.test/restored"
+                    }
+                }
+            })
+            .to_string(),
+        );
+
+        let (event_tx, event_rx) = sync_channel(2);
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::FrameNavigated { frame_epoch: 1, .. }
+        ));
+        assert!(matches!(
+            event_rx.recv_timeout(Duration::from_millis(100)).unwrap(),
+            CdpEvent::DocumentPainted {
+                frame_id,
+                loader_id,
+                navigation_epoch: 1,
+                ..
+            } if frame_id == "main-frame" && loader_id == "restored-loader"
+        ));
+    }
+
+    #[test]
     fn same_document_navigation_does_not_advance_main_frame_epoch() {
         let (inner, _outbound_rx) = test_inner();
         let frame_epoch = Arc::new(FrameEpoch::default());
@@ -1803,6 +1851,45 @@ mod tests {
 
         drop(client);
         server.join().unwrap();
+    }
+
+    #[test]
+    fn missing_optional_screencast_timestamp_requests_safe_capture() {
+        let (inner, _outbound_rx) = test_inner();
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession {
+                epoch: Arc::new(FrameEpoch::default()),
+                main_frame_id: Some("main-frame".to_string()),
+                main_loader_id: Some("loader-1".to_string()),
+                pending_document: None,
+                minimum_screencast_timestamp: Some(1.0),
+            },
+        );
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "AAAA",
+                    "sessionId": 7,
+                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+                }
+            })
+            .to_string(),
+        );
+
+        let (event_tx, event_rx) = sync_channel(1);
+        inner.events.drain_into(&event_tx).unwrap();
+        let recovery = event_rx
+            .try_recv()
+            .expect("a timestamp-less frame must request a loader-verified replacement");
+        assert!(
+            !matches!(recovery, CdpEvent::ScreencastFrame(_)),
+            "timestamp-less pixels must not cross the restart authority barrier"
+        );
     }
 
     #[test]
