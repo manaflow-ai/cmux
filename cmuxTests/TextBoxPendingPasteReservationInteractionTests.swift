@@ -74,6 +74,33 @@ struct TextBoxPendingPasteReservationInteractionTests {
         #expect(textView.string == "before selected after")
     }
 
+    @Test("same-caret paste reservations retain FIFO order")
+    func sameCaretPasteReservationsRetainFIFOOrder() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        textView.string = ""
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+
+        let firstPasteID = UUID()
+        let secondPasteID = UUID()
+        #expect(textView.beginPendingPasteReservation(id: firstPasteID))
+        #expect(textView.beginPendingPasteReservation(id: secondPasteID))
+
+        #expect(
+            textView.commitPendingPasteReservation(
+                id: secondPasteID,
+                withText: "second"
+            )
+        )
+        #expect(
+            textView.commitPendingPasteReservation(
+                id: firstPasteID,
+                withText: "first"
+            )
+        )
+        #expect(textView.string == "firstsecond")
+    }
+
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 30)

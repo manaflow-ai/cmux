@@ -55,6 +55,36 @@ struct TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
+    @Test("large plain text crosses the bounded worker envelope")
+    func largePlainTextCrossesWorkerEnvelope() async {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-large-text-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let largeText = String(
+            repeating: "x",
+            count: TerminalPastePreparationWorkerClient.maximumResponseSize
+                + 1_024
+        )
+        pasteboard.setString(largeText, forType: .string)
+
+        let preparedContent = await TerminalImageTransferPlanner.prepare(
+            pasteboard: pasteboard,
+            mode: .paste
+        )
+
+        guard case .insertText(let preparedText) = preparedContent else {
+            Issue.record("Expected large plain text to survive worker transport")
+            return
+        }
+        #expect(preparedText == largeText)
+    }
+
+    @MainActor
     @Test("accepted paste preparations execute in FIFO order without drops")
     func pastePreparationPreservesFIFOOrder() async {
         let operation = ControlledPastePreparationOperation()
