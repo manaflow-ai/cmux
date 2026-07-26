@@ -42,10 +42,12 @@ extension AppDelegate {
         let previousActiveChord = activeConfiguredShortcutChordPrefixForCurrentEvent
         let eventWindowNumber = configuredShortcutChordWindowNumber(for: event)
         if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == eventWindowNumber {
+           pendingConfiguredShortcutChord.windowNumber == eventWindowNumber,
+           pendingConfiguredShortcutChord.firstStroke == shortcut.firstStroke {
             activeConfiguredShortcutChordPrefixForCurrentEvent =
                 pendingConfiguredShortcutChord.firstStroke
-        } else {
+        } else if activeConfiguredShortcutChordPrefixForCurrentEvent
+            != shortcut.firstStroke {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
