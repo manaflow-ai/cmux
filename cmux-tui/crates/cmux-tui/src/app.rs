@@ -30,7 +30,7 @@ use crossterm::event::{
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-    query_keyboard_enhancement_flags,
+    query_keyboard_enhancement_flags_with_timeout,
 };
 use ghostty_vt::{
     CursorShape, KeyEncoder, KeyInput, Mods, MouseAction, MouseButton as GhosttyMouseButton,
@@ -4170,6 +4170,7 @@ const HOST_KEYBOARD_FLAGS: KeyboardEnhancementFlags =
         .union(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS)
         .union(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
         .union(KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT);
+const HOST_KEYBOARD_QUERY_TIMEOUT: Duration = Duration::from_millis(150);
 
 fn keyboard_protocol_accepts(
     requested: KeyboardEnhancementFlags,
@@ -4195,20 +4196,27 @@ fn negotiate_host_keyboard_protocol(
     stdout: &mut impl Write,
     ownership: &mut HostKeyboardProtocolOwnership,
 ) -> std::io::Result<()> {
-    negotiate_host_keyboard_protocol_with(stdout, ownership, query_keyboard_enhancement_flags)
+    negotiate_host_keyboard_protocol_with(
+        stdout,
+        ownership,
+        query_keyboard_enhancement_flags_with_timeout,
+    )
 }
 
 fn negotiate_host_keyboard_protocol_with(
     stdout: &mut impl Write,
     ownership: &mut HostKeyboardProtocolOwnership,
-    query: impl FnOnce() -> std::io::Result<Option<KeyboardEnhancementFlags>>,
+    query: impl FnOnce(Duration) -> std::io::Result<Option<KeyboardEnhancementFlags>>,
 ) -> std::io::Result<()> {
     *ownership = enable_host_keyboard_protocol(stdout)?;
     if !ownership.is_pushed() {
         return Ok(());
     }
 
-    if keyboard_protocol_accepts(HOST_KEYBOARD_FLAGS, query().ok().flatten()) {
+    if keyboard_protocol_accepts(
+        HOST_KEYBOARD_FLAGS,
+        query(HOST_KEYBOARD_QUERY_TIMEOUT).ok().flatten(),
+    ) {
         return Ok(());
     }
 
@@ -11093,7 +11101,7 @@ mod tests {
             | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
 
         let mut ownership = super::HostKeyboardProtocolOwnership::default();
-        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, |_| Ok(Some(accepted)))
             .unwrap();
         assert!(ownership.is_pushed());
         disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
@@ -11157,7 +11165,7 @@ mod tests {
             | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
 
         let mut ownership = super::HostKeyboardProtocolOwnership::default();
-        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, |_| Ok(Some(accepted)))
             .unwrap();
 
         assert_eq!(ownership, super::HostKeyboardProtocolOwnership::default());
@@ -11169,7 +11177,7 @@ mod tests {
         let mut output = Vec::new();
         let mut ownership = super::HostKeyboardProtocolOwnership::default();
 
-        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || {
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, |_| {
             Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "missing DA1"))
         })
         .unwrap();
@@ -11191,7 +11199,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(observed.get(), Some(super::HOST_KEYBOARD_QUERY_TIMEOUT));
-        assert!(super::HOST_KEYBOARD_QUERY_TIMEOUT <= std::time::Duration::from_millis(200));
+        assert!(super::HOST_KEYBOARD_QUERY_TIMEOUT <= Duration::from_millis(200));
         assert_eq!(output, b"\x1b[>29u\x1b[<1u");
     }
 
@@ -11215,7 +11223,7 @@ mod tests {
 
         let mut output = RejectPop(Vec::new());
         let mut ownership = super::HostKeyboardProtocolOwnership::default();
-        let error = negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || {
+        let error = negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, |_| {
             Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "missing DA1"))
         })
         .unwrap_err();

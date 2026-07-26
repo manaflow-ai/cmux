@@ -83,6 +83,17 @@ pub fn query_keyboard_enhancement_flags() -> std::io::Result<Option<KeyboardEnha
     Ok(None)
 }
 
+/// Queries the terminal's currently active keyboard enhancement flags with a
+/// caller-provided response timeout.
+///
+/// This always returns `Ok(None)` on Windows.
+#[cfg(feature = "events")]
+pub fn query_keyboard_enhancement_flags_with_timeout(
+    _response_timeout: std::time::Duration,
+) -> std::io::Result<Option<KeyboardEnhancementFlags>> {
+    Ok(None)
+}
+
 pub(crate) fn clear(clear_type: ClearType) -> std::io::Result<()> {
     let screen_buffer = ScreenBuffer::current()?;
     let csbi = screen_buffer.info()?;

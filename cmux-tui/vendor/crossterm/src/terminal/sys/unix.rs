@@ -18,6 +18,8 @@ use rustix::{
     termios::{Termios, Winsize},
 };
 
+#[cfg(feature = "events")]
+use std::time::Duration;
 use std::{fs::File, io, process};
 #[cfg(feature = "libc")]
 use std::{
@@ -190,29 +192,42 @@ pub fn supports_keyboard_enhancement() -> io::Result<bool> {
 /// [`crossterm::event::read`](crate::event::read) or [`crossterm::event::poll`](crate::event::poll) are being called.
 #[cfg(feature = "events")]
 pub fn query_keyboard_enhancement_flags() -> io::Result<Option<KeyboardEnhancementFlags>> {
+    query_keyboard_enhancement_flags_with_timeout(Duration::from_millis(2000))
+}
+
+/// Queries the terminal's currently active keyboard enhancement flags with a
+/// caller-provided response timeout.
+#[cfg(feature = "events")]
+pub fn query_keyboard_enhancement_flags_with_timeout(
+    response_timeout: Duration,
+) -> io::Result<Option<KeyboardEnhancementFlags>> {
     if is_raw_mode_enabled() {
-        query_keyboard_enhancement_flags_raw()
+        query_keyboard_enhancement_flags_raw(response_timeout)
     } else {
-        query_keyboard_enhancement_flags_nonraw()
+        query_keyboard_enhancement_flags_nonraw(response_timeout)
     }
 }
 
 #[cfg(feature = "events")]
-fn query_keyboard_enhancement_flags_nonraw() -> io::Result<Option<KeyboardEnhancementFlags>> {
+fn query_keyboard_enhancement_flags_nonraw(
+    response_timeout: Duration,
+) -> io::Result<Option<KeyboardEnhancementFlags>> {
     enable_raw_mode()?;
-    let flags = query_keyboard_enhancement_flags_raw();
+    let flags = query_keyboard_enhancement_flags_raw(response_timeout);
     disable_raw_mode()?;
     flags
 }
 
 #[cfg(feature = "events")]
-fn query_keyboard_enhancement_flags_raw() -> io::Result<Option<KeyboardEnhancementFlags>> {
+fn query_keyboard_enhancement_flags_raw(
+    response_timeout: Duration,
+) -> io::Result<Option<KeyboardEnhancementFlags>> {
     use crate::event::{
         filter::{KeyboardEnhancementFlagsFilter, PrimaryDeviceAttributesFilter},
         InternalEvent,
     };
     use std::io::Write;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     // This is the recommended method for testing support for the keyboard enhancement protocol.
     // We send a query for the flags supported by the terminal and then the primary device attributes
@@ -224,8 +239,7 @@ fn query_keyboard_enhancement_flags_raw() -> io::Result<Option<KeyboardEnhanceme
     // ESC [ ? u        Query progressive keyboard enhancement flags (kitty protocol).
     // ESC [ c          Query primary device attributes.
     const QUERY: &[u8] = b"\x1B[?u\x1B[c";
-    const RESPONSE_TIMEOUT: Duration = Duration::from_millis(2000);
-    let deadline = Instant::now() + RESPONSE_TIMEOUT;
+    let deadline = Instant::now() + response_timeout;
 
     let result = File::open("/dev/tty").and_then(|mut file| {
         file.write_all(QUERY)?;
