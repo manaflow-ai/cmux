@@ -18201,7 +18201,7 @@ mod tests {
         }
 
         assert_eq!(
-            second.cell_pixel_size_for_testing(),
+            second.cell_pixel_size(),
             (8, 16),
             "surface-only attach published host metrics to the shared session"
         );
