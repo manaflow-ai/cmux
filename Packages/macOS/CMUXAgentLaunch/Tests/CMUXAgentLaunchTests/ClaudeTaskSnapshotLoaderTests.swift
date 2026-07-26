@@ -61,28 +61,28 @@ struct ClaudeTaskSnapshotLoaderTests {
     func resolvesConfiguredTaskRoot() {
         let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
 
-        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+        #expect(ClaudeTaskRootResolver(
             environment: ["HOME": "/tmp/hook-home"],
             homeDirectoryURL: home
-        ).path == "/tmp/hook-home/.claude/tasks")
-        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+        ).resolve().path == "/tmp/hook-home/.claude/tasks")
+        #expect(ClaudeTaskRootResolver(
             environment: [
                 "HOME": "/tmp/hook-home",
                 "CLAUDE_CONFIG_DIR": "/tmp/claude-profile",
             ],
             homeDirectoryURL: home
-        ).path == "/tmp/claude-profile/tasks")
-        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+        ).resolve().path == "/tmp/claude-profile/tasks")
+        #expect(ClaudeTaskRootResolver(
             environment: [
                 "HOME": "/tmp/hook-home",
                 "CLAUDE_CONFIG_DIR": "~/claude-profile",
             ],
             homeDirectoryURL: home
-        ).path == "/tmp/hook-home/claude-profile/tasks")
-        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+        ).resolve().path == "/tmp/hook-home/claude-profile/tasks")
+        #expect(ClaudeTaskRootResolver(
             environment: ["HOME": "  "],
             homeDirectoryURL: home
-        ).path == "/Users/example/.claude/tasks")
+        ).resolve().path == "/Users/example/.claude/tasks")
     }
 
     private func writeTask(_ json: String, named name: String, in directory: URL) throws {

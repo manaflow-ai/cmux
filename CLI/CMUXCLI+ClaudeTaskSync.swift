@@ -64,10 +64,10 @@ extension CMUXCLI {
                 return
             }
 
-            let tasksRootURL = ClaudeTaskSnapshotLoader.tasksRootURL(
+            let tasksRootURL = ClaudeTaskRootResolver(
                 environment: ProcessInfo.processInfo.environment,
                 homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
-            )
+            ).resolve()
             let loader = ClaudeTaskSnapshotLoader(tasksRootURL: tasksRootURL)
             try withClaudeTaskSnapshotLock(loader: loader) {
                 let todos = try loader.load(sessionID: sessionID)

@@ -47,6 +47,13 @@ public struct WorkstreamQuestionPrompt: Codable, Sendable, Equatable, Identifiab
     public let multiSelect: Bool
     public let options: [WorkstreamQuestionOption]
 
+    /// Creates a canonical workstream task entry.
+    ///
+    /// - Parameters:
+    ///   - id: The task system's stable identifier.
+    ///   - content: The task's subject text.
+    ///   - activeForm: Present-tense text used while the task is running.
+    ///   - state: The task's canonical lifecycle state.
     public init(
         id: String,
         header: String? = nil,

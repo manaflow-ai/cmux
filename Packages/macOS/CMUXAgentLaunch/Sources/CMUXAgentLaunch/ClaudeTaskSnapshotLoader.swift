@@ -21,44 +21,6 @@ public struct ClaudeTaskSnapshotLoader {
         self.fileManager = fileManager
     }
 
-    /// Resolves Claude's task root from its process environment.
-    ///
-    /// `CLAUDE_CONFIG_DIR` wins when configured; otherwise tasks are read from
-    /// `$HOME/.claude/tasks`. An absent or empty hook `HOME` falls back to the
-    /// supplied home directory.
-    ///
-    /// - Parameters:
-    ///   - environment: The Claude hook process environment.
-    ///   - homeDirectoryURL: The fallback hook-user home directory.
-    /// - Returns: The configured Claude tasks directory.
-    public static func tasksRootURL(
-        environment: [String: String],
-        homeDirectoryURL: URL
-    ) -> URL {
-        let configuredDirectory = environment["CLAUDE_CONFIG_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let environmentHome = Self.nonEmpty(environment["HOME"]).map {
-            URL(fileURLWithPath: $0, isDirectory: true)
-        }
-        let hookHomeURL = environmentHome ?? homeDirectoryURL
-        let configURL: URL
-        if let configuredDirectory, !configuredDirectory.isEmpty {
-            if configuredDirectory == "~" {
-                configURL = hookHomeURL
-            } else if configuredDirectory.hasPrefix("~/") {
-                configURL = hookHomeURL.appendingPathComponent(
-                    String(configuredDirectory.dropFirst(2)),
-                    isDirectory: true
-                )
-            } else {
-                configURL = URL(fileURLWithPath: configuredDirectory, isDirectory: true)
-            }
-        } else {
-            configURL = hookHomeURL.appendingPathComponent(".claude", isDirectory: true)
-        }
-        return configURL.appendingPathComponent("tasks", isDirectory: true)
-    }
-
     /// Reads and canonicalizes every task currently persisted for a session.
     ///
     /// Both `<tasks>/<session-id>` and the older
@@ -82,19 +44,19 @@ public struct ClaudeTaskSnapshotLoader {
             guard fileURL.pathExtension.lowercased() == "json",
                   (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                   let data = try? Data(contentsOf: fileURL),
-                  let record = try? decoder.decode(TaskRecord.self, from: data),
+                  let record = try? decoder.decode(ClaudeTaskRecord.self, from: data),
                   let state = record.canonicalState,
-                  let content = Self.nonEmpty(record.subject) else {
+                  let content = nonEmptyClaudeTaskText(record.subject) else {
                 return nil
             }
             return WorkstreamTaskTodo(
                 id: record.id,
                 content: content,
-                activeForm: Self.nonEmpty(record.activeForm),
+                activeForm: nonEmptyClaudeTaskText(record.activeForm),
                 state: state
             )
         }
-        return todos.sorted(by: Self.taskSort)
+        return todos.sorted(by: claudeTaskSort)
     }
 
     private func sessionDirectoryURL(sessionID: String) -> URL? {
@@ -122,32 +84,16 @@ public struct ClaudeTaskSnapshotLoader {
         return nil
     }
 
-    private static func nonEmpty(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
+}
 
-    private static func taskSort(_ lhs: WorkstreamTaskTodo, _ rhs: WorkstreamTaskTodo) -> Bool {
-        if let leftNumber = Int(lhs.id), let rightNumber = Int(rhs.id), leftNumber != rightNumber {
-            return leftNumber < rightNumber
-        }
-        return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
-    }
+private func nonEmptyClaudeTaskText(_ value: String?) -> String? {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed?.isEmpty == false ? trimmed : nil
+}
 
-    private struct TaskRecord: Decodable {
-        let id: String
-        let subject: String
-        let activeForm: String?
-        let status: String
-
-        var canonicalState: WorkstreamTaskTodo.State? {
-            switch status {
-            case "pending": .pending
-            case "in_progress": .inProgress
-            case "completed": .completed
-            case "deleted": nil
-            default: nil
-            }
-        }
+private func claudeTaskSort(_ lhs: WorkstreamTaskTodo, _ rhs: WorkstreamTaskTodo) -> Bool {
+    if let leftNumber = Int(lhs.id), let rightNumber = Int(rhs.id), leftNumber != rightNumber {
+        return leftNumber < rightNumber
     }
+    return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
 }
