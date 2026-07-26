@@ -3564,6 +3564,24 @@ mod tests {
     }
 
     #[test]
+    fn stream_progress_rearms_expired_wait_when_output_races_final_release() {
+        let progress = TerminalStreamProgress::default();
+        let observed = progress.revision();
+        let mut expired = progress.begin_clear_history_wait(Duration::ZERO);
+
+        assert_eq!(progress.wait_for_change(observed, expired.deadline()), None);
+        progress.notify();
+        expired.mark_timed_out();
+        drop(expired);
+
+        let rearmed = progress.begin_clear_history_wait(Duration::from_secs(1));
+        assert!(
+            rearmed.deadline() > Instant::now(),
+            "stream progress left the expired clear-history wait latched"
+        );
+    }
+
+    #[test]
     fn clear_history_waits_for_a_partial_vt_sequence_to_finish() {
         let mux = Mux::new_for_test("clear-history-partial-vt", SurfaceOptions::default());
         let surface =
