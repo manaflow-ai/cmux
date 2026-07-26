@@ -2,7 +2,7 @@ import CmuxFoundation
 import Foundation
 
 extension SimulatorControlService {
-    /// Restores location routes whose exact owner process no longer exists.
+    /// Restores orphaned routes and rolls back abandoned pending mutations.
     ///
     /// Recovery holds the same cross-process device lock as ordinary location
     /// mutations, re-reads the journal under that lock, quarantines unreadable
@@ -43,10 +43,6 @@ extension SimulatorControlService {
             deviceIdentifier: deviceID
         )
         if let pending = record.pending {
-            if publishedToken == pending.ownershipToken,
-               pending.isOwnedByRunningProcess {
-                return
-            }
             if publishedToken != pending.ownershipToken {
                 if let committed = record.committed,
                    !committed.isOwnedByRunningProcess {
@@ -184,7 +180,7 @@ extension SimulatorControlService {
         coordinate: SimulatorLocationCoordinate
     ) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
-        let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
+        let previousRecord = try await reconciledLocationRecoveryRecord(deviceID: deviceID)
         let transaction: (
             token: UUID,
             previous: SimulatorLocationRouteRecoverySnapshot?,
@@ -258,7 +254,7 @@ extension SimulatorControlService {
 
     private func clearLocationExclusively(deviceID: String) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
-        let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
+        let previousRecord = try await reconciledLocationRecoveryRecord(deviceID: deviceID)
         let transaction: (
             token: UUID,
             previous: SimulatorLocationRouteRecoverySnapshot?,
@@ -476,6 +472,7 @@ extension SimulatorControlService {
                 )
             )
         }
+        _ = try await reconciledLocationRecoveryRecord(deviceID: deviceID)
         let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
         let recoverySnapshot = try requireLocationRecoverySnapshot(
             deviceID: deviceID,
@@ -549,6 +546,7 @@ extension SimulatorControlService {
                 )
             )
         }
+        _ = try await reconciledLocationRecoveryRecord(deviceID: deviceID)
         let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
         let recoverySnapshot = try requireLocationRecoverySnapshot(
             deviceID: deviceID,
@@ -610,7 +608,7 @@ extension SimulatorControlService {
     }
 
     private func stopLocationRouteExclusively(deviceID: String) async throws {
-        let recoveryRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
+        let recoveryRecord = try await reconciledLocationRecoveryRecord(deviceID: deviceID)
         guard locationRouteInitialCoordinates[deviceID] != nil
                 || recoveryRecord?.committed != nil else {
             discardLocalLocationRoute(deviceID: deviceID)
@@ -954,7 +952,7 @@ extension SimulatorControlService {
         previous: SimulatorLocationRouteRecoverySnapshot?,
         replacement: SimulatorLocationRouteRecoverySnapshot?
     ) {
-        let record = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
+        let record = try await reconciledLocationRecoveryRecord(deviceID: deviceID)
         guard record?.pending == nil else { throw CocoaError(.fileReadCorruptFile) }
         let previous = record?.committed
         let token: UUID
@@ -1015,6 +1013,27 @@ extension SimulatorControlService {
         cancelLocationLifecycle(deviceID: deviceID)
         locationRouteTokens[deviceID] = token
         return (token, previous, replacement)
+    }
+
+    /// The device mutation lock is held by every caller. If a pending record
+    /// is still unchanged after this caller acquires that lock, the operation
+    /// that wrote it has already released the lock and the transaction is
+    /// abandoned even when its host process remains alive.
+    private func reconciledLocationRecoveryRecord(
+        deviceID: String
+    ) async throws -> SimulatorLocationRouteRecoveryRecord? {
+        guard let record = try locationRouteRecoveryStore.record(
+            deviceIdentifier: deviceID
+        ) else { return nil }
+        guard record.pending != nil else { return record }
+        try await recoverLocationRouteIfOrphaned(record)
+        let reconciled = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
+        let hasLocalRoute = activeLocationRoutes[deviceID] != nil
+            || locationRouteInitialCoordinates[deviceID] != nil
+        if let committed = reconciled?.committed, hasLocalRoute {
+            locationRouteTokens[deviceID] = committed.ownershipToken
+        }
+        return reconciled
     }
 
     private func commitLocationTransaction(

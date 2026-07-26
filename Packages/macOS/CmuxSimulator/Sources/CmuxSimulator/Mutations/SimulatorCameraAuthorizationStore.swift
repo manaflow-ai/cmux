@@ -237,7 +237,9 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
                 ofItemAtPath: destination.path
             )
         }
-        try fileManager.removeItem(at: legacyURL)
+        if !record.isOwnedByRunningProcess {
+            try fileManager.removeItem(at: legacyURL)
+        }
     }
 
     private func migrateLegacyRecords(fileManager: FileManager) throws -> Bool {
