@@ -486,6 +486,137 @@ struct SimulatorControlServiceTests {
         ).allSatisfy { $0.pathExtension != "json" })
     }
 
+    @Test("A corrupt durable duplicate blocks legacy recovery")
+    func corruptDurableDuplicateBlocksLegacyRecovery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "camera-corrupt-duplicate-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        let durableDirectory = root.appendingPathComponent("durable", isDirectory: true)
+        let legacyDirectory = root.appendingPathComponent("legacy", isDirectory: true)
+        let deviceIdentifier = UUID().uuidString
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let legacyStore = SimulatorCameraAuthorizationStore(directory: legacyDirectory)
+        try await legacyStore.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
+        let legacyURL = try #require(try fileManager.contentsOfDirectory(
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil
+        ).first { $0.pathExtension == "json" })
+        try fileManager.createDirectory(
+            at: durableDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data("corrupt".utf8).write(
+            to: durableDirectory.appendingPathComponent(legacyURL.lastPathComponent)
+        )
+        let store = SimulatorCameraAuthorizationStore(
+            directory: durableDirectory,
+            legacyDirectory: legacyDirectory
+        )
+
+        let scan = try await store.records()
+
+        #expect(scan.records.isEmpty)
+        #expect(scan.hadFailures)
+        #expect(fileManager.fileExists(atPath: legacyURL.path))
+    }
+
+    @Test("Legacy cleanup cannot expose its stale durable duplicate")
+    func legacyCleanupKeepsDurableDuplicateSuppressed() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "camera-cleaned-legacy-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        let durableDirectory = root.appendingPathComponent("durable", isDirectory: true)
+        let legacyDirectory = root.appendingPathComponent("legacy", isDirectory: true)
+        let deviceIdentifier = UUID().uuidString
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let legacyStore = SimulatorCameraAuthorizationStore(directory: legacyDirectory)
+        try await legacyStore.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity.current
+        )
+        let legacyURL = try #require(try fileManager.contentsOfDirectory(
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil
+        ).first { $0.pathExtension == "json" })
+        try await SimulatorCameraAuthorizationStore(directory: durableDirectory).save(
+            .granted,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
+        let store = SimulatorCameraAuthorizationStore(
+            directory: durableDirectory,
+            legacyDirectory: legacyDirectory
+        )
+        #expect(try await store.records().records.isEmpty)
+
+        try fileManager.removeItem(at: legacyURL)
+        let scanAfterCleanup = try await store.records()
+
+        #expect(scanAfterCleanup.records.isEmpty)
+        #expect(!scanAfterCleanup.hadFailures)
+        #expect(try fileManager.contentsOfDirectory(
+            at: durableDirectory,
+            includingPropertiesForKeys: nil
+        ).allSatisfy { $0.pathExtension != "json" })
+    }
+
+    @Test("Camera journal reads serialize with cross-process saves")
+    func cameraJournalReadsSerializeWithSaves() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(
+            "camera-journal-lock-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = SimulatorCameraAuthorizationStore(directory: directory)
+        try await store.save(
+            .denied,
+            deviceIdentifier: UUID().uuidString,
+            bundleIdentifier: "com.example.\(UUID().uuidString)"
+        )
+        let fileName = try #require(try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).first { $0.pathExtension == "json" }).lastPathComponent
+        let journalKey = SimulatorMutationKey(
+            value: "camera-authorization-journal\0\(fileName)"
+        )
+        let lease = try await SimulatorMutationGate().acquireLocks([journalKey])
+        let completion = CameraJournalCompletionProbe()
+        let scan = Task {
+            let result = try await store.records()
+            await completion.markCompleted()
+            return result
+        }
+
+        try await ContinuousClock().sleep(for: .milliseconds(100))
+        #expect(!(await completion.isCompleted))
+        lease.release()
+        _ = try await scan.value
+    }
+
     @Test("Device type identifies family when runtimes omit family metadata")
     func handlesDuplicateRuntimeIdentifiers() async throws {
         let commands = RecordingCommandRunner(results: [
