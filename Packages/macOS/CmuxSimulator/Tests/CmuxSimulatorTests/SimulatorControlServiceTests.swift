@@ -380,7 +380,7 @@ struct SimulatorControlServiceTests {
         #expect(!fileManager.fileExists(atPath: legacyURL.path))
     }
 
-    @Test("Migration preserves a live legacy camera owner's journal")
+    @Test("Migration suppresses a durable duplicate while its legacy owner is live")
     func cameraMigrationPreservesLiveLegacyJournal() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -403,6 +403,19 @@ struct SimulatorControlServiceTests {
             at: legacyDirectory,
             includingPropertiesForKeys: nil
         ).first { $0.pathExtension == "json" })
+        let staleDurableStore = SimulatorCameraAuthorizationStore(
+            directory: durableDirectory
+        )
+        try staleDurableStore.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
         let durableStore = SimulatorCameraAuthorizationStore(
             directory: durableDirectory,
             legacyDirectory: legacyDirectory
@@ -412,6 +425,10 @@ struct SimulatorControlServiceTests {
 
         #expect(scan.records.isEmpty)
         #expect(fileManager.fileExists(atPath: legacyURL.path))
+        #expect(try fileManager.contentsOfDirectory(
+            at: durableDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "json" }.count == 1)
         #expect(try durableStore.authorization(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
