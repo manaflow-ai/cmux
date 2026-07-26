@@ -465,4 +465,51 @@ mod tests {
 
         assert!(!reaped_inline, "reaper spawn failure fell back to an unbounded caller wait");
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn final_reaper_request_survives_a_shutdown_thread_spawn_failure() {
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        }
+
+        let warmup = Command::new("true").spawn().unwrap();
+        reap_child_detached(warmup, None);
+
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+        let profile_dir = make_profile_dir().unwrap();
+
+        FORCE_REAPER_SPAWN_FAILURE.set(true);
+        reap_child_detached(child, Some(profile_dir.clone()));
+        FORCE_REAPER_SPAWN_FAILURE.set(false);
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let cleaned = loop {
+            if unsafe { kill(pid, 0) } != 0 && !profile_dir.exists() {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if !cleaned {
+            let mut status = 0;
+            unsafe {
+                kill(pid, 9);
+                waitpid(pid, &mut status, 0);
+            }
+            let _ = std::fs::remove_dir_all(&profile_dir);
+        }
+
+        assert!(cleaned, "the final Chrome cleanup remained parked until another browser shutdown");
+    }
 }
