@@ -538,7 +538,7 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
     # already serving the cmux-owned daemon. Falling back to the separately
     # signed Resources/bin client can list schemas but fails before the first
     # real MCP session, so the wrapper must fail closed instead.
-    code, args, stderr, _ = run_wrapper(
+    code, args, stderr, skill = run_wrapper(
         ["hello"],
         installed_broker=False,
     )
@@ -546,6 +546,11 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
     expect(
         command_config(args) is None,
         f"expected no injection without the installed daemon broker, got {args}",
+        failures,
+    )
+    expect(
+        skill["exists"] is True,
+        "the bundled skill must be discoverable before the helper finishes installing",
         failures,
     )
 
