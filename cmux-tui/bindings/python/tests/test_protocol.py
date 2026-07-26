@@ -152,6 +152,30 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(client.rename_workspace_registry("two", key="stable").workspace_revision, 6)
         self.assertEqual(client.move_workspace_registry(0, key="stable").workspace_revision, 6)
 
+    def test_screen_preserves_viewport_metadata(self) -> None:
+        tree = _parse_tree({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": True,
+                "screens": [{
+                    "id": 2,
+                    "name": None,
+                    "active": True,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "viewport_base_width": 0.75,
+                    "viewport_splits": [{"split": 4, "width": 0.5}],
+                    "panes": [],
+                }],
+            }],
+        })
+
+        screen = tree.workspaces[0].screens[0]
+        self.assertEqual(screen.viewport_base_width, 0.75)
+        self.assertEqual(screen.viewport_splits[0].split, 4)
+        self.assertEqual(screen.viewport_splits[0].width, 0.5)
+
     def test_workspace_registry_selectors_reject_missing_and_empty_keys_locally(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
 

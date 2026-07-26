@@ -203,6 +203,12 @@ class Pane:
 
 
 @dataclass(frozen=True)
+class ViewportSplit:
+    split: int
+    width: float
+
+
+@dataclass(frozen=True)
 class Screen:
     id: int
     name: Optional[str]
@@ -210,6 +216,8 @@ class Screen:
     active_pane: int
     layout: Layout
     panes: List[Pane]
+    viewport_base_width: Optional[float] = None
+    viewport_splits: List[ViewportSplit] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -932,6 +940,15 @@ def _parse_screen(value: Dict[str, Any]) -> Screen:
         active_pane=int(value.get("active_pane", 0)),
         layout=_parse_layout(value.get("layout", {"type": "leaf", "pane": 0})),
         panes=[_parse_pane(item) for item in value.get("panes", [])],
+        viewport_base_width=(
+            float(value["viewport_base_width"])
+            if value.get("viewport_base_width") is not None
+            else None
+        ),
+        viewport_splits=[
+            ViewportSplit(split=int(item["split"]), width=float(item["width"]))
+            for item in value.get("viewport_splits", [])
+        ],
     )
 
 

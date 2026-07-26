@@ -78,6 +78,16 @@ public final class JsonTest {
         assertEquals(null, legacyTree.paneRevision(), "legacy pane revision");
         Tree revisionedTree = Tree.from(Map.of("pane_revision", 7L, "workspaces", List.of()));
         assertEquals(7L, revisionedTree.paneRevision(), "pane revision");
+        Screen viewportScreen = Screen.from((Map<String, Object>) Json.parse(
+            "{\"id\":2,\"name\":null,\"active\":true,\"active_pane\":3,"
+                + "\"layout\":{\"type\":\"leaf\",\"pane\":3},"
+                + "\"viewport_base_width\":0.75,"
+                + "\"viewport_splits\":[{\"split\":4,\"width\":0.5}],\"panes\":[]}"
+        ));
+        assertEquals(0.75, viewportScreen.viewportBaseWidth(), "viewport base width");
+        assertEquals(1, viewportScreen.viewportSplits().size(), "viewport split count");
+        assertEquals(4L, viewportScreen.viewportSplits().get(0).split(), "viewport split id");
+        assertEquals(0.5, viewportScreen.viewportSplits().get(0).width(), "viewport split width");
         ClientInfo legacyClient = ClientInfo.from((Map<String, Object>) Json.parse(
             "{\"client\":7,\"transport\":\"ws\",\"connected_seconds\":12,"
                 + "\"attached\":[31,32],\"sizes\":["

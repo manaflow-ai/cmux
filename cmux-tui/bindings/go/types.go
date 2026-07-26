@@ -139,13 +139,20 @@ type Workspace struct {
 	Screens []Screen `json:"screens"`
 }
 
+type ViewportSplit struct {
+	Split uint64  `json:"split"`
+	Width float32 `json:"width"`
+}
+
 type Screen struct {
-	ID         uint64  `json:"id"`
-	Name       *string `json:"name"`
-	Active     bool    `json:"active"`
-	ActivePane uint64  `json:"active_pane"`
-	Layout     any     `json:"layout"`
-	Panes      []Pane  `json:"panes"`
+	ID                uint64          `json:"id"`
+	Name              *string         `json:"name"`
+	Active            bool            `json:"active"`
+	ActivePane        uint64          `json:"active_pane"`
+	Layout            any             `json:"layout"`
+	ViewportBaseWidth *float32        `json:"viewport_base_width,omitempty"`
+	ViewportSplits    []ViewportSplit `json:"viewport_splits,omitempty"`
+	Panes             []Pane          `json:"panes"`
 }
 
 type Pane struct {

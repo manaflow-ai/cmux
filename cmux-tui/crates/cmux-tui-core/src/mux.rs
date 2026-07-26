@@ -6485,8 +6485,8 @@ impl Mux {
                     });
                     let before = screen.layout_snapshot_for_coalescing_change(coalesce);
                     let changed = if screen.layout_columns_active() {
-                        if screen.layout_columns.iter().any(|column| column.id == split) {
-                            false
+                        if screen.set_projected_viewport_split_ratio(split, ratio) {
+                            true
                         } else {
                             let changed = screen.layout_columns.iter_mut().any(|column| {
                                 let changed = column.root.set_split_ratio(split, ratio);
@@ -10019,6 +10019,43 @@ mod tests {
                 layout.rect_of(appended_pane).unwrap(),
                 VirtualRect { x: 60, y: 0, width: 40, height: 24 }
             );
+        });
+    }
+
+    #[test]
+    fn projected_viewport_split_ratio_resizes_the_authoritative_column() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let appended = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let appended_pane = mux.with_state(|state| state.pane_of(appended.id).unwrap());
+        let split = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            match &screen.root {
+                Node::Split { id, .. } => *id,
+                _ => panic!("viewport layout must expose a compatibility split"),
+            }
+        });
+
+        assert!(mux.set_split_ratio(split, 0.5));
+        assert!(mux.set_split_ratio(split, 0.5));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.viewport_splits[&split], 1.0);
+            assert_eq!(
+                screen
+                    .layout_columns
+                    .iter()
+                    .find(|column| column.root.contains(appended_pane))
+                    .map(|column| column.width),
+                Some(1.0)
+            );
+            assert!(matches!(
+                &screen.root,
+                Node::Split { id, ratio, .. }
+                    if *id == split && (*ratio - 0.5).abs() < f32::EPSILON
+            ));
+            assert!(state.split_screens.contains_key(&split));
         });
     }
 

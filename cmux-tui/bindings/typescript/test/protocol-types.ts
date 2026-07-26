@@ -9,12 +9,25 @@ import type {
   RenderAttachEvent,
   RenderDeltaEvent,
   RenderStateEvent,
+  Screen,
   Tree,
   TreeDeltaEvent,
 } from "../src/browser.js";
 
 const treeWithPaneRevision: Tree = { pane_revision: 7, workspaces: [] };
 void treeWithPaneRevision;
+const viewportScreen: Screen = {
+  id: 1,
+  name: null,
+  active: true,
+  active_pane: 2,
+  zoomed_pane: null,
+  layout: { type: "leaf", pane: 2 },
+  viewport_base_width: 1,
+  viewport_splits: [{ split: 3, width: 2 / 3 }],
+  panes: [],
+};
+void viewportScreen;
 
 const requests = [
   { cmd: "identify" },

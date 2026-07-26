@@ -18,7 +18,18 @@ public final class E2e {
             client.send(created.surface(), "printf '" + marker + "\\n'\r");
             waitForMarker(client, created.surface(), marker);
             check(client.readScreen(created.surface()).text().contains(marker), "marker missing from read-screen");
-            long workspace = findWorkspaceForSurface(client.listWorkspaces(), created.surface());
+            Tree tree = client.listWorkspaces();
+            long workspace = findWorkspaceForSurface(tree, created.surface());
+            long pane = findPaneForSurface(tree, created.surface());
+            client.newPaneRight(pane, 0.5, null, null);
+            Screen viewportScreen = findScreenForSurface(client.listWorkspaces(), created.surface());
+            check(viewportScreen != null, "viewport screen not found");
+            check(Double.valueOf(1.0).equals(viewportScreen.viewportBaseWidth()), "viewport base width missing");
+            check(viewportScreen.viewportSplits().size() == 1, "viewport split metadata missing");
+            check(
+                Math.abs(viewportScreen.viewportSplits().get(0).width() - 0.5) < 0.0001,
+                "viewport split width did not round-trip"
+            );
             client.renameSurface(created.surface(), marker + "-renamed");
             try (CmuxClient.CmuxStream events = client.subscribe()) {
                 client.resizeSurface(created.surface(), 100, 31);
@@ -115,6 +126,36 @@ public final class E2e {
             }
         }
         return -1;
+    }
+
+    private static long findPaneForSurface(Tree tree, long surface) {
+        for (Workspace workspace : tree.workspaces()) {
+            for (Screen screen : workspace.screens()) {
+                for (Pane pane : screen.panes()) {
+                    for (Tab tab : pane.tabs()) {
+                        if (tab.surface() == surface) {
+                            return pane.id();
+                        }
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static Screen findScreenForSurface(Tree tree, long surface) {
+        for (Workspace workspace : tree.workspaces()) {
+            for (Screen screen : workspace.screens()) {
+                for (Pane pane : screen.panes()) {
+                    for (Tab tab : pane.tabs()) {
+                        if (tab.surface() == surface) {
+                            return screen;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static SizingTarget findClientSurfaceSize(CmuxClient client, long surface)

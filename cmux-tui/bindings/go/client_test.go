@@ -71,6 +71,15 @@ func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 	if legacyTree.PaneRevision != nil {
 		t.Fatalf("legacy pane revision = %v, want nil", legacyTree.PaneRevision)
 	}
+	var viewportTree Tree
+	if err := json.Unmarshal([]byte(`{"workspaces":[{"id":1,"name":"one","active":true,"screens":[{"id":2,"name":null,"active":true,"active_pane":3,"layout":{"type":"leaf","pane":3},"viewport_base_width":0.75,"viewport_splits":[{"split":4,"width":0.5}],"panes":[]}]}]}`), &viewportTree); err != nil {
+		t.Fatal(err)
+	}
+	viewport := viewportTree.Workspaces[0].Screens[0]
+	if viewport.ViewportBaseWidth == nil || *viewport.ViewportBaseWidth != 0.75 ||
+		len(viewport.ViewportSplits) != 1 || viewport.ViewportSplits[0] != (ViewportSplit{Split: 4, Width: 0.5}) {
+		t.Fatalf("viewport screen = %#v", viewport)
+	}
 
 	var placement WorkspacePlacement
 	if err := json.Unmarshal([]byte(`{"workspace":1,"key":"stable","index":0,"workspace_revision":5}`), &placement); err != nil {

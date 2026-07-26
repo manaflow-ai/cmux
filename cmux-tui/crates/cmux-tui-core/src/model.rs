@@ -692,6 +692,33 @@ impl Screen {
         debug_assert!(self.layout_column_projection_is_consistent());
     }
 
+    /// Apply a compatibility split ratio to an authoritative viewport column.
+    ///
+    /// Projected split `i` represents all preceding columns on the left and
+    /// column `i` on the right, so changing its ratio changes that right
+    /// column's frontend-relative width.
+    pub(crate) fn set_projected_viewport_split_ratio(
+        &mut self,
+        split: SplitId,
+        ratio: f32,
+    ) -> bool {
+        let Some(index) = self
+            .layout_columns
+            .iter()
+            .position(|column| column.id == split)
+            .filter(|index| *index > 0)
+        else {
+            return false;
+        };
+        let width_before =
+            self.layout_columns[..index].iter().map(|column| column.width).sum::<f32>();
+        let width = (width_before * (1.0 - ratio) / ratio)
+            .clamp(crate::MIN_VIEWPORT_PANE_WIDTH, crate::MAX_VIEWPORT_PANE_WIDTH);
+        self.layout_columns[index].width = width;
+        self.sync_layout_column_width_projection();
+        true
+    }
+
     pub(crate) fn collapse_single_layout_column(&mut self) {
         if self.layout_columns.len() != 1 {
             self.sync_layout_column_projection();

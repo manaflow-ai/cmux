@@ -718,11 +718,7 @@ fn server_identity(reader: &mut BufReader<Box<dyn transport::Stream>>) -> Result
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(value
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("identify failed")
-                .to_string());
+            return Err("server rejected identify request".to_string());
         }
         return value
             .get("data")
@@ -1862,6 +1858,23 @@ mod tests {
             server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
             Ok(true)
         );
+    }
+
+    #[test]
+    fn capability_probe_does_not_expose_server_error_text() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([Ok(
+                b"{\"id\":0,\"ok\":false,\"error\":\"private upstream detail\"}\n".to_vec(),
+            )]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        let error =
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY).unwrap_err();
+        assert_eq!(error, "server rejected identify request");
+        assert!(!error.contains("private upstream detail"));
     }
 
     #[test]

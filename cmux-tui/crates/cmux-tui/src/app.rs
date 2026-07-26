@@ -639,7 +639,7 @@ pub struct SessionCompletion {
 enum SessionCompletionAction {
     SurfaceCreated { surface: SurfaceId },
     BrowserTabCreated { surface: SurfaceId },
-    LayoutUndoConfirmation { pane: PaneId, revision: u64 },
+    LayoutUndoConfirmation { pane: PaneId, revision: u64, closes_panes: Vec<PaneId> },
     LayoutUndoUnavailable,
     LayoutUndoStale,
 }
@@ -2021,8 +2021,12 @@ impl OrderedSession {
             };
             match result {
                 LayoutUndoResult::Undone { .. } => Ok(None),
-                LayoutUndoResult::ConfirmationRequired { revision, .. } => {
-                    Ok(Some(SessionCompletionAction::LayoutUndoConfirmation { pane, revision }))
+                LayoutUndoResult::ConfirmationRequired { revision, closes_panes, .. } => {
+                    Ok(Some(SessionCompletionAction::LayoutUndoConfirmation {
+                        pane,
+                        revision,
+                        closes_panes,
+                    }))
                 }
             }
         });
@@ -2419,35 +2423,6 @@ impl PaneArea {
             clip.rect_source_x.saturating_add(self.rect.width) >= clip.full_rect_width
         })
     }
-}
-
-fn viewport_column_rects(
-    root: &Node,
-    viewport_splits: &std::collections::BTreeMap<SplitId, f32>,
-    panes: &[(PaneId, VirtualRect)],
-) -> Vec<(ViewportColumn, PaneId, VirtualRect)> {
-    let mut columns = Vec::<(ViewportColumn, PaneId, VirtualRect)>::new();
-    for (pane, rect) in panes.iter().copied().filter(|(_, rect)| rect.width > 0) {
-        let Some(owner) = root.viewport_column_owner(pane, viewport_splits) else {
-            continue;
-        };
-        if let Some((_, _, column)) =
-            columns.iter_mut().find(|(candidate, _, _)| *candidate == owner)
-        {
-            let right =
-                column.x.saturating_add(column.width).max(rect.x.saturating_add(rect.width));
-            let bottom =
-                column.y.saturating_add(column.height).max(rect.y.saturating_add(rect.height));
-            column.x = column.x.min(rect.x);
-            column.y = column.y.min(rect.y);
-            column.width = right.saturating_sub(column.x);
-            column.height = bottom.saturating_sub(column.y);
-        } else {
-            columns.push((owner, pane, rect));
-        }
-    }
-    columns.sort_by_key(|(_, _, rect)| rect.x);
-    columns
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3232,6 +3207,25 @@ pub struct TabDragView {
     pub target: Option<(PaneId, usize)>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum PaneResizeDragTarget {
+    ViewportColumn {
+        pane: PaneId,
+        edge: PaneEdge,
+        column_x: u64,
+        viewport_x: u16,
+        viewport_width: u16,
+    },
+    Split {
+        split: SplitId,
+        edge: PaneEdge,
+        area: VirtualRect,
+        minimum_ratio: f32,
+        maximum_ratio: f32,
+        viewport_x: u16,
+    },
+}
+
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a machine entry; switching occurs on release.
@@ -3274,7 +3268,7 @@ enum Drag {
     /// Independent rail width override drag.
     RailResize(RailKind),
     /// Pane split resize drag.
-    ResizeSplit { horizontal: Option<(PaneId, PaneEdge)>, vertical: Option<(PaneId, PaneEdge)> },
+    ResizeSplit { horizontal: Option<PaneResizeDragTarget>, vertical: Option<PaneResizeDragTarget> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5846,10 +5840,11 @@ impl App {
                     self.focus_omnibar_with_buffer(pane, String::new(), false);
                 }
             }
-            SessionCompletionAction::LayoutUndoConfirmation { pane, revision } => {
+            SessionCompletionAction::LayoutUndoConfirmation { pane, revision, closes_panes } => {
                 self.cancel_pty_mouse_drag();
+                let label = self.layout_undo_confirmation_label(&closes_panes);
                 self.prompt = Some(Prompt::new(
-                    localization::catalog().sidebar.confirm_layout_undo,
+                    label,
                     String::new(),
                     PromptTarget::ConfirmLayoutUndo { pane, revision },
                 ));
@@ -5863,6 +5858,32 @@ impl App {
                     Some(localization::catalog().sidebar.layout_undo_stale.to_string());
             }
         }
+    }
+
+    fn layout_undo_confirmation_label(&self, closes_panes: &[PaneId]) -> String {
+        let identities = closes_panes
+            .iter()
+            .map(|pane_id| {
+                self.tree.pane(*pane_id).map_or_else(
+                    || pane_id.to_string(),
+                    |pane| {
+                        let tabs = pane
+                            .tabs
+                            .iter()
+                            .map(|tab| tab.short_id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        if tabs.is_empty() {
+                            pane.short_id.clone()
+                        } else {
+                            format!("{} [{}]", pane.short_id, tabs)
+                        }
+                    },
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        localization::catalog().sidebar.confirm_layout_undo.replace("{items}", &identities)
     }
 
     fn select_created_surface(&mut self, surface: SurfaceId) {
@@ -9666,7 +9687,9 @@ impl App {
     }
 
     fn move_focus(&mut self, direction: Direction) {
-        let Some(screen) = self.tree.active_screen() else { return };
+        let Some(screen) = self.tree.active_screen() else {
+            return;
+        };
         if screen.zoomed_pane.is_some() {
             return;
         }
@@ -11348,7 +11371,13 @@ impl App {
                     self.drag = Some(Drag::RailResize(kind));
                 }
                 Hit::PaneResize { horizontal, vertical } => {
-                    self.drag = Some(Drag::ResizeSplit { horizontal, vertical });
+                    let horizontal = horizontal
+                        .and_then(|(pane, edge)| self.resolve_pane_resize_drag(pane, edge));
+                    let vertical =
+                        vertical.and_then(|(pane, edge)| self.resolve_pane_resize_drag(pane, edge));
+                    if horizontal.is_some() || vertical.is_some() {
+                        self.drag = Some(Drag::ResizeSplit { horizontal, vertical });
+                    }
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
             }
@@ -11521,11 +11550,11 @@ impl App {
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
                 let (horizontal, vertical) = (*horizontal, *vertical);
-                if let Some((pane, edge)) = horizontal {
-                    self.resize_split(pane, edge, x, y);
+                if let Some(target) = horizontal {
+                    self.resize_drag_target(target, x, y);
                 }
-                if let Some((pane, edge)) = vertical {
-                    self.resize_split(pane, edge, x, y);
+                if let Some(target) = vertical {
+                    self.resize_drag_target(target, x, y);
                 }
                 Ok(RenderAction::Draw)
             }
@@ -11870,66 +11899,55 @@ impl App {
         }
     }
 
-    fn resize_viewport_column_at_edge(&mut self, pane: PaneId, edge: PaneEdge, x: u16) -> bool {
-        if !matches!(edge, PaneEdge::Left | PaneEdge::Right) || self.content_area.width == 0 {
-            return false;
+    fn resolve_pane_resize_drag(
+        &self,
+        pane: PaneId,
+        edge: PaneEdge,
+    ) -> Option<PaneResizeDragTarget> {
+        if self.content_area.width == 0 {
+            return None;
         }
-        let Some(screen) = self.tree.active_screen() else {
-            return false;
-        };
-        if screen.zoomed_pane.is_some() || screen.viewport_splits.is_empty() {
-            return false;
-        }
-        let layout = layout_screen_with_viewport(
-            &screen.layout,
-            self.content_area,
-            Some(screen.active_pane),
-            screen.viewport_base_width.unwrap_or(1.0),
-            &screen.viewport_splits,
-        );
-        let Some(pane_rect) = layout.rect_of(pane) else {
-            return false;
-        };
-        let Some(owner) = screen.layout.viewport_column_owner(pane, &screen.viewport_splits) else {
-            return false;
-        };
-        let columns = viewport_column_rects(&screen.layout, &screen.viewport_splits, &layout.panes);
-        let Some(index) = columns.iter().position(|(candidate, _, _)| *candidate == owner) else {
-            return false;
-        };
-        let current = columns[index];
-        let target = match edge {
-            PaneEdge::Right
-                if pane_rect.x.saturating_add(pane_rect.width)
-                    == current.2.x.saturating_add(current.2.width) =>
-            {
-                Some(current)
+        let screen = self.tree.active_screen()?;
+        if screen.zoomed_pane.is_none()
+            && !screen.viewport_splits.is_empty()
+            && matches!(edge, PaneEdge::Left | PaneEdge::Right)
+        {
+            let layout = layout_screen_with_viewport(
+                &screen.layout,
+                self.content_area,
+                Some(screen.active_pane),
+                screen.viewport_base_width.unwrap_or(1.0),
+                &screen.viewport_splits,
+            );
+            let pane_rect = layout.rect_of(pane)?;
+            let pane_right = pane_rect.x.saturating_add(pane_rect.width);
+            let index = layout.columns.iter().position(|column| {
+                pane_rect.width > 0
+                    && pane_rect.x >= column.rect.x
+                    && pane_right <= column.rect.x.saturating_add(column.rect.width)
+            })?;
+            let current = layout.columns[index];
+            let target = match edge {
+                PaneEdge::Right
+                    if pane_right == current.rect.x.saturating_add(current.rect.width) =>
+                {
+                    Some(current)
+                }
+                PaneEdge::Left if pane_rect.x == current.rect.x && index > 0 => {
+                    Some(layout.columns[index - 1])
+                }
+                _ => None,
+            };
+            if let Some(column) = target {
+                return Some(PaneResizeDragTarget::ViewportColumn {
+                    pane: column.representative,
+                    edge,
+                    column_x: column.rect.x,
+                    viewport_x: self.content_area.x,
+                    viewport_width: self.content_area.width,
+                });
             }
-            PaneEdge::Left if pane_rect.x == current.2.x && index > 0 => Some(columns[index - 1]),
-            _ => None,
-        };
-        let Some((_, representative, column)) = target else {
-            return false;
-        };
-        let virtual_x = u64::from(self.content_area.x)
-            .saturating_add(self.viewport_offset)
-            .saturating_add(u64::from(x.saturating_sub(self.content_area.x)));
-        let boundary =
-            if edge == PaneEdge::Right { virtual_x.saturating_add(1) } else { virtual_x };
-        let cells = boundary.saturating_sub(column.x);
-        let width = (((cells as f64) / f64::from(self.content_area.width)) as f32)
-            .clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
-        if self.prepare_pty_input_before_mutation() {
-            self.session.set_viewport_pane_width_deferred(representative, width);
         }
-        true
-    }
-
-    fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {
-        if self.resize_viewport_column_at_edge(pane, edge, x) {
-            return;
-        }
-        let Some(screen) = self.tree.active_screen() else { return };
         let split_edge = match edge {
             PaneEdge::Left => SplitEdge::Left,
             PaneEdge::Right => SplitEdge::Right,
@@ -11956,39 +11974,73 @@ impl App {
                 &screen.viewport_splits,
             )
         };
-        let Some(target) = target else {
-            return;
-        };
+        let target = target?;
         if screen.viewport_splits.contains_key(&target.split) {
-            return;
+            return None;
         }
-        let virtual_x = u64::from(self.content_area.x)
-            .saturating_add(self.viewport_offset)
-            .saturating_add(u64::from(x.saturating_sub(self.content_area.x)));
-        let (coord, start, extent) = match edge {
-            PaneEdge::Left => (virtual_x, target.area.x, target.area.width),
-            PaneEdge::Right => (virtual_x.saturating_add(1), target.area.x, target.area.width),
-            PaneEdge::Top => {
-                (u64::from(y), u64::from(target.area.y), u64::from(target.area.height))
+        let minimum_ratio =
+            clamp_split_ratio_for_tab_bars(&screen.layout, target.split, target.area.height, 0.0);
+        let maximum_ratio =
+            clamp_split_ratio_for_tab_bars(&screen.layout, target.split, target.area.height, 1.0);
+        Some(PaneResizeDragTarget::Split {
+            split: target.split,
+            edge,
+            area: target.area,
+            minimum_ratio,
+            maximum_ratio,
+            viewport_x: self.content_area.x,
+        })
+    }
+
+    fn resize_drag_target(&mut self, target: PaneResizeDragTarget, x: u16, y: u16) {
+        match target {
+            PaneResizeDragTarget::ViewportColumn {
+                pane,
+                edge,
+                column_x,
+                viewport_x,
+                viewport_width,
+            } => {
+                let virtual_x = u64::from(viewport_x)
+                    .saturating_add(self.viewport_offset)
+                    .saturating_add(u64::from(x.saturating_sub(viewport_x)));
+                let boundary =
+                    if edge == PaneEdge::Right { virtual_x.saturating_add(1) } else { virtual_x };
+                let cells = boundary.saturating_sub(column_x);
+                let width = (((cells as f64) / f64::from(viewport_width)) as f32)
+                    .clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
+                if self.prepare_pty_input_before_mutation() {
+                    self.session.set_viewport_pane_width_deferred(pane, width);
+                }
             }
-            PaneEdge::Bottom => (
-                u64::from(y.saturating_add(1)),
-                u64::from(target.area.y),
-                u64::from(target.area.height),
-            ),
-        };
-        if extent == 0 {
-            return;
-        }
-        let requested = (coord.saturating_sub(start) as f64 / extent as f64) as f32;
-        let ratio = clamp_split_ratio_for_tab_bars(
-            &screen.layout,
-            target.split,
-            target.area.height,
-            requested,
-        );
-        if self.prepare_pty_input_before_mutation() {
-            self.session.set_split_ratio_deferred(target.split, ratio);
+            PaneResizeDragTarget::Split {
+                split,
+                edge,
+                area,
+                minimum_ratio,
+                maximum_ratio,
+                viewport_x,
+            } => {
+                let virtual_x = u64::from(viewport_x)
+                    .saturating_add(self.viewport_offset)
+                    .saturating_add(u64::from(x.saturating_sub(viewport_x)));
+                let (coord, start, extent) = match edge {
+                    PaneEdge::Left => (virtual_x, area.x, area.width),
+                    PaneEdge::Right => (virtual_x.saturating_add(1), area.x, area.width),
+                    PaneEdge::Top => (u64::from(y), u64::from(area.y), u64::from(area.height)),
+                    PaneEdge::Bottom => {
+                        (u64::from(y.saturating_add(1)), u64::from(area.y), u64::from(area.height))
+                    }
+                };
+                if extent == 0 {
+                    return;
+                }
+                let requested = (coord.saturating_sub(start) as f64 / extent as f64) as f32;
+                let ratio = requested.clamp(minimum_ratio, maximum_ratio);
+                if self.prepare_pty_input_before_mutation() {
+                    self.session.set_split_ratio_deferred(split, ratio);
+                }
+            }
         }
     }
 
@@ -12332,8 +12384,8 @@ impl App {
             return Ok(RenderAction::None);
         }
         let over_scrollbar = matches!(self.hit_at(x, y), Some(Hit::HorizontalScrollbar { .. }));
-        let over_clipped_pane = self.pane_area_at(x, y).is_some_and(|area| area.viewport.is_some());
-        if self.horizontal_scrollbar_state().is_some() && (over_scrollbar || over_clipped_pane) {
+        let over_pane = self.pane_area_at(x, y).is_some();
+        if self.horizontal_scrollbar_state().is_some() && (over_scrollbar || over_pane) {
             let step = (self.content_area.width / 6).max(1) as i16;
             self.scroll_horizontal_viewport(if right { step } else { -step }, true);
             return Ok(RenderAction::Draw);
@@ -12642,20 +12694,20 @@ mod tests {
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
         MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
-        PaneViewportClip, PendingSessionMutation, PendingSessionMutationState, PromptTarget,
-        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, Selection,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
-        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock,
-        SurfaceResizeDecision, SurfaceResizeOwnership, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
-        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item,
-        clip_horizontal_rect, forward_host_input, forward_mux_event, forward_mux_events,
-        layout_undo_error_completion, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
-        with_panic_stdout_lock,
+        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
+        RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarLayout, SidebarPluginSyncClaim,
+        SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision, SurfaceResizeOwnership,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, WorkspaceRailSelection,
+        action_available_in_mode, browser_content_size_for_rect, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect, forward_host_input,
+        forward_mux_event, forward_mux_events, layout_undo_error_completion, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -13343,8 +13395,16 @@ mod tests {
     fn opening_shortcut_help_finishes_an_active_split_resize() {
         let mux = Mux::new("shortcut-help-split-release-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        app.drag =
-            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+        app.drag = Some(Drag::ResizeSplit {
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 1,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 1,
+            }),
+            vertical: None,
+        });
 
         app.run_action(Action::ShowShortcuts).unwrap();
 
@@ -13872,10 +13932,21 @@ mod tests {
             .new_pane_right(base, cmux_tui_core::DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22)))
             .unwrap();
         let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let moved = mux.new_tab(Some(base), None, None).unwrap();
+        assert!(mux.move_tab(moved.id, right_pane, 1));
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
         app.sync_layout((80, 25));
+        let closing_pane = app.tree.pane(right_pane).unwrap().short_id.clone();
+        let closing_tabs = app
+            .tree
+            .pane(right_pane)
+            .unwrap()
+            .tabs
+            .iter()
+            .map(|tab| tab.short_id.clone())
+            .collect::<Vec<_>>();
 
         app.run_action(Action::UndoLayout).unwrap();
         while app.session.has_pending_mutations() {
@@ -13885,7 +13956,11 @@ mod tests {
             app.prompt.as_ref().map(|prompt| prompt.target),
             Some(PromptTarget::ConfirmLayoutUndo { pane, .. }) if pane == right_pane
         ));
+        let prompt = app.prompt.as_ref().unwrap();
+        assert!(prompt.label.contains(&closing_pane));
+        assert!(closing_tabs.iter().all(|tab| prompt.label.contains(tab)));
         assert!(mux.surface(right.id).is_some());
+        assert!(mux.surface(moved.id).is_some());
 
         app.prompt.as_mut().unwrap().input.insert_str("confirm");
         app.commit_prompt();
@@ -13903,6 +13978,7 @@ mod tests {
         }
         assert!(app.prompt.is_none());
         assert!(mux.surface(right.id).is_none());
+        assert!(mux.surface(moved.id).is_none());
         assert_eq!(app.tree.active_screen().unwrap().layout.pane_ids_vec(), vec![base]);
 
         app.run_action(Action::UndoLayout).unwrap();
@@ -14202,7 +14278,10 @@ mod tests {
         }
 
         for y in [0, 17] {
-            app.resize_split(nested_bottom, PaneEdge::Bottom, 0, y);
+            let target = app
+                .resolve_pane_resize_drag(nested_bottom, PaneEdge::Bottom)
+                .expect("nested split divider must remain draggable");
+            app.resize_drag_target(target, 0, y);
             app.session.settle_split_ratio();
             while app.session.has_pending_mutations() {
                 app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
@@ -14741,13 +14820,15 @@ mod tests {
 
         app.content_area = content;
         app.viewport_virtual_width = u64::from(content.width) * 2;
+        app.encode_buf.clear();
         app.handle_mouse(event(MouseEventKind::ScrollLeft, KeyModifiers::NONE)).unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<66;5;3M");
+        assert!(app.encode_buf.is_empty());
 
         app.handle_mouse(event(MouseEventKind::ScrollRight, KeyModifiers::NONE)).unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<67;5;3M");
+        assert!(app.encode_buf.is_empty());
+        let screen = app.active_screen_id().unwrap();
+        assert!(app.viewport_states[&screen].target > 0.0);
 
-        app.encode_buf.clear();
         app.open_context_menu(content.x + 4, content.y + 2);
         app.handle_mouse(event(MouseEventKind::ScrollDown, KeyModifiers::NONE)).unwrap();
         assert!(app.encode_buf.is_empty());
@@ -17700,8 +17781,16 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag =
-            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+        app.drag = Some(Drag::ResizeSplit {
+            horizontal: Some(PaneResizeDragTarget::ViewportColumn {
+                pane: 1,
+                edge: PaneEdge::Right,
+                column_x: 0,
+                viewport_x: 0,
+                viewport_width: 1,
+            }),
+            vertical: None,
+        });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),

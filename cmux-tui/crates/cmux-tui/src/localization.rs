@@ -400,7 +400,7 @@ edits shell files. Authenticate with the configured host before retrying.
         action_open_private_workspace_port: "Open private workspace port",
         action_workspace_port: "Port",
         confirm_destructive_action: "Type CONFIRM to continue",
-        confirm_layout_undo: "Type CONFIRM to close the new pane",
+        confirm_layout_undo: "Type CONFIRM to close pane(s) {items}",
         confirmation_mismatch: "Type CONFIRM exactly to run this action",
         layout_nothing_to_undo: "Nothing to undo",
         layout_undo_stale: "The layout changed; undo was not applied",
@@ -552,7 +552,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         action_open_private_workspace_port: "非公開のワークスペースポートを開く",
         action_workspace_port: "ポート",
         confirm_destructive_action: "続行するには CONFIRM と入力",
-        confirm_layout_undo: "新規ペインを閉じる: CONFIRM",
+        confirm_layout_undo: "ペイン {items} を閉じるには CONFIRM と入力",
         confirmation_mismatch: "この操作を実行するには CONFIRM と正確に入力してください",
         layout_nothing_to_undo: "元に戻せるレイアウト操作はありません",
         layout_undo_stale: "レイアウトが変更されたため、元に戻す操作は適用されませんでした",
@@ -740,11 +740,11 @@ mod tests {
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.confirm_layout_undo,
-            "Type CONFIRM to close the new pane"
+            "Type CONFIRM to close pane(s) {items}"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.confirm_layout_undo,
-            "新規ペインを閉じる: CONFIRM"
+            "ペイン {items} を閉じるには CONFIRM と入力"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.layout_nothing_to_undo,

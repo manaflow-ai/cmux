@@ -30,9 +30,9 @@ pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
-    ViewportLayoutResult, VirtualRect, directional_neighbor, exact_split_for_pane_edge,
-    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
-    split_for_pane_edge, split_sides, zellij_default_pane_layout,
+    ViewportColumnRect, ViewportLayoutResult, VirtualRect, directional_neighbor,
+    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{

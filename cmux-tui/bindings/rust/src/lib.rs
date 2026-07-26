@@ -327,12 +327,22 @@ pub struct Workspace {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ViewportSplit {
+    pub split: u64,
+    pub width: f32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Screen {
     pub id: u64,
     pub name: Option<String>,
     pub active: bool,
     pub active_pane: u64,
     pub layout: Layout,
+    #[serde(default)]
+    pub viewport_base_width: Option<f32>,
+    #[serde(default)]
+    pub viewport_splits: Vec<ViewportSplit>,
     pub panes: Vec<Pane>,
 }
 
@@ -1463,6 +1473,34 @@ mod tests {
         .unwrap();
 
         assert_eq!(tree.pane_revision, Some(7));
+    }
+
+    #[test]
+    fn screen_preserves_viewport_metadata() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "name": null,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "viewport_base_width": 0.75,
+                    "viewport_splits": [{"split": 4, "width": 0.5}],
+                    "panes": [],
+                }],
+            }],
+        }))
+        .unwrap();
+
+        let screen = &tree.workspaces[0].screens[0];
+        assert_eq!(screen.viewport_base_width, Some(0.75));
+        assert_eq!(screen.viewport_splits.len(), 1);
+        assert_eq!(screen.viewport_splits[0].split, 4);
+        assert_eq!(screen.viewport_splits[0].width, 0.5);
     }
 
     #[test]

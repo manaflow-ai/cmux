@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::{Node, PaneId, SplitDir, SplitId};
+use crate::{Node, PaneId, SplitDir, SplitId, ViewportColumn};
 
 pub const DEFAULT_VIEWPORT_PANE_WIDTH: f32 = 2.0 / 3.0;
 pub const MIN_VIEWPORT_PANE_WIDTH: f32 = 0.1;
@@ -51,6 +51,15 @@ impl From<Rect> for VirtualRect {
     }
 }
 
+/// Bounding geometry for one horizontal viewport column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewportColumnRect {
+    pub owner: ViewportColumn,
+    /// Any visible pane in the column, suitable for pane-addressed commands.
+    pub representative: PaneId,
+    pub rect: VirtualRect,
+}
+
 #[derive(Debug, Default)]
 pub struct LayoutResult {
     pub panes: Vec<(PaneId, Rect)>,
@@ -93,6 +102,8 @@ impl LayoutResult {
 #[derive(Debug, Default)]
 pub struct ViewportLayoutResult {
     pub panes: Vec<(PaneId, VirtualRect)>,
+    /// Column bounds emitted during the same traversal as `panes`.
+    pub columns: Vec<ViewportColumnRect>,
     /// Pane rows that represent collapsed Zellij stack headers rather than
     /// terminal content.
     pub stacked_headers: HashSet<PaneId>,
@@ -126,11 +137,15 @@ impl ViewportLayoutResult {
 
 impl From<LayoutResult> for ViewportLayoutResult {
     fn from(layout: LayoutResult) -> Self {
-        Self {
-            panes: layout.panes.into_iter().map(|(pane, rect)| (pane, rect.into())).collect(),
+        let mut result = Self {
             stacked_headers: layout.stacked_headers,
             virtual_width: u64::from(layout.virtual_width),
+            ..Default::default()
+        };
+        for (pane, rect) in layout.panes {
+            record_viewport_pane(&mut result, ViewportColumn::Base, pane, rect.into());
         }
+        result
     }
 }
 
@@ -457,7 +472,15 @@ pub fn layout_screen_with_viewport(
         width: u64::from(viewport_column_cells(area.width, base_width)),
         height: area.height,
     };
-    let end = walk_viewport(root, base_area, area.width, active_pane, viewport_splits, &mut result);
+    let end = walk_viewport(
+        root,
+        base_area,
+        area.width,
+        active_pane,
+        viewport_splits,
+        ViewportColumn::Base,
+        &mut result,
+    );
     result.virtual_width = end.saturating_sub(u64::from(area.x)).max(u64::from(area.width));
     result
 }
@@ -581,15 +604,17 @@ fn walk_viewport(
     viewport_width: u16,
     active_pane: Option<PaneId>,
     viewport_splits: &BTreeMap<SplitId, f32>,
+    owner: ViewportColumn,
     out: &mut ViewportLayoutResult,
 ) -> u64 {
     match node {
         Node::Leaf(id) => {
-            out.panes.push((*id, area));
+            record_viewport_pane(out, owner, *id, area);
             area.x.saturating_add(area.width)
         }
         Node::Split { id, dir: SplitDir::Right, a, b, .. } if viewport_splits.contains_key(id) => {
-            let a_end = walk_viewport(a, area, viewport_width, active_pane, viewport_splits, out);
+            let a_end =
+                walk_viewport(a, area, viewport_width, active_pane, viewport_splits, owner, out);
             let width = viewport_column_cells(viewport_width, viewport_splits[id]);
             walk_viewport(
                 b,
@@ -597,6 +622,7 @@ fn walk_viewport(
                 viewport_width,
                 active_pane,
                 viewport_splits,
+                ViewportColumn::Split(*id),
                 out,
             )
         }
@@ -606,36 +632,76 @@ fn walk_viewport(
                 SplitDir::Down => area.height < 2,
             };
             if too_small {
-                let a_end =
-                    walk_viewport(a, area, viewport_width, active_pane, viewport_splits, out);
+                let a_end = walk_viewport(
+                    a,
+                    area,
+                    viewport_width,
+                    active_pane,
+                    viewport_splits,
+                    owner,
+                    out,
+                );
                 let b_end = walk_viewport(
                     b,
                     VirtualRect { width: 0, height: 0, ..area },
                     viewport_width,
                     active_pane,
                     viewport_splits,
+                    owner,
                     out,
                 );
                 return a_end.max(b_end);
             }
             let (a_rect, b_rect) = split_virtual_sides(area, *dir, *ratio);
-            let a_end = walk_viewport(a, a_rect, viewport_width, active_pane, viewport_splits, out);
-            let b_end = walk_viewport(b, b_rect, viewport_width, active_pane, viewport_splits, out);
+            let a_end =
+                walk_viewport(a, a_rect, viewport_width, active_pane, viewport_splits, owner, out);
+            let b_end =
+                walk_viewport(b, b_rect, viewport_width, active_pane, viewport_splits, owner, out);
             a_end.max(b_end)
         }
         Node::Stack { panes, expanded } => {
             let panes = panes.as_slice();
             let expanded = active_pane.filter(|pane| panes.contains(pane)).unwrap_or(*expanded);
-            walk_viewport_stack(panes, expanded, area, out);
+            walk_viewport_stack(panes, expanded, area, owner, out);
             area.x.saturating_add(area.width)
         }
     }
+}
+
+fn record_viewport_pane(
+    out: &mut ViewportLayoutResult,
+    owner: ViewportColumn,
+    pane: PaneId,
+    rect: VirtualRect,
+) {
+    out.panes.push((pane, rect));
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    if let Some(column) = out.columns.last_mut()
+        && column.owner == owner
+    {
+        let right =
+            column.rect.x.saturating_add(column.rect.width).max(rect.x.saturating_add(rect.width));
+        let bottom = column
+            .rect
+            .y
+            .saturating_add(column.rect.height)
+            .max(rect.y.saturating_add(rect.height));
+        column.rect.x = column.rect.x.min(rect.x);
+        column.rect.y = column.rect.y.min(rect.y);
+        column.rect.width = right.saturating_sub(column.rect.x);
+        column.rect.height = bottom.saturating_sub(column.rect.y);
+        return;
+    }
+    out.columns.push(ViewportColumnRect { owner, representative: pane, rect });
 }
 
 fn walk_viewport_stack(
     panes: &[PaneId],
     expanded: PaneId,
     area: VirtualRect,
+    owner: ViewportColumn,
     out: &mut ViewportLayoutResult,
 ) {
     let expanded_index = panes.iter().position(|pane| *pane == expanded).unwrap_or(panes.len() - 1);
@@ -668,7 +734,7 @@ fn walk_viewport_stack(
         } else {
             0
         };
-        out.panes.push((pane, VirtualRect { y, height, ..area }));
+        record_viewport_pane(out, owner, pane, VirtualRect { y, height, ..area });
         if height == 1 && index != expanded_index {
             out.stacked_headers.insert(pane);
         }
@@ -800,8 +866,15 @@ fn exact_split_for_pane_edge_viewport_walk(
     let (a_rect, b_rect, split_area) =
         if *dir == SplitDir::Right && viewport_splits.contains_key(id) {
             let mut ignored = ViewportLayoutResult::default();
-            let a_end =
-                walk_viewport(a, area, viewport_width, active_pane, viewport_splits, &mut ignored);
+            let a_end = walk_viewport(
+                a,
+                area,
+                viewport_width,
+                active_pane,
+                viewport_splits,
+                ViewportColumn::Base,
+                &mut ignored,
+            );
             let width = viewport_column_cells(viewport_width, viewport_splits[id]);
             let b_rect = VirtualRect { x: a_end, width: u64::from(width), ..area };
             (
@@ -1075,6 +1148,21 @@ mod tests {
 
         assert_eq!(layout.rect_of(1), Some(VirtualRect { x: 7, y: 3, width: 80, height: 24 }));
         assert_eq!(layout.rect_of(2), Some(VirtualRect { x: 87, y: 3, width: 53, height: 24 }));
+        assert_eq!(
+            layout.columns,
+            vec![
+                ViewportColumnRect {
+                    owner: ViewportColumn::Base,
+                    representative: 1,
+                    rect: VirtualRect { x: 7, y: 3, width: 80, height: 24 },
+                },
+                ViewportColumnRect {
+                    owner: ViewportColumn::Split(10),
+                    representative: 2,
+                    rect: VirtualRect { x: 87, y: 3, width: 53, height: 24 },
+                },
+            ]
+        );
         assert_eq!(layout.virtual_width, 133);
     }
 
