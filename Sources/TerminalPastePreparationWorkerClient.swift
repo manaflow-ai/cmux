@@ -195,10 +195,19 @@ struct TerminalPastePreparationWorkerClient: Sendable {
                 payload.filename
             )
             let values = try textURL.resourceValues(
-                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+                forKeys: [
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                    .fileSizeKey,
+                ]
             )
             guard values.isRegularFile == true,
-                  values.isSymbolicLink != true else {
+                  values.isSymbolicLink != true,
+                  let fileSize = values.fileSize,
+                  fileSize >= 0,
+                  fileSize
+                    <= TerminalPastePreparationWorkerTextPayload
+                        .maximumByteCount else {
                 throw TerminalPastePreparationWorkerError
                     .invalidWorkerResponse
             }

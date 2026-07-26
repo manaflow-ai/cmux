@@ -93,6 +93,11 @@ struct TerminalPastePreparationWorker {
 
         let filename = TerminalPastePreparationWorkerTextPayload.filename
         let textURL = workingDirectory.appendingPathComponent(filename)
+        guard text.utf8.count
+                <= TerminalPastePreparationWorkerTextPayload.maximumByteCount
+        else {
+            throw TerminalPastePreparationWorkerError.textPayloadTooLarge
+        }
         try Data(text.utf8).write(to: textURL, options: .atomic)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o600],
