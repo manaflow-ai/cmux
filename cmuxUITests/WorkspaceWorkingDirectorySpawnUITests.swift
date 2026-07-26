@@ -33,6 +33,7 @@ final class WorkspaceWorkingDirectorySpawnUITests: BrowserFixtureSocketTestCase 
             ],
             responseTimeout: 12.0
         )
+        let sourceWorkspaceID = try XCTUnwrap(source["workspace_id"] as? String)
         let sourceSurfaceID = try XCTUnwrap(source["surface_id"] as? String)
         let sourceOutput = try XCTUnwrap(
             waitForScreenLine(prefix: "SOURCE_CWD=/", surfaceID: sourceSurfaceID, timeout: 12.0),
@@ -45,7 +46,14 @@ final class WorkspaceWorkingDirectorySpawnUITests: BrowserFixtureSocketTestCase 
             params: ["surface_id": sourceSurfaceID]
         )
         app.activate()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(
+            waitForFocusedSurface(
+                workspaceID: sourceWorkspaceID,
+                surfaceID: sourceSurfaceID,
+                timeout: 5.0
+            ),
+            "Expected source terminal to become the focused surface"
+        )
 
         let target = try socketResult(
             method: "workspace.create",
@@ -56,7 +64,16 @@ final class WorkspaceWorkingDirectorySpawnUITests: BrowserFixtureSocketTestCase 
             ],
             responseTimeout: 12.0
         )
+        let targetWorkspaceID = try XCTUnwrap(target["workspace_id"] as? String)
         let targetSurfaceID = try XCTUnwrap(target["surface_id"] as? String)
+        let expectedDirectory = try XCTUnwrap(
+            waitForRequestedWorkingDirectory(
+                workspaceID: targetWorkspaceID,
+                surfaceID: targetSurfaceID,
+                timeout: 5.0
+            ),
+            "Expected workspace policy to provide a concrete Ghostty default"
+        )
         let targetOutput = try XCTUnwrap(
             waitForScreenLine(prefix: "SPAWN_CWD=/", surfaceID: targetSurfaceID, timeout: 12.0),
             "Expected new workspace shell to report its spawn cwd"
@@ -64,10 +81,76 @@ final class WorkspaceWorkingDirectorySpawnUITests: BrowserFixtureSocketTestCase 
         let spawnedDirectory = String(targetOutput.dropFirst("SPAWN_CWD=".count))
 
         XCTAssertNotEqual(
-            spawnedDirectory,
+            expectedDirectory,
             sourceDirectory.path,
-            "Disabled workspace cwd inheritance must reach the spawned shell"
+            "Disabled workspace cwd inheritance must choose the Ghostty default"
         )
+        XCTAssertEqual(
+            spawnedDirectory,
+            expectedDirectory,
+            "The concrete Ghostty default must reach the spawned shell"
+        )
+    }
+
+    private func waitForFocusedSurface(
+        workspaceID: String,
+        surfaceID: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if currentSurfaceMatches(workspaceID: workspaceID, surfaceID: surfaceID) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return currentSurfaceMatches(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+
+    private func currentSurfaceMatches(workspaceID: String, surfaceID: String) -> Bool {
+        guard let envelope = socketEnvelope(
+            method: "surface.current",
+            params: [:],
+            responseTimeout: 2.0
+        ),
+              envelope["ok"] as? Bool == true,
+              let result = envelope["result"] as? [String: Any] else {
+            return false
+        }
+        return result["workspace_id"] as? String == workspaceID
+            && result["surface_id"] as? String == surfaceID
+    }
+
+    private func waitForRequestedWorkingDirectory(
+        workspaceID: String,
+        surfaceID: String,
+        timeout: TimeInterval
+    ) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let directory = requestedWorkingDirectory(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ) {
+                return directory
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return requestedWorkingDirectory(workspaceID: workspaceID, surfaceID: surfaceID)
+    }
+
+    private func requestedWorkingDirectory(workspaceID: String, surfaceID: String) -> String? {
+        guard let envelope = socketEnvelope(
+            method: "surface.list",
+            params: ["workspace_id": workspaceID],
+            responseTimeout: 2.0
+        ), envelope["ok"] as? Bool == true,
+           let result = envelope["result"] as? [String: Any],
+           let surfaces = result["surfaces"] as? [[String: Any]],
+           let surface = surfaces.first(where: { $0["id"] as? String == surfaceID }) else {
+            return nil
+        }
+        return surface["requested_working_directory"] as? String
     }
 
     private func waitForScreenLine(
