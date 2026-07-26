@@ -139,7 +139,7 @@ impl ProviderMachineController {
             MachineRequest::Connect(target) => {
                 match self.provider.perform_external_connect(target)? {
                     ExternalConnectRouting::Provider(result) => {
-                        Ok(self.finish_provider_result(false, *result))
+                        Ok(self.finish_provider_result(true, *result))
                     }
                     ExternalConnectRouting::Local(target) => {
                         let key = self.local.connect_machine(&target)?;
@@ -168,6 +168,10 @@ impl ProviderMachineController {
         switching_provider: bool,
         mut result: MachineActionResult,
     ) -> MachineActionResult {
+        let explicit_provider_switch = switching_provider
+            .then(|| result.ui.request.clone())
+            .flatten()
+            .filter(|request| matches!(request, MachineRequest::Switch(_)));
         if result.replacement.is_some() && (switching_provider || self.active_local.is_none()) {
             self.pending_active_local = Some(None);
             // Update streams capture the connected machine at subscription time.
@@ -182,6 +186,9 @@ impl ProviderMachineController {
             result.ui = self.merge_local_ui(result.ui);
         } else {
             result.ui = self.merge_local_ui(result.ui);
+        }
+        if let Some(request) = explicit_provider_switch {
+            result.ui.request = Some(request);
         }
         result
     }

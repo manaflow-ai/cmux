@@ -45,8 +45,7 @@ fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
     {
         return Ok(());
     }
-    let parent =
-        path.parent().ok_or_else(|| anyhow::anyhow!("machine-agent state path has no parent"))?;
+    let parent = state_parent(path)?;
     let file_name =
         path.file_name().ok_or_else(|| anyhow::anyhow!("machine-agent state path has no name"))?;
     let prefix = format!(".{}.", file_name.to_string_lossy());
@@ -103,8 +102,7 @@ fn load(path: &Path) -> anyhow::Result<MachineIdentity> {
 }
 
 fn create(path: &Path) -> anyhow::Result<MachineIdentity> {
-    let parent =
-        path.parent().ok_or_else(|| anyhow::anyhow!("machine-agent state path has no parent"))?;
+    let parent = state_parent(path)?;
     let identity = MachineIdentity {
         machine_id: OpaqueId::new(format!("machine-{}", random_hex(16)?))?,
         secret: MachineSecret::new(random_hex(32)?)?,
@@ -160,8 +158,7 @@ fn open_no_follow(path: &Path, write: bool) -> io::Result<File> {
 }
 
 fn ensure_private_parent(path: &Path) -> anyhow::Result<()> {
-    let parent =
-        path.parent().ok_or_else(|| anyhow::anyhow!("machine-agent state path has no parent"))?;
+    let parent = state_parent(path)?;
     match fs::symlink_metadata(parent) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -220,9 +217,7 @@ pub(super) fn acquire_registration_lock(
     session: &SessionName,
 ) -> anyhow::Result<RegistrationLock> {
     ensure_private_parent(state_path)?;
-    let parent = state_path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("machine-agent state path has no parent"))?;
+    let parent = state_parent(state_path)?;
     let lock_path = parent.join(format!(
         "registration-{}-{}.lock",
         identity.machine_id.as_str(),
@@ -261,6 +256,14 @@ fn temporary_path(path: &Path) -> anyhow::Result<PathBuf> {
         }
     }
     anyhow::bail!("could not allocate a private machine-agent state path")
+}
+
+fn state_parent(path: &Path) -> anyhow::Result<&Path> {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => Ok(parent),
+        Some(_) => Ok(Path::new(".")),
+        None => anyhow::bail!("machine-agent state path has no parent"),
+    }
 }
 
 fn random_hex(length: usize) -> anyhow::Result<String> {

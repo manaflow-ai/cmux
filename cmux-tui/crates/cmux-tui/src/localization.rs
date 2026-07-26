@@ -21,6 +21,7 @@ pub(crate) struct ForeignViewportMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MachineAgentMessages {
+    pub help: &'static str,
     pub pairing_code: &'static str,
     pub registered: &'static str,
     pub retrying: &'static str,
@@ -160,6 +161,26 @@ static ENGLISH: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
     machine_agent: MachineAgentMessages {
+        help: "\
+cmux machine-agent - share one local cmux session through cmux.cloud
+
+USAGE:
+  cmux machine-agent [OPTIONS]
+
+OPTIONS:
+  --session <name>         Local cmux session (default: main)
+  --socket <path>          Explicit local cmux control socket
+  --state <path>           Private machine identity file
+  --cloud-host <host>      SSH registration host (default: cmux.cloud)
+  --cloud-user <user>      SSH user
+  --cloud-port <port>      SSH port
+  --cloud-identity <path>  SSH identity file
+  -h, --help               Show this help
+
+The agent opens one outbound SSH exec channel using the exact remote command
+`cmux machine register`. It never opens a public listener or edits shell files.
+Authenticate once with interactive `ssh cmux.cloud`; the agent uses BatchMode.
+",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
@@ -246,6 +267,27 @@ static JAPANESE: Catalog = Catalog {
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
     machine_agent: MachineAgentMessages {
+        help: "\
+cmux machine-agent - ローカルの cmux セッションを cmux.cloud 経由で共有
+
+使用方法:
+  cmux machine-agent [オプション]
+
+オプション:
+  --session <name>         ローカル cmux セッション（既定: main）
+  --socket <path>          ローカル cmux 制御ソケットを指定
+  --state <path>           非公開のマシン ID ファイル
+  --cloud-host <host>      SSH 登録ホスト（既定: cmux.cloud）
+  --cloud-user <user>      SSH ユーザー
+  --cloud-port <port>      SSH ポート
+  --cloud-identity <path>  SSH ID ファイル
+  -h, --help               このヘルプを表示
+
+エージェントは正確なリモートコマンド `cmux machine register` を使用して、外向きの
+SSH exec チャンネルを 1 つ開きます。公開リスナーを開いたり、シェルファイルを編集
+したりしません。最初に対話型の `ssh cmux.cloud` で認証してください。その後は
+BatchMode を使用します。
+",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",

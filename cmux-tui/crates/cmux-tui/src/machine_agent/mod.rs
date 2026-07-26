@@ -14,27 +14,6 @@ use cmux_tui_machine_agent_protocol::SessionName;
 use self::runtime::{MachineAgent, MachineAgentDiagnostic, Reporter, StopSignal, SystemWait};
 use self::transport::{SocketSessionConnector, SshCloudConnector, SshOptions};
 
-pub(super) const USAGE: &str = "\
-cmux machine-agent - share one local cmux session through cmux.cloud
-
-USAGE:
-  cmux machine-agent [OPTIONS]
-
-OPTIONS:
-  --session <name>         Local cmux session (default: main)
-  --socket <path>          Explicit local cmux control socket
-  --state <path>           Private machine identity file
-  --cloud-host <host>      SSH registration host (default: cmux.cloud)
-  --cloud-user <user>      SSH user
-  --cloud-port <port>      SSH port
-  --cloud-identity <path>  SSH identity file
-  -h, --help               Show this help
-
-The agent opens one outbound SSH exec channel using the exact remote command
-`cmux machine register`. It never opens a public listener or edits shell files.
-Authenticate once with interactive `ssh cmux.cloud`; the agent uses BatchMode.
-";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
     session: String,
@@ -50,7 +29,7 @@ struct Args {
 pub(super) fn run(raw_args: &[String]) -> anyhow::Result<()> {
     let args = parse_args(raw_args).map_err(anyhow::Error::msg)?;
     if args.help {
-        print!("{USAGE}");
+        print!("{}", crate::localization::catalog().machine_agent.help);
         return Ok(());
     }
     let session = SessionName::new(args.session.clone())?;
