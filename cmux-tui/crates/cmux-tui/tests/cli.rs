@@ -327,6 +327,44 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
 }
 
 #[cfg(unix)]
+#[test]
+fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
+    let machine_agent = Command::new(bin())
+        .env("LC_ALL", "C")
+        .env("LC_MESSAGES", "C")
+        .env("LANG", "C")
+        .args(["machine-agent", "--help"])
+        .output()
+        .unwrap();
+    assert_success(&machine_agent);
+    let help = String::from_utf8(machine_agent.stdout).unwrap();
+    assert!(help.starts_with("cmux machine-agent - share one local cmux session"));
+    assert!(help.contains("Authenticate with the configured host before retrying."));
+    assert!(!help.contains("cmux machine register"));
+    assert!(!help.contains("BatchMode"));
+
+    let version = Command::new(bin()).arg("--version").output().unwrap();
+    assert_success(&version);
+    assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux-tui "));
+}
+
+#[cfg(unix)]
+#[test]
+fn machine_agent_argument_failures_are_stable_and_localized() {
+    let output = Command::new(bin())
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .args(["machine-agent", "--cloud-port", "invalid"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--cloud-port の値が無効です: invalid"));
+    assert!(!stderr.contains("machine-agent を開始または続行できませんでした"));
+}
+
+#[cfg(unix)]
 struct PtyChild {
     child: Child,
     output_drain: Option<std::thread::JoinHandle<()>>,
@@ -391,6 +429,7 @@ fn startup_config_helper_inherits_no_provider_secrets() {
     fs::create_dir_all(&dir).unwrap();
     let helper = dir.join("ghostty-secret-probe");
     let capture = dir.join("inherited-env.txt");
+    let socket = dir.join("mux.sock");
     fs::write(
         &helper,
         r#"#!/bin/sh
@@ -412,7 +451,8 @@ fi
     fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
 
     let output = Command::new(bin())
-        .args(["--machine-provider", "/does/not/exist", "--headless"])
+        .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])
+        .arg(&socket)
         .env("GHOSTTY_BIN", &helper)
         .env("CMUX_TEST_SECRET_CAPTURE", &capture)
         .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")

@@ -164,6 +164,8 @@ final class ShortcutListModel {
                 localized: "shortcut.when.caption.markdownFocus",
                 defaultValue: "Only while a markdown preview is focused"
             )
+        case .atom(.simulatorFocus):
+            return String(localized: "shortcut.when.caption.simulatorFocus", defaultValue: "Only while a Simulator is focused")
         default:
             return String(
                 localized: "shortcut.when.caption.terminalFocus",

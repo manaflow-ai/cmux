@@ -165,8 +165,24 @@ void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
 void ghostty_surface_render_grid_json(void) {}
-void ghostty_surface_render_grid_json_v2(void) {}
 void ghostty_surface_render_grid_json_with_theme(void) {}
+ghostty_string_s ghostty_surface_render_grid_json_v2(
+    void *surface,
+    const char *surface_id,
+    uintptr_t surface_id_len,
+    uint64_t state_seq,
+    uintptr_t scrollback_lines,
+    bool include_theme,
+    bool anchor_active) {
+    (void)surface;
+    (void)surface_id;
+    (void)surface_id_len;
+    (void)state_seq;
+    (void)scrollback_lines;
+    (void)include_theme;
+    (void)anchor_active;
+    return (ghostty_string_s){0};
+}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}
