@@ -584,7 +584,7 @@ describe("Iroh trust broker database behavior", () => {
     expect(stored).toEqual({ directPortV4: null, directPortV6: null });
   });
 
-  dbTest("overwrites the same (user, device, tag) slot in place when the platform changes", async () => {
+  dbTest("reincarnates the (user, device, tag) slot with a fresh id when the platform changes", async () => {
     const repo = requiredRepository();
     const userId = "user-platform-change";
     const deviceId = randomUUID();
@@ -631,10 +631,22 @@ describe("Iroh trust broker database behavior", () => {
       "6",
       new Date(NOW.getTime() + 1_000),
     ));
-    // Newest authenticated registration wins in place: the row id is preserved
-    // so any pair grant that referenced it keeps resolving.
-    expect(second.created).toBe(false);
-    expect(second.binding.id).toBe(first.binding.id);
+    // Platform is a peer-signed admission field, so a mac->ios change on the same
+    // slot must NOT overwrite the live id: a still-valid grant signed against the
+    // old platform would then mismatch this binding and the host would record the
+    // id in its permanent denial set (the ABA wedge). The slot reincarnates
+    // instead: the old row is revoked and a fresh binding id is minted. This is
+    // safe even though the endpoint id is unchanged, because the revoke commits
+    // before the insert, so the active-endpoint unique index never sees two live
+    // rows for one endpoint.
+    expect(second.created).toBe(true);
+    expect(second.binding.id).not.toBe(first.binding.id);
+    const [previous] = await requiredSql()<Array<{ revokedAt: Date | null }>>`
+      select revoked_at as "revokedAt"
+      from iroh_endpoint_bindings
+      where id = ${first.binding.id}
+    `;
+    expect(previous.revokedAt).not.toBeNull();
     const [state] = await requiredSql()<Array<{
       platform: string;
       pairingEnabled: boolean;
@@ -646,7 +658,7 @@ describe("Iroh trust broker database behavior", () => {
         (select count(*)::text from iroh_endpoint_bindings
           where user_id = ${userId} and revoked_at is null) as active
       from iroh_endpoint_bindings
-      where id = ${first.binding.id}
+      where id = ${second.binding.id}
     `;
     expect(state).toEqual({ platform: "ios", pairingEnabled: false, active: "1" });
   });

@@ -40,8 +40,12 @@ export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 // accumulate. Under the unique(user, device, tag) slot key a normal user holds a
 // handful of bindings and a heavy multi-tag developer at most low hundreds, so
 // this only trips on a stuck registration loop or abuse. When a genuinely new
-// slot would push the count over the cap, the oldest-seen bindings are evicted
-// (LRU) rather than letting the row set grow without bound.
+// slot would push the count over the cap, that registration is REJECTED
+// (`enforceActiveBindingSanityCap` throws IrohQuotaExceededError); the row set is
+// never evicted, so a churning client can never shed the account's real hosts.
+// The value sits comfortably above any legitimate multi-tag developer's active
+// slot count (low hundreds) while still catching a runaway registration loop,
+// which blows past it almost immediately.
 export const IROH_ACTIVE_BINDING_SANITY_CAP = 512;
 
 export type IrohRetentionCategory =
@@ -303,6 +307,20 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .for("update")
           .limit(1);
+
+        // Reject a stale challenge minted before the slot's current registration.
+        // Challenges resolve under the slot advisory lock, so two registrations
+        // for one slot serialize; without this gate an older challenge that lost
+        // the race (issued before the row's last registeredAt) could still land
+        // second and overwrite — or reincarnate away — the newer incarnation,
+        // reintroducing an out-of-order wedge. A live heartbeat's own challenge is
+        // always newer than the row it refreshes, so it passes; only a delayed or
+        // replayed older challenge trips this. registeredAt is stable across
+        // heartbeats (only reincarnation/insert stamps it to now), so it is the
+        // correct high-water mark to compare against.
+        if (existingSlot && challenge.createdAt < existingSlot.registeredAt) {
+          throw new IrohConflictError({ code: "challenge_superseded" });
+        }
 
         // The endpoint id is a global cryptographic identity: no OTHER live
         // binding may claim it. Self is excluded so a slot can rotate its own key.
