@@ -127,6 +127,12 @@ pub struct NavigationHistory {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationResult {
+    pub error_text: Option<String>,
+    pub is_download: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdpEvent {
     ScreencastFrame(ScreencastFrame),
     FrameNavigated { params: Value, session_id: String, frame_epoch: u64 },
@@ -616,13 +622,15 @@ impl CdpClient {
         self.call("Page.stopScreencast", json!({}), Some(session_id)).map(|_| ())
     }
 
-    pub fn navigate(&self, session_id: &str, url: &str) -> anyhow::Result<Option<String>> {
+    pub fn navigate(&self, session_id: &str, url: &str) -> anyhow::Result<NavigationResult> {
         let result = self.call("Page.navigate", json!({ "url": url }), Some(session_id))?;
-        Ok(result
+        let error_text = result
             .get("errorText")
             .and_then(|value| value.as_str())
             .filter(|error| !error.is_empty())
-            .map(ToOwned::to_owned))
+            .map(ToOwned::to_owned);
+        let is_download = result.get("isDownload").and_then(Value::as_bool).unwrap_or(false);
+        Ok(NavigationResult { error_text, is_download })
     }
 
     pub fn navigation_history(&self, session_id: &str) -> anyhow::Result<NavigationHistory> {

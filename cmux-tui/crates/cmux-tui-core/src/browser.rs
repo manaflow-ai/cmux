@@ -2483,16 +2483,23 @@ impl BrowserSurface {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
         let invalidation = self.begin_navigation_frame_transition()?;
-        let navigation_result =
-            match session.runtime.client.navigate(&session.session_id, &normalized) {
-                Ok(Some(error)) => {
-                    self.abandon_frame_transition();
-                    self.mark_failed(error.clone());
-                    anyhow::bail!("browser failed: {error}");
-                }
-                result => result,
-            };
-        let _ = self.finish_navigation_command(invalidation, navigation_result)?;
+        match session.runtime.client.navigate(&session.session_id, &normalized) {
+            Ok(result) if result.error_text.is_some() => {
+                let error = result.error_text.expect("guarded above");
+                self.abandon_frame_transition();
+                self.mark_failed(error.clone());
+                anyhow::bail!("browser failed: {error}");
+            }
+            Ok(result) if result.is_download => {
+                // Chrome explicitly confirmed that the response was handed
+                // to the download manager, so the current document and its
+                // presented frame remain authoritative.
+                self.restore_pointer_frame_after_failed_command(invalidation);
+                return Ok(());
+            }
+            Ok(_) => self.finish_navigation_command(invalidation, Ok(()))?,
+            Err(error) => self.finish_navigation_command(invalidation, Err(error))?,
+        }
         self.set_url_title(normalized.clone(), normalized);
         self.dirty.store(true, Ordering::Release);
         Ok(())

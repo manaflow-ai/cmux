@@ -140,6 +140,90 @@ pub struct Callbacks {
     pub on_bell: Option<NotifyFn>,
 }
 
+/// Conservatively recognizes control sequences that can change Ghostty's
+/// authoritative mouse modes. False positives only trigger a state query;
+/// C0 controls and DEL remain inside CSI so valid split sequences cannot be
+/// missed by this hot-path filter.
+#[derive(Default)]
+struct MouseModeChangeDetector {
+    state: MouseModeChangeState,
+    utf8_remaining: u8,
+}
+
+#[derive(Default)]
+enum MouseModeChangeState {
+    #[default]
+    Ground,
+    Escape,
+    Csi,
+}
+
+impl MouseModeChangeDetector {
+    fn write(&mut self, data: &[u8]) -> bool {
+        use MouseModeChangeState as State;
+
+        let mut may_have_changed = false;
+        for &byte in data {
+            if matches!(self.state, State::Ground) {
+                if self.consume_utf8_continuation(byte) {
+                    continue;
+                }
+                self.note_utf8_lead(byte);
+            }
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                State::Ground => match byte {
+                    0x1b => State::Escape,
+                    0x9b => State::Csi,
+                    _ => State::Ground,
+                },
+                State::Escape => match byte {
+                    b'[' => State::Csi,
+                    b'c' => {
+                        may_have_changed = true;
+                        State::Ground
+                    }
+                    0x1b => State::Escape,
+                    0x00..=0x1f | 0x7f => State::Escape,
+                    _ => State::Ground,
+                },
+                State::Csi => match byte {
+                    0x1b => State::Escape,
+                    0x00..=0x1f | 0x7f => State::Csi,
+                    0x40..=0x7e => {
+                        may_have_changed |= matches!(byte, b'h' | b'l' | b'p' | b'r');
+                        State::Ground
+                    }
+                    _ => State::Csi,
+                },
+            };
+        }
+        may_have_changed
+    }
+
+    fn consume_utf8_continuation(&mut self, byte: u8) -> bool {
+        if self.utf8_remaining == 0 {
+            return false;
+        }
+        if matches!(byte, 0x80..=0xbf) {
+            self.utf8_remaining -= 1;
+            true
+        } else {
+            self.utf8_remaining = 0;
+            false
+        }
+    }
+
+    fn note_utf8_lead(&mut self, byte: u8) {
+        self.utf8_remaining = match byte {
+            0xc2..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+    }
+}
+
 /// A terminal instance: VT parser plus full screen/scrollback state.
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
@@ -148,6 +232,7 @@ pub struct Terminal {
     mouse_mode_bits: u8,
     mouse_mode_signature: Vec<u8>,
     mouse_mode_probe: MouseModeProbe,
+    mouse_mode_change_detector: MouseModeChangeDetector,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -1063,6 +1148,7 @@ impl Terminal {
             mouse_mode_bits: 0,
             mouse_mode_signature: Vec::new(),
             mouse_mode_probe,
+            mouse_mode_change_detector: MouseModeChangeDetector::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -1124,8 +1210,11 @@ impl Terminal {
         self.cursor_override.write(&normalized);
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
+        let mouse_modes_may_have_changed = self.mouse_mode_change_detector.write(&normalized);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
-        self.refresh_mouse_mode_revision();
+        if mouse_modes_may_have_changed {
+            self.refresh_mouse_mode_revision();
+        }
         normalized
     }
 
@@ -1967,7 +2056,7 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, PaletteOsc, Terminal, vt_replay_row_window};
+    use super::{Callbacks, MouseModeChangeDetector, PaletteOsc, Terminal, vt_replay_row_window};
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
@@ -1997,6 +2086,17 @@ mod tests {
             probes_after_modes,
             "ordinary PTY output must not run synthetic mouse encodes"
         );
+    }
+
+    #[test]
+    fn mouse_mode_detector_keeps_controls_inside_escape_and_csi() {
+        let mut detector = MouseModeChangeDetector::default();
+
+        assert!(!detector.write(b"\x1b\x07[?100"));
+        assert!(detector.write(b"6\x7fh"));
+        assert!(!detector.write(&[0xc4]));
+        assert!(!detector.write(&[0x9b, b'h']), "UTF-8 continuation must not open CSI");
+        assert!(detector.write(b"\x1b\x07c"), "C0 controls must not hide a hard reset");
     }
 
     #[test]
