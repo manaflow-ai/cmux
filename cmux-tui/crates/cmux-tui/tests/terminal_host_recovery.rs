@@ -1346,7 +1346,12 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "cmd": "send",
             "surface": surface,
             "text": format!(
-                "/usr/bin/head -c 20000000 /dev/zero; printf '{done}\\n'\n"
+                // Exceed both the host's bounded client queue and Darwin's
+                // dynamically sized Unix-socket buffers. A smaller burst can
+                // fit entirely in the kernel under light load, which does not
+                // represent a stalled writer and made this assertion timing
+                // dependent.
+                "/usr/bin/head -c 64000000 /dev/zero; printf '{done}\\n'\n"
             ),
         }),
     );

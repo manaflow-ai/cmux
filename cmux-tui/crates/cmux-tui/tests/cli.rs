@@ -383,6 +383,60 @@ impl Drop for PtyChild {
 }
 
 #[cfg(unix)]
+struct DisconnectablePtyChild {
+    child: Child,
+    master: Option<File>,
+}
+
+#[cfg(unix)]
+impl DisconnectablePtyChild {
+    fn start(args: &[&str]) -> Self {
+        let mut master = -1;
+        let mut slave = -1;
+        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        let opened = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &raw mut size,
+            )
+        };
+        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
+        let flags = unsafe { libc::fcntl(master, libc::F_GETFD) };
+        assert_ne!(flags, -1, "fcntl(F_GETFD) failed: {}", std::io::Error::last_os_error());
+        let cloexec = unsafe { libc::fcntl(master, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+        assert_ne!(cloexec, -1, "fcntl(F_SETFD) failed: {}", std::io::Error::last_os_error());
+
+        let master = unsafe { File::from_raw_fd(master) };
+        let slave = unsafe { File::from_raw_fd(slave) };
+        let child = Command::new(bin())
+            .args(args)
+            .env_remove("CMUX_TUI_SOCKET")
+            .stdin(Stdio::from(slave.try_clone().unwrap()))
+            .stdout(Stdio::from(slave.try_clone().unwrap()))
+            .stderr(Stdio::from(slave))
+            .spawn()
+            .unwrap();
+        Self { child, master: Some(master) }
+    }
+
+    fn disconnect_host_terminal(&mut self) {
+        self.master.take();
+    }
+}
+
+#[cfg(unix)]
+impl Drop for DisconnectablePtyChild {
+    fn drop(&mut self) {
+        self.master.take();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[cfg(unix)]
 #[test]
 fn startup_config_helper_inherits_no_provider_secrets() {
     let dir = unique_temp_dir("provider-secret-config-helper");
@@ -452,6 +506,53 @@ fn plain_launch_attaches_to_existing_local_session() {
     }
 
     panic!("plain launch never attached as a TUI client");
+}
+
+#[cfg(unix)]
+#[test]
+fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
+    let server = HeadlessServer::start("host-terminal-disconnect");
+    let mut tui = DisconnectablePtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
+    let attach_deadline = Instant::now() + Duration::from_secs(10);
+    let mut attached = false;
+
+    while Instant::now() < attach_deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            panic!("plain launch exited before host disconnect: {status}");
+        }
+        let clients = cli(&server, &["--json", "list-clients"]);
+        if clients.status.success() {
+            let clients: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+            if clients
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|client| client["kind"].as_str() == Some("tui"))
+            {
+                attached = true;
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(attached, "plain launch never attached before host disconnect");
+
+    tui.disconnect_host_terminal();
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < exit_deadline,
+            "frontend remained alive after its host terminal disconnected"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert!(!status.success(), "host terminal disconnect unexpectedly reported success");
+
+    let ping = cli(&server, &["--json", "ping"]);
+    assert_success(&ping);
 }
 
 #[cfg(unix)]
@@ -560,6 +661,14 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let tree = cli(&server, &["--json", "list-workspaces"]);
     assert_success(&tree);
     let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    assert!(
+        tree_json["workspaces"][0]["screens"][0].get("viewport_base_width").is_none(),
+        "ordinary layouts must preserve the default screen JSON shape"
+    );
+    assert!(
+        tree_json["workspaces"][0]["screens"][0].get("viewport_splits").is_none(),
+        "ordinary layouts must omit viewport-only split metadata"
+    );
     let pane0 = tree_json["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
 
     let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
@@ -577,6 +686,14 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
     assert_eq!(exported_json["layout"]["type"].as_str(), Some("split"));
     assert_eq!(exported_json["panes"].as_array().unwrap().len(), 3);
+    assert!(
+        exported_json.get("viewport_base_width").is_none(),
+        "ordinary layout exports must omit viewport-only state"
+    );
+    assert!(
+        exported_json.get("viewport_splits").is_none(),
+        "ordinary layout exports must omit viewport-only split metadata"
+    );
     let split_id = exported_json["layout"]["split"].as_u64().unwrap();
 
     let exact_ratio =
@@ -632,6 +749,21 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(viewport_splits.len(), 1);
     let width = viewport_splits[0]["width"].as_f64().unwrap();
     assert!((width - 2.0 / 3.0).abs() < 0.0001);
+    let viewport_pane = tree["workspaces"][0]["screens"][0]["active_pane"].as_u64().unwrap();
+    let resize_viewport = cli(
+        &server,
+        &["set-viewport-pane-width", "--pane", &viewport_pane.to_string(), "--width", "0.5"],
+    );
+    assert_success(&resize_viewport);
+    let resize_base =
+        cli(&server, &["set-viewport-pane-width", "--pane", &pane0.to_string(), "--width", "0.75"]);
+    assert_success(&resize_base);
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let screen = &tree["workspaces"][0]["screens"][0];
+    assert_eq!(screen["viewport_base_width"].as_f64(), Some(0.75));
+    assert_eq!(screen["viewport_splits"][0]["width"].as_f64(), Some(0.5));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
     let send = cli(
