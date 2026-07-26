@@ -172,11 +172,9 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
         libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), expected)
     };
     if result != expected {
-        // SAFETY: signal zero does not deliver a signal.
-        if unsafe { libc::kill(pid, 0) } != 0
-            && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-        {
-            return Ok(None);
+        match macos_process_status(pid)? {
+            None | Some(libc::SZOMB) => return Ok(None),
+            Some(_) => {}
         }
         return Err(io::Error::other("could not read process birth identity"));
     }
@@ -187,8 +185,104 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
     }
     let parent = libc::pid_t::try_from(info.pbi_ppid)
         .map_err(|_| io::Error::other("invalid parent process id"))?;
+    if info.pbi_status == libc::SZOMB {
+        return Ok(None);
+    }
     let started_at = (u128::from(info.pbi_start_tvsec) << 64) | u128::from(info.pbi_start_tvusec);
     Ok(Some(ProcessSnapshot { identity: ProcessIdentity { pid, started_at }, parent }))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_status(pid: libc::pid_t) -> io::Result<Option<u32>> {
+    use std::ffi::c_void;
+    use std::mem::{ManuallyDrop, offset_of, size_of};
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    union ProcessStart {
+        links: [*mut c_void; 2],
+        started_at: ManuallyDrop<libc::timeval>,
+    }
+
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct ExternProcessPrefix {
+        start: ProcessStart,
+        vmspace: *mut c_void,
+        signal_actions: *mut c_void,
+        flags: libc::c_int,
+        status: libc::c_char,
+        pid: libc::pid_t,
+    }
+
+    let mut query = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid];
+    let query_len = libc::c_uint::try_from(query.len())
+        .map_err(|_| io::Error::other("process status query overflow"))?;
+    let mut record_len = 0;
+    // SAFETY: the query is a valid KERN_PROC_PID MIB and a null output
+    // buffer asks the kernel for the record size.
+    if unsafe {
+        libc::sysctl(
+            query.as_mut_ptr(),
+            query_len,
+            std::ptr::null_mut(),
+            &raw mut record_len,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        let error = io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(libc::ESRCH) | Some(libc::ENOENT)) {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+    if record_len == 0 {
+        return Ok(None);
+    }
+    let mut record = vec![0_u8; record_len];
+    // SAFETY: `record` owns a writable buffer of `record_len` bytes.
+    if unsafe {
+        libc::sysctl(
+            query.as_mut_ptr(),
+            query_len,
+            record.as_mut_ptr().cast(),
+            &raw mut record_len,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        let error = io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(libc::ESRCH) | Some(libc::ENOENT)) {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+    if record_len < size_of::<ExternProcessPrefix>() {
+        if record_len == 0 {
+            return Ok(None);
+        }
+        return Err(io::Error::other("process status record was truncated"));
+    }
+    // KERN_PROC_PID returns `kinfo_proc`, whose first field is
+    // `extern_proc`. Read only the stable prefix that contains status and
+    // PID, without depending on the private remainder of either structure.
+    let record_pid = unsafe {
+        record
+            .as_ptr()
+            .add(offset_of!(ExternProcessPrefix, pid))
+            .cast::<libc::pid_t>()
+            .read_unaligned()
+    };
+    if record_pid != pid {
+        return Err(io::Error::other("process status id mismatch"));
+    }
+    let status = unsafe {
+        record.as_ptr().add(offset_of!(ExternProcessPrefix, status)).cast::<libc::c_char>().read()
+    };
+    u32::try_from(status).map(Some).map_err(|_| io::Error::other("invalid process status"))
 }
 
 #[cfg(target_os = "macos")]
