@@ -13,8 +13,12 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`518ac28d58b188e5131b7d01e1c1b672d88b6819`, the current
-`manaflow-ai/ghostty` `main`. It retains the bounded renderer work from
+`cfd39f39aaefa339a6620f124ab39ca0c478be11`, the current
+`manaflow-ai/ghostty` `main`. PR 147 merges both sides needed by cmux:
+the screen-anchored render-grid export from `f11159ff4` and the Issue 8808
+teardown correction from `518ac28d5`.
+
+The pin retains the bounded renderer work from
 https://github.com/manaflow-ai/ghostty/pull/135,
 https://github.com/manaflow-ai/ghostty/pull/136, and
 https://github.com/manaflow-ai/ghostty/pull/139; adds the frame-slot rotation
@@ -25,8 +29,20 @@ cleanup fix from https://github.com/manaflow-ai/ghostty/pull/143, the wrapped
 link fix from https://github.com/manaflow-ai/ghostty/pull/134, and bounded
 Kitty graphics state from https://github.com/manaflow-ai/ghostty/pull/137.
 
+`4cc0933cf` adds the screen-anchored render-grid export for the iOS
+local-scrollback scroll work: `buildRenderGridJson` gains an active-area
+anchor mode, every export carries `history_rows` + `row_space_revision`
+(scrollbar semantics; revision bumps on trim/eviction/reflow/erase), and the
+new C export `ghostty_surface_render_grid_json_v2` takes the anchor flag.
+Existing exports keep viewport anchoring byte-for-byte unchanged. Files:
+`src/apprt/embedded.zig`, `include/ghostty.h`. The line's earlier swap-chain
+rotation commit (`d2fc392de`, the iOS frozen-presents root-cause fix) was
+independently landed on `main` as the byte-identical serial frame-lease
+rotation (https://github.com/manaflow-ai/ghostty/pull/145); the merge keeps
+`main`'s version.
+
 Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-518ac28d58b188e5131b7d01e1c1b672d88b6819-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cfd39f39aaefa339a6620f124ab39ca0c478be11-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Issue 8808 typing-lag correction

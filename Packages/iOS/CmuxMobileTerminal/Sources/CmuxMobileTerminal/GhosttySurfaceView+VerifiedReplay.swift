@@ -148,7 +148,8 @@ extension GhosttySurfaceView {
             renderEpoch: frame.renderEpoch,
             renderRevision: frame.renderRevision,
             expectedCursorColor: frame.terminalCursorColor,
-            configuredCursorColor: configuredCursorColor
+            configuredCursorColor: configuredCursorColor,
+            anchor: frame.anchor
         )
         let submission = await submitVerifiedReplayRenderAndWait(read: read)
         guard !Task.isCancelled else { return nil }
