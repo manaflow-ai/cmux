@@ -1,5 +1,7 @@
 from .client import (
     AttachStream,
+    ClientInfo,
+    ClientSurfaceSize,
     CommandError,
     EmptyResult,
     Event,
@@ -31,6 +33,8 @@ from .client import (
 
 __all__ = [
     "AttachStream",
+    "ClientInfo",
+    "ClientSurfaceSize",
     "CommandError",
     "EmptyResult",
     "Event",

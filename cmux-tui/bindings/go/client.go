@@ -270,6 +270,50 @@ func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
 	return result, c.request(ctx, "list-workspaces", nil, &result)
 }
 
+func (c *Client) ListClients(ctx context.Context) ([]ClientInfo, error) {
+	var result []ClientInfo
+	err := c.request(ctx, "list-clients", nil, &result)
+	return result, err
+}
+
+func (c *Client) SetClientSizing(
+	ctx context.Context,
+	surface uint64,
+	client uint64,
+	enabled bool,
+) error {
+	if err := c.requireProtocol(ctx, 10, "set-client-sizing"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-client-sizing", map[string]any{
+		"surface": surface,
+		"client":  client,
+		"enabled": enabled,
+	}, nil)
+}
+
+func (c *Client) UseOnlyClientSize(ctx context.Context, surface uint64, client uint64) error {
+	if err := c.requireProtocol(ctx, 10, "set-client-sizing"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-client-sizing", map[string]any{
+		"surface":   surface,
+		"client":    client,
+		"enabled":   true,
+		"exclusive": true,
+	}, nil)
+}
+
+func (c *Client) UseAllClientSizes(ctx context.Context, surface uint64) error {
+	if err := c.requireProtocol(ctx, 10, "set-client-sizing"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-client-sizing", map[string]any{
+		"surface": surface,
+		"enabled": true,
+	}, nil)
+}
+
 func (c *Client) Send(ctx context.Context, surface uint64, opts SendOptions) error {
 	params := map[string]any{"surface": surface}
 	if opts.Text != nil {
