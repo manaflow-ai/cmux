@@ -849,6 +849,8 @@ impl ProviderMachineRuntime {
             mpsc::sync_channel(PROVIDER_REFRESH_QUEUE_CAPACITY);
         let refresh_overflowed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker_refresh_overflowed = refresh_overflowed.clone();
+        let snapshot_refresh_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_snapshot_refresh_pending = snapshot_refresh_pending.clone();
         let refresh_stop = stop.clone();
         let refresh_output = sender.clone();
         let refresh_worker = std::thread::Builder::new()
@@ -872,7 +874,15 @@ impl ProviderMachineRuntime {
                         break;
                     }
                     let event = match refresh_receiver.recv_timeout(Duration::from_millis(250)) {
-                        Ok(ProviderRefreshSignal::Refresh(event)) => event,
+                        Ok(ProviderRefreshSignal::Refresh(event)) => {
+                            if matches!(&event, Some(protocol::ProviderEvent::SnapshotChanged(_))) {
+                                // Permit one follow-up invalidation while this authoritative
+                                // refresh is in flight. Its snapshot will include every earlier
+                                // state-free invalidation.
+                                worker_snapshot_refresh_pending.store(false, Ordering::Release);
+                            }
+                            event
+                        }
                         Ok(ProviderRefreshSignal::Disconnected) => {
                             let mut ui = machine_ui_state(
                                 &last_snapshot,
@@ -1075,6 +1085,27 @@ impl ProviderMachineRuntime {
                                 });
                                 if sender.send(update).is_err() {
                                     break;
+                                }
+                                continue;
+                            }
+                            if matches!(&event, protocol::ProviderEvent::SnapshotChanged(_)) {
+                                if snapshot_refresh_pending.swap(true, Ordering::AcqRel) {
+                                    continue;
+                                }
+                                match refresh_sender
+                                    .try_send(ProviderRefreshSignal::Refresh(Some(event)))
+                                {
+                                    Ok(()) => {}
+                                    Err(mpsc::TrySendError::Full(_)) => {
+                                        // Every queued refresh loads the latest snapshot, so a
+                                        // state-free invalidation can be retried or subsumed
+                                        // without treating the provider stream as lossy.
+                                        snapshot_refresh_pending.store(false, Ordering::Release);
+                                    }
+                                    Err(mpsc::TrySendError::Disconnected(_)) => {
+                                        snapshot_refresh_pending.store(false, Ordering::Release);
+                                        break;
+                                    }
                                 }
                                 continue;
                             }
@@ -4886,8 +4917,7 @@ mod tests {
             );
 
             refresh_release.recv().unwrap();
-            let refreshed =
-                snapshot(last_revision, "Machine", protocol::MachineStatus::Running);
+            let refreshed = snapshot(last_revision, "Machine", protocol::MachineStatus::Running);
             write_frame(
                 &mut stream,
                 &protocol::ResponseEnvelope::success(refresh.id, refreshed.clone()),
