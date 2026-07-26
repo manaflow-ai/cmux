@@ -7,6 +7,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
+#[cfg(target_os = "macos")]
+use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -98,6 +100,7 @@ pub(crate) fn reap_reserved_session_leader(
 thread_local! {
     static PROCESS_TABLE_SCAN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static RAW_PID_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static STABLE_PROCESS_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 pub(crate) struct SessionProcessSnapshot {
@@ -397,20 +400,10 @@ fn signal_if_still_member(
     session: libc::pid_t,
     signal: libc::c_int,
 ) -> io::Result<()> {
-    // Revalidate membership immediately before signaling. The reserved
-    // session leader prevents the session id itself from being recycled.
-    if !still_member(pid, session)? {
+    let Some(process) = stable_process_in_session(pid, session)? else {
         return Ok(());
-    }
-    // SAFETY: membership was revalidated above and `signal` is a platform
-    // signal constant supplied by this module's callers.
-    #[cfg(test)]
-    RAW_PID_SIGNAL_COUNT.set(RAW_PID_SIGNAL_COUNT.get() + 1);
-    if unsafe { libc::kill(pid, signal) } == 0 {
-        return Ok(());
-    }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) }
+    };
+    process.signal(signal)
 }
 
 fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
@@ -423,7 +416,230 @@ fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
     if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) }
 }
 
-#[cfg(test)]
+fn stable_process_in_session(
+    pid: libc::pid_t,
+    session: libc::pid_t,
+) -> io::Result<Option<StableProcess>> {
+    let Some(process) = StableProcess::capture(pid)? else { return Ok(None) };
+    // Bracket the PID-based session query with a stable process identity. If
+    // the PID is recycled during getsid(2), the final identity check fails
+    // closed and no signal is sent.
+    let current_session = unsafe { libc::getsid(pid) };
+    if current_session < 0 {
+        let error = io::Error::last_os_error();
+        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
+    }
+    if current_session != session || !process.matches_current()? {
+        return Ok(None);
+    }
+    Ok(Some(process))
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StableProcess {
+    pid: libc::pid_t,
+    audit_token: MacAuditToken,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MacAuditToken {
+    values: [u32; 8],
+}
+
+#[cfg(target_os = "macos")]
+impl StableProcess {
+    fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+        const TASK_AUDIT_TOKEN: libc::task_flavor_t = 15;
+        let mut task = 0;
+        // SAFETY: mach_task_self returns the calling process's send right.
+        #[allow(deprecated)]
+        let current_task = unsafe { libc::mach_task_self() };
+        // SAFETY: `task` points to writable storage for one task-name right.
+        let name_result = unsafe { task_name_for_pid(current_task, pid, &mut task) };
+        if name_result != libc::KERN_SUCCESS {
+            return if process_is_gone(pid)? {
+                Ok(None)
+            } else {
+                Err(io::Error::other(format!(
+                    "cannot acquire stable process identity for PID {pid}: Mach error {name_result}"
+                )))
+            };
+        }
+
+        let mut audit_token = MacAuditToken { values: [0; 8] };
+        let mut count = u32::try_from(size_of::<MacAuditToken>() / size_of::<libc::natural_t>())
+            .expect("audit token count fits mach_msg_type_number_t");
+        // SAFETY: the token buffer contains `count` natural_t values and the
+        // returned task-name right remains owned until the call completes.
+        let info_result = unsafe {
+            libc::task_info(
+                task,
+                TASK_AUDIT_TOKEN,
+                audit_token.values.as_mut_ptr().cast::<libc::integer_t>(),
+                &mut count,
+            )
+        };
+        // SAFETY: `task` is the send right returned by task_name_for_pid.
+        let _ = unsafe { mach_port_deallocate(current_task, task) };
+        if info_result != libc::KERN_SUCCESS {
+            return if process_is_gone(pid)? {
+                Ok(None)
+            } else {
+                Err(io::Error::other(format!(
+                    "cannot read stable process identity for PID {pid}: Mach error {info_result}"
+                )))
+            };
+        }
+        let expected_pid = u32::try_from(pid)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
+        if count != 8 || audit_token.values[5] != expected_pid {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "stable process identity returned a mismatched PID",
+            ));
+        }
+        Ok(Some(Self { pid, audit_token }))
+    }
+
+    fn matches_current(&self) -> io::Result<bool> {
+        Ok(Self::capture(self.pid)?.is_some_and(|current| current == *self))
+    }
+
+    fn signal(&self, signal: libc::c_int) -> io::Result<()> {
+        let mut token = self.audit_token;
+        loop {
+            // SAFETY: the audit token came from TASK_AUDIT_TOKEN for this
+            // process instance; libproc validates its PID generation.
+            let result = unsafe { proc_signal_with_audittoken(&mut token, signal) };
+            if result == 0 || result == libc::ESRCH {
+                #[cfg(test)]
+                STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
+                return Ok(());
+            }
+            if result != libc::EINTR {
+                return Err(io::Error::from_raw_os_error(result));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn process_is_gone(pid: libc::pid_t) -> io::Result<bool> {
+    // SAFETY: signal zero performs a non-mutating liveness/permission probe.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return Ok(false);
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::ESRCH) => Ok(true),
+        Some(libc::EPERM) => Ok(false),
+        _ => Err(error),
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn task_name_for_pid(
+        target_task: libc::mach_port_t,
+        pid: libc::pid_t,
+        task: *mut libc::mach_port_t,
+    ) -> libc::kern_return_t;
+    fn mach_port_deallocate(
+        task: libc::mach_port_t,
+        name: libc::mach_port_t,
+    ) -> libc::kern_return_t;
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "proc")]
+unsafe extern "C" {
+    fn proc_signal_with_audittoken(token: *mut MacAuditToken, signal: libc::c_int) -> libc::c_int;
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+struct StableProcess {
+    pidfd: std::os::fd::OwnedFd,
+}
+
+#[cfg(target_os = "linux")]
+impl StableProcess {
+    fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+        use std::os::fd::FromRawFd;
+
+        // SAFETY: pidfd_open receives a validated integer PID and zero flags.
+        let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+        if descriptor < 0 {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
+        }
+        let descriptor = i32::try_from(descriptor)
+            .map_err(|_| io::Error::other("pidfd descriptor is out of range"))?;
+        // SAFETY: a successful pidfd_open returns one newly owned descriptor.
+        Ok(Some(Self { pidfd: unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor) } }))
+    }
+
+    fn matches_current(&self) -> io::Result<bool> {
+        self.signal_result(0)
+    }
+
+    fn signal(&self, signal: libc::c_int) -> io::Result<()> {
+        let _ = self.signal_result(signal)?;
+        #[cfg(test)]
+        STABLE_PROCESS_SIGNAL_COUNT.set(STABLE_PROCESS_SIGNAL_COUNT.get() + 1);
+        Ok(())
+    }
+
+    fn signal_result(&self, signal: libc::c_int) -> io::Result<bool> {
+        use std::os::fd::AsRawFd;
+
+        // SAFETY: the descriptor is a live pidfd, the siginfo pointer is
+        // intentionally null, and flags must be zero.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.pidfd.as_raw_fd(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        if result == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+struct StableProcess;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+impl StableProcess {
+    fn capture(_pid: libc::pid_t) -> io::Result<Option<Self>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "stable process signaling is unavailable on this platform",
+        ))
+    }
+
+    fn matches_current(&self) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    fn signal(&self, _signal: libc::c_int) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "stable process signaling is unavailable on this platform",
+        ))
+    }
+}
+
+#[cfg(all(target_os = "macos", test))]
 fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
     let sessions = HashSet::from([session]);
     Ok(scan_sessions(&sessions, None)?.remove(&session).unwrap_or_default())
@@ -498,7 +714,6 @@ fn macos_session_process_ids(session: libc::pid_t) -> io::Result<Vec<libc::pid_t
 #[cfg(target_os = "macos")]
 fn all_process_ids(deadline: Option<Instant>) -> io::Result<Vec<libc::pid_t>> {
     use std::ffi::c_void;
-    use std::mem::size_of;
 
     // Callers retain this snapshot and poll its members directly. A new full
     // process-table scan happens only after that generation has drained.
@@ -608,9 +823,11 @@ mod tests {
         let mut child = spawn_session_child();
         let session = libc::pid_t::try_from(child.id()).unwrap();
         RAW_PID_SIGNAL_COUNT.set(0);
+        STABLE_PROCESS_SIGNAL_COUNT.set(0);
 
         signal_until(session, libc::SIGCONT, Instant::now() + Duration::from_secs(1)).unwrap();
         let raw_signals = RAW_PID_SIGNAL_COUNT.get();
+        let stable_signals = STABLE_PROCESS_SIGNAL_COUNT.get();
 
         child.kill().unwrap();
         child.wait().unwrap();
@@ -618,6 +835,7 @@ mod tests {
             raw_signals, 0,
             "session cleanup used a reusable PID instead of a stable process identity"
         );
+        assert_eq!(stable_signals, 1, "session cleanup did not use the stable process handle");
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
