@@ -327,6 +327,86 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         _ = navigationDelegate
     }
 
+    @Test func fixedSelectionCapturesItsViewportPixelsAfterPageScrolling() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-fixed-selection-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var copiedPrompt: String?
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let controller = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            artifactStore: BrowserDesignModeArtifactStore(directory: directory),
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 10),
+            canEnable: { true },
+            clipboardWriter: { prompt in
+                copiedPrompt = prompt
+                return true
+            },
+            onActivityChanged: {}
+        )
+        controller.install(on: webView)
+
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeOffscreenNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(
+            """
+            <style>
+              html, body { margin: 0; width: 640px; height: 2200px; background: blue; }
+              #target {
+                position: fixed;
+                left: 220px;
+                top: 100px;
+                width: 200px;
+                height: 100px;
+                border: 0;
+                background: red;
+              }
+            </style>
+            <button id="target">Fixed target</button>
+            """,
+            baseURL: nil
+        )
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+        _ = try await webView.evaluateJavaScript(
+            "window.scrollTo({ left: 0, top: 1000, behavior: 'instant' })"
+        )
+
+        #expect(await controller.setEnabled(true, reason: "test"))
+        let evaluator = BrowserDesignModeJavaScriptEvaluator()
+        _ = try await evaluator.call(
+            "return globalThis.__cmuxDesignMode.select('#target');",
+            arguments: [:],
+            in: webView,
+            contentWorld: BrowserDesignModeController.contentWorld
+        )
+
+        await controller.copySelection()
+
+        let prompt = try #require(copiedPrompt)
+        let contextURL = try artifactURL(in: prompt, marker: "Full context JSON: ")
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: contextURL)) as? [String: Any]
+        )
+        let selections = try #require(payload["selections"] as? [[String: Any]])
+        let screenshotPath = try #require(selections.first?["screenshot_path"] as? String)
+        let screenshot = try #require(NSImage(contentsOfFile: screenshotPath))
+        let color = averageColor(of: screenshot)
+
+        #expect(color == .systemRed)
+        _ = navigationDelegate
+    }
+
     private func solidImage(size: NSSize) -> NSImage {
         let image = NSImage(size: size)
         image.lockFocus()

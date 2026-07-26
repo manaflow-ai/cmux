@@ -79,6 +79,39 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(captured === expected)
     }
 
+    @Test func progressingDocumentCaptureCanOutliveSingleDeadline() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(
+            """
+            <style>
+              html, body { margin: 0; width: 640px; height: 32000px; background: blue; }
+            </style>
+            """,
+            baseURL: nil
+        )
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 1.5,
+            cleanupTimeout: 2
+        )
+
+        let image = try await evaluator.captureDocumentRect(
+            NSRect(x: 0, y: 0, width: 640, height: 32_000),
+            from: webView
+        )
+
+        let representation = try #require(image.representations.first)
+        #expect(representation.pixelsWide * representation.pixelsHigh <= 4_194_304)
+        _ = navigationDelegate
+    }
+
     @Test func timeoutWaitsForCaptureCleanupBeforeCallerStartsFallback() async throws {
         var events: [String] = []
         var cleanupContinuation: CheckedContinuation<Void, Never>?
@@ -224,6 +257,37 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(!didStartFallback)
         captureContinuation?.resume(returning: NSImage(size: NSSize(width: 20, height: 40)))
         captureStartedContinuation.finish()
+    }
+
+    @Test func uncooperativeCaptureBlocksRetriesForTheSameWebView() async {
+        var captureContinuations: [CheckedContinuation<NSImage, Never>] = []
+        var captureStartCount = 0
+        let webView = WKWebView()
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 0.01,
+            cleanupTimeout: 0.01,
+            visibleViewportCapture: { _, _ in },
+            fullPageCapture: { _, _ in
+                captureStartCount += 1
+                return await withCheckedContinuation { continuation in
+                    captureContinuations.append(continuation)
+                }
+            }
+        )
+
+        for _ in 0..<2 {
+            do {
+                _ = try await evaluator.captureFullPage(from: webView)
+                Issue.record("Expected capture cancellation")
+            } catch {
+                #expect(error is CancellationError)
+            }
+        }
+
+        #expect(captureStartCount == 1)
+        for continuation in captureContinuations {
+            continuation.resume(returning: NSImage(size: NSSize(width: 20, height: 40)))
+        }
     }
 
     @Test func designModeFullPageOverviewUsesBoundedWebKitOutput() async throws {

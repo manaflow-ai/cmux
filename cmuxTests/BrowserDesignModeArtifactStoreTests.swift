@@ -220,6 +220,55 @@ struct BrowserDesignModeArtifactStoreTests {
         #expect(try handoffMarkerNames(in: directory)[0].hasSuffix(replacement.lastPathComponent))
     }
 
+    @Test @MainActor func successfulClipboardWriteCommitsHandoffBeforeInvalidation() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-clipboard-commit-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDesignModeArtifactStore(directory: directory)
+        var copiedPrompt: String?
+        var controller: BrowserDesignModeController!
+        controller = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            artifactStore: store,
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
+            canEnable: { true },
+            clipboardWriter: { prompt in
+                copiedPrompt = prompt
+                controller.operationRevision &+= 1
+                return true
+            },
+            onActivityChanged: {}
+        )
+        let lease = await store.beginHandoff()
+        let artifact = try await store.saveContextJSON(
+            Data("committed".utf8),
+            surfaceID: UUID(),
+            handoffLease: lease
+        )
+
+        let committed = try await controller.deliverHandoff(
+            prompt: "committed prompt",
+            artifactPaths: [artifact.path],
+            operation: controller.operationRevision,
+            candidateLease: lease
+        )
+        if !committed {
+            await controller.discardHandoffCandidate(
+                lease: lease,
+                artifactURLs: [artifact]
+            )
+        }
+
+        #expect(committed)
+        #expect(copiedPrompt == "committed prompt")
+        #expect(FileManager.default.fileExists(atPath: artifact.path))
+    }
+
     @Test func pruningPinsOnlyLiveAnnotationContext() async throws {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-pinning-test-\(UUID().uuidString)", isDirectory: true)
