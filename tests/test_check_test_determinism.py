@@ -99,6 +99,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "try await clock.sleep(until: deadline)\n"
                 "#expect(finished)\n"
             ),
+            "self-qualified-continuous-clock.swift": (
+                "final class Fixture {\n"
+                "    let clock = ContinuousClock()\n"
+                "    func verify() async throws {\n"
+                "        try await self.clock.sleep(until: deadline)\n"
+                "        #expect(finished)\n"
+                "    }\n"
+                "}\n"
+            ),
+            "self-type-qualified-suspending-clock.swift": (
+                "struct Fixture {\n"
+                "    static let clock: SuspendingClock = .init()\n"
+                "    static func verify() async throws {\n"
+                "        try await Self.clock.sleep(until: deadline)\n"
+                "        #expect(finished)\n"
+                "    }\n"
+                "}\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -462,6 +480,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 4
                 if relative_path
                 in (
+                    "self-qualified-continuous-clock.swift",
+                    "self-type-qualified-suspending-clock.swift",
                     "shell-multiline-arithmetic-before-sleep.sh",
                     "deferred-global-write.py",
                     "mixed-quoted-heredoc-then-sleep.sh",
@@ -689,6 +709,21 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "pause(0.01)\n"
                     "assert finished\n"
                 ),
+                "from-time-star.py": (
+                    "from time import *\n"
+                    "sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "from-asyncio-star.py": (
+                    "from asyncio import *\n"
+                    "await sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "from-trio-star.py": (
+                    "from trio import *\n"
+                    "await sleep(0.01)\n"
+                    "assert finished\n"
+                ),
                 "same-line-import.py": (
                     "import time; time.sleep(0.01)\n"
                     "assert finished\n"
@@ -772,6 +807,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "from-trio.py",
             "from-anyio.py",
             "from-gevent.py",
+            "from-time-star.py",
+            "from-asyncio-star.py",
+            "from-trio-star.py",
             "same-line-import.py",
             "same-line-from-import.py",
             "deferred-trusted-alias.py",
@@ -882,6 +920,17 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "star-import-shadow.py": (
                     "from fake_clock import *\n"
                     "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "unknown-star-import-sleep.py": (
+                    "from fake_clock import *\n"
+                    "sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "unknown-star-invalidates-sleep.py": (
+                    "from time import sleep\n"
+                    "from fake_clock import *\n"
+                    "sleep(0.01)\n"
                     "assert finished\n"
                 ),
                 "same-line-import-shadow.py": (
