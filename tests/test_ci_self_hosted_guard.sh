@@ -842,6 +842,7 @@ check_web_db_behavior_tests() {
 check_web_test_runner_behavior() {
   local fixture_dir fixture_runner args_log expected_args live_mode
   fixture_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$fixture_dir"' EXIT
   fixture_runner="$fixture_dir/web/scripts/run-tests.sh"
   args_log="$fixture_dir/bun-args.log"
   mkdir -p \
@@ -963,6 +964,7 @@ EOF
   fi
 
   rm -rf "$fixture_dir"
+  trap - EXIT
   echo "PASS: shared web test runner sorts recursive discovery and fails closed when empty"
 }
 

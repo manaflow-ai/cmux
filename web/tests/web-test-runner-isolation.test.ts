@@ -171,8 +171,6 @@ function runChild(
     cwd,
     encoding: "utf8",
     env: environment,
-    timeout: 30_000,
-    killSignal: "SIGKILL",
   });
   const output = [result.stdout, result.stderr].join("\n");
 
