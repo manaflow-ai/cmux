@@ -107,6 +107,18 @@ struct HTMLPlainTextParserTests {
         )
     }
 
+    @Test("rejects HTML larger than the parser input bound")
+    func rejectsOversizedInput() {
+        let parser = HTMLPlainTextParser()
+        let oversizedHTML = String(
+            repeating: "x",
+            count: HTMLPlainTextParser.maximumInputByteCount + 1
+        )
+
+        #expect(parser.plainText(from: oversizedHTML) == nil)
+        #expect(parser.plainText(from: Data(oversizedHTML.utf8)) == nil)
+    }
+
     @Test("parses from a background task")
     func parsesFromBackgroundTask() async {
         let parsed = await Task.detached {
