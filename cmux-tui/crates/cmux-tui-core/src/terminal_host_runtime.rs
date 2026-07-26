@@ -997,15 +997,16 @@ mod unix {
         let child = command.spawn().context("spawn terminal-host process")?;
         let mut process = SpawnedHostProcess { child: Some(child) };
         let host_pid = process.child_mut().id();
-        let mut stdin =
+        let stdin =
             process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
         let stdout =
             process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
-        let mut stdout = CancellableHostReader {
-            reader: stdout,
-            deadline: Instant::now() + HOST_LAUNCH_TIMEOUT,
-            cancelled,
-        };
+        set_nonblocking(stdin.as_raw_fd())?;
+        let launch_deadline = Instant::now() + HOST_LAUNCH_TIMEOUT;
+        let mut stdin =
+            CancellableHostWriter { writer: stdin, deadline: launch_deadline, cancelled };
+        let mut stdout =
+            CancellableHostReader { reader: stdout, deadline: launch_deadline, cancelled };
 
         let bootstrap = HostBootstrap {
             min_version: PROTOCOL_VERSION,
@@ -1080,6 +1081,88 @@ mod unix {
             anyhow::bail!("terminal host launch cancelled because the server is shutting down");
         }
         Ok(attachment)
+    }
+
+    fn set_nonblocking(descriptor: RawFd) -> std::io::Result<()> {
+        // SAFETY: F_GETFL reads flags from the valid owned pipe descriptor.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFL) };
+        if flags < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if flags & libc::O_NONBLOCK != 0 {
+            return Ok(());
+        }
+        // SAFETY: F_SETFL updates status flags on the same valid descriptor.
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    struct CancellableHostWriter<'a, W> {
+        writer: W,
+        deadline: Instant,
+        cancelled: &'a dyn Fn() -> bool,
+    }
+
+    impl<W: Write + AsRawFd> Write for CancellableHostWriter<'_, W> {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            if buffer.is_empty() {
+                return Ok(0);
+            }
+            loop {
+                if (self.cancelled)() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "terminal host launch cancelled during server shutdown",
+                    ));
+                }
+                let Some(remaining) = self.deadline.checked_duration_since(Instant::now()) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "terminal host launch timed out",
+                    ));
+                };
+                let wait = remaining.min(HOST_LAUNCH_CANCEL_POLL);
+                let timeout_ms = wait.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = libc::pollfd {
+                    fd: self.writer.as_raw_fd(),
+                    events: libc::POLLOUT | libc::POLLHUP,
+                    revents: 0,
+                };
+                let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+                if result > 0 {
+                    if descriptor.revents & libc::POLLNVAL != 0 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::BrokenPipe,
+                            "terminal host bootstrap pipe became invalid",
+                        ));
+                    }
+                    match self.writer.write(buffer) {
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                            ) =>
+                        {
+                            continue;
+                        }
+                        result => return result,
+                    }
+                }
+                if result == 0 {
+                    continue;
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            }
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.writer.flush()
+        }
     }
 
     struct CancellableHostReader<'a, R> {

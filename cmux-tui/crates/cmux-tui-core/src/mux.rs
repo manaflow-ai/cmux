@@ -54,10 +54,50 @@ const SHUTDOWN_FANOUT_WORKERS: usize = 32;
 const SHUTDOWN_RECONCILE_INITIAL_DELAY: Duration = Duration::from_millis(25);
 const SHUTDOWN_RECONCILE_MAX_DELAY: Duration = Duration::from_secs(1);
 const SHUTDOWN_OWNER_CAPACITY: usize = 4_096;
+#[cfg(unix)]
+const TERMINAL_ADOPTION_QUEUE_CAPACITY: usize = SHUTDOWN_OWNER_CAPACITY;
 #[cfg(not(test))]
 const SHUTDOWN_RECONCILE_MAX_ATTEMPTS: usize = 8;
 #[cfg(test)]
 const SHUTDOWN_RECONCILE_MAX_ATTEMPTS: usize = 3;
+
+#[cfg(unix)]
+struct TerminalAdoptionTask {
+    options: SurfaceOptions,
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+    next_attempt: Instant,
+    delay: Duration,
+}
+
+#[cfg(unix)]
+struct TerminalAdoptionQueueState {
+    tasks: Vec<TerminalAdoptionTask>,
+    rescan_required: bool,
+    next_rescan: Option<Instant>,
+    rescan_delay: Duration,
+    worker_running: bool,
+}
+
+#[cfg(unix)]
+impl Default for TerminalAdoptionQueueState {
+    fn default() -> Self {
+        Self {
+            tasks: Vec::new(),
+            rescan_required: false,
+            next_rescan: None,
+            rescan_delay: Duration::from_millis(100),
+            worker_running: false,
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct TerminalAdoptionCoordinator {
+    state: Mutex<TerminalAdoptionQueueState>,
+    wake: std::sync::Condvar,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ShutdownOwnerKey {
@@ -1336,6 +1376,8 @@ pub struct Mux {
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_adoptions: Mutex<HashSet<String>>,
+    #[cfg(unix)]
+    terminal_adoption_coordinator: Arc<TerminalAdoptionCoordinator>,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
     /// its own lock so a new native-browser owner cannot race the shutdown.
@@ -1581,6 +1623,8 @@ impl Mux {
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            #[cfg(unix)]
+            terminal_adoption_coordinator: Arc::new(TerminalAdoptionCoordinator::default()),
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             daemon_shutdown_requested: AtomicBool::new(false),
@@ -1592,7 +1636,12 @@ impl Mux {
         });
         mux.shutdown_owner_reconciler.bind(Arc::downgrade(&mux));
         #[cfg(unix)]
-        mux.adopt_terminal_hosts()?;
+        {
+            if mux.surface_options.lock().unwrap().terminal_host_root.is_some() {
+                mux.ensure_terminal_adoption_worker()?;
+            }
+            mux.adopt_terminal_hosts()?;
+        }
         Ok(mux)
     }
 
@@ -2040,183 +2089,281 @@ impl Mux {
     }
 
     #[cfg(unix)]
+    fn ensure_terminal_adoption_worker(self: &Arc<Self>) -> std::io::Result<()> {
+        let coordinator = self.terminal_adoption_coordinator.clone();
+        {
+            let mut state = coordinator.state.lock().unwrap();
+            if state.worker_running {
+                return Ok(());
+            }
+            state.worker_running = true;
+        }
+        let mux = Arc::downgrade(self);
+        let worker_coordinator = coordinator.clone();
+        match std::thread::Builder::new().name("terminal-adoption-coordinator".into()).spawn(
+            move || {
+                #[cfg(test)]
+                if let Some(mux) = mux.upgrade() {
+                    mux.terminal_adoption_workers_started.fetch_add(1, Ordering::AcqRel);
+                }
+                Self::run_terminal_adoption_worker(mux, worker_coordinator);
+            },
+        ) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                coordinator.state.lock().unwrap().worker_running = false;
+                Err(error)
+            }
+        }
+    }
+
+    #[cfg(unix)]
     fn schedule_terminal_adoption(
         self: &Arc<Self>,
         options: SurfaceOptions,
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: std::path::PathBuf,
     ) {
-        let terminal_id = record.terminal_id.clone();
-        if !self.terminal_adoptions.lock().unwrap().insert(terminal_id.clone()) {
+        if self.shutting_down.load(Ordering::Acquire) {
             return;
         }
-        let cleanup_id = terminal_id.clone();
-        let mux = self.clone();
-        let spawn_result = std::thread::Builder::new()
-            .name(format!("terminal-adopt-{terminal_id}"))
-            .spawn(move || {
-                #[cfg(test)]
-                mux.terminal_adoption_workers_started.fetch_add(1, Ordering::AcqRel);
-                let mut delay = Duration::from_millis(100);
-                loop {
-                    if mux.shutting_down.load(Ordering::Acquire) {
-                        break;
-                    }
-                    std::thread::sleep(delay);
-                    if mux.shutting_down.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let terminal = mux
-                        .workspace_registry
-                        .lock()
-                        .unwrap()
-                        .terminal_record(&terminal_id)
-                        .ok()
-                        .flatten();
-                    let Some(terminal) = terminal else {
-                        if cleanup_terminal_host_record(&record, &record_path) {
-                            break;
-                        }
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        continue;
-                    };
-                    if matches!(
-                        terminal.lifecycle,
-                        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-                    ) {
-                        if terminal.lifecycle == TerminalLifecycle::Exited {
-                            let _ = mux.materialize_exited_terminal(&terminal_id, &options);
-                        }
-                        if cleanup_terminal_host_record(&record, &record_path) {
-                            break;
-                        }
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        continue;
-                    }
-                    if terminal
-                        .incarnation
-                        .as_deref()
-                        .is_some_and(|incarnation| incarnation != record.incarnation)
-                    {
-                        let _ = mux.mark_terminal_exited_and_materialize(
-                            &terminal_id,
-                            "terminal-incarnation-mismatch",
-                            "host-incarnation-mismatch",
-                            &options,
-                        );
-                        if cleanup_terminal_host_record(&record, &record_path) {
-                            break;
-                        }
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        continue;
-                    }
-                    if terminal.lifecycle == TerminalLifecycle::Running {
-                        let already_live = mux
-                            .resolve_terminal(&terminal_id)
-                            .ok()
-                            .flatten()
-                            .is_some_and(|resolution| resolution.surface.is_some());
-                        if already_live {
-                            break;
-                        }
-                        if mux
-                            .transition_terminal_lifecycle(
-                                "terminal-adopting",
-                                "retry-terminal-adoption",
-                                &terminal_id,
-                                TerminalLifecycle::Adopting,
-                                Some(&record.incarnation),
-                                None,
-                            )
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    if terminal_host_record_liveness(&record_path, &record)
-                        == TerminalHostLiveness::Dead
-                    {
-                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                            &record_path,
-                            &record,
-                        );
-                        let _ = mux.mark_terminal_exited_and_materialize(
-                            &terminal_id,
-                            "terminal-host-proven-dead",
-                            "host-process-ended-before-adoption",
-                            &options,
-                        );
-                        break;
-                    }
-                    let Ok(_creation) = mux.begin_surface_creation() else {
-                        break;
-                    };
-                    let mut owner_reservation = match mux.reserve_surface_owner() {
-                        Ok(reservation) => reservation,
-                        Err(_) => {
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                            continue;
-                        }
-                    };
-                    let id = mux.next_id();
-                    #[cfg(test)]
-                    let adopted = if let Some(factory) =
-                        mux.terminal_adoption_surface_factory.lock().unwrap().clone()
-                    {
-                        factory(id)
-                    } else {
-                        Surface::adopt_hosted(
-                            id,
-                            options.clone(),
-                            Arc::downgrade(&mux),
-                            record.clone(),
-                            record_path.clone(),
-                        )
-                    };
-                    #[cfg(not(test))]
-                    let adopted = Surface::adopt_hosted(
-                        id,
-                        options.clone(),
-                        Arc::downgrade(&mux),
-                        record.clone(),
-                        record_path.clone(),
-                    );
-                    if let Ok(surface) = adopted {
-                        #[cfg(test)]
-                        if let Some(hook) =
-                            mux.terminal_adoption_after_attach.lock().unwrap().clone()
-                        {
-                            hook();
-                        }
-                        if mux
-                            .finish_terminal_adoption(
-                                &terminal_id,
-                                &record.incarnation,
-                                surface.clone(),
-                                &mut owner_reservation,
-                            )
-                            .is_ok()
-                        {
-                            mux.reap_if_dead(&surface);
-                            break;
-                        }
-                        mux.retire_reserved_surface_runtime(surface, &mut owner_reservation);
-                        let _ = mux.mark_terminal_exited_and_materialize(
-                            &terminal_id,
-                            "terminal-adoption-failed",
-                            "host-adoption-topology-failed",
-                            &options,
-                        );
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        continue;
-                    }
-                    delay = (delay * 2).min(Duration::from_secs(5));
-                }
-                mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
-            });
-        if spawn_result.is_err() {
-            self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
+        let terminal_id = record.terminal_id.clone();
+        {
+            let mut tracked = self.terminal_adoptions.lock().unwrap();
+            if tracked.contains(&terminal_id) {
+                return;
+            }
+            if tracked.len() >= TERMINAL_ADOPTION_QUEUE_CAPACITY {
+                let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
+                state.rescan_required = true;
+                state.next_rescan.get_or_insert_with(Instant::now);
+                self.terminal_adoption_coordinator.wake.notify_one();
+                return;
+            }
+            tracked.insert(terminal_id.clone());
         }
+
+        self.terminal_adoption_coordinator.state.lock().unwrap().tasks.push(TerminalAdoptionTask {
+            options,
+            record,
+            record_path,
+            next_attempt: Instant::now() + Duration::from_millis(100),
+            delay: Duration::from_millis(100),
+        });
+        self.terminal_adoption_coordinator.wake.notify_one();
+        if self.ensure_terminal_adoption_worker().is_err() {
+            self.terminal_adoptions.lock().unwrap().remove(&terminal_id);
+            let mut state = self.terminal_adoption_coordinator.state.lock().unwrap();
+            state.tasks.retain(|task| task.record.terminal_id != terminal_id);
+            state.rescan_required = true;
+            state.next_rescan.get_or_insert_with(Instant::now);
+        }
+    }
+
+    #[cfg(unix)]
+    fn rescan_terminal_adoptions(self: &Arc<Self>) -> bool {
+        let options = self.surface_options.lock().unwrap().clone();
+        let Some(root) = options.terminal_host_root.as_deref() else { return true };
+        let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
+            return false;
+        };
+        for (record_path, record) in records {
+            let already_live = self
+                .resolve_terminal(&record.terminal_id)
+                .ok()
+                .flatten()
+                .is_some_and(|resolution| resolution.surface.is_some());
+            if already_live {
+                continue;
+            }
+            self.schedule_terminal_adoption(options.clone(), record, record_path);
+        }
+        true
+    }
+
+    #[cfg(unix)]
+    fn run_terminal_adoption_worker(
+        mux: Weak<Self>,
+        coordinator: Arc<TerminalAdoptionCoordinator>,
+    ) {
+        loop {
+            let Some(mux) = mux.upgrade() else {
+                coordinator.state.lock().unwrap().worker_running = false;
+                return;
+            };
+            if mux.shutting_down.load(Ordering::Acquire) {
+                mux.terminal_adoptions.lock().unwrap().clear();
+                let mut state = coordinator.state.lock().unwrap();
+                state.tasks.clear();
+                state.worker_running = false;
+                return;
+            }
+
+            let tracked = mux.terminal_adoptions.lock().unwrap().len();
+            let mut state = coordinator.state.lock().unwrap();
+            let now = Instant::now();
+            let rescan_due = state.next_rescan.is_none_or(|next_rescan| next_rescan <= now);
+            if state.rescan_required && rescan_due && tracked < TERMINAL_ADOPTION_QUEUE_CAPACITY {
+                state.rescan_required = false;
+                state.next_rescan = None;
+                drop(state);
+                if !mux.rescan_terminal_adoptions() {
+                    let mut state = coordinator.state.lock().unwrap();
+                    state.rescan_required = true;
+                    state.next_rescan = Some(Instant::now() + state.rescan_delay);
+                    state.rescan_delay = (state.rescan_delay * 2).min(Duration::from_secs(5));
+                } else {
+                    coordinator.state.lock().unwrap().rescan_delay = Duration::from_millis(100);
+                }
+                continue;
+            }
+
+            if let Some(index) = state.tasks.iter().position(|task| task.next_attempt <= now) {
+                let mut task = state.tasks.swap_remove(index);
+                drop(state);
+                let complete = mux.try_terminal_adoption(&task);
+                if complete {
+                    mux.terminal_adoptions.lock().unwrap().remove(&task.record.terminal_id);
+                    coordinator.wake.notify_one();
+                } else {
+                    task.delay = (task.delay * 2).min(Duration::from_secs(5));
+                    task.next_attempt = Instant::now() + task.delay;
+                    coordinator.state.lock().unwrap().tasks.push(task);
+                }
+                continue;
+            }
+
+            let wait = state
+                .tasks
+                .iter()
+                .map(|task| task.next_attempt.saturating_duration_since(now))
+                .min()
+                .unwrap_or(Duration::from_secs(1))
+                .min(Duration::from_secs(1));
+            drop(mux);
+            let _ = coordinator.wake.wait_timeout(state, wait).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    fn try_terminal_adoption(self: &Arc<Self>, task: &TerminalAdoptionTask) -> bool {
+        let terminal_id = &task.record.terminal_id;
+        let terminal =
+            self.workspace_registry.lock().unwrap().terminal_record(terminal_id).ok().flatten();
+        let Some(terminal) = terminal else {
+            return cleanup_terminal_host_record(&task.record, &task.record_path);
+        };
+        if matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned) {
+            if terminal.lifecycle == TerminalLifecycle::Exited {
+                let _ = self.materialize_exited_terminal(terminal_id, &task.options);
+            }
+            return cleanup_terminal_host_record(&task.record, &task.record_path);
+        }
+        if terminal
+            .incarnation
+            .as_deref()
+            .is_some_and(|incarnation| incarnation != task.record.incarnation)
+        {
+            let _ = self.mark_terminal_exited_and_materialize(
+                terminal_id,
+                "terminal-incarnation-mismatch",
+                "host-incarnation-mismatch",
+                &task.options,
+            );
+            return cleanup_terminal_host_record(&task.record, &task.record_path);
+        }
+        if terminal.lifecycle == TerminalLifecycle::Running {
+            let already_live = self
+                .resolve_terminal(terminal_id)
+                .ok()
+                .flatten()
+                .is_some_and(|resolution| resolution.surface.is_some());
+            if already_live {
+                return true;
+            }
+            if self
+                .transition_terminal_lifecycle(
+                    "terminal-adopting",
+                    "retry-terminal-adoption",
+                    terminal_id,
+                    TerminalLifecycle::Adopting,
+                    Some(&task.record.incarnation),
+                    None,
+                )
+                .is_err()
+            {
+                return true;
+            }
+        }
+        if terminal_host_record_liveness(&task.record_path, &task.record)
+            == TerminalHostLiveness::Dead
+        {
+            let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                &task.record_path,
+                &task.record,
+            );
+            let _ = self.mark_terminal_exited_and_materialize(
+                terminal_id,
+                "terminal-host-proven-dead",
+                "host-process-ended-before-adoption",
+                &task.options,
+            );
+            return true;
+        }
+        let Ok(_creation) = self.begin_surface_creation() else {
+            return true;
+        };
+        let mut owner_reservation = match self.reserve_surface_owner() {
+            Ok(reservation) => reservation,
+            Err(_) => return false,
+        };
+        let id = self.next_id();
+        #[cfg(test)]
+        let adopted =
+            if let Some(factory) = self.terminal_adoption_surface_factory.lock().unwrap().clone() {
+                factory(id)
+            } else {
+                Surface::adopt_hosted(
+                    id,
+                    task.options.clone(),
+                    Arc::downgrade(self),
+                    task.record.clone(),
+                    task.record_path.clone(),
+                )
+            };
+        #[cfg(not(test))]
+        let adopted = Surface::adopt_hosted(
+            id,
+            task.options.clone(),
+            Arc::downgrade(self),
+            task.record.clone(),
+            task.record_path.clone(),
+        );
+        let Ok(surface) = adopted else { return false };
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_adoption_after_attach.lock().unwrap().clone() {
+            hook();
+        }
+        if self
+            .finish_terminal_adoption(
+                terminal_id,
+                &task.record.incarnation,
+                surface.clone(),
+                &mut owner_reservation,
+            )
+            .is_ok()
+        {
+            self.reap_if_dead(&surface);
+            return true;
+        }
+        self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
+        let _ = self.mark_terminal_exited_and_materialize(
+            terminal_id,
+            "terminal-adoption-failed",
+            "host-adoption-topology-failed",
+            &task.options,
+        );
+        false
     }
 
     #[cfg(test)]
@@ -4489,6 +4636,8 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        #[cfg(unix)]
+        self.terminal_adoption_coordinator.wake.notify_all();
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
         let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else { return };
         let _ = self.surface_creations.stop_and_wait_until(deadline);
@@ -4551,6 +4700,8 @@ impl Mux {
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
         self.shutting_down.store(true, Ordering::Release);
+        #[cfg(unix)]
+        self.terminal_adoption_coordinator.wake.notify_all();
         if !self.surface_creations.stop_and_wait_until(deadline) {
             anyhow::bail!("surface creation did not stop before the shutdown deadline");
         }
@@ -4779,6 +4930,8 @@ impl Mux {
         self.surface_creations.stop();
         self.async_surface_creations.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
+        #[cfg(unix)]
+        self.terminal_adoption_coordinator.wake.notify_all();
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
