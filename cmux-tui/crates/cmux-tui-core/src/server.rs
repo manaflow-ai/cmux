@@ -7267,6 +7267,35 @@ mod tests {
     }
 
     #[test]
+    fn protocol_key_text_limit_fits_a_websocket_clear_history_request() {
+        let input = KeyInput {
+            key: sys::GHOSTTY_KEY_K,
+            mods: Mods::SUPER,
+            utf8: "\"".repeat(PROTOCOL_KEY_TEXT_MAX_BYTES),
+            unshifted_codepoint: 'k' as u32,
+            base_layout_codepoint: 'k' as u32,
+            action: Some(KeyAction::Press),
+            macos_option_as_alt: true,
+            ..Default::default()
+        };
+        let fallback_key = ProtocolKeyInput::try_from(&input).unwrap();
+        let request = json!({
+            "id": u64::MAX,
+            "cmd": "clear-history",
+            "surface": u64::MAX,
+            "fallback_key": fallback_key,
+        });
+        let encoded = serde_json::to_vec(&request).unwrap();
+
+        assert!(
+            encoded.len() <= WEBSOCKET_MESSAGE_MAX_BYTES,
+            "accepted fallback key serialized to {} bytes, above the {}-byte WebSocket limit",
+            encoded.len(),
+            WEBSOCKET_MESSAGE_MAX_BYTES
+        );
+    }
+
+    #[test]
     fn protocol_key_input_rejects_raw_ghostty_discriminants() {
         let raw = json!({
             "key": u32::MAX,
