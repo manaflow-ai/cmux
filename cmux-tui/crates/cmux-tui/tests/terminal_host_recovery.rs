@@ -206,6 +206,25 @@ impl Drop for RecoveryHarness {
 }
 
 #[test]
+fn short_lived_terminal_launch_returns_its_final_snapshot() {
+    let harness = RecoveryHarness::start("short-lived-launch");
+    let marker = format!("short-lived-marker-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", format!("printf '{marker}\\n'")],
+            "new_workspace": true,
+            "name": "short-lived-command",
+        }),
+    );
+    let surface = created["surface"].as_u64().expect("short-lived command returned a surface");
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn terminal_host_survives_daemon_process_group_hangup() {
     let mut harness = RecoveryHarness::start_in_own_session("session-hangup");
     let daemon_pid = harness.child.as_ref().unwrap().id() as libc::pid_t;
