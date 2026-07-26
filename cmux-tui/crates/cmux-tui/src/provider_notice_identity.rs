@@ -1,10 +1,9 @@
 use std::fmt;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::Duration;
 
 use cmux_tui_machine_protocol::OpaqueId;
 use serde::{Deserialize, Serialize};
@@ -12,9 +11,9 @@ use zeroize::Zeroize;
 
 const IDENTITY_DIRECTORY: &str = "device";
 const IDENTITY_FILE: &str = "provider-notice-consumer.json";
+const LOCK_FILE: &str = "provider-notice-consumer.lock";
 const STATE_VERSION: u16 = 1;
 const MAX_STATE_BYTES: u64 = 4096;
-const CONCURRENT_CREATE_RETRY_DELAY: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
 struct UnexpectedLinkCount(u64);
@@ -27,6 +26,42 @@ impl fmt::Display for UnexpectedLinkCount {
 
 impl std::error::Error for UnexpectedLinkCount {}
 
+struct CreationLock {
+    file: File,
+}
+
+impl CreationLock {
+    fn acquire(identity_path: &Path) -> anyhow::Result<Self> {
+        let lock_path = state_parent(identity_path)?.join(LOCK_FILE);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(lock_path)?;
+        verify_private_file(&file, "provider notice identity lock")?;
+        loop {
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+                break;
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error.into());
+            }
+        }
+        Ok(Self { file })
+    }
+}
+
+impl Drop for CreationLock {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredIdentity {
@@ -37,10 +72,11 @@ struct StoredIdentity {
 pub(super) fn load_or_create(state_root: &Path) -> anyhow::Result<OpaqueId> {
     let path = identity_path(state_root);
     ensure_private_parent(&path)?;
+    let _lock = CreationLock::acquire(&path)?;
     match fs::symlink_metadata(&path) {
         Ok(_) => {
             remove_orphaned_temporary_links(&path)?;
-            load_with_link_retry(&path)
+            load(&path)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => create(&path),
         Err(error) => Err(error.into()),
@@ -116,18 +152,6 @@ fn load(path: &Path) -> anyhow::Result<OpaqueId> {
     Ok(stored.consumer_id)
 }
 
-fn load_with_link_retry(path: &Path) -> anyhow::Result<OpaqueId> {
-    match load(path) {
-        Err(error)
-            if error.downcast_ref::<UnexpectedLinkCount>().is_some_and(|error| error.0 == 2) =>
-        {
-            thread::sleep(CONCURRENT_CREATE_RETRY_DELAY);
-            load(path)
-        }
-        result => result,
-    }
-}
-
 fn create(path: &Path) -> anyhow::Result<OpaqueId> {
     let parent = state_parent(path)?;
     let consumer_id = OpaqueId::new(format!("cmux-tui-{}", random_hex(16)?))?;
@@ -169,7 +193,7 @@ fn create(path: &Path) -> anyhow::Result<OpaqueId> {
         }
         Ok(loaded)
     } else {
-        load_with_link_retry(path)
+        load(path)
     }
 }
 
@@ -264,6 +288,7 @@ fn sync_directory(path: &Path) -> io::Result<()> {
 mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::sync::{Arc, Barrier};
+    use std::thread;
 
     use super::*;
 
@@ -297,11 +322,14 @@ mod tests {
         let second = load_or_create(&state.path).unwrap();
         let path = identity_path(&state.path);
         let parent = path.parent().unwrap();
+        let lock = parent.join(LOCK_FILE);
 
         assert_eq!(second, first);
         assert_eq!(fs::metadata(parent).unwrap().permissions().mode() & 0o777, 0o700);
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(fs::metadata(&path).unwrap().nlink(), 1);
+        assert_eq!(fs::metadata(&lock).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::metadata(&lock).unwrap().nlink(), 1);
     }
 
     #[test]
@@ -336,6 +364,27 @@ mod tests {
         let real = state.path.join("real");
         DirBuilder::new().mode(0o700).create(&real).unwrap();
         symlink(&real, parent).unwrap();
+        assert!(load_or_create(&state.path).is_err());
+    }
+
+    #[test]
+    fn identity_rejects_permissive_hardlinked_or_symlinked_lock() {
+        let state = TestStateRoot::create("lock-safety");
+        load_or_create(&state.path).unwrap();
+        let lock = identity_path(&state.path).parent().unwrap().join(LOCK_FILE);
+
+        fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(load_or_create(&state.path).is_err());
+        fs::set_permissions(&lock, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let second_link = lock.with_file_name("second-lock");
+        fs::hard_link(&lock, &second_link).unwrap();
+        assert!(load_or_create(&state.path).is_err());
+        fs::remove_file(second_link).unwrap();
+
+        let target = lock.with_file_name("target-lock");
+        fs::rename(&lock, &target).unwrap();
+        symlink(&target, &lock).unwrap();
         assert!(load_or_create(&state.path).is_err());
     }
 

@@ -347,7 +347,12 @@ impl ProviderMachineRuntime {
         connector: Arc<dyn MachineProviderConnector>,
         state_root: &Path,
     ) -> anyhow::Result<Self> {
-        let notice_consumer_id = crate::provider_notice_identity::load_or_create(state_root)?;
+        let notice_consumer_id = crate::provider_notice_identity::load_or_create(state_root)
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    localization::catalog().sidebar.provider_notice_identity_unavailable
+                )
+            })?;
         Self::connect_with_consumer_id(connector, notice_consumer_id)
     }
 
