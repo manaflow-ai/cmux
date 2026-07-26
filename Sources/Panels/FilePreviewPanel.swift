@@ -1194,7 +1194,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 await self.loadTextContent(replacingDirtyContent: false).value
             } else {
                 self.isFileUnavailable = !FileManager.default.fileExists(atPath: self.filePath)
-                if !self.isFileUnavailable {
+                if self.isFileUnavailable {
+                    if self.previewMode == .media {
+                        self.nativeViewSessions.media.close()
+                    }
+                } else {
                     self.previewRevisionState.increment()
                 }
             }
