@@ -1584,6 +1584,43 @@ mod tests {
     }
 
     #[test]
+    fn repeated_established_disconnects_apply_exponential_backoff() {
+        let (cloud, mut servers) = QueueCloud::new();
+        let mut first = WirePeer::new(servers.remove(0));
+        let mut second = WirePeer::new(servers.remove(0));
+        let mut third = WirePeer::new(servers.remove(0));
+        let reporter = Arc::new(TestReporter::default());
+        let stop = AtomicStop::new();
+        let agent = MachineAgent::new(
+            identity(),
+            SessionName::new("agents").unwrap(),
+            cloud,
+            Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) }),
+            reporter.clone(),
+            Arc::new(TestWait),
+            stop.clone(),
+        );
+        let agent_thread = thread::spawn(move || agent.run().unwrap());
+
+        let _ = first.read();
+        first.write(registered(1, None));
+        first.shutdown();
+        let _ = second.read();
+        second.write(registered(1, None));
+        second.shutdown();
+        let _ = third.read();
+        third.write(registered(1, None));
+
+        stop.stop();
+        third.shutdown();
+        agent_thread.join().unwrap();
+        assert_eq!(
+            *reporter.retries.lock().unwrap(),
+            vec![Duration::from_millis(250), Duration::from_millis(500)]
+        );
+    }
+
+    #[test]
     fn malformed_and_oversized_cloud_frames_force_clean_reconnects() {
         let (cloud, mut servers) = QueueCloud::new();
         let mut oversized = WirePeer::new(servers.remove(0));

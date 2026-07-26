@@ -15938,6 +15938,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert!(app.machine_ui.as_ref().is_some_and(|ui| ui.request.is_none()));
         assert!(app.prompt.is_some(), "connect machine is keyboard reachable");
+        assert_eq!(app.prompt.as_ref().map(|prompt| prompt.label.as_str()), Some("Host address"));
         app.prompt = None;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
