@@ -380,6 +380,45 @@ struct SimulatorControlServiceTests {
         #expect(!fileManager.fileExists(atPath: legacyURL.path))
     }
 
+    @Test("Migration preserves a live legacy camera owner's journal")
+    func cameraMigrationPreservesLiveLegacyJournal() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "camera-live-legacy-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        let durableDirectory = root.appendingPathComponent("durable", isDirectory: true)
+        let legacyDirectory = root.appendingPathComponent("legacy", isDirectory: true)
+        let deviceIdentifier = UUID().uuidString
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let legacyStore = SimulatorCameraAuthorizationStore(directory: legacyDirectory)
+        try legacyStore.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity.current
+        )
+        let legacyURL = try #require(try fileManager.contentsOfDirectory(
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil
+        ).first { $0.pathExtension == "json" })
+        let durableStore = SimulatorCameraAuthorizationStore(
+            directory: durableDirectory,
+            legacyDirectory: legacyDirectory
+        )
+
+        let scan = try durableStore.records()
+
+        #expect(scan.records.count == 1)
+        #expect(scan.records[0].deviceIdentifier == deviceIdentifier)
+        #expect(fileManager.fileExists(atPath: legacyURL.path))
+        #expect(try durableStore.authorization(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ) == .denied)
+    }
+
     @Test("Device type identifies family when runtimes omit family metadata")
     func handlesDuplicateRuntimeIdentifiers() async throws {
         let commands = RecordingCommandRunner(results: [

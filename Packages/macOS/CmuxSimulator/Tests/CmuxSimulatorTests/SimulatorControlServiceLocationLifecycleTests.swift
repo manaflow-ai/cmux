@@ -262,6 +262,112 @@ struct SimulatorControlServiceLocationLifecycleTests {
         try await ownerService.stopLocationRoute(deviceID: deviceID)
     }
 
+    @Test("A later mutation recovers an abandoned live-process transaction")
+    func laterMutationRecoversAbandonedLiveTransaction() async throws {
+        let deviceID = UUID().uuidString
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-live-pending-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ownerScope = SimulatorLocationOwnershipScope(directory: directory)
+        let ownerService = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: ownerScope
+        )
+        try await ownerService.startLocationRoute(deviceID: deviceID, route: Self.route())
+        let committedRecord = try #require(
+            try ownerScope.recoveryStore.record(deviceIdentifier: deviceID)
+        )
+        let committedSnapshot = try #require(committedRecord.committed)
+        let pendingToken = UUID()
+        let liveOwner = try #require(SimulatorProcessIdentity.current)
+        try ownerScope.recoveryStore.save(committedRecord.preparing(
+            replacement: committedSnapshot.adopting(
+                ownershipToken: pendingToken,
+                ownerProcessIdentity: liveOwner
+            ),
+            ownershipToken: pendingToken,
+            ownerProcessIdentity: liveOwner
+        ))
+        let failedReplacementScope = SimulatorLocationOwnershipScope(directory: directory)
+        try await failedReplacementScope.registry.claim(
+            pendingToken,
+            deviceIdentifier: deviceID
+        )
+        let replacementCommands = LocationLifecycleCommandRunner()
+        let replacementService = SimulatorControlService(
+            commands: replacementCommands,
+            locationOwnershipScope: SimulatorLocationOwnershipScope(directory: directory)
+        )
+
+        try await replacementService.setLocation(
+            deviceID: deviceID,
+            coordinate: SimulatorLocationCoordinate(latitude: 40, longitude: -73)
+        )
+
+        let arguments = await replacementCommands.arguments()
+        #expect(arguments.first == ["simctl", "location", deviceID, "clear"])
+        #expect(arguments.dropFirst().first?.prefix(4) == [
+            "simctl", "location", deviceID, "start",
+        ])
+        #expect(arguments.last == [
+            "simctl", "location", deviceID, "set", "40.0,-73.0",
+        ])
+        #expect(try ownerScope.recoveryStore.record(deviceIdentifier: deviceID) == nil)
+    }
+
+    @Test("Launch recovery decodes the previous location journal schema")
+    func launchRecoveryDecodesPreviousLocationJournal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-legacy-schema-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = SimulatorLocationOwnershipScope(directory: directory)
+        let deviceID = UUID().uuidString
+        let route = Self.route()
+        let legacyRecord = LegacyLocationRouteRecoveryRecord(
+            deviceIdentifier: deviceID,
+            initialCoordinate: route.waypoints[0],
+            state: .running(route: route, startedAt: Date()),
+            ownershipToken: UUID(),
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
+        try scope.recoveryStore.save(SimulatorLocationRouteRecoveryRecord(
+            deviceIdentifier: deviceID,
+            initialCoordinate: legacyRecord.initialCoordinate,
+            state: legacyRecord.state,
+            ownershipToken: legacyRecord.ownershipToken,
+            ownerProcessIdentity: legacyRecord.ownerProcessIdentity
+        ))
+        let journalDirectory = directory.appendingPathComponent(
+            "location-routes",
+            isDirectory: true
+        )
+        let journalURL = try #require(try FileManager.default.contentsOfDirectory(
+            at: journalDirectory,
+            includingPropertiesForKeys: nil
+        ).first { $0.pathExtension == "json" })
+        try JSONEncoder().encode(legacyRecord).write(to: journalURL, options: .atomic)
+        let commands = LocationLifecycleCommandRunner()
+        let service = SimulatorControlService(
+            commands: commands,
+            locationOwnershipScope: scope
+        )
+
+        #expect(await service.recoverOrphanedLocationRoutes())
+        #expect(await commands.arguments() == [
+            ["simctl", "location", deviceID, "clear"],
+            ["simctl", "location", deviceID, "set", "37.7,-122.4"],
+        ])
+        #expect(try scope.recoveryStore.record(deviceIdentifier: deviceID) == nil)
+    }
+
     @Test("Launch recovery restores dead route owners and preserves live owners")
     func launchRecoveryRestoresOnlyOrphanedRoutes() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -525,4 +631,12 @@ struct SimulatorControlServiceLocationLifecycleTests {
         }
         Issue.record("Condition did not become true")
     }
+}
+
+private struct LegacyLocationRouteRecoveryRecord: Codable {
+    let deviceIdentifier: String
+    let initialCoordinate: SimulatorLocationCoordinate
+    let state: SimulatorLocationRouteRecoveryState
+    let ownershipToken: UUID
+    let ownerProcessIdentity: SimulatorProcessIdentity
 }
