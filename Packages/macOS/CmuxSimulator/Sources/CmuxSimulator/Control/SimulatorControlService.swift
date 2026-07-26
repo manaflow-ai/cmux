@@ -18,6 +18,7 @@ public actor SimulatorControlService: SimulatorControlling {
     let now: @Sendable () -> Date
     let routeSleep: @Sendable (Duration) async throws -> Void
     let locationOwnershipRegistry: SimulatorLocationOwnershipRegistry
+    let locationRouteRecoveryStore: SimulatorLocationRouteRecoveryStore
     let cameraCleanupOwnershipStore: SimulatorCrossProcessOwnershipStore
     let cameraCleanupCoordinator: SimulatorCameraCleanupCoordinator
     let cameraAuthorizationStore: SimulatorCameraAuthorizationStore
@@ -73,6 +74,7 @@ public actor SimulatorControlService: SimulatorControlling {
         self.makeUUID = makeUUID
         self.now = now
         self.locationOwnershipRegistry = locationOwnershipScope.registry
+        self.locationRouteRecoveryStore = locationOwnershipScope.recoveryStore
         self.cameraCleanupOwnershipStore = cameraCleanupOwnershipScope.ownershipStore
         self.cameraCleanupCoordinator = cameraCleanupOwnershipScope.coordinator
         self.cameraAuthorizationStore = cameraAuthorizationStore

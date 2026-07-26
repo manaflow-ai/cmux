@@ -1,7 +1,7 @@
 import Foundation
 
 /// A route interpolated by `simctl location start`.
-public struct SimulatorLocationRoute: Equatable, Sendable {
+public struct SimulatorLocationRoute: Codable, Equatable, Sendable {
     /// Ordered waypoints. A valid route contains at least two points.
     public let waypoints: [SimulatorLocationCoordinate]
     /// Travel speed in meters per second.

@@ -41,4 +41,8 @@ package struct SimulatorProcessIdentity: Codable, Equatable, Sendable {
     package static var parent: SimulatorProcessIdentity? {
         SimulatorProcessIdentity(pid: getppid())
     }
+
+    package static var current: SimulatorProcessIdentity? {
+        SimulatorProcessIdentity(pid: getpid())
+    }
 }

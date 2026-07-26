@@ -2,6 +2,69 @@ import CmuxFoundation
 import Foundation
 
 extension SimulatorControlService {
+    /// Restores location routes whose exact owner process no longer exists.
+    ///
+    /// Recovery holds the same cross-process device lock as ordinary location
+    /// mutations, re-reads the journal under that lock, and leaves unreadable
+    /// or failed journals in place for a later retry.
+    public func recoverOrphanedLocationRoutes() async -> Bool {
+        let records: [SimulatorLocationRouteRecoveryRecord]
+        do {
+            records = try locationRouteRecoveryStore.records()
+        } catch {
+            return false
+        }
+        var succeeded = true
+        for record in records where !record.isOwnedByRunningProcess {
+            do {
+                try await mutationGate.withLocks([
+                    .location(deviceIdentifier: record.deviceIdentifier),
+                ]) {
+                    try await recoverLocationRouteIfOrphaned(record)
+                }
+            } catch {
+                succeeded = false
+            }
+        }
+        return succeeded
+    }
+
+    private func recoverLocationRouteIfOrphaned(
+        _ observedRecord: SimulatorLocationRouteRecoveryRecord
+    ) async throws {
+        guard let record = try locationRouteRecoveryStore.record(
+            deviceIdentifier: observedRecord.deviceIdentifier
+        ), record.ownershipToken == observedRecord.ownershipToken,
+           !record.isOwnedByRunningProcess else { return }
+        let deviceID = record.deviceIdentifier
+        let token = try await beginLocationOperation(deviceID: deviceID)
+        var clearCommitted = false
+        do {
+            _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+            clearCommitted = true
+            _ = try await output(arguments: [
+                "simctl", "location", deviceID, "set",
+                coordinateArgument(record.initialCoordinate),
+            ])
+            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            guard try locationRouteRecoveryStore.remove(
+                deviceIdentifier: deviceID,
+                expectedOwnershipToken: record.ownershipToken
+            ) else { throw CancellationError() }
+            finishLocationOperation(deviceID: deviceID, token: token)
+        } catch {
+            let mutationError = error
+            if clearCommitted {
+                try await restoreExternalLocationLifecycle(
+                    deviceID: deviceID,
+                    state: record.state.activeLocationRoute
+                )
+            }
+            finishLocationOperation(deviceID: deviceID, token: token)
+            throw mutationError
+        }
+    }
+
     /// Sets one fixed simulated location.
     public func setLocation(deviceID: String, coordinate: SimulatorLocationCoordinate) async throws {
         try validate(coordinate)
@@ -15,19 +78,36 @@ extension SimulatorControlService {
         coordinate: SimulatorLocationCoordinate
     ) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
+        let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
         let token = try await beginLocationOperation(deviceID: deviceID)
+        var mutationCommitted = false
         do {
+            try adoptLocationRecoveryRecord(previousRecord, ownershipToken: token)
             _ = try await output(arguments: [
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
+            mutationCommitted = true
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            if previousRecord != nil {
+                guard try locationRouteRecoveryStore.remove(
+                    deviceIdentifier: deviceID,
+                    expectedOwnershipToken: token
+                ) else { throw CancellationError() }
+            }
             activeLocationRoutes.removeValue(forKey: deviceID)
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
+            let mutationError = error
+            if mutationCommitted, let previousRecord {
+                try await restoreExternalLocationLifecycle(
+                    deviceID: deviceID,
+                    state: previousRecord.state.activeLocationRoute
+                )
+            }
             finishLocationOperation(deviceID: deviceID, token: token)
             restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
-            throw error
+            throw mutationError
         }
     }
 
@@ -40,17 +120,34 @@ extension SimulatorControlService {
 
     private func clearLocationExclusively(deviceID: String) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
+        let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
         let token = try await beginLocationOperation(deviceID: deviceID)
+        var mutationCommitted = false
         do {
+            try adoptLocationRecoveryRecord(previousRecord, ownershipToken: token)
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+            mutationCommitted = true
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            if previousRecord != nil {
+                guard try locationRouteRecoveryStore.remove(
+                    deviceIdentifier: deviceID,
+                    expectedOwnershipToken: token
+                ) else { throw CancellationError() }
+            }
             activeLocationRoutes.removeValue(forKey: deviceID)
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
+            let mutationError = error
+            if mutationCommitted, let previousRecord {
+                try await restoreExternalLocationLifecycle(
+                    deviceID: deviceID,
+                    state: previousRecord.state.activeLocationRoute
+                )
+            }
             finishLocationOperation(deviceID: deviceID, token: token)
             restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
-            throw error
+            throw mutationError
         }
     }
 
@@ -73,17 +170,44 @@ extension SimulatorControlService {
         initialCoordinate: SimulatorLocationCoordinate
     ) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
+        let previousRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
         let token = try await beginLocationOperation(deviceID: deviceID)
+        let startedAt = now()
+        var commandCommitted = false
         do {
+            try locationRouteRecoveryStore.save(SimulatorLocationRouteRecoveryRecord(
+                deviceIdentifier: deviceID,
+                initialCoordinate: initialCoordinate,
+                state: .running(route: route, startedAt: startedAt),
+                ownershipToken: token,
+                ownerProcessIdentity: try currentLocationProcessIdentity()
+            ))
             try await runLocationRouteCommand(deviceID: deviceID, route: route)
+            commandCommitted = true
+            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
         } catch {
+            let mutationError = error
+            if commandCommitted {
+                if let previousRecord {
+                    try await restoreExternalLocationLifecycle(
+                        deviceID: deviceID,
+                        state: previousRecord.state.activeLocationRoute
+                    )
+                } else {
+                    _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+                }
+            }
+            try restoreLocationRecoveryRecord(
+                previousRecord,
+                deviceID: deviceID,
+                replacingOwnershipToken: token
+            )
             finishLocationOperation(deviceID: deviceID, token: token)
             restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
-            throw error
+            throw mutationError
         }
-        try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
         locationRouteInitialCoordinates[deviceID] = initialCoordinate
-        activeLocationRoutes[deviceID] = .running(route: route, startedAt: now())
+        activeLocationRoutes[deviceID] = .running(route: route, startedAt: startedAt)
         scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
     }
 
@@ -170,6 +294,10 @@ extension SimulatorControlService {
             )
         }
         let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
+        let recoveryRecord = try requireLocationRecoveryRecord(
+            deviceID: deviceID,
+            ownershipToken: token
+        )
         let elapsed = max(0, now().timeIntervalSince(startedAt))
         let pausedRoute = remainingRoute(route, after: elapsed)
         let coordinate = pausedRoute.waypoints[0]
@@ -184,6 +312,11 @@ extension SimulatorControlService {
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            try locationRouteRecoveryStore.save(recoveryRecord.adopting(
+                ownershipToken: token,
+                ownerProcessIdentity: try currentLocationProcessIdentity(),
+                state: .paused(route: pausedRoute)
+            ))
             activeLocationRoutes[deviceID] = .paused(route: pausedRoute)
         } catch {
             let mutationError = error
@@ -214,22 +347,40 @@ extension SimulatorControlService {
             )
         }
         let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
+        let recoveryRecord = try requireLocationRecoveryRecord(
+            deviceID: deviceID,
+            ownershipToken: token
+        )
         let initialCoordinate = locationRouteInitialCoordinates[deviceID] ?? route.waypoints[0]
         if route.waypoints.count < 2 {
             activeLocationRoutes.removeValue(forKey: deviceID)
             return
         }
         cancelLocationLifecycle(deviceID: deviceID)
+        var commandCommitted = false
         do {
             try await runLocationRouteCommand(deviceID: deviceID, route: route)
+            commandCommitted = true
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            try locationRouteRecoveryStore.save(recoveryRecord.adopting(
+                ownershipToken: token,
+                ownerProcessIdentity: try currentLocationProcessIdentity(),
+                state: .running(route: route, startedAt: now())
+            ))
         } catch {
+            let mutationError = error
+            if commandCommitted {
+                try await restoreExternalLocationLifecycle(
+                    deviceID: deviceID,
+                    state: .paused(route: route)
+                )
+            }
             restoreLocationLifecycle(
                 deviceID: deviceID,
                 state: .paused(route: route),
                 token: token
             )
-            throw error
+            throw mutationError
         }
         locationRouteInitialCoordinates[deviceID] = initialCoordinate
         activeLocationRoutes[deviceID] = .running(route: route, startedAt: now())
@@ -244,12 +395,37 @@ extension SimulatorControlService {
     }
 
     private func stopLocationRouteExclusively(deviceID: String) async throws {
-        guard let initialCoordinate = locationRouteInitialCoordinates[deviceID] else {
+        let recoveryRecord = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
+        guard locationRouteInitialCoordinates[deviceID] != nil || recoveryRecord != nil else {
             discardLocalLocationRoute(deviceID: deviceID)
             return
         }
-        let token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
-        let rollbackState = locationRollbackState(activeLocationRoutes[deviceID])
+        let token: UUID
+        let initialCoordinate: SimulatorLocationCoordinate
+        let rollbackState: ActiveLocationRoute?
+        if let localInitialCoordinate = locationRouteInitialCoordinates[deviceID] {
+            token = try await requireOwnedLocationRouteToken(deviceID: deviceID)
+            let matchingRecord = try requireLocationRecoveryRecord(
+                deviceID: deviceID,
+                ownershipToken: token
+            )
+            initialCoordinate = localInitialCoordinate
+            rollbackState = locationRollbackState(activeLocationRoutes[deviceID])
+                ?? matchingRecord.state.activeLocationRoute
+        } else if let recoveryRecord {
+            token = try await beginLocationOperation(deviceID: deviceID)
+            let adoptedRecord = recoveryRecord.adopting(
+                ownershipToken: token,
+                ownerProcessIdentity: try currentLocationProcessIdentity()
+            )
+            try locationRouteRecoveryStore.save(adoptedRecord)
+            initialCoordinate = adoptedRecord.initialCoordinate
+            rollbackState = adoptedRecord.state.activeLocationRoute
+            locationRouteInitialCoordinates[deviceID] = initialCoordinate
+            activeLocationRoutes[deviceID] = rollbackState
+        } else {
+            return
+        }
         cancelLocationLifecycle(deviceID: deviceID)
         activeLocationRoutes.removeValue(forKey: deviceID)
         var clearCommitted = false
@@ -260,6 +436,10 @@ extension SimulatorControlService {
                 "simctl", "location", deviceID, "set", coordinateArgument(initialCoordinate),
             ])
             try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            guard try locationRouteRecoveryStore.remove(
+                deviceIdentifier: deviceID,
+                expectedOwnershipToken: token
+            ) else { throw CancellationError() }
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
@@ -532,6 +712,53 @@ extension SimulatorControlService {
                 activeLocationRoutes.removeValue(forKey: deviceID)
             }
         }
+    }
+
+    private func adoptLocationRecoveryRecord(
+        _ record: SimulatorLocationRouteRecoveryRecord?,
+        ownershipToken: UUID
+    ) throws {
+        guard let record else { return }
+        try locationRouteRecoveryStore.save(record.adopting(
+            ownershipToken: ownershipToken,
+            ownerProcessIdentity: try currentLocationProcessIdentity()
+        ))
+    }
+
+    private func restoreLocationRecoveryRecord(
+        _ record: SimulatorLocationRouteRecoveryRecord?,
+        deviceID: String,
+        replacingOwnershipToken ownershipToken: UUID
+    ) throws {
+        if let record {
+            try locationRouteRecoveryStore.save(record.adopting(
+                ownershipToken: ownershipToken,
+                ownerProcessIdentity: try currentLocationProcessIdentity()
+            ))
+        } else {
+            _ = try locationRouteRecoveryStore.remove(
+                deviceIdentifier: deviceID,
+                expectedOwnershipToken: ownershipToken
+            )
+        }
+    }
+
+    private func requireLocationRecoveryRecord(
+        deviceID: String,
+        ownershipToken: UUID
+    ) throws -> SimulatorLocationRouteRecoveryRecord {
+        guard let record = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID),
+              record.ownershipToken == ownershipToken else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return record
+    }
+
+    private func currentLocationProcessIdentity() throws -> SimulatorProcessIdentity {
+        guard let identity = SimulatorProcessIdentity.current else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return identity
     }
 
     private func beginLocationOperation(deviceID: String) async throws -> UUID {

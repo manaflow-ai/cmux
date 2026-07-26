@@ -142,7 +142,7 @@ class TerminalController {
     let simulatorLocationOwnershipScope: SimulatorLocationOwnershipScope
     /// App-owned camera cleanup scope injected into every Simulator pane.
     let simulatorCameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope
-    private var simulatorCameraAuthorizationRecoveryTask: Task<Void, Never>?
+    private var simulatorMutationRecoveryTask: Task<Void, Never>?
     /// Process-wide native SSH master owner and per-host reconnect coordinator.
     nonisolated let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
@@ -380,7 +380,12 @@ class TerminalController {
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let simulatorOwnershipFileManager = FileManager()
-        let simulatorOwnershipDirectory = simulatorOwnershipFileManager.temporaryDirectory
+        let simulatorApplicationSupportDirectory = simulatorOwnershipFileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? simulatorOwnershipFileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let simulatorOwnershipDirectory = simulatorApplicationSupportDirectory
             .appendingPathComponent(
                 "com.cmux.simulator-ownership",
                 isDirectory: true
@@ -852,19 +857,26 @@ class TerminalController {
         self.browserSignInFlow = browserSignIn
     }
 
-    func startSimulatorCameraAuthorizationRecovery() {
-        guard simulatorCameraAuthorizationRecoveryTask == nil else { return }
-        let ownershipScope = simulatorCameraCleanupOwnershipScope
-        simulatorCameraAuthorizationRecoveryTask = Task { @MainActor [weak self] in
+    func startSimulatorMutationRecovery() {
+        guard simulatorMutationRecoveryTask == nil else { return }
+        let locationOwnershipScope = simulatorLocationOwnershipScope
+        let cameraOwnershipScope = simulatorCameraCleanupOwnershipScope
+        simulatorMutationRecoveryTask = Task { @MainActor [weak self] in
             let service = SimulatorControlService(
-                cameraCleanupOwnershipScope: ownershipScope
+                locationOwnershipScope: locationOwnershipScope,
+                cameraCleanupOwnershipScope: cameraOwnershipScope
             )
-            let succeeded = await service.recoverOrphanedCameraAuthorizations()
+            async let cameraSucceeded = service.recoverOrphanedCameraAuthorizations()
+            async let locationSucceeded = service.recoverOrphanedLocationRoutes()
+            let results = await (cameraSucceeded, locationSucceeded)
             StartupBreadcrumbLog.append(
-                "simulator.cameraAuthorization.launchRecovery",
-                fields: ["succeeded": succeeded ? "1" : "0"]
+                "simulator.mutation.launchRecovery",
+                fields: [
+                    "cameraSucceeded": results.0 ? "1" : "0",
+                    "locationSucceeded": results.1 ? "1" : "0",
+                ]
             )
-            self?.simulatorCameraAuthorizationRecoveryTask = nil
+            self?.simulatorMutationRecoveryTask = nil
         }
     }
 

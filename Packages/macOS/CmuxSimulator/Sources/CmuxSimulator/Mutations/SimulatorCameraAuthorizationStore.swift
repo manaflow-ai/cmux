@@ -7,9 +7,17 @@ import Foundation
 public struct SimulatorCameraAuthorizationStore: Sendable {
     private let directory: URL
 
-    /// Creates a store in the shared Simulator ownership directory by default.
-    public init(directory: URL? = nil) {
-        self.directory = directory ?? FileManager().temporaryDirectory
+    /// Creates a store in durable per-user Application Support by default.
+    public init(
+        directory: URL? = nil,
+        fileManager: FileManager = FileManager()
+    ) {
+        let applicationSupportDirectory = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+        self.directory = directory ?? applicationSupportDirectory
             .appendingPathComponent("com.cmux.simulator-ownership", isDirectory: true)
             .appendingPathComponent("camera-authorizations", isDirectory: true)
     }
@@ -86,25 +94,26 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
     package func records() throws -> [SimulatorCameraAuthorizationRecord] {
         let fileManager = FileManager()
         guard fileManager.fileExists(atPath: directory.path) else { return [] }
-        return try fileManager.contentsOfDirectory(
+        let urls = try fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
-        ).compactMap { url in
-            guard url.pathExtension == "json",
-                  let record = try? JSONDecoder().decode(
-                      SimulatorCameraAuthorizationRecord.self,
-                      from: Data(contentsOf: url)
-                  ),
-                  (try? validate(
-                      record,
-                      expectedDeviceIdentifier: record.deviceIdentifier,
-                      expectedBundleIdentifier: record.bundleIdentifier,
-                      sourceURL: url
-                  )) != nil
-            else { return nil }
-            return record
+        )
+        var records: [SimulatorCameraAuthorizationRecord] = []
+        for url in urls where url.pathExtension == "json" {
+            let record = try JSONDecoder().decode(
+                SimulatorCameraAuthorizationRecord.self,
+                from: Data(contentsOf: url)
+            )
+            try validate(
+                record,
+                expectedDeviceIdentifier: record.deviceIdentifier,
+                expectedBundleIdentifier: record.bundleIdentifier,
+                sourceURL: url
+            )
+            records.append(record)
         }
+        return records
     }
 
     package func remove(
@@ -141,6 +150,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         guard record.deviceIdentifier == expectedDeviceIdentifier,
               record.bundleIdentifier == expectedBundleIdentifier,
               [.notDetermined, .denied, .granted].contains(record.authorization),
+              record.ownerProcessIdentity.map(processIdentityIsValid) == true,
               sourceURL.standardizedFileURL == fileURL(
                   deviceIdentifier: record.deviceIdentifier,
                   bundleIdentifier: record.bundleIdentifier
@@ -148,6 +158,12 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         else {
             throw CocoaError(.fileReadCorruptFile)
         }
+    }
+
+    private func processIdentityIsValid(_ identity: SimulatorProcessIdentity) -> Bool {
+        identity.pid > 0
+            && identity.startSeconds > 0
+            && (0..<1_000_000).contains(identity.startMicroseconds)
     }
 
     private func hash(_ values: [String]) -> String {

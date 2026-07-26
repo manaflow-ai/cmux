@@ -104,6 +104,103 @@ struct SimulatorControlServiceLocationLifecycleTests {
         ])
     }
 
+    @Test("Launch recovery restores dead route owners and preserves live owners")
+    func launchRecoveryRestoresOnlyOrphanedRoutes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-launch-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = SimulatorLocationOwnershipScope(directory: directory)
+        let route = Self.route()
+        let orphanDeviceID = "ORPHAN-\(UUID().uuidString)"
+        let liveDeviceID = "LIVE-\(UUID().uuidString)"
+        let orphanToken = UUID()
+        let liveToken = UUID()
+        try scope.recoveryStore.save(SimulatorLocationRouteRecoveryRecord(
+            deviceIdentifier: orphanDeviceID,
+            initialCoordinate: route.waypoints[0],
+            state: .running(route: route, startedAt: Date()),
+            ownershipToken: orphanToken,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        ))
+        try scope.recoveryStore.save(SimulatorLocationRouteRecoveryRecord(
+            deviceIdentifier: liveDeviceID,
+            initialCoordinate: route.waypoints[0],
+            state: .running(route: route, startedAt: Date()),
+            ownershipToken: liveToken,
+            ownerProcessIdentity: try #require(SimulatorProcessIdentity.current)
+        ))
+        let commands = LocationLifecycleCommandRunner()
+        let service = SimulatorControlService(
+            commands: commands,
+            locationOwnershipScope: scope
+        )
+
+        #expect(await service.recoverOrphanedLocationRoutes())
+
+        #expect(await commands.arguments() == [
+            ["simctl", "location", orphanDeviceID, "clear"],
+            ["simctl", "location", orphanDeviceID, "set", "37.7,-122.4"],
+        ])
+        #expect(try scope.recoveryStore.record(deviceIdentifier: orphanDeviceID) == nil)
+        #expect(try scope.recoveryStore.record(deviceIdentifier: liveDeviceID)?.ownershipToken == liveToken)
+    }
+
+    @Test("Launch recovery fails closed on a corrupt location journal")
+    func launchRecoveryFailsClosedOnCorruptLocationJournal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-corrupt-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journalDirectory = directory.appendingPathComponent(
+            "location-routes",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: journalDirectory,
+            withIntermediateDirectories: true
+        )
+        let corruptJournal = journalDirectory.appendingPathComponent("corrupt.json")
+        try Data(#"{"deviceIdentifier":"DEVICE""#.utf8).write(to: corruptJournal)
+        let commands = LocationLifecycleCommandRunner()
+        let service = SimulatorControlService(
+            commands: commands,
+            locationOwnershipScope: SimulatorLocationOwnershipScope(directory: directory)
+        )
+
+        #expect(!(await service.recoverOrphanedLocationRoutes()))
+        #expect(await commands.arguments().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: corruptJournal.path))
+    }
+
+    @Test("A fixed location removes the route recovery journal")
+    func fixedLocationSupersedesRouteJournal() async throws {
+        let deviceID = UUID().uuidString
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-fixed-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = SimulatorLocationOwnershipScope(directory: directory)
+        let service = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: scope
+        )
+        try await service.startLocationRoute(deviceID: deviceID, route: Self.route())
+        try await service.setLocation(
+            deviceID: deviceID,
+            coordinate: SimulatorLocationCoordinate(latitude: 40, longitude: -73)
+        )
+
+        #expect(try scope.recoveryStore.record(deviceIdentifier: deviceID) == nil)
+    }
+
     @Test(
         "Failed pause and stop commands preserve their running route lifecycle",
         arguments: [1, 2]

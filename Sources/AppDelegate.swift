@@ -2189,7 +2189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
-            TerminalController.shared.startSimulatorCameraAuthorizationRecovery()
+            TerminalController.shared.startSimulatorMutationRecovery()
         }
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
