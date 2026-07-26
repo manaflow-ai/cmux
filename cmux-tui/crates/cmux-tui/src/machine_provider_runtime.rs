@@ -3264,33 +3264,49 @@ mod tests {
                         negotiated_version: protocol::Version,
                     },
                 )
-                .with_capabilities(["client-capability-negotiation-v1"]),
+                .with_capabilities([
+                    protocol::CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY,
+                    protocol::DURABLE_NOTICES_CAPABILITY,
+                    protocol::MACHINE_LIFECYCLE_CAPABILITY,
+                ]),
             );
 
-            let negotiation: Value = read_frame(&mut reader);
-            assert_eq!(
-                negotiation.get("method").and_then(Value::as_str),
-                Some("negotiate_client_capabilities")
-            );
-            assert_eq!(
-                negotiation.pointer("/params/capabilities"),
-                Some(&json!(["provider-action-targets-v1"]))
-            );
+            let negotiation: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::NegotiateClientCapabilities(params) =
+                negotiation.request
+            else {
+                panic!("client capability negotiation did not immediately follow hello");
+            };
+            assert_eq!(params.capabilities, [protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY]);
             write_frame(
                 &mut stream,
-                &json!({
-                    "protocol": "cmux.machine-provider",
-                    "version": 1,
-                    "id": negotiation["id"],
-                    "result": {
-                        "capabilities": ["provider-action-targets-v1"]
-                    }
-                }),
+                &protocol::ResponseEnvelope::success(
+                    negotiation.id,
+                    protocol::NegotiateClientCapabilitiesResult {
+                        capabilities: vec![
+                            protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+                        ],
+                    },
+                ),
+            );
+
+            let subscribe: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(subscribe.request, protocol::ProviderRequest::SubscribeNotices(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    subscribe.id,
+                    protocol::SubscribeNoticesResult { sequence: 0 },
+                ),
             );
 
             let request: protocol::RequestEnvelope = read_frame(&mut reader);
             assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
-            write_frame(&mut stream, &protocol::ResponseEnvelope::success(request.id, targeted));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(request.id, targeted.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &targeted);
             finished.recv_timeout(Duration::from_secs(1)).unwrap();
         });
 
