@@ -810,6 +810,7 @@ struct ContentView: View {
     let windowId: UUID
     let featureFlags: CmuxFeatureFlags
 
+    @MainActor
     init(
         updateViewModel: UpdateStateModel,
         windowId: UUID,
