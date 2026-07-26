@@ -1,7 +1,13 @@
 import unittest
 from unittest.mock import patch
 
-from cmux import CmuxClient, ProtocolError, TerminalKeyInput, TerminalModifiers
+from cmux import (
+    TERMINAL_KEY_TEXT_MAX_BYTES,
+    CmuxClient,
+    ProtocolError,
+    TerminalKeyInput,
+    TerminalModifiers,
+)
 from cmux.client import IdentifyResult, Layout, _parse_tree
 
 
@@ -225,6 +231,24 @@ class ProtocolTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_clear_history_fallback_rejects_oversized_key_text_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = {"clear-history-v1", "clear-history-key-v1"}
+        requests = []
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+        fallback = TerminalKeyInput(
+            key="k",
+            utf8="x" * (TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "terminal key text exceeds the 1 MiB protocol limit"
+        ):
+            client.clear_history(7, fallback_key=fallback)
+
+        self.assertEqual(requests, [])
 
     def test_new_pane_rejects_servers_older_than_protocol_nine(self) -> None:
         client = CmuxClient.__new__(CmuxClient)

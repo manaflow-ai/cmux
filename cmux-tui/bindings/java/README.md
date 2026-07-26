@@ -33,7 +33,8 @@ try (CmuxClient client = CmuxClient.builder().build()) {
 `CMUX_MUX_SOCKET`, then the default session socket path.
 
 The `clearHistory(surface, TerminalKeyInput)` overload requires the server
-capability `clear-history-key-v1`.
+capability `clear-history-key-v1`. It rejects fallback `utf8` fields above the
+1 MiB protocol limit before sending.
 
 ## E2E
 

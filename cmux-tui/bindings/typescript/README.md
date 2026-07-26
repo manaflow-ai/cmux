@@ -104,7 +104,8 @@ response data type. `sendRaw()` remains available for untyped forward
 compatibility.
 
 `clearHistory(surface, fallbackKey)` accepts a typed `TerminalKeyInput` and
-fails locally unless the server advertises `clear-history-key-v1`.
+fails locally unless the server advertises `clear-history-key-v1`. It also
+rejects fallback `utf8` fields above the 1 MiB protocol limit before sending.
 
 ## Verification
 

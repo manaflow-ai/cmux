@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -326,6 +327,27 @@ func TestClearHistoryFallbackRequiresCapabilityAndPreservesKey(t *testing.T) {
 		key["action"] != "press" ||
 		key["macos_option_as_alt"] != true {
 		t.Fatalf("ClearHistoryWithFallback() fallback_key = %#v", key)
+	}
+}
+
+func TestClearHistoryFallbackRejectsOversizedKeyTextLocally(t *testing.T) {
+	protocol := uint32(9)
+	client := &Client{
+		protocol: &protocol,
+		capabilities: map[string]struct{}{
+			"clear-history-v1":     {},
+			"clear-history-key-v1": {},
+		},
+	}
+	err := client.ClearHistoryWithFallback(context.Background(), 7, TerminalKeyInput{
+		Key:  TerminalKeyK,
+		UTF8: strings.Repeat("x", TerminalKeyTextMaxBytes+1),
+	})
+	if err == nil || !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("ClearHistoryWithFallback() error = %v, want invalid argument", err)
+	}
+	if !strings.Contains(err.Error(), "terminal key text exceeds the 1 MiB protocol limit") {
+		t.Fatalf("ClearHistoryWithFallback() error = %v", err)
 	}
 }
 

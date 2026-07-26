@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.Set;
 
 public final class CmuxClient implements AutoCloseable {
+    public static final int TERMINAL_KEY_TEXT_MAX_BYTES = 1024 * 1024;
+
     private final String socketPath;
     private final Duration timeout;
     private final boolean allowProtocolV6Attach;
@@ -172,6 +174,11 @@ public final class CmuxClient implements AutoCloseable {
     public void clearHistory(long surface, TerminalKeyInput fallbackKey) throws CmuxException {
         requireCapability("clear-history-v1", "clear-history");
         requireCapability("clear-history-key-v1", "clear-history key fallback");
+        if (fallbackKey.utf8().getBytes(StandardCharsets.UTF_8).length > TERMINAL_KEY_TEXT_MAX_BYTES) {
+            throw new IllegalArgumentException(
+                "terminal key text exceeds the 1 MiB protocol limit"
+            );
+        }
         Map<String, Object> params = surfaceParams(surface);
         params.put("fallback_key", fallbackKey.toMap());
         request("clear-history", params);

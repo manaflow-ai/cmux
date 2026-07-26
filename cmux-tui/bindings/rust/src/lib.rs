@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
+pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub enum CmuxError {
@@ -728,6 +729,11 @@ impl CmuxClient {
     ) -> Result<()> {
         self.require_capability("clear-history-v1", "clear-history")?;
         self.require_capability("clear-history-key-v1", "clear-history key fallback")?;
+        if fallback_key.utf8.len() > TERMINAL_KEY_TEXT_MAX_BYTES {
+            return Err(CmuxError::InvalidArgument(
+                "terminal key text exceeds the 1 MiB protocol limit".to_string(),
+            ));
+        }
         let mut params = surface_params(surface);
         params.insert(
             "fallback_key".to_string(),
@@ -1739,6 +1745,35 @@ mod tests {
 
         client.clear_history_with_fallback(7, &fallback).unwrap();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn clear_history_fallback_rejects_oversized_key_text_locally() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+        let fallback = TerminalKeyInput {
+            key: TerminalKey::K,
+            mods: TerminalModifiers { super_key: true, ..Default::default() },
+            consumed_mods: TerminalModifiers::default(),
+            utf8: "x".repeat(TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+            unshifted_codepoint: Some('k'),
+            base_layout_codepoint: Some('k'),
+            action: Some(TerminalKeyAction::Press),
+            macos_option_as_alt: true,
+        };
+
+        assert!(matches!(
+            client.clear_history_with_fallback(7, &fallback),
+            Err(CmuxError::InvalidArgument(message))
+                if message == "terminal key text exceeds the 1 MiB protocol limit"
+        ));
     }
 
     #[test]

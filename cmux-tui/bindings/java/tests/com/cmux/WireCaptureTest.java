@@ -43,6 +43,7 @@ public final class WireCaptureTest {
         );
         assertMissingClearHistoryCapabilityIsRejected();
         assertMissingClearHistoryFallbackCapabilityIsRejected();
+        assertOversizedClearHistoryFallbackIsRejectedLocally();
         assertProtocolV7RejectsSetSplitRatio();
         assertProtocolV8RejectsNewPane();
         assertProtocolV9AllowsSetSplitRatio();
@@ -166,6 +167,41 @@ public final class WireCaptureTest {
             "k",
             TerminalKeyAction.PRESS,
             true
+        );
+    }
+
+    private static void assertOversizedClearHistoryFallbackIsRejectedLocally() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\",\"clear-history-key-v1\"],\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        TerminalKeyInput fallback = new TerminalKeyInput(
+            TerminalKey.K,
+            TerminalModifiers.none(),
+            TerminalModifiers.none(),
+            "x".repeat(CmuxClient.TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+            "k",
+            "k",
+            TerminalKeyAction.PRESS,
+            true
+        );
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.clearHistory(9, fallback);
+                throw new AssertionError("oversized fallback key text must be rejected locally");
+            } catch (IllegalArgumentException error) {
+                if (!error.getMessage().equals("terminal key text exceeds the 1 MiB protocol limit")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "oversized clear-history fallback identify",
+            "{\"id\":1,\"cmd\":\"identify\"}\n",
+            server.firstLine(0)
         );
     }
 

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CmuxClient, CmuxStream } from "../src/client.js";
+import {
+  TERMINAL_KEY_TEXT_MAX_BYTES,
+  CmuxClient,
+  CmuxStream,
+} from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
 import type {
   DecodedResizedEvent,
@@ -306,6 +310,39 @@ test("clearHistory preserves the structured fallback key", async () => {
   const client = new CmuxClient({ transport, timeoutMs: 100 });
 
   await client.clearHistory(7, commandKFallback);
+  await client.close();
+});
+
+test("clearHistory rejects oversized fallback key text locally", async () => {
+  let clearRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 9,
+          capabilities: ["clear-history-v1", "clear-history-key-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    clearRequests += 1;
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(
+    client.clearHistory(7, {
+      ...commandKFallback,
+      utf8: "x".repeat(TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+    }),
+    /terminal key text exceeds the 1 MiB protocol limit/,
+  );
+  assert.equal(clearRequests, 0);
   await client.close();
 });
 

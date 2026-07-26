@@ -9,6 +9,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Literal, Optional
 
+TERMINAL_KEY_TEXT_MAX_BYTES = 1024 * 1024
+
 
 class CmuxError(Exception):
     pass
@@ -682,6 +684,8 @@ class CmuxClient:
         params: Dict[str, Any] = {"surface": surface}
         if fallback_key is not None:
             self._require_capability("clear-history-key-v1", "clear-history key fallback")
+            if len(fallback_key.utf8.encode("utf-8")) > TERMINAL_KEY_TEXT_MAX_BYTES:
+                raise ValueError("terminal key text exceeds the 1 MiB protocol limit")
             params["fallback_key"] = fallback_key.to_wire()
         self._request("clear-history", **params)
         return EmptyResult()

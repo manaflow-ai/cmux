@@ -67,7 +67,7 @@ pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
-const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024 * 1024;
+const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = 1024 * 1024;
 
 macro_rules! protocol_keys {
     ($($variant:ident => $constant:ident),+ $(,)?) => {
@@ -291,7 +291,7 @@ enum ProtocolKeyAction {
 
 fn validate_protocol_key_text(text: &str) -> anyhow::Result<()> {
     if text.len() > PROTOCOL_KEY_TEXT_MAX_BYTES {
-        anyhow::bail!("terminal key text is too large");
+        anyhow::bail!("terminal key text exceeds the 1 MiB protocol limit");
     }
     if text.chars().any(char::is_control) {
         anyhow::bail!("terminal key text contains control characters");
@@ -7357,6 +7357,9 @@ mod tests {
         assert!(ProtocolKeyInput::try_from(&invalid_mods).is_err());
         let invalid_codepoint = KeyInput { unshifted_codepoint: 0xD800, ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_codepoint).is_err());
+        let oversized_text =
+            KeyInput { utf8: "x".repeat(PROTOCOL_KEY_TEXT_MAX_BYTES + 1), ..input };
+        assert!(ProtocolKeyInput::try_from(&oversized_text).is_err());
         let invalid_base_layout = KeyInput { base_layout_codepoint: 0xD800, ..input };
         assert!(ProtocolKeyInput::try_from(&invalid_base_layout).is_err());
     }

@@ -38,7 +38,8 @@ fmt.Println(screen.Text)
 the default session socket path.
 
 `ClearHistoryWithFallback` accepts a `TerminalKeyInput` and requires the server
-capability `clear-history-key-v1`.
+capability `clear-history-key-v1`. It rejects fallback `UTF8` fields above the
+1 MiB protocol limit before sending.
 
 ## E2E
 

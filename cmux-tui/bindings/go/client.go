@@ -350,6 +350,12 @@ func (c *Client) ClearHistoryWithFallback(
 	); err != nil {
 		return err
 	}
+	if len(fallbackKey.UTF8) > TerminalKeyTextMaxBytes {
+		return fmt.Errorf(
+			"%w: terminal key text exceeds the 1 MiB protocol limit",
+			ErrInvalidArgument,
+		)
+	}
 	return c.request(ctx, "clear-history", map[string]any{
 		"surface":      surface,
 		"fallback_key": fallbackKey,

@@ -82,6 +82,7 @@ export interface CmuxClientOptions {
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
+export const TERMINAL_KEY_TEXT_MAX_BYTES = 1024 * 1024;
 
 function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
   if ("workspace" in result
@@ -497,6 +498,9 @@ export class CmuxClient {
     await this.requireCapability("clear-history-v1", "clear-history");
     if (fallbackKey !== undefined) {
       await this.requireCapability("clear-history-key-v1", "clear-history key fallback");
+      if (new TextEncoder().encode(fallbackKey.utf8).byteLength > TERMINAL_KEY_TEXT_MAX_BYTES) {
+        throw new TypeError("terminal key text exceeds the 1 MiB protocol limit");
+      }
     }
     return this.request("clear-history", { surface, fallback_key: fallbackKey });
   }
