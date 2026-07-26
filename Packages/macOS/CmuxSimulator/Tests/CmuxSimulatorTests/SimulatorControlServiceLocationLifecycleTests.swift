@@ -317,6 +317,65 @@ struct SimulatorControlServiceLocationLifecycleTests {
         #expect(try ownerScope.recoveryStore.record(deviceIdentifier: deviceID) == nil)
     }
 
+    @Test("A stale pane cannot adopt another pane's recovered route token")
+    func stalePaneCannotAdoptRecoveredRouteToken() async throws {
+        let deviceID = UUID().uuidString
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "location-stale-pane-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = SimulatorLocationOwnershipScope(directory: directory)
+        let staleCommands = LocationLifecycleCommandRunner()
+        let staleService = SimulatorControlService(
+            commands: staleCommands,
+            locationOwnershipScope: scope
+        )
+        let currentService = SimulatorControlService(
+            commands: LocationLifecycleCommandRunner(),
+            locationOwnershipScope: scope
+        )
+        try await staleService.startLocationRoute(deviceID: deviceID, route: Self.route())
+        let currentRoute = SimulatorLocationRoute(
+            waypoints: [
+                SimulatorLocationCoordinate(latitude: 34.0, longitude: -118.2),
+                SimulatorLocationCoordinate(latitude: 34.1, longitude: -118.1),
+            ],
+            speed: 5
+        )
+        try await currentService.startLocationRoute(deviceID: deviceID, route: currentRoute)
+        let committedRecord = try #require(
+            try scope.recoveryStore.record(deviceIdentifier: deviceID)
+        )
+        let committedSnapshot = try #require(committedRecord.committed)
+        let pendingToken = UUID()
+        let liveOwner = try #require(SimulatorProcessIdentity.current)
+        try scope.recoveryStore.save(committedRecord.preparing(
+            replacement: committedSnapshot.adopting(
+                ownershipToken: pendingToken,
+                ownerProcessIdentity: liveOwner
+            ),
+            ownershipToken: pendingToken,
+            ownerProcessIdentity: liveOwner
+        ))
+        try await scope.registry.claim(pendingToken, deviceIdentifier: deviceID)
+
+        do {
+            try await staleService.pauseLocationRoute(deviceID: deviceID)
+            Issue.record("Expected the stale pane to retain its superseded token")
+        } catch let error as SimulatorControlError {
+            #expect(error.code == "location_route_ownership_lost")
+        }
+
+        let arguments = await staleCommands.arguments()
+        #expect(arguments.count == 3)
+        #expect(arguments[0].prefix(4) == ["simctl", "location", deviceID, "start"])
+        #expect(arguments[1] == ["simctl", "location", deviceID, "clear"])
+        #expect(arguments[2].prefix(4) == ["simctl", "location", deviceID, "start"])
+        #expect(await staleService.activeLocationRoutes[deviceID] == nil)
+        try await currentService.stopLocationRoute(deviceID: deviceID)
+    }
+
     @Test("Launch recovery decodes the previous location journal schema")
     func launchRecoveryDecodesPreviousLocationJournal() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(

@@ -410,13 +410,19 @@ struct SimulatorControlServiceTests {
 
         let scan = try durableStore.records()
 
-        #expect(scan.records.count == 1)
-        #expect(scan.records[0].deviceIdentifier == deviceIdentifier)
+        #expect(scan.records.isEmpty)
         #expect(fileManager.fileExists(atPath: legacyURL.path))
         #expect(try durableStore.authorization(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
-        ) == .denied)
+        ) == nil)
+        #expect(throws: (any Error).self) {
+            try durableStore.save(
+                .denied,
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+        }
     }
 
     @Test("Device type identifies family when runtimes omit family metadata")
