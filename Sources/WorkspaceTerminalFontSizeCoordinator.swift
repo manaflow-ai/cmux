@@ -134,6 +134,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
         let magnificationPercent: Int
         weak var previous: TransferRequestRecord?
         var next: TransferRequestRecord?
+        // Endpoint indexes keep request retirement proportional to the
+        // obligations that actually touch this record.
+        var obligationStartPanelIds: Set<UUID> = []
+        var obligationEndPanelIds: Set<UUID> = []
+        var stagedIntervalStartCount = 0
+        var stagedIntervalEndCount = 0
 
         init(
             request: PendingRequest,
@@ -173,6 +179,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private final class TransferResourceState {
+        struct ObligationAdjustment {
+            let obligationsToRemove: [TransferObligation]
+            let obligationsToRepair: [TransferObligation]
+        }
+
         struct RequestRetirement {
             let resourceBecameIdle: Bool
             let obligationsToRemove: [TransferObligation]
@@ -185,6 +196,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         private var requestsByToken:
             [UUID: TransferRequestRecord] = [:]
         private var obligationsByPanelId: [UUID: TransferObligation] = [:]
+        private var stagedObligationPanelIds: Set<UUID> = []
 
         func appendRequest(_ record: TransferRequestRecord) {
             precondition(
@@ -200,6 +212,214 @@ final class WorkspaceTerminalFontSizeCoordinator {
             lastRequest = record
         }
 
+        private func indexNextRequest(
+            for obligation: TransferObligation
+        ) {
+            guard let nextRequest = obligation.nextRequest else {
+                return
+            }
+            nextRequest.obligationStartPanelIds.insert(
+                obligation.panelId
+            )
+        }
+
+        private func indexThroughRequest(
+            for obligation: TransferObligation
+        ) {
+            obligation.throughRequest
+                .obligationEndPanelIds.insert(
+                    obligation.panelId
+                )
+        }
+
+        private func unindexNextRequest(
+            for obligation: TransferObligation
+        ) {
+            guard let nextRequest = obligation.nextRequest else {
+                return
+            }
+            nextRequest.obligationStartPanelIds.remove(
+                obligation.panelId
+            )
+        }
+
+        private func unindexThroughRequest(
+            for obligation: TransferObligation
+        ) {
+            obligation.throughRequest
+                .obligationEndPanelIds.remove(
+                    obligation.panelId
+                )
+        }
+
+        private func addStagedInterval(
+            for obligation: TransferObligation
+        ) {
+            guard let nextRequest = obligation.nextRequest else {
+                preconditionFailure(
+                    "Staged transfer requires a request interval"
+                )
+            }
+            let start = nextRequest.request.sequence
+            let end = obligation.throughRequest.request.sequence
+            precondition(start <= end)
+            nextRequest.stagedIntervalStartCount += 1
+            obligation.throughRequest
+                .stagedIntervalEndCount += 1
+        }
+
+        private func removeStagedInterval(
+            for obligation: TransferObligation
+        ) {
+            guard let nextRequest = obligation.nextRequest else {
+                preconditionFailure(
+                    "Staged transfer requires a request interval"
+                )
+            }
+            precondition(
+                nextRequest.stagedIntervalStartCount > 0
+            )
+            precondition(
+                obligation.throughRequest
+                    .stagedIntervalEndCount > 0
+            )
+            nextRequest.stagedIntervalStartCount -= 1
+            obligation.throughRequest
+                .stagedIntervalEndCount -= 1
+        }
+
+        /// Adjusts every affected interval once for a bulk cancellation.
+        /// Subsequent per-request unlinks therefore remain constant-time.
+        func prepareToRetireRequests(
+            _ tokens: Set<UUID>
+        ) -> ObligationAdjustment {
+            guard !tokens.isEmpty else {
+                return ObligationAdjustment(
+                    obligationsToRemove: [],
+                    obligationsToRepair: []
+                )
+            }
+
+            var affectedPanelIds: Set<UUID> = []
+            for token in tokens {
+                guard let record = requestsByToken[token] else {
+                    preconditionFailure(
+                        "Missing transfer request record"
+                    )
+                }
+                affectedPanelIds.formUnion(
+                    record.obligationStartPanelIds
+                )
+                affectedPanelIds.formUnion(
+                    record.obligationEndPanelIds
+                )
+            }
+            guard !affectedPanelIds.isEmpty else {
+                return ObligationAdjustment(
+                    obligationsToRemove: [],
+                    obligationsToRepair: []
+                )
+            }
+
+            var records: [TransferRequestRecord] = []
+            var record = firstRequest
+            while let current = record {
+                records.append(current)
+                record = current.next
+            }
+            var nextSurvivingByToken:
+                [UUID: TransferRequestRecord] = [:]
+            var nextSurviving: TransferRequestRecord?
+            for current in records.reversed() {
+                if !tokens.contains(current.request.token) {
+                    nextSurviving = current
+                }
+                if let nextSurviving {
+                    nextSurvivingByToken[
+                        current.request.token
+                    ] = nextSurviving
+                }
+            }
+            var previousSurvivingByToken:
+                [UUID: TransferRequestRecord] = [:]
+            var previousSurviving: TransferRequestRecord?
+            for current in records {
+                if !tokens.contains(current.request.token) {
+                    previousSurviving = current
+                }
+                if let previousSurviving {
+                    previousSurvivingByToken[
+                        current.request.token
+                    ] = previousSurviving
+                }
+            }
+
+            var obligationsToRemove: [TransferObligation] = []
+            var obligationsToRepair: [TransferObligation] = []
+            for panelId in affectedPanelIds {
+                guard let obligation =
+                        obligationsByPanelId[panelId],
+                      let currentNext =
+                        obligation.nextRequest else {
+                    preconditionFailure(
+                        "Missing indexed transfer obligation"
+                    )
+                }
+                let currentThrough = obligation.throughRequest
+                let next =
+                    tokens.contains(currentNext.request.token)
+                    ? nextSurvivingByToken[
+                        currentNext.request.token
+                    ]
+                    : currentNext
+                let through =
+                    tokens.contains(
+                        currentThrough.request.token
+                    )
+                    ? previousSurvivingByToken[
+                        currentThrough.request.token
+                    ]
+                    : currentThrough
+                guard let next, let through,
+                      next.request.sequence
+                        <= through.request.sequence else {
+                    obligationsToRemove.append(obligation)
+                    continue
+                }
+
+                let nextChanged = next !== currentNext
+                let throughChanged =
+                    through !== currentThrough
+                guard nextChanged || throughChanged else {
+                    continue
+                }
+                let isStaged =
+                    stagedObligationPanelIds
+                        .contains(obligation.panelId)
+                if isStaged {
+                    removeStagedInterval(for: obligation)
+                }
+                if nextChanged {
+                    unindexNextRequest(for: obligation)
+                    obligation.nextRequest = next
+                    indexNextRequest(for: obligation)
+                    obligationsToRepair.append(obligation)
+                }
+                if throughChanged {
+                    unindexThroughRequest(for: obligation)
+                    obligation.throughRequest = through
+                    indexThroughRequest(for: obligation)
+                }
+                if isStaged {
+                    addStagedInterval(for: obligation)
+                }
+            }
+            return ObligationAdjustment(
+                obligationsToRemove: obligationsToRemove,
+                obligationsToRepair: obligationsToRepair
+            )
+        }
+
         func retireRequest(token: UUID) -> RequestRetirement {
             precondition(outstandingRequestCount > 0)
             guard let record =
@@ -213,14 +433,44 @@ final class WorkspaceTerminalFontSizeCoordinator {
             let next = record.next
             var obligationsToRemove: [TransferObligation] = []
             var obligationsToRepair: [TransferObligation] = []
-            for obligation in obligationsByPanelId.values {
+            let nextPanelIds =
+                record.obligationStartPanelIds
+            record.obligationStartPanelIds.removeAll(
+                keepingCapacity: false
+            )
+            let throughPanelIds =
+                record.obligationEndPanelIds
+            record.obligationEndPanelIds.removeAll(
+                keepingCapacity: false
+            )
+            let affectedPanelIds =
+                nextPanelIds.union(throughPanelIds)
+            for panelId in affectedPanelIds {
+                guard let obligation =
+                        obligationsByPanelId[panelId] else {
+                    preconditionFailure(
+                        "Missing indexed transfer obligation"
+                    )
+                }
                 let beginsWithRecord =
                     obligation.nextRequest === record
                 let endsWithRecord =
                     obligation.throughRequest === record
+                precondition(
+                    beginsWithRecord || endsWithRecord
+                )
+                let isStaged =
+                    stagedObligationPanelIds
+                        .contains(obligation.panelId)
+                if isStaged {
+                    removeStagedInterval(for: obligation)
+                }
                 switch (beginsWithRecord, endsWithRecord) {
                 case (true, true):
                     obligation.nextRequest = nil
+                    stagedObligationPanelIds.remove(
+                        obligation.panelId
+                    )
                     obligationsToRemove.append(obligation)
                 case (true, false):
                     guard let next else {
@@ -229,6 +479,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                         )
                     }
                     obligation.nextRequest = next
+                    indexNextRequest(for: obligation)
                     obligationsToRepair.append(obligation)
                 case (false, true):
                     guard let previous else {
@@ -237,11 +488,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
                         )
                     }
                     obligation.throughRequest = previous
+                    indexThroughRequest(for: obligation)
                 case (false, false):
-                    break
+                    preconditionFailure(
+                        "Transfer endpoint index drifted"
+                    )
+                }
+                if isStaged,
+                   obligation.nextRequest != nil {
+                    addStagedInterval(for: obligation)
                 }
             }
 
+            precondition(record.stagedIntervalStartCount == 0)
+            precondition(record.stagedIntervalEndCount == 0)
             previous?.next = next
             next?.previous = previous
             if firstRequest === record {
@@ -277,7 +537,21 @@ final class WorkspaceTerminalFontSizeCoordinator {
         ) -> (obligation: TransferObligation, isNew: Bool)? {
             guard let firstRequest, let lastRequest else { return nil }
             if let existing = obligationsByPanelId[panel.id] {
+                guard existing.throughRequest !== lastRequest else {
+                    return (existing, false)
+                }
+                let isStaged =
+                    stagedObligationPanelIds
+                        .contains(existing.panelId)
+                if isStaged {
+                    removeStagedInterval(for: existing)
+                }
+                unindexThroughRequest(for: existing)
                 existing.throughRequest = lastRequest
+                indexThroughRequest(for: existing)
+                if isStaged {
+                    addStagedInterval(for: existing)
+                }
                 return (existing, false)
             }
             let obligation = TransferObligation(
@@ -287,7 +561,52 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 throughRequest: lastRequest
             )
             obligationsByPanelId[panel.id] = obligation
+            indexNextRequest(for: obligation)
+            indexThroughRequest(for: obligation)
             return (obligation, true)
+        }
+
+        func markStaged(_ obligation: TransferObligation) {
+            guard obligationsByPanelId[obligation.panelId]
+                    === obligation,
+                  stagedObligationPanelIds.insert(
+                    obligation.panelId
+                  ).inserted else {
+                return
+            }
+            addStagedInterval(for: obligation)
+        }
+
+        func advance(
+            _ obligation: TransferObligation,
+            past record: TransferRequestRecord
+        ) -> Bool {
+            precondition(
+                obligationsByPanelId[obligation.panelId]
+                    === obligation
+            )
+            precondition(obligation.nextRequest === record)
+            if obligation.throughRequest === record {
+                return true
+            }
+            let isStaged =
+                stagedObligationPanelIds
+                    .contains(obligation.panelId)
+            if isStaged {
+                removeStagedInterval(for: obligation)
+            }
+            unindexNextRequest(for: obligation)
+            guard let next = record.next else {
+                preconditionFailure(
+                    "Transfer interval lost its next request"
+                )
+            }
+            obligation.nextRequest = next
+            indexNextRequest(for: obligation)
+            if isStaged {
+                addStagedInterval(for: obligation)
+            }
+            return false
         }
 
         func remove(_ obligation: TransferObligation) {
@@ -296,27 +615,39 @@ final class WorkspaceTerminalFontSizeCoordinator {
             ) === obligation else {
                 return
             }
+            if stagedObligationPanelIds.remove(
+                obligation.panelId
+            ) != nil {
+                removeStagedInterval(for: obligation)
+            }
+            unindexNextRequest(for: obligation)
+            unindexThroughRequest(for: obligation)
             obligation.resourceState = nil
             obligation.nextRequest = nil
         }
 
-        var obligations: Dictionary<UUID, TransferObligation>.Values {
-            obligationsByPanelId.values
-        }
-
-        func hasStagedObligation(
-            containing request: PendingRequest
-        ) -> Bool {
-            obligationsByPanelId.values.contains { obligation in
-                guard obligation.panelTransferStageToken != nil,
-                      let nextRequest = obligation.nextRequest else {
-                    return false
-                }
-                return nextRequest.request.sequence
-                        <= request.sequence
-                    && request.sequence
-                        <= obligation.throughRequest.request.sequence
+        /// Sweeps the bounded request chain once, independent of the number
+        /// of overlapping staged panel transfers.
+        func collectStagedRequestTokens(
+            into tokens: inout Set<UUID>
+        ) {
+            guard !stagedObligationPanelIds.isEmpty else {
+                return
             }
+            var activeIntervalCount = 0
+            var record = firstRequest
+            while let current = record {
+                activeIntervalCount +=
+                    current.stagedIntervalStartCount
+                if activeIntervalCount > 0 {
+                    tokens.insert(current.request.token)
+                }
+                activeIntervalCount -=
+                    current.stagedIntervalEndCount
+                precondition(activeIntervalCount >= 0)
+                record = current.next
+            }
+            precondition(activeIntervalCount == 0)
         }
     }
 
@@ -655,12 +986,19 @@ final class WorkspaceTerminalFontSizeCoordinator {
         invalidateScheduledDrain()
         sealPendingEventBatch()
 
+        var stagedRequestTokens: Set<UUID> = []
+        for resourceState in transferResourceStates.values {
+            resourceState.collectStagedRequestTokens(
+                into: &stagedRequestTokens
+            )
+        }
         var removedRequests: [PendingRequest] = []
         if let activeRequest,
            requestBelongsToClosingWindow(
                 activeRequest.request,
                 closingManager: closingManager,
-                windowDockSlot: closingWindowDockSlot
+                windowDockSlot: closingWindowDockSlot,
+                stagedRequestTokens: stagedRequestTokens
            ) {
             cancelInheritance(for: activeRequest)
             removedRequests.append(activeRequest.request)
@@ -671,10 +1009,37 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 requestBelongsToClosingWindow(
                     $0,
                     closingManager: closingManager,
-                    windowDockSlot: closingWindowDockSlot
+                    windowDockSlot: closingWindowDockSlot,
+                    stagedRequestTokens: stagedRequestTokens
                 )
             }
         )
+        var removedTokensByResource:
+            [RequestResourceKey: Set<UUID>] = [:]
+        for request in removedRequests {
+            removedTokensByResource[
+                request.resourceKey,
+                default: []
+            ].insert(request.token)
+        }
+        for (resourceKey, tokens) in
+                removedTokensByResource {
+            guard let resourceState =
+                    transferResourceStates[resourceKey] else {
+                continue
+            }
+            let adjustment =
+                resourceState.prepareToRetireRequests(tokens)
+            for obligation in adjustment.obligationsToRemove {
+                removeTransferObligation(obligation)
+            }
+            for obligation in adjustment.obligationsToRepair {
+                guard let index = obligation.heapIndex else {
+                    continue
+                }
+                repairTransferObligationHeap(at: index)
+            }
+        }
         for request in removedRequests {
             retire(request)
             releaseClaimIfIdle(for: request)
@@ -932,10 +1297,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func requestBelongsToClosingWindow(
         _ request: PendingRequest,
         closingManager: TabManager?,
-        windowDockSlot closingWindowDockSlot: WindowDockSlot
+        windowDockSlot closingWindowDockSlot: WindowDockSlot,
+        stagedRequestTokens: Set<UUID>
     ) -> Bool {
-        if transferResourceStates[request.resourceKey]?
-            .hasStagedObligation(containing: request) == true {
+        if stagedRequestTokens.contains(request.token) {
             return false
         }
         switch request.target {
@@ -1500,6 +1865,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             registration.obligation
                 .panelTransferStageToken =
                 stage.stageToken
+            state.markStaged(registration.obligation)
         }
         let obligationSequence =
             registration.obligation.nextRequest?.request.sequence
@@ -1780,8 +2146,14 @@ final class WorkspaceTerminalFontSizeCoordinator {
         _ obligation: TransferObligation,
         past requestRecord: TransferRequestRecord
     ) {
-        let reachedEnd = requestRecord === obligation.throughRequest
-        obligation.nextRequest = requestRecord.next
+        guard let resourceState = obligation.resourceState else {
+            removeTransferObligation(obligation)
+            return
+        }
+        let reachedEnd = resourceState.advance(
+            obligation,
+            past: requestRecord
+        )
         if reachedEnd {
             removeTransferObligation(obligation)
         }
