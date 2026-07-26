@@ -383,6 +383,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             [DeferredCoordinatorJoin] = []
         private var deferredCoordinatorJoinHead = 0
         private var isPromotingDeferredCoordinatorJoins = false
+        private var isCancellingWindowOwnedWork = false
         private var isDeferredCoordinatorJoinPromotionScheduled = false
         private var retainedCoordinators:
             [ObjectIdentifier: WorkspaceTerminalFontSizeCoordinator] = [:]
@@ -458,7 +459,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
 
         fileprivate func promoteDeferredCoordinatorJoins() {
-            guard !isPromotingDeferredCoordinatorJoins else { return }
+            guard !isPromotingDeferredCoordinatorJoins,
+                  !isCancellingWindowOwnedWork else {
+                return
+            }
             isPromotingDeferredCoordinatorJoins = true
             defer { isPromotingDeferredCoordinatorJoins = false }
 
@@ -523,6 +527,38 @@ final class WorkspaceTerminalFontSizeCoordinator {
             if deferredCoordinatorJoinHead
                     < deferredCoordinatorJoins.count {
                 scheduleDeferredCoordinatorJoinPromotion()
+            }
+        }
+
+        fileprivate func cancelWindowOwnedWork(
+            requestedBy requester:
+                WorkspaceTerminalFontSizeCoordinator,
+            closingManager: TabManager?,
+            closingWindowDockSlot: WindowDockSlot
+        ) {
+            guard !isCancellingWindowOwnedWork else { return }
+            isCancellingWindowOwnedWork = true
+            defer {
+                isCancellingWindowOwnedWork = false
+                promoteDeferredCoordinatorJoins()
+            }
+
+            removeDeferredCoordinatorJoins { join in
+                let workspaceIsClosing =
+                    closingManager != nil
+                    && join.workspaceReference.value?
+                        .owningTabManager === closingManager
+                return workspaceIsClosing
+                    || join.windowDockSlot === closingWindowDockSlot
+            }
+
+            var coordinators = retainedCoordinators
+            coordinators[ObjectIdentifier(requester)] = requester
+            for coordinator in coordinators.values {
+                coordinator.cancelWork(
+                    targeting: closingManager,
+                    windowDockSlot: closingWindowDockSlot
+                )
             }
         }
 
@@ -877,15 +913,26 @@ final class WorkspaceTerminalFontSizeCoordinator {
     /// allowing requests that followed moved workspaces or foreign Dock slots
     /// to finish on their surviving owners.
     func cancelWindowOwnedWork() {
+        arbiter.cancelWindowOwnedWork(
+            requestedBy: self,
+            closingManager: tabManager,
+            closingWindowDockSlot: windowDockSlot
+        )
+    }
+
+    private func cancelWork(
+        targeting closingManager: TabManager?,
+        windowDockSlot closingWindowDockSlot: WindowDockSlot
+    ) {
         invalidateScheduledDrain()
-        let closingManager = tabManager
         sealPendingEventBatch()
 
         var removedRequests: [PendingRequest] = []
         if let activeRequest,
            requestBelongsToClosingWindow(
                 activeRequest.request,
-                closingManager: closingManager
+                closingManager: closingManager,
+                windowDockSlot: closingWindowDockSlot
            ) {
             cancelInheritance(for: activeRequest)
             removedRequests.append(activeRequest.request)
@@ -895,7 +942,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
             contentsOf: sealedRequests.removeAll {
                 requestBelongsToClosingWindow(
                     $0,
-                    closingManager: closingManager
+                    closingManager: closingManager,
+                    windowDockSlot: closingWindowDockSlot
                 )
             }
         )
@@ -904,21 +952,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             releaseClaimIfIdle(for: request)
         }
 
-        arbiter.removeDeferredCoordinatorJoins { join in
-            guard join.preferredCoordinator === self else {
-                return false
-            }
-            guard let workspace = join.workspaceReference.value else {
-                return true
-            }
-            return workspace.owningTabManager === closingManager
+        if !hasOutstandingWork(for: closingWindowDockSlot) {
+            closingWindowDockSlot.pendingLineage = nil
+            closingWindowDockSlot.pendingInheritanceContext = nil
+            releaseWindowDockClaimIfIdle(closingWindowDockSlot)
         }
-        if !hasOutstandingWork(for: windowDockSlot) {
-            windowDockSlot.pendingLineage = nil
-            windowDockSlot.pendingInheritanceContext = nil
-            releaseWindowDockClaimIfIdle(windowDockSlot)
-        }
-        arbiter.promoteDeferredCoordinatorJoins()
         if activeRequest != nil || hasPendingRequests {
             retainWhileOutstanding()
             signalMutationRetry(scheduleIfOutstanding: false)
@@ -1162,14 +1200,16 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private func requestBelongsToClosingWindow(
         _ request: PendingRequest,
-        closingManager: TabManager?
+        closingManager: TabManager?,
+        windowDockSlot closingWindowDockSlot: WindowDockSlot
     ) -> Bool {
         switch request.target {
         case .workspace(_, let reference):
             guard let workspace = reference.value else { return true }
+            guard let closingManager else { return false }
             return workspace.owningTabManager === closingManager
-        case .windowDock(let slot, _):
-            return slot === windowDockSlot
+        case .windowDock(let requestSlot, _):
+            return requestSlot === closingWindowDockSlot
         }
     }
 

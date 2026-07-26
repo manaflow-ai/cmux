@@ -5270,6 +5270,29 @@ final class Workspace: Identifiable, ObservableObject {
         objectWillChange.send()
         if let mirror {
             remoteTmuxWindowMirrors[panelId] = mirror
+            mirror.onTerminalPanelAdded = { [weak self] panel in
+                guard let self else { return }
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidEnterWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
+            mirror.onTerminalPanelRemoved = { [weak self] panel in
+                guard let self else { return }
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidLeaveWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
+            for panel in mirror.panelsByPaneId.values {
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidEnterWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
         } else {
             remoteTmuxWindowMirrors.removeValue(forKey: panelId)
         }
