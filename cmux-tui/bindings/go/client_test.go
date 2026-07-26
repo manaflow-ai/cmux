@@ -296,6 +296,7 @@ func TestClearHistoryFallbackRequiresCapabilityAndPreservesKey(t *testing.T) {
 		key["key"] != "k" ||
 		mods["super"] != true ||
 		key["unshifted_codepoint"] != "k" ||
+		key["base_layout_codepoint"] != "k" ||
 		key["action"] != "press" ||
 		key["macos_option_as_alt"] != true {
 		t.Fatalf("ClearHistoryWithFallback() fallback_key = %#v", key)

@@ -187,6 +187,7 @@ class ProtocolTests(unittest.TestCase):
                             },
                             "utf8": "",
                             "unshifted_codepoint": "k",
+                            "base_layout_codepoint": "k",
                             "action": "press",
                             "macos_option_as_alt": True,
                         },

@@ -297,7 +297,7 @@ test("clearHistory preserves the structured fallback key", async () => {
       id: 2,
       cmd: "clear-history",
       surface: 7,
-      fallback_key: commandKFallback,
+      fallback_key: { ...commandKFallback, base_layout_codepoint: "k" },
     });
     connection.emit({ id: request.id, ok: true, data: {} });
   });

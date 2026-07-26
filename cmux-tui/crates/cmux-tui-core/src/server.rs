@@ -6780,7 +6780,7 @@ mod tests {
             consumed_mods: Mods::SHIFT | Mods::ALT,
             utf8: "ß".to_string(),
             unshifted_codepoint: 's' as u32,
-            base_layout_codepoint: 0,
+            base_layout_codepoint: '1' as u32,
             action: Some(KeyAction::Repeat),
             macos_option_as_alt: false,
         };
@@ -6788,6 +6788,7 @@ mod tests {
         let value = serde_json::to_value(ProtocolKeyInput::try_from(&input).unwrap()).unwrap();
         assert_eq!(value["key"], "numpad-enter");
         assert_eq!(value["unshifted_codepoint"], "s");
+        assert_eq!(value["base_layout_codepoint"], "1");
         let decoded = serde_json::from_value::<ProtocolKeyInput>(value).unwrap();
         let decoded = KeyInput::try_from(decoded).unwrap();
 
@@ -6796,6 +6797,7 @@ mod tests {
         assert_eq!(decoded.consumed_mods, input.consumed_mods);
         assert_eq!(decoded.utf8, input.utf8);
         assert_eq!(decoded.unshifted_codepoint, input.unshifted_codepoint);
+        assert_eq!(decoded.base_layout_codepoint, input.base_layout_codepoint);
         assert_eq!(decoded.action, input.action);
         assert_eq!(decoded.macos_option_as_alt, input.macos_option_as_alt);
     }

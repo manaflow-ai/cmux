@@ -38,7 +38,7 @@ public final class WireCaptureTest {
         );
         assertLine(
             "clear history fallback",
-            "{\"surface\":9,\"fallback_key\":{\"key\":\"k\",\"mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":true,\"caps_lock\":false,\"num_lock\":false},\"consumed_mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"utf8\":\"\",\"unshifted_codepoint\":\"k\",\"action\":\"press\",\"macos_option_as_alt\":true},\"id\":2,\"cmd\":\"clear-history\"}\n",
+            "{\"surface\":9,\"fallback_key\":{\"key\":\"k\",\"mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":true,\"caps_lock\":false,\"num_lock\":false},\"consumed_mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"utf8\":\"\",\"unshifted_codepoint\":\"k\",\"base_layout_codepoint\":\"k\",\"action\":\"press\",\"macos_option_as_alt\":true},\"id\":2,\"cmd\":\"clear-history\"}\n",
             clearHistoryFallback
         );
         assertMissingClearHistoryCapabilityIsRejected();
