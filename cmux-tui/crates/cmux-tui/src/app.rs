@@ -2848,7 +2848,7 @@ pub enum PromptTarget {
     ConfirmPurgeManagedWorkspace(usize),
     Screen(cmux_tui_core::ScreenId),
     Surface(SurfaceId),
-    ConnectMachine,
+    ConnectMachine(MachineConnectRoute),
     ProviderAction(usize),
     ConfirmProviderAction(usize),
 }
@@ -7432,20 +7432,27 @@ impl App {
                 }
             }
             Some(MachineRailCommand::Connect) => {
-                let label = self.connect_machine_prompt_label();
-                self.prompt = Some(Prompt::new(label, String::new(), PromptTarget::ConnectMachine));
+                self.prompt = Some(self.connect_machine_prompt());
             }
             None => {}
         }
         RenderAction::Draw
     }
 
-    fn connect_machine_prompt_label(&self) -> &'static str {
+    fn connect_machine_prompt(&self) -> Prompt {
         let messages = &localization::catalog().sidebar;
         if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
-            messages.connect_prompt
+            Prompt::new(
+                messages.connect_prompt,
+                String::new(),
+                PromptTarget::ConnectMachine(MachineConnectRoute::Provider),
+            )
         } else {
-            messages.connect_host_prompt
+            Prompt::new(
+                messages.connect_host_prompt,
+                String::new(),
+                PromptTarget::ConnectMachine(MachineConnectRoute::Local),
+            )
         }
     }
 
@@ -7694,15 +7701,10 @@ impl App {
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
         let input = prompt.input.as_str().to_string();
-        if matches!(prompt.target, PromptTarget::ConnectMachine) {
+        if let PromptTarget::ConnectMachine(route) = prompt.target {
             if !input.trim().is_empty()
                 && let Some(machine) = self.machine_ui.as_mut()
             {
-                let route = if machine.connect_accepts_pairing_code {
-                    MachineConnectRoute::Provider
-                } else {
-                    MachineConnectRoute::Local
-                };
                 machine.request =
                     Some(MachineRequest::Connect { target: input.trim().to_string(), route });
             }
@@ -7805,7 +7807,7 @@ impl App {
             // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
-            PromptTarget::ConnectMachine
+            PromptTarget::ConnectMachine(_)
             | PromptTarget::ManagedMachine(_)
             | PromptTarget::ConfirmDeleteManagedMachine(_)
             | PromptTarget::ConfirmPurgeManagedMachine(_)
@@ -10190,9 +10192,7 @@ impl App {
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
                     }
-                    let label = self.connect_machine_prompt_label();
-                    self.prompt =
-                        Some(Prompt::new(label, String::new(), PromptTarget::ConnectMachine));
+                    self.prompt = Some(self.connect_machine_prompt());
                 }
                 Hit::ProviderScope => {
                     self.focus = FocusTarget::MachineRail;
@@ -17830,7 +17830,9 @@ mod tests {
             Some(localization::catalog().sidebar.connect_prompt)
         );
         app.prompt.as_mut().unwrap().input.insert_str("PAIR 4J7K");
-        app.machine_ui.as_mut().unwrap().connect_accepts_pairing_code = false;
+        let mut update = app.machine_ui.clone().unwrap();
+        update.connect_accepts_pairing_code = false;
+        app.apply_machine_ui_update(update);
         app.commit_prompt();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
@@ -17851,7 +17853,9 @@ mod tests {
             Some(localization::catalog().sidebar.connect_host_prompt)
         );
         app.prompt.as_mut().unwrap().input.insert_str("mini.local");
-        app.machine_ui.as_mut().unwrap().connect_accepts_pairing_code = true;
+        let mut update = app.machine_ui.clone().unwrap();
+        update.connect_accepts_pairing_code = true;
+        app.apply_machine_ui_update(update);
         app.commit_prompt();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),

@@ -105,6 +105,6 @@ The agent fails closed without a controlling terminal, including on reconnects w
 
 The agent runs the exact remote command `cmux machine register`. The first successful registration prints a short one-time pairing code. In the TUI reached by `ssh cmux.cloud`, choose `+ Connect machine` and enter that code.
 
-The connection is outbound only. The agent opens no listener and changes no shell or SSH files. It multiplexes Cloud streams onto the selected local protocol-v9 session, reconnects with bounded backoff, and preserves active streams during a server-requested software generation migration.
+The connection is outbound only. The agent opens no listener and changes no shell or SSH files. It multiplexes Cloud streams onto the selected local protocol-v10 session, reconnects with bounded backoff, and preserves active streams during a server-requested software generation migration.
 
 The stable random machine id and secret live in a private mode-0600 identity file under the cmux config directory. The containing directory is mode 0700. Pairing codes are never persisted. Use `--state`, `--cloud-host`, `--cloud-user`, `--cloud-port`, or `--cloud-identity` when the defaults do not match the local setup. See [Machine Agent Contract](../spec/machine-agent.md) for bounds and migration rules.
