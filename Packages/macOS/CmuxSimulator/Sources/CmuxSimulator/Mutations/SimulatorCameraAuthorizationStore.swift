@@ -40,6 +40,13 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
               let ownerProcessIdentity else {
             throw CocoaError(.fileWriteUnknown)
         }
+        let hasLiveLegacyOwner = try migrateLegacyRecordIfPossible(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        guard !hasLiveLegacyOwner else {
+            throw CocoaError(.fileWriteFileExists)
+        }
         let existing = try record(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -78,7 +85,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) throws -> SimulatorCameraAuthorizationRecord? {
-        try migrateLegacyRecordIfNeeded(
+        _ = try migrateLegacyRecordIfPossible(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
@@ -190,19 +197,20 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         }
     }
 
-    private func migrateLegacyRecordIfNeeded(
+    /// Returns true when a live legacy owner must keep the only journal.
+    private func migrateLegacyRecordIfPossible(
         deviceIdentifier: String,
         bundleIdentifier: String
-    ) throws {
+    ) throws -> Bool {
         let durableDirectory = try requiredDirectory()
         guard let legacyDirectory,
               legacyDirectory.standardizedFileURL
-                != durableDirectory.standardizedFileURL else { return }
+                != durableDirectory.standardizedFileURL else { return false }
         let legacyURL = legacyDirectory.appendingPathComponent(
             hash([deviceIdentifier, bundleIdentifier]) + ".json"
         )
         let fileManager = FileManager()
-        guard fileManager.fileExists(atPath: legacyURL.path) else { return }
+        guard fileManager.fileExists(atPath: legacyURL.path) else { return false }
         let record = try JSONDecoder().decode(
             SimulatorCameraAuthorizationRecord.self,
             from: Data(contentsOf: legacyURL)
@@ -213,6 +221,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             expectedBundleIdentifier: bundleIdentifier,
             sourceURL: legacyURL
         )
+        guard !record.isOwnedByRunningProcess else { return true }
         let destination = try fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -237,9 +246,8 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
                 ofItemAtPath: destination.path
             )
         }
-        if !record.isOwnedByRunningProcess {
-            try fileManager.removeItem(at: legacyURL)
-        }
+        try fileManager.removeItem(at: legacyURL)
+        return false
     }
 
     private func migrateLegacyRecords(fileManager: FileManager) throws -> Bool {
@@ -268,7 +276,7 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
                     expectedBundleIdentifier: record.bundleIdentifier,
                     sourceURL: url
                 )
-                try migrateLegacyRecordIfNeeded(
+                _ = try migrateLegacyRecordIfPossible(
                     deviceIdentifier: record.deviceIdentifier,
                     bundleIdentifier: record.bundleIdentifier
                 )

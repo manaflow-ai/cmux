@@ -1025,12 +1025,12 @@ extension SimulatorControlService {
         guard let record = try locationRouteRecoveryStore.record(
             deviceIdentifier: deviceID
         ) else { return nil }
-        guard record.pending != nil else { return record }
+        guard let pending = record.pending else { return record }
+        let ownsPendingTransaction = locationRouteTokens[deviceID]
+            == pending.ownershipToken
         try await recoverLocationRouteIfOrphaned(record)
         let reconciled = try locationRouteRecoveryStore.record(deviceIdentifier: deviceID)
-        let hasLocalRoute = activeLocationRoutes[deviceID] != nil
-            || locationRouteInitialCoordinates[deviceID] != nil
-        if let committed = reconciled?.committed, hasLocalRoute {
+        if let committed = reconciled?.committed, ownsPendingTransaction {
             locationRouteTokens[deviceID] = committed.ownershipToken
         }
         return reconciled
