@@ -1333,7 +1333,7 @@ impl BrowserSurface {
     }
 
     fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
-        self.begin_frame_transition(false);
+        self.begin_reconfigure_frame_transition(queued.geometry);
         let frame_epoch = self.reconfigure_blocking(
             queued.geometry.capture_pixels.0,
             queued.geometry.capture_pixels.1,
@@ -1844,6 +1844,31 @@ impl BrowserSurface {
         invalidation
     }
 
+    fn begin_reconfigure_frame_transition(
+        &self,
+        geometry: BrowserGeometry,
+    ) -> PointerFrameInvalidation {
+        let mut state = self.state.lock().unwrap();
+        let retry_epoch = state
+            .reconfigure_failure
+            .filter(|failure| failure.geometry == geometry)
+            .and(state.pending_frame_epoch);
+        let pending_frame_epoch = retry_epoch.unwrap_or_else(|| {
+            state.pending_frame_epoch.unwrap_or_else(|| self.frame_epoch.current()).wrapping_add(1)
+        });
+        let invalidation = Self::invalidate_pointer_frame_locked(&mut state, false);
+        state.pending_frame_epoch = Some(pending_frame_epoch);
+        state.pending_frame = None;
+        Self::mark_state_dirty_locked(&mut state);
+        invalidation
+    }
+
+    fn abandon_frame_transition(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.pending_frame_epoch = None;
+        state.pending_frame = None;
+    }
+
     fn accept_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
         let mut state = self.state.lock().unwrap();
         if state.pending_frame_epoch.is_some_and(|pending_epoch| pending_epoch != frame_epoch)
@@ -2305,6 +2330,7 @@ impl BrowserSurface {
             session.runtime.client.navigate(&session.session_id, &normalized),
         )?;
         if let Some(error) = navigation_error {
+            self.abandon_frame_transition();
             self.mark_failed(error.clone());
             anyhow::bail!("browser failed: {error}");
         }
@@ -4371,14 +4397,14 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
-        browser.begin_frame_transition(false);
+        browser.begin_reconfigure_frame_transition(queued.geometry);
         let first_epoch = browser.state.lock().unwrap().pending_frame_epoch.unwrap();
         browser.fail_reconfigure(queued).expect("first failure recorded");
         browser.state.lock().unwrap().reconfigure_failure.as_mut().unwrap().retry_at =
             Some(Instant::now() - Duration::from_millis(1));
         let retry = browser.reserve_reconfigure(11, 5).expect("retry accepted");
 
-        browser.begin_frame_transition(false);
+        browser.begin_reconfigure_frame_transition(retry.geometry);
 
         assert_eq!(
             browser.state.lock().unwrap().pending_frame_epoch,

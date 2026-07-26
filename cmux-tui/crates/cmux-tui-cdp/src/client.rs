@@ -118,7 +118,7 @@ struct Inner {
     outbound: Sender<Outbound>,
     pending: Mutex<HashMap<u64, PendingCall>>,
     events: Arc<EventQueue>,
-    frame_epochs: Mutex<HashMap<String, Arc<FrameEpoch>>>,
+    frame_epochs: Mutex<HashMap<String, FrameSession>>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
@@ -129,6 +129,11 @@ struct Inner {
 struct PendingCall {
     response: Sender<Result<Value, String>>,
     frame_barrier: Option<Arc<FrameEpoch>>,
+}
+
+struct FrameSession {
+    epoch: Arc<FrameEpoch>,
+    main_frame_id: Option<String>,
 }
 
 struct EventQueue {
@@ -414,7 +419,10 @@ impl CdpClient {
     }
 
     pub fn register_frame_epoch(&self, session_id: &str, frame_epoch: Arc<FrameEpoch>) {
-        self.inner.frame_epochs.lock().unwrap().insert(session_id.to_string(), frame_epoch);
+        self.inner.frame_epochs.lock().unwrap().insert(
+            session_id.to_string(),
+            FrameSession { epoch: frame_epoch, main_frame_id: None },
+        );
     }
 
     pub fn unregister_frame_epoch(&self, session_id: &str) {
@@ -522,10 +530,14 @@ impl CdpClient {
         max_width: u32,
         max_height: u32,
     ) -> anyhow::Result<u64> {
-        let frame_epoch =
-            self.inner.frame_epochs.lock().unwrap().get(session_id).cloned().ok_or_else(|| {
-                anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
-            })?;
+        let frame_epoch = self
+            .inner
+            .frame_epochs
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .map(|frame_session| frame_session.epoch.clone())
+            .ok_or_else(|| anyhow::anyhow!("missing frame epoch for CDP session {session_id}"))?;
         self.call_with_frame_barrier(
             "Page.startScreencast",
             json!({
@@ -829,7 +841,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     .lock()
                     .unwrap()
                     .get(target_session)
-                    .map_or(0, |frame_epoch| frame_epoch.current());
+                    .map_or(0, |frame_session| frame_session.epoch.current());
                 let Some(frame) = screencast_frame(&params, target_session, frame_epoch) else {
                     return;
                 };
@@ -848,12 +860,19 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
         }
         _ if frame_navigation => {
             let session_id = session_id.expect("guarded above");
-            let frame_epoch = inner
-                .frame_epochs
-                .lock()
-                .unwrap()
-                .get(&session_id)
-                .map_or(0, |frame_epoch| frame_epoch.advance());
+            let Some(frame_epoch) =
+                main_frame_navigation_epoch(inner, method, &params, &session_id)
+            else {
+                dispatch_event(
+                    inner,
+                    CdpEvent::Other {
+                        method: method.to_string(),
+                        params,
+                        session_id: Some(session_id),
+                    },
+                );
+                return;
+            };
             dispatch_event(inner, CdpEvent::FrameNavigated { params, session_id, frame_epoch });
         }
         _ => {
@@ -863,6 +882,33 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             );
         }
     }
+}
+
+fn main_frame_navigation_epoch(
+    inner: &Inner,
+    method: &str,
+    params: &Value,
+    session_id: &str,
+) -> Option<u64> {
+    let mut frame_epochs = inner.frame_epochs.lock().unwrap();
+    let frame_session = frame_epochs.get_mut(session_id)?;
+    match method {
+        "Page.frameNavigated" => {
+            let frame = params.get("frame")?;
+            if frame.get("parentId").is_some() {
+                return None;
+            }
+            frame_session.main_frame_id = Some(frame.get("id")?.as_str()?.to_string());
+        }
+        "Page.navigatedWithinDocument" => {
+            let frame_id = params.get("frameId")?.as_str()?;
+            if frame_session.main_frame_id.as_deref() != Some(frame_id) {
+                return None;
+            }
+        }
+        _ => return None,
+    }
+    Some(frame_session.epoch.advance())
 }
 
 fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
@@ -1279,14 +1325,17 @@ mod tests {
     fn frame_navigation_advances_epoch_before_following_frame_enters_the_queue() {
         let (inner, _outbound_rx) = test_inner();
         let frame_epoch = Arc::new(FrameEpoch::default());
-        inner.frame_epochs.lock().unwrap().insert("session-1".to_string(), frame_epoch.clone());
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession { epoch: frame_epoch.clone(), main_frame_id: None },
+        );
 
         handle_text(
             &inner,
             &json!({
-                "method": "Page.navigatedWithinDocument",
+                "method": "Page.frameNavigated",
                 "sessionId": "session-1",
-                "params": {"frameId": "frame-1", "url": "https://example.test/#next"}
+                "params": {"frame": {"id": "frame-1", "url": "https://example.test"}}
             })
             .to_string(),
         );
@@ -1321,7 +1370,10 @@ mod tests {
     fn child_same_document_navigation_does_not_advance_main_frame_epoch() {
         let (inner, _outbound_rx) = test_inner();
         let frame_epoch = Arc::new(FrameEpoch::default());
-        inner.frame_epochs.lock().unwrap().insert("session-1".to_string(), frame_epoch.clone());
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession { epoch: frame_epoch.clone(), main_frame_id: None },
+        );
         handle_text(
             &inner,
             &json!({
@@ -1348,6 +1400,17 @@ mod tests {
             1,
             "an iframe navigation must not advance top-level pointer authority"
         );
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.navigatedWithinDocument",
+                "sessionId": "session-1",
+                "params": {"frameId": "main-frame", "url": "https://example.test/#next"}
+            })
+            .to_string(),
+        );
+        assert_eq!(frame_epoch.current(), 2);
     }
 
     #[test]
