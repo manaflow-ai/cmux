@@ -841,6 +841,69 @@ def _python_deferred_expression_bindings(
     return collector.deferred_bindings()
 
 
+class _PythonDirectCallCollector(ast.NodeVisitor):
+    """Collect direct calls without descending into deferred bodies."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if isinstance(node.func, ast.Name):
+            self.names.add(node.func.id)
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        return
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        return
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        return
+
+
+def _python_ordered_bindings(
+    body: list[ast.stmt],
+    end_index: int,
+) -> dict[str, str]:
+    """Resolve parent bindings in statement order through one direct call."""
+    result: dict[str, str] = {}
+    for statement in body[: end_index + 1]:
+        collector = _PythonDeferredBindingCollector()
+        collector.visit(statement)
+        result.update(collector.deferred_bindings())
+    return result
+
+
+def _python_direct_call_bindings(
+    body: list[ast.stmt],
+) -> dict[int, list[dict[str, str]]]:
+    """Map locally defined functions to parent bindings at direct call sites."""
+    result: dict[int, list[dict[str, str]]] = {}
+    definitions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    for index, statement in enumerate(body):
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            definitions[statement.name] = statement
+            nested = _python_direct_call_bindings(statement.body)
+            for node_id, binding_variants in nested.items():
+                result.setdefault(node_id, []).extend(binding_variants)
+            continue
+
+        calls = _PythonDirectCallCollector()
+        calls.visit(statement)
+        for name in calls.names:
+            definition = definitions.get(name)
+            if definition is None:
+                continue
+            result.setdefault(id(definition), []).append(
+                _python_ordered_bindings(body, index)
+            )
+    return result
+
+
 def _python_block_may_complete(body: list[ast.stmt]) -> bool:
     """Return whether a loop body has a path reaching its lexical end."""
     for statement in body:
@@ -892,6 +955,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self,
         postponed_annotations: bool,
         deferred_module_bindings: dict[str, str],
+        direct_call_bindings: dict[int, list[dict[str, str]]],
     ) -> None:
         self.module_scope = _PythonScope(
             kind="module",
@@ -904,6 +968,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self.scope = self.module_scope
         self.postponed_annotations = postponed_annotations
         self.deferred_module_bindings = deferred_module_bindings
+        self.direct_call_bindings = direct_call_bindings
         self.sleep_lines: set[int] = set()
         self.sleep_positions: dict[int, set[int]] = {}
         self.sleep_end_positions: dict[int, list[tuple[int, int]]] = {}
@@ -1075,26 +1140,41 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 (snapshot_scope, snapshot_scope.bindings.copy())
             )
             snapshot_scope = snapshot_scope.parent
-        for name, binding in previous_scope.deferred_parent_bindings.items():
-            self._bind_in_scope(parent, name, binding)
-        for name, binding in self.deferred_module_bindings.items():
-            self.module_scope.bindings[name] = binding
-        self.scope = _PythonScope(
-            "function",
-            parent,
-            {
-                name: _PYTHON_SHADOWED_BINDING
-                for name in local_names
-            },
-            global_names,
-            nonlocal_names,
-            _python_deferred_bindings(node.body),
+        binding_variants: list[Optional[dict[str, str]]] = list(
+            self.direct_call_bindings.get(id(node), [])
         )
-        for argument in self._argument_nodes(node.args):
-            self._bind(argument.arg)
+        if not binding_variants:
+            binding_variants = [None]
         try:
-            for statement in node.body:
-                self.visit(statement)
+            for bindings_at_call in binding_variants:
+                self._restore_scope_state(scope_snapshots)
+                if bindings_at_call is None:
+                    for name, binding in (
+                        previous_scope.deferred_parent_bindings.items()
+                    ):
+                        self._bind_in_scope(parent, name, binding)
+                    for name, binding in (
+                        self.deferred_module_bindings.items()
+                    ):
+                        self.module_scope.bindings[name] = binding
+                else:
+                    for name, binding in bindings_at_call.items():
+                        self._bind_in_scope(parent, name, binding)
+                self.scope = _PythonScope(
+                    "function",
+                    parent,
+                    {
+                        name: _PYTHON_SHADOWED_BINDING
+                        for name in local_names
+                    },
+                    global_names,
+                    nonlocal_names,
+                    _python_deferred_bindings(node.body),
+                )
+                for argument in self._argument_nodes(node.args):
+                    self._bind(argument.arg)
+                for statement in node.body:
+                    self.visit(statement)
         finally:
             for scope, bindings in scope_snapshots:
                 scope.bindings = bindings
@@ -1529,6 +1609,7 @@ def _python_real_sleep_lines(
     visitor = _PythonSleepVisitor(
         postponed_annotations,
         deferred_binding_collector.deferred_bindings(),
+        _python_direct_call_bindings(tree.body),
     )
     visitor.visit(tree)
     if assertion_lines is not None:
