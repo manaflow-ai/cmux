@@ -90,10 +90,39 @@ enum ExactSignalResult {
 }
 
 pub(super) fn terminate_process_tree(process: ProcessIdentity) -> io::Result<()> {
-    match freeze_process_tree(process) {
-        Ok(tree) => tree.kill(),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
+    let deadline = Instant::now() + PROCESS_TREE_RETRY_TIMEOUT;
+    retry_process_tree_termination(process, deadline, |_| {
+        let tree = FrozenProcessTree::freeze(process)?;
+        tree.kill()
+    })
+}
+
+fn retry_process_tree_termination(
+    process: ProcessIdentity,
+    deadline: Instant,
+    mut attempt: impl FnMut(Instant) -> io::Result<()>,
+) -> io::Result<()> {
+    loop {
+        let error = match attempt(deadline) {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
+        match ProcessIdentity::capture(process.pid) {
+            Ok(None) => return Ok(()),
+            Ok(Some(current)) if current != process => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "server process identity changed during termination",
+                ));
+            }
+            Ok(Some(_)) | Err(_) => {}
+        }
+        if Instant::now() >= deadline {
+            return Err(error);
+        }
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
+        );
     }
 }
 
