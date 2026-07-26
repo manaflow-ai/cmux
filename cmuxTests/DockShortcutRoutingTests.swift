@@ -305,7 +305,7 @@ struct DockShortcutRoutingTests {
                 let flash = Self.customShortcut(key: "u")
                 KeyboardShortcutSettings.setShortcut(flash, for: .triggerFlash)
                 #expect(Self.dispatch(flash, in: harness))
-                #expect(panel.flashCount == 1)
+                #expect(panel.flashReasons == [.userInitiated])
                 #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
             }
         }
@@ -435,15 +435,14 @@ private final class DockShortcutTestPanel: Panel, ObservableObject {
     let displayTitle = "Dock Shortcut Test Panel"
     let displayIcon: String? = "terminal.fill"
     var isDirty = false
-    private(set) var flashCount = 0
+    private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
 
     func close() {}
     func focus() {}
     func unfocus() {}
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
-        _ = reason
-        flashCount += 1
+        flashReasons.append(reason)
     }
 }
 
