@@ -248,7 +248,7 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Labels the requesting control connection and advertises client capabilities. Repeated calls are idempotent. An omitted field preserves its current value; supplied `name` and `kind` values are clamped to 64 Unicode characters by the server. A supplied `capabilities` array replaces the connection's previous capability set; unknown capabilities are ignored.
+Labels the requesting control connection and advertises client capabilities. Repeated calls are idempotent. An omitted field preserves its current value; supplied `name` and `kind` values are clamped to 64 Unicode characters by the server. A supplied `capabilities` array adds recognized capabilities to the connection's set; advertised capabilities cannot be withdrawn during that connection, and unknown capabilities are ignored.
 
 Params:
 

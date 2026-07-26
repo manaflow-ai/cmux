@@ -541,13 +541,23 @@ impl RemoteSurface {
         if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
             browser.live_since = Some(Instant::now());
         }
+        let mut received_frame = false;
         if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
             browser.last_frame_at = Some(Instant::now());
             browser.frame = Some(frame);
+            received_frame = true;
         }
-        browser.pointer_frame_seq = matches!(browser.status, BrowserStatus::Live)
+        let advertised_pointer_frame_seq = matches!(browser.status, BrowserStatus::Live)
             .then(|| value.get("pointer_frame_seq").and_then(Value::as_u64))
             .flatten();
+        // State-only messages may retain existing authority or revoke it.
+        // New authority must arrive atomically with its pixels.
+        browser.pointer_frame_seq =
+            if received_frame || advertised_pointer_frame_seq == browser.pointer_frame_seq {
+                advertised_pointer_frame_seq
+            } else {
+                None
+            };
     }
 
     fn update_browser_frame(&self, value: &Value) {
@@ -2917,6 +2927,19 @@ mod tests {
             "frames_stalled": false,
             "pointer_frame_seq": 9,
         }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "state alone must not grant new authority to the cached frame"
+        );
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "Zmlyc3Q=",
+            "status": "live",
+            "pointer_frame_seq": 9,
+        }));
         assert_eq!(surface.browser_frame_seq(), Some(9));
 
         surface.update_browser_state(&json!({
@@ -2946,8 +2969,8 @@ mod tests {
         }));
         assert_eq!(
             surface.browser_frame_seq(),
-            Some(9),
-            "an explicit admission update must restore cached-frame input"
+            None,
+            "restoring cached-frame input requires a paired authoritative frame event"
         );
     }
 

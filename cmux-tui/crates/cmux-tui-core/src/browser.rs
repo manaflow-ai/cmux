@@ -1245,13 +1245,7 @@ fn start_browser_worker(
                         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                             Ok(first) => first,
                             Err(RecvTimeoutError::Timeout) => {
-                                release_abandoned_pointer_presses(
-                                    &surface,
-                                    &mux,
-                                    id,
-                                    &mut failures,
-                                    Instant::now(),
-                                );
+                                release_due_pointer_presses(&surface, &mux, id, &mut failures);
                                 continue;
                             }
                             Err(RecvTimeoutError::Disconnected) => break,
@@ -1276,23 +1270,11 @@ fn start_browser_worker(
                 }
                 drop(order);
                 batch.sort_unstable_by_key(|queued| queued.sequence);
-                release_abandoned_pointer_presses(
-                    &surface,
-                    &mux,
-                    id,
-                    &mut failures,
-                    Instant::now(),
-                );
+                release_due_pointer_presses(&surface, &mux, id, &mut failures);
                 batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
                 coalesce_worker_mouse_moves(&mut batch);
                 for queued in batch {
-                    release_abandoned_pointer_presses(
-                        &surface,
-                        &mux,
-                        id,
-                        &mut failures,
-                        Instant::now(),
-                    );
+                    release_due_pointer_presses(&surface, &mux, id, &mut failures);
                     run_browser_worker_command(&surface, queued.command, &mux, id, &mut failures);
                 }
             }
@@ -1313,6 +1295,21 @@ fn next_pointer_lifecycle_deadline(failures: &BrowserWorkerErrorState) -> Option
             (None, None) => None,
         })
         .min()
+}
+
+fn release_due_pointer_presses(
+    surface: &Surface,
+    mux: &Weak<Mux>,
+    id: SurfaceId,
+    failures: &mut BrowserWorkerErrorState,
+) {
+    loop {
+        release_abandoned_pointer_presses(surface, mux, id, failures, Instant::now());
+        let now = Instant::now();
+        if next_pointer_lifecycle_deadline(failures).is_none_or(|deadline| deadline > now) {
+            break;
+        }
+    }
 }
 
 fn release_abandoned_pointer_presses(
@@ -1350,6 +1347,15 @@ fn release_abandoned_pointer_presses(
         let result = surface.as_browser().map_or(Ok(()), |browser| {
             browser.release_abandoned_pointer_press_blocking(&button, press)
         });
+        if press.release_retry_at.is_none()
+            && result.as_ref().is_err_and(|error| is_cdp_timeout_error(&error.to_string()))
+        {
+            let mut retry = press;
+            // Delivery is ambiguous after a CDP timeout. Preserve ownership
+            // for exactly one immediate balancing retry.
+            retry.release_retry_at = Some(now);
+            failures.active_pointer_presses.insert(button, retry);
+        }
         record_browser_worker_result(surface, mux, id, true, result, failures);
     }
 }
@@ -2365,7 +2371,9 @@ impl BrowserSurface {
         may_be_same_document: bool,
     ) -> PointerFrameInvalidation {
         let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
-        let mut invalidation = Self::invalidate_pointer_frame_locked(state, true);
+        // A targeted navigation can resolve within the current document. Keep
+        // an accepted press alive until ingress proves a document replacement.
+        let mut invalidation = Self::invalidate_pointer_frame_locked(state, !may_be_same_document);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_epoch = Some(pending_frame_epoch);
         state.pending_same_document_navigation = may_be_same_document;
@@ -2445,14 +2453,15 @@ impl BrowserSurface {
         {
             return false;
         }
-        let command_already_revoked_capture = state.pending_navigation_epoch.is_some();
+        let capture_revoked_at_command =
+            state.pending_navigation_epoch.is_some() && !state.pending_same_document_navigation;
         state.handled_navigation_epoch = frame_epoch;
         if state.pending_navigation_epoch.is_some_and(|pending_epoch| frame_epoch >= pending_epoch)
         {
             state.pending_navigation_epoch = None;
         }
         state.pending_same_document_navigation = false;
-        Self::invalidate_pointer_frame_locked(&mut state, !command_already_revoked_capture);
+        Self::invalidate_pointer_frame_locked(&mut state, !capture_revoked_at_command);
         state.pending_document_epoch = Some(frame_epoch);
         let pending_frame_epoch = state
             .pending_frame_epoch

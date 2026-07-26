@@ -4563,15 +4563,18 @@ fn handle_command(
                                 }
                             }
                             let update = std::mem::take(&mut *frames.slot.lock().unwrap());
-                            if let Some(state) = update.state {
-                                let value = browser_state_json(surface_id, &state, false);
+                            // A frame event applies its bitmap and authority
+                            // atomically. Publish it before a paired state
+                            // snapshot can expose the same positive token.
+                            if let Some(frame) = update.frame {
+                                let value = browser_frame_json(surface_id, &frame);
                                 if let Err(error) = writer.send_stream(&value, &outbound_stream) {
                                     handle_attach_send_error(&lifecycle, &error);
                                     break;
                                 }
                             }
-                            if let Some(frame) = update.frame {
-                                let value = browser_frame_json(surface_id, &frame);
+                            if let Some(state) = update.state {
+                                let value = browser_state_json(surface_id, &state, false);
                                 if let Err(error) = writer.send_stream(&value, &outbound_stream) {
                                     handle_attach_send_error(&lifecycle, &error);
                                     break;
