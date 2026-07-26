@@ -275,9 +275,7 @@ impl ProviderMachineController {
         self.provider.commit_replacement()?;
         self.pending_active_local.take();
         self.active_local = active_local;
-        if self.active_local.is_none() {
-            self.pending_provider_switch = false;
-        }
+        self.pending_provider_switch = false;
         Ok(())
     }
 
