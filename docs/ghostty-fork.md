@@ -12,10 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `d9311bb99`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/151. It adds transactional
-menu-owned key binding consumption and modifier-independent paired-release
-tracking on top of the current
+The submodule pinned by this branch is `af4dfb43f`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/152. It adds teardown-safe action
+lease release on top of transactional menu-owned key binding consumption and
+modifier-independent paired-release tracking from
+https://github.com/manaflow-ai/ghostty/pull/151, based on the current
 `manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
 https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
 https://github.com/manaflow-ai/ghostty/pull/147.
@@ -57,8 +58,8 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `d9311bb99` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d9311bb99b9b125674c3f108c8852a19dfb44232-crashsubdir-cmux-crash-v1
+The pinned `af4dfb43f` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-af4dfb43ff9d1dffe8c1b49b5c1e1ce31d05e9ce-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded renderer mailbox turns and continuation recovery
@@ -120,12 +121,16 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Synchronous embedder teardown and host-owned userdata
 
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/152
 - Commits:
   - `7541eb3db` (revert the owned-userdata lease layer)
   - `b47e5cac2` (fix: complete surface teardown before free returns)
   - `ff36ae8ac` (fix: serialize teardown with cross-thread actions)
   - `28c0f9bf5` (test: order cross-thread teardown assertions)
   - `518ac28d5` (merge the synchronous teardown fix)
+  - `b8efe0f45` (test: cover action release teardown ordering)
+  - `af4dfb43f` (fix: release action lease before teardown wake)
 - Files:
   - `include/ghostty.h`
   - `src/App.zig`
@@ -139,8 +144,12 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     an app action. The live core is still destroyed synchronously.
   - Requires the embedder to retain callback userdata until
     `ghostty_surface_free` returns, then release it exactly once.
+  - Drops the action's allocation reference before publishing a drained action
+    count and waking teardown, so the embedder cannot free the app while the
+    action still needs its allocator.
   - Conflict note: future teardown changes must preserve synchronous callback
-    quiescence. Embedders may not release borrowed userdata before
+    quiescence and release action references before advertising that the final
+    action has drained. Embedders may not release borrowed userdata before
     `ghostty_surface_free` returns.
 
 ### Transactional menu-owned key bindings and paired releases
