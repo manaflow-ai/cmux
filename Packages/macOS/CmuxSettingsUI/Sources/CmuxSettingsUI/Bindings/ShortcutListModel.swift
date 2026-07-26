@@ -18,6 +18,7 @@ final class ShortcutListModel {
     private(set) var chordModeActions: Set<String> = []
     private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
     private(set) var bareKeyRejections: Set<String> = []
+    private(set) var primaryModifierRejections: Set<String> = []
     private(set) var systemReservedRejections: Set<String> = []
     /// Per-action set marking a numbered action rejected for a non-`1…9` key.
     private(set) var numberedDigitRejections: Set<String> = []
@@ -34,6 +35,7 @@ final class ShortcutListModel {
     @ObservationIgnored let catalog: SettingCatalog
     @ObservationIgnored let errorLog: SettingsErrorLog
     @ObservationIgnored let onShortcutsChanged: @MainActor () -> Void
+    @ObservationIgnored let canRegisterSystemWideHotkey: @MainActor (StoredShortcut) -> Bool
     @ObservationIgnored private let bindingsDriver = SettingReadDriver<ShortcutBindingsSnapshot>()
     @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
@@ -47,6 +49,9 @@ final class ShortcutListModel {
         userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
+        canRegisterSystemWideHotkey: @escaping @MainActor (StoredShortcut) -> Bool = {
+            ShortcutAction.showHideAllWindows.shortcutBindingPolicyResult(for: $0) == .accepted
+        },
         onShortcutsChanged: @escaping @MainActor () -> Void = {}
     ) {
         self.jsonStore = jsonStore
@@ -54,6 +59,7 @@ final class ShortcutListModel {
         self.legacyBindings = userDefaultsStore?.initialLegacyShortcutBindings() ?? [:]
         self.catalog = catalog
         self.errorLog = errorLog
+        self.canRegisterSystemWideHotkey = canRegisterSystemWideHotkey
         self.onShortcutsChanged = onShortcutsChanged
     }
 
@@ -85,7 +91,7 @@ final class ShortcutListModel {
         )
     }
 
-    private var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
+    var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
 
     private func ingestBindings(_ snapshot: ShortcutBindingsSnapshot) {
         let dictionary = snapshot.bindings
@@ -105,41 +111,6 @@ final class ShortcutListModel {
         pruneRestoreShortcuts()
         pruneConflictRejections(changedActionIds: Set(changedActionIds))
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
-    }
-
-    // MARK: - Display helpers (lifted from actionRow inline computations)
-
-    /// The effective shortcut for `action`, using the runtime's JSON, legacy
-    /// UserDefaults, then built-in precedence.
-    func effective(for action: ShortcutAction) -> StoredShortcut? {
-        let actionID = action.rawValue
-        let candidate: StoredShortcut?
-        if !managedBindingActionIDs.contains(actionID) {
-            candidate = latestBindings[actionID] ?? legacyBindings[actionID]
-        } else {
-            candidate = bindings[actionID]
-            if candidate == nil, action == .showHideAllWindows { return nil }
-        }
-        return action.effectivePersistedShortcut(candidate) { shortcut in
-            guard action == .globalSearch,
-                  let systemWideShortcut = effective(for: .showHideAllWindows) else {
-                return false
-            }
-            return ShortcutBindingConflict(
-                proposed: shortcut,
-                proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
-                configured: systemWideShortcut,
-                configuredUsesNumberedDigitMatching: false
-            ).exists
-        }
-    }
-
-    /// Whether `action` is currently unbound but has a cached stroke available to
-    /// restore (drives the X → restore button swap).
-    func canRestore(for action: ShortcutAction) -> Bool {
-        let eff = effective(for: action)
-        let isUnbound = eff?.isUnbound ?? true
-        return isUnbound && restoreShortcuts[action.rawValue] != nil
     }
 
     // MARK: - Conflict helpers (moved verbatim from section)
@@ -246,6 +217,7 @@ final class ShortcutListModel {
     /// Dismisses all rejection banners for the action (the Undo button handler).
     func clearRejections(for action: ShortcutAction) {
         bareKeyRejections.remove(action.rawValue)
+        primaryModifierRejections.remove(action.rawValue)
         systemReservedRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
@@ -255,6 +227,11 @@ final class ShortcutListModel {
     func markBareKeyRejected(_ action: ShortcutAction) {
         clearRejections(for: action)
         bareKeyRejections.insert(action.rawValue)
+    }
+
+    private func markPrimaryModifierRejected(_ action: ShortcutAction) {
+        clearRejections(for: action)
+        primaryModifierRejections.insert(action.rawValue)
     }
 
     private func markSystemReservedRejected(_ action: ShortcutAction) {
@@ -313,12 +290,23 @@ final class ShortcutListModel {
             )
         }
         let proposed = StoredShortcut(first: stroke)
-        if action.shortcutBindingPolicyResult(for: proposed)
-            == .primaryModifierRequired {
+        switch action.shortcutBindingPolicyResult(for: proposed) {
+        case .accepted:
+            break
+        case .primaryModifierRequired:
+            markPrimaryModifierRejected(action)
+            return
+        case .bareFirstStrokeNotAllowed:
             markBareKeyRejected(action)
             return
+        case .chordNotAllowed,
+             .systemDefinedMediaKeyNotAllowed,
+             .systemReservedShortcutNotAllowed:
+            markSystemReservedRejected(action)
+            return
         }
-        if action.rejectsSystemDefinedMediaKey(proposed) {
+        if action == .showHideAllWindows,
+           !canRegisterSystemWideHotkey(proposed) {
             markSystemReservedRejected(action)
             return
         }
@@ -404,6 +392,7 @@ final class ShortcutListModel {
     func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
+        primaryModifierRejections.removeAll()
         systemReservedRejections.removeAll()
         numberedDigitRejections.removeAll()
         conflictRejections.removeAll()

@@ -27,4 +27,26 @@ extension ShortcutAction {
         return firstKey.lowercased().hasPrefix("media.")
             || secondKey?.lowercased().hasPrefix("media.") == true
     }
+
+    /// Whether the system reserves this complete shortcut before the action can execute it.
+    ///
+    /// Command-Period is AppKit's standard cancel keystroke for modal alerts
+    /// and open/save panels. The system-wide Show/Hide action must not capture
+    /// that first instinctive cancel press.
+    ///
+    /// - Parameter shortcut: The shortcut being validated.
+    /// - Returns: `true` when the shortcut is reserved for system interaction.
+    public func rejectsSystemReservedShortcut(
+        _ shortcut: StoredShortcut
+    ) -> Bool {
+        guard self == .showHideAllWindows, !shortcut.hasChord else {
+            return false
+        }
+        let first = shortcut.first.canonicalized()
+        return first.key == "."
+            && first.command
+            && !first.shift
+            && !first.option
+            && !first.control
+    }
 }

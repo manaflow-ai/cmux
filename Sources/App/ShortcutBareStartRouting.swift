@@ -129,11 +129,11 @@ extension AppDelegate {
         }
     }
 
-    func matchCachedGlobalSearchShortcut(
+    func matchGlobalSearchShortcut(
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags? = nil
     ) -> Bool {
-        let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+        let shortcut = globalSearchShortcutForRouting()
         guard let stroke = activeGlobalSearchStroke(for: shortcut),
               stroke.modifierFlags
                   == (normalizedFlags ?? ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)),
@@ -141,6 +141,11 @@ extension AppDelegate {
             return false
         }
         return globalSearchShortcutWhenClauseAllows(event: event)
+    }
+
+    /// Resolves the foreground Search binding from the authoritative settings snapshot.
+    func globalSearchShortcutForRouting() -> StoredShortcut {
+        KeyboardShortcutSettings.shortcut(for: .globalSearch)
     }
 
     private func activeGlobalSearchStroke(for shortcut: StoredShortcut) -> ShortcutStroke? {

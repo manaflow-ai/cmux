@@ -21,7 +21,9 @@ extension KeyboardShortcutSettings.Action {
             return self == .showHideAllWindows
                 ? .systemWideHotkeyRequiresModifier
                 : .bareKeyNotAllowed
-        case .chordNotAllowed, .systemDefinedMediaKeyNotAllowed:
+        case .chordNotAllowed,
+             .systemDefinedMediaKeyNotAllowed,
+             .systemReservedShortcutNotAllowed:
             return .reservedBySystem
         }
     }
@@ -118,7 +120,7 @@ extension SystemWideHotkeySettings {
     }
 }
 
-private extension StoredShortcut {
+extension StoredShortcut {
     init(cmuxSettingsStoredShortcut shortcut: CmuxSettings.StoredShortcut) {
         self.init(
             first: ShortcutStroke(cmuxSettingsShortcutStroke: shortcut.first),
@@ -134,7 +136,7 @@ private extension StoredShortcut {
     }
 }
 
-private extension ShortcutStroke {
+extension ShortcutStroke {
     init(cmuxSettingsShortcutStroke stroke: CmuxSettings.ShortcutStroke) {
         self.init(
             key: stroke.key,

@@ -23,7 +23,7 @@ extension AppDelegate {
             return .notApplicable
         }
 
-        let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+        let shortcut = globalSearchShortcutForRouting()
         guard !shortcut.isUnbound else { return .notApplicable }
 
         let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
@@ -68,8 +68,8 @@ extension AppDelegate {
         _ event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
     ) -> VisibleGlobalSearchShortcutRoute {
-        let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
-        let matchesShortcut = matchCachedGlobalSearchShortcut(
+        let shortcut = globalSearchShortcutForRouting()
+        let matchesShortcut = matchGlobalSearchShortcut(
             event: event,
             normalizedFlags: normalizedFlags
         )
@@ -107,7 +107,7 @@ extension AppDelegate {
         _ event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
     ) -> Bool {
-        let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+        let shortcut = globalSearchShortcutForRouting()
         return shortcut.hasChord
             && activeConfiguredShortcutChordPrefixForCurrentEvent == nil
             && shortcut.firstStroke.modifierFlags == normalizedFlags

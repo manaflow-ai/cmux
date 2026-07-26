@@ -76,9 +76,5 @@ extension KeyboardShortcutSettings {
         StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true),
         StoredShortcut(key: "`", command: true, shift: false, option: false, control: false),
         StoredShortcut(key: "`", command: true, shift: true, option: false, control: false),
-        // Cmd+. is AppKit's standard cancel keystroke for modal alerts and
-        // open/save panels. Refuse to register it as the global hotkey so the
-        // first instinctive "cancel" press never hides the whole app.
-        StoredShortcut(key: ".", command: true, shift: false, option: false, control: false),
     ]
 }

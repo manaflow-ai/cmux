@@ -13287,8 +13287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let globalSearchShortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
-        let matchesGlobalSearchShortcut = matchCachedGlobalSearchShortcut(
+        let globalSearchShortcut = globalSearchShortcutForRouting()
+        let matchesGlobalSearchShortcut = matchGlobalSearchShortcut(
             event: event,
             normalizedFlags: normalizedFlags
         )

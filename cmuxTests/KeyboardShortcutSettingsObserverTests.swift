@@ -1,4 +1,3 @@
-import Carbon
 import Foundation
 import Testing
 
@@ -20,58 +19,6 @@ extension GlobalSearchShortcutBehaviorTests {
         )
 
         #expect(observer.revision == expectedRevision)
-    }
-
-    @Test func globalSearchShortcutUsesSnapshotAndReloadsAfterSettingsChange() {
-        let notificationCenter = NotificationCenter()
-        var configuredShortcut = StoredShortcut(
-            key: "f",
-            command: true,
-            shift: false,
-            option: true,
-            control: false
-        )
-        var globalSearchLookupCount = 0
-        let observer = KeyboardShortcutSettingsObserver(
-            notificationCenter: notificationCenter,
-            shortcutProvider: { action in
-                guard action == .globalSearch else { return .unbound }
-                globalSearchLookupCount += 1
-                return configuredShortcut
-            }
-        )
-
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        let initialLookupCount = globalSearchLookupCount
-        for _ in 0..<100 {
-            _ = observer.globalSearchShortcut
-        }
-        #expect(globalSearchLookupCount == initialLookupCount)
-
-        configuredShortcut = StoredShortcut(
-            key: "g",
-            command: true,
-            shift: true,
-            option: false,
-            control: false,
-            chordKey: "s"
-        )
-        notificationCenter.post(
-            name: KeyboardShortcutSettings.didChangeNotification,
-            object: nil
-        )
-
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        #expect(globalSearchLookupCount == initialLookupCount + 1)
-
-        configuredShortcut = .unbound
-        notificationCenter.post(
-            name: KeyboardShortcutSettings.didChangeNotification,
-            object: nil
-        )
-
-        #expect(observer.globalSearchShortcut == .unbound)
-        #expect(globalSearchLookupCount == initialLookupCount + 2)
     }
 
     @Test func legacyMediaKeyGlobalSearchBindingFallsBackToDefault() throws {
@@ -108,48 +55,5 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut)
     }
 
-    @Test func inputSourceChangeRefreshesGlobalSearchSnapshot() async {
-        let notificationCenter = NotificationCenter()
-        var configuredShortcut = StoredShortcut(
-            key: "f",
-            command: true,
-            shift: false,
-            option: true,
-            control: false
-        )
-        var globalSearchLookupCount = 0
-        let observer = KeyboardShortcutSettingsObserver(
-            notificationCenter: notificationCenter,
-            shortcutProvider: { action in
-                guard action == .globalSearch else { return .unbound }
-                globalSearchLookupCount += 1
-                return configuredShortcut
-            }
-        )
-        let initialLookupCount = globalSearchLookupCount
-        configuredShortcut = StoredShortcut(
-            key: "g",
-            command: true,
-            shift: true,
-            option: false,
-            control: false
-        )
-
-        DistributedNotificationCenter.default().postNotificationName(
-            Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
-            object: nil,
-            userInfo: nil,
-            deliverImmediately: true
-        )
-        var yields = 0
-        while globalSearchLookupCount == initialLookupCount, yields < 1_000 {
-            await Task.yield()
-            yields += 1
-        }
-
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        #expect(globalSearchLookupCount == initialLookupCount + 1)
-        #expect(observer.revision == 1)
-    }
     }
 }

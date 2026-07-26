@@ -2,8 +2,24 @@ import CmuxSettings
 import Foundation
 
 extension ShortcutListModel {
+    /// Whether the recorder should retain its rejected stroke for `action`.
+    func hasPendingRejection(for action: ShortcutAction) -> Bool {
+        let actionID = action.rawValue
+        return bareKeyRejections.contains(actionID)
+            || primaryModifierRejections.contains(actionID)
+            || systemReservedRejections.contains(actionID)
+            || numberedDigitRejections.contains(actionID)
+            || conflictRejections[actionID] != nil
+    }
+
     /// The red validation-banner text for `action`, or `nil` when no rejection is pending.
     func validationMessage(for action: ShortcutAction) -> String? {
+        if primaryModifierRejections.contains(action.rawValue) {
+            return String(
+                localized: "shortcut.recorder.error.systemWideHotkeyRequiresModifier",
+                defaultValue: "System-wide hotkeys must include Command, Option, or Control."
+            )
+        }
         if systemReservedRejections.contains(action.rawValue) {
             return String(
                 localized: "shortcut.recorder.error.reservedBySystem",

@@ -80,7 +80,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
         #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
         #expect(shortcut.matches(event: event))
-        #expect(appDelegate.matchCachedGlobalSearchShortcut(event: event))
+        #expect(appDelegate.matchGlobalSearchShortcut(event: event))
     }
 
     @Test func ordinaryTypingDoesNotResolveGlobalSearchBinding() throws {

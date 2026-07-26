@@ -55,6 +55,38 @@ import Testing
         )
     }
 
+    @Test func hostRegistrationPolicyControlsGlobalSearchReservation() async throws {
+        let fixture = makeFixture()
+        let rejectedByHost = StoredShortcut(
+            first: ShortcutStroke(
+                key: "f20",
+                command: true,
+                shift: true,
+                option: true,
+                control: true,
+                keyCode: 90
+            )
+        )
+        try await fixture.store.set(
+            [
+                ShortcutAction.showHideAllWindows.rawValue: rejectedByHost,
+                ShortcutAction.globalSearch.rawValue: rejectedByHost,
+            ],
+            for: fixture.catalog.shortcuts.bindings
+        )
+        let model = ShortcutListModel(
+            jsonStore: fixture.store,
+            catalog: fixture.catalog,
+            errorLog: fixture.errorLog,
+            canRegisterSystemWideHotkey: { $0 != rejectedByHost }
+        )
+        model.startObserving()
+        await spin(until: { model.bindings.count == 2 })
+
+        #expect(model.effective(for: .showHideAllWindows) == nil)
+        #expect(model.effective(for: .globalSearch) == rejectedByHost)
+    }
+
     private func makeFixture() -> (
         store: JSONConfigStore,
         catalog: SettingCatalog,

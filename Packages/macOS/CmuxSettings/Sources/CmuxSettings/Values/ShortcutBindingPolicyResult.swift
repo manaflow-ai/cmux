@@ -18,6 +18,9 @@ public enum ShortcutBindingPolicyResult: Sendable, Equatable {
 
     /// The foreground action cannot receive a system-defined media key.
     case systemDefinedMediaKeyNotAllowed
+
+    /// The system reserves this shortcut before the action can execute it.
+    case systemReservedShortcutNotAllowed
 }
 
 public extension ShortcutAction {
@@ -38,6 +41,9 @@ public extension ShortcutAction {
         }
         if rejectsSystemDefinedMediaKey(shortcut) {
             return .systemDefinedMediaKeyNotAllowed
+        }
+        if rejectsSystemReservedShortcut(shortcut) {
+            return .systemReservedShortcutNotAllowed
         }
 
         let first = shortcut.first
