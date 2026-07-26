@@ -8,6 +8,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var healthSnapshot: ControlSurfaceHealthSnapshot?
     var sendKeyResolution: ControlSurfaceSendResolution = .tabManagerUnavailable
     var lastCreateInputs: ControlSurfaceCreateInputs?
+    var surfaceListSnapshot: ControlSurfaceListSnapshot?
+    var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
     var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
@@ -26,6 +28,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
+        surfaceListSnapshot
+    }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
 
     func controlPaneCreate(
@@ -62,6 +67,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         key: String
     ) -> ControlSurfaceSendResolution {
         sendKeyResolution
+    }
+
+    func controlSurfaceResumeSet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
+        inputs: ControlSurfaceResumeSetInputs
+    ) -> ControlSurfaceResumeResolution {
+        resumeResolution
     }
 
     func controlSurfaceReportPWD(

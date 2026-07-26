@@ -10,7 +10,7 @@ The machine list and built-in workspace list use the same rail renderer, selecti
 
 `Ctrl-b S` focuses the workspace rail. Left or `h` moves to the machine rail, and Right or `l` returns to the workspace rail. Up/Down or `k`/`j` changes the selected machine. Home, End, PageUp, and PageDown move through long catalogs. Enter connects to the selected machine or invokes the selected footer action. Esc returns focus to the active pane. Mouse clicks focus either rail; a machine switch occurs on release over the same machine row. Drag either divider to resize only that rail. Wheel input scrolls the rail body, or the footer when a very short terminal clips its actions.
 
-The static catalog shows `+ Connect machine`. It accepts one `host` or `user@host` without whitespace, adds an SSH target for the current process, and connects to its `main` session. This temporary target is not written to configuration. `+ New VM` is capability-gated and does not appear for the static catalog. A future dynamic provider can expose it when that provider implements machine creation.
+The static catalog shows `+ Connect machine`. It accepts one `host` or `user@host` without whitespace, adds an SSH target for the current process, and connects to its `main` session. This temporary target is not written to configuration. `+ new machine` is capability-gated and does not appear for the static catalog.
 
 ## Static targets
 
@@ -40,9 +40,13 @@ The direct-command form treats every value through the terminating `--` as one l
 
 `--cloud` runs OpenSSH against `cmux.cloud` by default. `--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override the destination. The connector uses one private SSH ControlMaster per provider generation and runs exactly `cmux provider control` for the catalog connection and `cmux provider stream` for each machine connection. The SSH server must implement those two commands.
 
-A local `--cloud` client appends the configured `machines` array to the provider catalog and shows `+ Connect machine`. These entries and temporary `user@host` targets use the caller's local SSH config, keys, agent, and `known_hosts`. Their target details never enter provider requests. Provider machines use low process-local keys and local entries use the upper half of the key space. A provider refresh cannot replace an active local session. Switching back to a provider machine opens a fresh provider ticket.
+A local `--cloud` client appends the configured `machines` array to the provider catalog. Provider machines use low process-local keys and local entries use the upper half of the key space. A provider refresh cannot replace an active local session. Switching back to a provider machine opens a fresh provider ticket.
 
-Unix-socket and direct-command provider modes are provider-only and reject a simultaneous `machines` array. The native TUI reached by `ssh cmux.cloud` uses Unix provider mode, has no access to the caller's local SSH credentials, and does not show the local connect action. Provider-driven external connect remains hidden unless both the snapshot bit and its negotiated protocol capability are present.
+`+ Connect machine` has two capability-gated owners. When the provider negotiates `connect-external-machine-v1` and sets the current snapshot's `connect_external_machine` bit, the prompt accepts a host address or pairing code and sends it unchanged as an opaque provider mutation. The provider enrolls and selects the returned machine; the TUI refreshes the catalog and opens it through the normal machine-switch path. The pairing code is bounded, never shell-evaluated, and redacted from debug output. Exact retries use the same mutation id and receive the provider's idempotent result.
+
+When provider-owned connect is unavailable, the local Cloud overlay preserves the static behavior: a temporary `host` or `user@host` target uses the caller's local SSH config, keys, agent, and `known_hosts`. Those local target details never enter provider requests.
+
+Unix-socket and direct-command provider modes are provider-only and reject a simultaneous `machines` array. The native TUI reached by `ssh cmux.cloud` uses Unix provider mode and has no access to the caller's local SSH credentials. It shows provider-owned connect only when both protocol signals are present.
 
 Each connection generation receives a new client-generated bearer. The bearer travels only in the first provider protocol message and later machine transport handshakes. It is never placed in process arguments, environment variables, or diagnostics. Dropping or reconnecting the provider terminates its child processes and removes its private SSH control directory.
 
@@ -64,7 +68,7 @@ Keep the headless process under your normal service supervisor when it must surv
 npx cmux
 ```
 
-The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. The remote process serves workspaces and terminals through its existing protocol-v9 session.
+The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. The remote process serves workspaces and terminals through its existing protocol-v10 session.
 
 For a direct transport check, the equivalent relay is:
 
@@ -73,3 +77,34 @@ ssh -T dev@buildbox /home/dev/.local/bin/cmux relay --session agents
 ```
 
 This command emits raw JSON-lines protocol traffic, not a second TUI. Normally the machine connector owns it.
+
+## Share a local machine through Cloud
+
+Start a persistent local session in one terminal or service supervisor:
+
+```bash
+npx cmux --headless --session agents
+```
+
+First verify Cloud host trust and authentication once, then exit back to your local shell. Use the same resolved host, user, port, and identity that the agent will use:
+
+```bash
+ssh cmux.cloud
+# With overrides: ssh -p <port> -i <identity> <user>@<cloud-host>
+```
+
+Quit the Cloud TUI so SSH returns to your local shell. This interactive step trusts the host and confirms that an SSH agent or unencrypted key can authenticate. The long-lived agent uses `BatchMode=yes`, so restart fails and retries instead of hanging on a password, passphrase, or host-key prompt.
+
+Start the outbound agent from another interactive local terminal with `/dev/tty`:
+
+```bash
+npx cmux machine-agent --session agents
+```
+
+The agent fails closed without a controlling terminal, including on reconnects where the broker does not emit a pairing code.
+
+The agent runs the exact remote command `cmux machine register`. The first successful registration prints a short one-time pairing code. In the TUI reached by `ssh cmux.cloud`, choose `+ Connect machine` and enter that code.
+
+The connection is outbound only. The agent opens no listener and changes no shell or SSH files. It multiplexes Cloud streams onto the selected local protocol-v10 session, reconnects with bounded backoff, and preserves active streams during a server-requested software generation migration.
+
+The stable random machine id and secret live in a private mode-0600 identity file under the cmux config directory. The containing directory is mode 0700. Pairing codes are never persisted. Use `--state`, `--cloud-host`, `--cloud-user`, `--cloud-port`, or `--cloud-identity` when the defaults do not match the local setup. See [Machine Agent Contract](../spec/machine-agent.md) for bounds and migration rules.

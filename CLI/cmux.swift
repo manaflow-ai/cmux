@@ -2,6 +2,7 @@ import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
+import CmuxSimulator
 import CoreFoundation
 import CoreGraphics
 import CryptoKit
@@ -2826,6 +2827,7 @@ final class SocketClient {
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
+    let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -2845,9 +2847,15 @@ struct CMUXCLI {
         return keys
     }
 
-    init(args: [String], initialSIGPIPEInspectionPayload: [String: Any]? = nil) {
+    init(
+        args: [String],
+        initialSIGPIPEInspectionPayload: [String: Any]? = nil,
+        simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
+            SimulatorOwnedCommandRunner()
+    ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
+        self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
     }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -4488,6 +4496,10 @@ struct CMUXCLI {
                 idFormat: idFormat
             )
 
+        case "simulator":
+            try runSimulatorNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+        case "ios":
+            try runIOSNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "workspace":
             try runWorkspaceNamespace(
                 commandArgs: commandArgs,
@@ -4700,6 +4712,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let profile = try parseBrowserProfileOption(commandArgs).selector
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
@@ -4709,6 +4722,15 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let profile {
+                guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
+                    throw CLIError(message: String(
+                        localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                        defaultValue: "Browser profiles can only be used when creating a browser pane"
+                    ))
+                }
+                params["profile"] = profile
+            }
             if let placement { params["placement"] = placement }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
@@ -8233,8 +8255,8 @@ struct CMUXCLI {
             method = "canvas.set_viewport"
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
-                guard ["terminal", "browser"].contains(type) else {
-                    throw CLIError(message: "Usage: cmux canvas new-pane [--type terminal|browser]")
+                guard ["terminal", "browser", "simulator"].contains(type) else {
+                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"))
                 }
                 params["type"] = type
             }
@@ -13204,7 +13226,10 @@ struct CMUXCLI {
             }
             var markers: [String] = []
             if (profile["current"] as? Bool) == true {
-                markers.append("current")
+                markers.append(String(
+                    localized: "cli.browser.profiles.marker.lastUsed",
+                    defaultValue: "last used"
+                ))
             }
             if (profile["built_in_default"] as? Bool) == true {
                 markers.append("default")
@@ -13477,7 +13502,8 @@ struct CMUXCLI {
             // Parse routing flags before URL assembly so they never leak into the URL string.
             let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
-            let (focusOpt, urlArgs) = parseOption(argsAfterWindow, name: "--focus")
+            let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
+            let (profileSelector, urlArgs) = try parseBrowserProfileOption(argsAfterFocus)
             // Reject unrecognized flags instead of folding them into the URL, where they
             // would silently produce an unparseable URL (blank page) or a search query.
             if let strayFlag = urlArgs.first(where: { $0.hasPrefix("--") }) {
@@ -13498,6 +13524,12 @@ struct CMUXCLI {
 
             if surfaceRaw != nil, subcommand == "open" {
                 // Treat `browser <surface> open <url>` as navigate for agent-browser ergonomics.
+                guard profileSelector == nil else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.profile.error.navigateUnsupported",
+                        defaultValue: "--profile is only supported when browser open creates a new pane; omit the surface selector"
+                    ))
+                }
                 let sid = try requireSurface()
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
@@ -13513,6 +13545,9 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             if !url.isEmpty {
                 params["url"] = url
+            }
+            if let profileSelector {
+                params["profile"] = profileSelector
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
@@ -15080,7 +15115,7 @@ struct CMUXCLI {
               set-viewport --x <n> --y <n> [--zoom <n>]
                                             Center the viewport on a canvas point
                                             (optionally set magnification)
-              new-pane [--type terminal|browser]
+              new-pane [--type terminal|browser|simulator]
                                             Create a new free-floating canvas pane
               join <surface> <target>       Move a surface into the pane hosting target (tab)
               break <surface>               Tear a surface out of its multi-tab pane
@@ -15093,6 +15128,10 @@ struct CMUXCLI {
               cmux canvas new-pane --type terminal
               cmux canvas align tidy
             """
+        case "simulator":
+            return simulatorSubcommandUsage()
+        case "ios":
+            return iosSubcommandUsage()
         case "events":
             return """
             Usage: cmux events [options]
@@ -16097,18 +16136,20 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser>           Pane type (default: terminal)
+              --type <terminal|browser|simulator> Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
+              \(String(localized: "cli.newPane.help.profileDescription", defaultValue: "--profile <name|uuid>                Browser profile name or UUID"))
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --type simulator --direction right
               cmux new-pane --type browser --placement dock --url https://example.com
             """
         case "new-surface":
@@ -16118,7 +16159,7 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|application|agent-session>
+              --type <terminal|browser|application|simulator|agent-session>
                                            Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
@@ -16140,6 +16181,7 @@ struct CMUXCLI {
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type simulator --pane pane:1 --focus true
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type application --native-window-id 123 --process-id 456 --title Preview --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
@@ -16948,7 +16990,7 @@ struct CMUXCLI {
             `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
                 open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
                 --focus defaults to false
               disable | enable | status
@@ -17102,6 +17144,49 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    func parseBrowserProfileOption(_ args: [String]) throws -> (selector: String?, remaining: [String]) {
+        var remaining: [String] = []
+        var selector: String?
+        var index = 0
+        var pastTerminator = false
+        while index < args.count {
+            let arg = args[index]
+            if pastTerminator || arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--profile" {
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.profile.error.emptySelector",
+                        defaultValue: "--profile requires a non-empty profile name or UUID"
+                    ))
+                }
+                selector = args[index + 1]
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--profile=") {
+                selector = String(arg.dropFirst("--profile=".count))
+                index += 1
+                continue
+            }
+            remaining.append(arg)
+            index += 1
+        }
+        guard let selector else { return (nil, remaining) }
+        let normalized = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.browser.profile.error.emptySelector",
+                defaultValue: "--profile requires a non-empty profile name or UUID"
+            ))
+        }
+        return (normalized, remaining)
     }
 
     func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
@@ -19183,18 +19268,6 @@ struct CMUXCLI {
 
     func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
-    }
-
-    func jsonString(_ object: Any) -> String {
-        var options: JSONSerialization.WritingOptions = [.prettyPrinted]
-        options.insert(.sortedKeys)
-        options.insert(.withoutEscapingSlashes)
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: options),
-              let output = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return output
     }
 
     private func parseRPCParams(_ args: [String]) throws -> [String: Any] {
@@ -35307,6 +35380,8 @@ export default CMUXSessionRestore;
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
+          \(simulatorCommandUsageLine)
+          \(iosCommandUsageLine)
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
           current-window
@@ -35337,8 +35412,8 @@ export default CMUXSessionRestore;
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser|application|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--native-window-id <id>] [--process-id <pid>] [--title <title>] [--frame-rate <1...120>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
+          new-surface [--type <terminal|browser|application|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--native-window-id <id>] [--process-id <pid>] [--title <title>] [--frame-rate <1...120>] [--focus <true|false>]
           list-application-windows
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
@@ -35413,8 +35488,8 @@ export default CMUXSessionRestore;
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
-          browser open [url] [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-          browser open-split [url]
+          browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+          browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]

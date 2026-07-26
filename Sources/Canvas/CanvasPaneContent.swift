@@ -13,7 +13,7 @@ enum CanvasPaneContent {
     /// Any other panel kind, hosted through an `NSHostingView`. Carries the
     /// panel so the mount can drive panel-level lifecycle (browser webview
     /// visibility / hidden-discard restore).
-    case hosted(any Panel, NSView)
+    case hosted(any Panel, NSView, CanvasHostedPanelPresentation)
 }
 
 /// Owns the mounted content of one canvas pane and its teardown. This is the
@@ -64,7 +64,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 self.onFocusPanel?(self.panelId)
             }
             view = hostedView
-        case .hosted(let panel, let hostedView):
+        case .hosted(let panel, let hostedView, _):
             view = hostedView
             // Canvas drives panel-level webview lifecycle: mounting makes the
             // browser visible (and restores a hidden-discarded webview), and
@@ -123,6 +123,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     /// terminal stays mounted.
     func updatePresentation(
         isFocused: Bool,
+        allowsPointerInput: Bool,
         showsInactiveOverlay: Bool,
         inactiveOverlayColor: NSColor,
         inactiveOverlayOpacity: Double,
@@ -138,8 +139,9 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 opacity: CGFloat(inactiveOverlayOpacity),
                 visible: showsInactiveOverlay
             )
-        case .hosted:
-            break
+        case .hosted(_, _, let presentation):
+            presentation.setFocused(isFocused)
+            presentation.setAllowsPointerInput(allowsPointerInput)
         }
     }
 
@@ -150,7 +152,8 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         switch content {
         case .terminal(let panel, _):
             panel.surface.setOcclusion(rendering)
-        case .hosted(let panel, _):
+        case .hosted(let panel, _, _):
+            (panel as? SimulatorPanel)?.setCanvasRendering(rendering)
             // Offscreen browsers may hidden-discard their webview; coming
             // back into the render region restores it.
             if let browserPanel = panel as? BrowserPanel {
@@ -175,7 +178,11 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()
-        case .hosted(let panel, let view):
+        case .hosted(let panel, let view, _):
+            if let simulatorPanel = panel as? SimulatorPanel {
+                simulatorPanel.setVisibleInUI(false)
+                simulatorPanel.setCanvasRendering(nil)
+            }
             if let browserPanel = panel as? BrowserPanel {
                 browserPanel.canvasInlineHostingActive = false
                 browserPanel.noteWebViewVisibility(false, reason: "canvas.unmount")

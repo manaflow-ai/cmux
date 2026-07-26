@@ -152,6 +152,14 @@ extension TerminalController {
                 bypassRemoteProxy: useLocalContext,
                 initialDividerPosition: dividerPosition
             )?.id
+        } else if panelType == .simulator {
+            newId = ws.newSimulatorSplit(
+                from: targetSurfaceId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                initialDividerPosition: dividerPosition
+            )?.id
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: targetSurfaceId,
@@ -400,6 +408,11 @@ extension TerminalController {
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext
             )?.id
+        } else if panelType == .simulator {
+            newPanelId = ws.newSimulatorSurface(
+                inPane: paneId,
+                focus: focus
+            )?.id
         } else if panelType == .agentSession {
             newPanelId = ws.newAgentSessionSurface(
                 inPane: paneId,
@@ -537,22 +550,6 @@ extension TerminalController {
         }
         workspace.markCloseHistoryEligible(panelId: surfaceId)
         return workspace.closePanel(surfaceId, force: force)
-    }
-
-    /// The byte-faithful twin of `v2PanelType`'s token mapping (the `v2PanelType`
-    /// helper takes `[String: Any]`; the coordinator passes the raw token, so this
-    /// maps a token directly, identical to the legacy switch).
-    private func surfacePanelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal": return .terminal
-        case "browser": return .browser
-        case "application", "app": return .application
-        case "markdown": return .markdown
-        case "filepreview": return .filePreview
-        case "rightsidebartool": return .rightSidebarTool
-        case "agentsession": return .agentSession
-        default: return nil
-        }
     }
 
     private func surfaceRemoteContextWantsLocal(_ raw: String?) -> Bool {
