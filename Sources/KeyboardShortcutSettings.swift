@@ -119,6 +119,7 @@ enum KeyboardShortcutSettings {
         case newWorkspaceGroup
         case groupSelectedWorkspaces
         case toggleFocusedWorkspaceGroupCollapsed
+        case reopenClosedWorkspace
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
@@ -253,6 +254,7 @@ enum KeyboardShortcutSettings {
             case .newWorkspaceGroup: return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
             case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
+            case .reopenClosedWorkspace: return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -439,8 +441,10 @@ enum KeyboardShortcutSettings {
                 // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family used by other group ops,
                 // with "." as the collapse mnemonic. No-ops gracefully when the focused workspace isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
-            case .reopenClosedBrowserPanel:
+            case .reopenClosedWorkspace:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
+            case .reopenClosedBrowserPanel:
+                return .unbound
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:
@@ -1663,9 +1667,6 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         guard event.type == .keyDown else { return false }
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
-            return false
-        }
 
         return matches(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
@@ -1683,6 +1684,10 @@ struct ShortcutStroke: Equatable, Hashable {
     ) -> Bool {
         let flags = Self.normalizedModifierFlags(from: modifierFlags)
         guard flags == self.modifierFlags else { return false }
+
+        if let recordedKeyCode = self.keyCode {
+            return keyCode == recordedKeyCode
+        }
 
         let shortcutKey = key.lowercased()
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
@@ -1786,39 +1791,10 @@ struct ShortcutStroke: Equatable, Hashable {
         keyCode: UInt16,
         charactersIgnoringModifiers: String?
     ) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
-        switch keyCode {
-        case 123: return "←" // left arrow
-        case 124: return "→" // right arrow
-        case 125: return "↓" // down arrow
-        case 126: return "↑" // up arrow
-        case 48: return "\t" // tab
-        case 49: return "space" // kVK_Space
-        case 36, 76: return "\r" // return, keypad enter
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
-        default:
-            break
-        }
-
-        guard let chars = charactersIgnoringModifiers?.lowercased(),
-              let char = chars.first else {
-            return nil
-        }
-
-        if char.isLetter || char.isNumber {
-            return String(char)
-        }
-        return nil
+        recordedShortcutKey(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: charactersIgnoringModifiers
+        )
     }
 
     private static func recordableKey(

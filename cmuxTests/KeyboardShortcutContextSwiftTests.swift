@@ -11,6 +11,26 @@ import Testing
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("reopen workspace default yields to an explicit legacy browser binding")
+    func reopenWorkspaceDefaultYieldsToLegacyBrowserBinding() {
+        let workspaceAction = KeyboardShortcutSettings.Action.reopenClosedWorkspace
+        let browserAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
+        let commandShiftT = workspaceAction.defaultShortcut
+
+        let resolved = KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: workspaceAction,
+            explicitlyConfiguredShortcut: { action in
+                action == browserAction ? commandShiftT : nil
+            }
+        )
+
+        #expect(resolved == nil)
+        #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: workspaceAction,
+            explicitlyConfiguredShortcut: { _ in nil }
+        ) == commandShiftT)
+    }
+
     @Test("markdown and view zoom contexts do not collide")
     func markdownAndViewZoomContextsDoNotCollide() {
         let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
@@ -125,6 +145,34 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(!manager.zoomOutFocusedBrowserOrTextFilePreview())
         #expect(!manager.resetZoomFocusedBrowserOrTextFilePreview())
         #expect(manager.calls == ["text", "text"])
+    }
+}
+
+@Suite("Stored shortcut physical-key matching")
+struct StoredShortcutPhysicalKeyMatchingTests {
+    @Test("recorded Option shortcut matches its physical key across layouts")
+    func recordedOptionShortcutMatchesPhysicalKeyAcrossLayouts() {
+        let shortcut = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: true,
+            control: false,
+            keyCode: 18
+        )
+
+        #expect(shortcut.matches(
+            keyCode: 18,
+            modifierFlags: [.option],
+            eventCharacter: "&",
+            layoutCharacterProvider: { _, _ in "&" }
+        ))
+        #expect(!shortcut.matches(
+            keyCode: 19,
+            modifierFlags: [.option],
+            eventCharacter: "1",
+            layoutCharacterProvider: { _, _ in "1" }
+        ))
     }
 }
 
