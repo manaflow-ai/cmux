@@ -4,7 +4,7 @@ use std::mem::size_of;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -32,15 +32,57 @@ static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 /// Navigation events and successful capture restarts advance the generation
 /// before later frames enter either bounded event queue.
 #[derive(Debug, Default)]
-pub struct FrameEpoch(AtomicU64);
+pub struct FrameEpoch {
+    current: AtomicU64,
+    latest_navigation: AtomicU64,
+    wait_lock: Mutex<()>,
+    changed: Condvar,
+}
 
 impl FrameEpoch {
     pub fn current(&self) -> u64 {
-        self.0.load(Ordering::Acquire)
+        self.current.load(Ordering::Acquire)
     }
 
     pub fn advance(&self) -> u64 {
-        self.0.fetch_add(1, Ordering::AcqRel).wrapping_add(1)
+        let _guard = self.wait_lock.lock().unwrap();
+        let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        self.changed.notify_all();
+        epoch
+    }
+
+    pub fn advance_navigation(&self) -> u64 {
+        let _guard = self.wait_lock.lock().unwrap();
+        let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        self.latest_navigation.store(epoch, Ordering::Release);
+        self.changed.notify_all();
+        epoch
+    }
+
+    pub fn latest_navigation(&self) -> u64 {
+        self.latest_navigation.load(Ordering::Acquire)
+    }
+
+    pub fn wait_until_at_least(&self, expected: u64, timeout: Duration) -> bool {
+        if self.current() >= expected {
+            return true;
+        }
+        let deadline = Instant::now() + timeout;
+        let mut guard = self.wait_lock.lock().unwrap();
+        loop {
+            if self.current() >= expected {
+                return true;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next_guard, wait) = self.changed.wait_timeout(guard, remaining).unwrap();
+            guard = next_guard;
+            if wait.timed_out() && self.current() < expected {
+                return false;
+            }
+        }
     }
 }
 
@@ -496,6 +538,24 @@ impl CdpClient {
         self.call("Page.enable", json!({}), Some(session_id)).map(|_| ())
     }
 
+    pub fn seed_main_frame(&self, session_id: &str) -> anyhow::Result<()> {
+        let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
+        let frame = result
+            .get("frameTree")
+            .and_then(|frame_tree| frame_tree.get("frame"))
+            .ok_or_else(|| anyhow::anyhow!("Page.getFrameTree response missing root frame"))?;
+        let frame_id = frame
+            .get("id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Page.getFrameTree root frame missing id"))?;
+        let mut frame_epochs = self.inner.frame_epochs.lock().unwrap();
+        let frame_session = frame_epochs
+            .get_mut(session_id)
+            .ok_or_else(|| anyhow::anyhow!("missing frame epoch for CDP session {session_id}"))?;
+        frame_session.main_frame_id = Some(frame_id.to_string());
+        Ok(())
+    }
+
     pub fn set_user_agent(&self, session_id: &str, user_agent: &str) -> anyhow::Result<()> {
         self.call(
             "Emulation.setUserAgentOverride",
@@ -908,7 +968,7 @@ fn main_frame_navigation_epoch(
         }
         _ => return None,
     }
-    Some(frame_session.epoch.advance())
+    Some(frame_session.epoch.advance_navigation())
 }
 
 fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
