@@ -3170,6 +3170,67 @@ mod tests {
         assert_eq!(signals.load(Ordering::Relaxed), 0);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn normal_child_exit_cleans_same_session_descendants_before_reaping() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-local-reap-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let pid_path = root.join("descendant.pid");
+        let mux = Mux::new_for_test("local-reap-descendants", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                format!(
+                    "trap '' HUP TERM; (exec sleep 30) </dev/null >/dev/null 2>&1 & echo $! > {}; exit 0",
+                    pid_path.display()
+                ),
+            ]),
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
+        let process =
+            match &*surface.as_pty().unwrap().local_process.as_ref().unwrap().lock().unwrap() {
+                LocalProcess::Owned(process) => process.clone(),
+                LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+            };
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while (!pid_path.exists() || !process.child_reaped.load(Ordering::Acquire))
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let descendant =
+            std::fs::read_to_string(&pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
+
+        let terminated =
+            surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
+        let mut descendant_alive = true;
+        let exit_deadline = Instant::now() + Duration::from_secs(1);
+        while descendant_alive && Instant::now() < exit_deadline {
+            // SAFETY: signal 0 only probes the test-owned PID.
+            descendant_alive = unsafe { libc::kill(descendant, 0) } == 0;
+            if descendant_alive {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        if descendant_alive {
+            // SAFETY: this PID was written by the test-owned descendant.
+            unsafe {
+                libc::kill(descendant, libc::SIGKILL);
+            }
+        }
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(process.child_reaped.load(Ordering::Acquire));
+        assert!(terminated);
+        assert!(
+            !descendant_alive,
+            "normal PTY exit reaped its leader while a same-session descendant remained alive"
+        );
+    }
+
     #[test]
     fn local_shutdown_does_not_wait_for_the_pty_writer_lock() {
         let mux = Mux::new_for_test("shutdown-writer-lock", SurfaceOptions::default());

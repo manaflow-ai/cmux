@@ -10955,6 +10955,56 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn rejected_terminal_admission_does_not_launch_a_process() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-terminal-admission-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let pid_path = root.join("terminal.pid");
+        let mux = Mux::new(
+            "terminal-admission",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    format!("echo $$ > {}; exec sleep 30", pid_path.display()),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        mux.set_shutdown_owner_capacity_for_test(0);
+
+        let state = mux.state.lock().unwrap();
+        let spawn = std::thread::spawn({
+            let mux = mux.clone();
+            move || mux.spawn_surface_with(None, None, Some((80, 24)), None, None)
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !pid_path.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let spawned_pid = std::fs::read_to_string(&pid_path)
+            .ok()
+            .and_then(|pid| pid.trim().parse::<libc::pid_t>().ok());
+        drop(state);
+        let error = spawn.join().unwrap().unwrap_err();
+        if let Some(pid) = spawned_pid {
+            // SAFETY: this PID was written by the test-owned terminal command.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
+
+        assert_eq!(error.to_string(), "surface_owner_capacity_exhausted");
+        assert!(
+            spawned_pid.is_none(),
+            "capacity rejection launched terminal process {spawned_pid:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_handoff_does_not_terminate_an_in_flight_terminal_adoption() {
         let options = SurfaceOptions::default();
         let mux = Mux::new_for_test("adoption-handoff", options.clone());
