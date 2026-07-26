@@ -135,6 +135,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    let clock: SuspendingClock = .init()\n"
                 "}\n"
             ),
+            "shorthand-clock-capture.swift": (
+                "let clock = ContinuousClock()\n"
+                "run { [clock] in\n"
+                "    try await clock.sleep(until: deadline)\n"
+                "    #expect(finished)\n"
+                "}\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -512,6 +519,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 in (
                     "later-self-qualified-clock-member.swift",
                     "later-unqualified-clock-member.swift",
+                    "shorthand-clock-capture.swift",
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
                     "shell-assert-multiline-substitution.sh",
@@ -1099,6 +1107,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "finally:\n"
                     "    check()\n"
                 ),
+                "skipped-branch-trusted-rebind.py": (
+                    "import fake_clock as clock\n"
+                    "def check():\n"
+                    "    clock.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "if False:\n"
+                    "    import time as clock\n"
+                    "check()\n"
+                ),
             }
         )
 
@@ -1597,6 +1614,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ),
                 "assertion-looking-argument.sh": (
                     'echo assert "$(sleep 1)"\n'
+                ),
+                "unindented-while-poll.sh": (
+                    "while ! ready; do\n"
+                    'sleep "$POLL_INTERVAL"\n'
+                    "done\n"
+                    'assert "$ready"\n'
+                ),
+                "unindented-until-poll.sh": (
+                    "until ready; do\n"
+                    "sleep 1\n"
+                    "done\n"
+                    'assert "$ready"\n'
+                ),
+                "unindented-for-poll.sh": (
+                    "for attempt in 1 2 3; do\n"
+                    'sleep "$POLL_INTERVAL"\n'
+                    "done\n"
+                    'assert "$ready"\n'
                 ),
                 "arithmetic-sleep-identifier.sh": (
                     "value=$((sleep + 1))\n"
