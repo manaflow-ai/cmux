@@ -87,12 +87,14 @@ def wheel_bytes(version: str, tag: str, binary: bytes) -> list[tuple[str, bytes,
         (
             f"{PACKAGE_NAME}/_main.py",
             text_bytes(
-                """from __future__ import annotations
+                f"""from __future__ import annotations
 
 import os
 import pathlib
 import shlex
 import sys
+
+PACKAGE_VERSION = {version!r}
 
 
 def _launcher_command(argv0: str) -> str:
@@ -105,7 +107,7 @@ def _launcher_command(argv0: str) -> str:
             and candidate.removeprefix("archive-v").isdigit()
             for candidate in parts[index + 1 :]
         ):
-            return "uvx cmux"
+            return "uvx cmux==" + PACKAGE_VERSION
     return shlex.quote(argv0) if argv0 else "cmux"
 
 
