@@ -13,6 +13,12 @@ import WebKit
 struct BrowserPortalFirstRevealScrollTests {
     private final class RecordingWebView: WKWebView {
         var frameSizeCalls: [NSSize] = []
+        private(set) var displayIfNeededCount = 0
+
+        override func displayIfNeeded() {
+            displayIfNeededCount += 1
+            super.displayIfNeeded()
+        }
 
         override func setFrameSize(_ newSize: NSSize) {
             frameSizeCalls.append(newSize)
@@ -199,6 +205,7 @@ struct BrowserPortalFirstRevealScrollTests {
 
         webView.browserPortalPrepareForHiddenHostAdoption()
         #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+        let displayCountBeforeReveal = webView.displayIfNeededCount
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(fixture.anchor)
@@ -212,6 +219,10 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: revealedSize) })
         #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+        #expect(
+            webView.displayIfNeededCount == displayCountBeforeReveal,
+            "The one-point first-reveal nudge should invalidate layout without synchronously flushing display."
+        )
         #expect(fixture.window.firstResponder === firstResponder)
 
         webView.frameSizeCalls.removeAll()

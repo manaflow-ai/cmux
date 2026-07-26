@@ -59,6 +59,24 @@ import Testing
         )
     }
 
+    @Test func closeReleasesLoadedWebViewWhilePanelRemainsRetained() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let originalWebView = panel.webView
+        let discardManager = panel.hiddenWebViewDiscardManager
+
+        #expect(discardManager.delegate === panel)
+
+        panel.close()
+
+        #expect(discardManager.delegate == nil)
+        #expect(!discardManager.hasScheduledDiscard)
+        #expect(panel.webView !== originalWebView)
+        #expect(panel.webView.url == nil)
+        #expect(originalWebView.navigationDelegate == nil)
+        #expect(originalWebView.uiDelegate == nil)
+        #expect(originalWebView.superview == nil)
+    }
+
     private func waitForOmnibarField(
         panelID: UUID,
         in window: NSWindow,

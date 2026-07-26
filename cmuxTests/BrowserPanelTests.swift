@@ -2903,6 +2903,12 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
         private(set) var reattachRenderingStateCount = 0
+        private(set) var setNeedsDisplayCount = 0
+
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            setNeedsDisplayCount += 1
+            super.setNeedsDisplay(invalidRect)
+        }
 
         override func displayIfNeeded() {
             displayIfNeededCount += 1
@@ -3475,6 +3481,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
+        let initialSetNeedsDisplayCount = webView.setNeedsDisplayCount
         let initialDisplayCount = webView.displayIfNeededCount
         let initialReattachCount = webView.reattachRenderingStateCount
         anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
@@ -3488,9 +3495,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 178, accuracy: 0.5)
         XCTAssertGreaterThan(
+            webView.setNeedsDisplayCount,
+            initialSetNeedsDisplayCount,
+            "Pure anchor geometry updates should invalidate the hosted browser for redraw"
+        )
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             initialDisplayCount,
-            "Pure anchor geometry updates should still repaint the hosted browser"
+            "Pure anchor geometry updates must not synchronously flush WebKit display"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
@@ -3551,6 +3563,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
+        let initialSetNeedsDisplayCount = webView.setNeedsDisplayCount
         let initialDisplayCount = webView.displayIfNeededCount
         let initialReattachCount = webView.reattachRenderingStateCount
         let initialWidth = slot.frame.width
@@ -3567,9 +3580,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Moving the app split divider should shrink the hosted browser slot"
         )
         XCTAssertGreaterThan(
+            webView.setNeedsDisplayCount,
+            initialSetNeedsDisplayCount,
+            "External split resize should invalidate the hosted browser for redraw"
+        )
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             initialDisplayCount,
-            "External split resize should still repaint the hosted browser"
+            "External split resize must not synchronously flush WebKit display"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
@@ -3872,6 +3890,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         advanceAnimations()
         let hiddenDisplayCount = webView.displayIfNeededCount
         let hiddenReattachCount = webView.reattachRenderingStateCount
+        let hiddenSetNeedsDisplayCount = webView.setNeedsDisplayCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3884,9 +3903,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
         )
         XCTAssertGreaterThan(
+            webView.setNeedsDisplayCount,
+            hiddenSetNeedsDisplayCount,
+            "Revealing an existing portal-hosted browser should invalidate WebKit presentation"
+        )
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             hiddenDisplayCount,
-            "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
+            "Reveal should let AppKit commit the invalidated frame instead of forcing display synchronously"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
