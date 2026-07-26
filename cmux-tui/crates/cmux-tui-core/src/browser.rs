@@ -5173,6 +5173,43 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_repaint_preserves_pointer_authority() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let authority = browser.latest_frame_seq().expect("initial pointer authority");
+
+        browser.store_frame(test_frame(2));
+
+        assert_eq!(
+            browser.latest_frame().map(|frame| frame.seq),
+            Some(2),
+            "the visual frame must advance"
+        );
+        assert_eq!(
+            browser.latest_frame_seq(),
+            Some(authority),
+            "an ordinary repaint must retain the document and geometry authority"
+        );
+        assert!(
+            browser.capture_guarded_input_point(authority, 1.0, 1.0).is_some(),
+            "a click rendered under the stable authority must survive continuous repainting"
+        );
+    }
+
+    #[test]
+    fn legacy_pointer_capture_has_a_bounded_worker_lease() {
+        let source = include_str!("browser.rs");
+        let production =
+            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production browser source");
+        assert!(
+            production.contains("LEGACY_POINTER_PRESS_LEASE")
+                && production.contains("expire_legacy_pointer_presses"),
+            "owner-zero compatibility captures need periodic expiry and a balancing release"
+        );
+    }
+
+    #[test]
     fn canonicalized_same_document_url_still_requests_capture() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");

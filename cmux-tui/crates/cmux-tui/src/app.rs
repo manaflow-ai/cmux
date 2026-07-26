@@ -16933,6 +16933,35 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_browser_repaint_does_not_change_pointer_geometry() {
+        let mux = Mux::new("graphics-repaint-pointer-authority-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let rect = Rect { x: 2, y: 2, width: 8, height: 4 };
+        app.last_graphics_snapshot.push(GraphicIdentity {
+            session_generation: app.session_generation,
+            surface: 11,
+            rect,
+            seq: 13,
+        });
+        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+
+        app.track_graphics_submission(
+            7,
+            vec![GraphicIdentity {
+                session_generation: app.session_generation,
+                surface: 11,
+                rect,
+                seq: 14,
+            }],
+        );
+
+        assert!(
+            !app.pending_graphics_changes_cell(rect.x + 1, rect.y + 1),
+            "a new bitmap with unchanged document and geometry must not starve pointer input"
+        );
+    }
+
+    #[test]
     fn superseded_graphics_presentations_keep_intermediate_cells_blocked() {
         let mux = Mux::new("graphics-presentation-union-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));

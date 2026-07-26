@@ -767,6 +767,21 @@ mod tests {
     }
 
     #[test]
+    fn deferred_input_overflow_status_is_catalog_backed() {
+        let app_source = include_str!("app.rs");
+        assert!(
+            !app_source
+                .contains("\"Input queue byte limit reached while a session change is pending\""),
+            "the deferred-input overflow status must come from the locale catalog"
+        );
+        assert!(
+            include_str!("localization.rs")
+                .contains("セッションの変更中に入力キューのバイト上限に達しました"),
+            "the deferred-input overflow status must include a Japanese translation"
+        );
+    }
+
+    #[test]
     fn workspace_port_provider_actions_use_localized_labels() {
         assert_eq!(
             catalog().sidebar.provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
