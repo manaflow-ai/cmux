@@ -171,3 +171,39 @@ fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
         "PTY session enumeration is unavailable on this platform",
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "macos")]
+    use std::os::unix::process::CommandExt;
+    #[cfg(target_os = "macos")]
+    use std::process::{Command, Stdio};
+
+    #[cfg(target_os = "macos")]
+    use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_session_query_is_scoped_to_the_owned_session() {
+        let mut command = Command::new("sleep");
+        command.arg("60").stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let session = libc::pid_t::try_from(child.id()).unwrap();
+
+        let members = macos_session_process_ids(session).unwrap();
+
+        let current = libc::pid_t::try_from(std::process::id()).unwrap();
+        assert!(members.contains(&session));
+        assert!(!members.contains(&current));
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+}

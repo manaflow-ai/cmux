@@ -292,6 +292,7 @@ fn legacy_server_process_helper() {
         .ok()
         .map(|value| value.parse::<u32>().unwrap())
         .unwrap_or_else(std::process::id);
+    let mut reparent_on_close = None;
     if matches!(
         scenario.as_str(),
         "success"
@@ -331,6 +332,30 @@ fn legacy_server_process_helper() {
             assert!(Instant::now() < deadline, "descendant did not become a zombie");
             std::thread::sleep(Duration::from_millis(10));
         }
+    } else if scenario == "reparent-on-close" {
+        let mut command = Command::new("/bin/bash");
+        command
+            .args([
+                "--noprofile",
+                "--norc",
+                "-c",
+                concat!(
+                    "set -m; trap '' HUP; ",
+                    "(trap '' HUP; while :; do sleep 60; done) & ",
+                    "printf '%s' \"$!\" > \"$CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE\"; wait"
+                ),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        reparent_on_close = Some(command.spawn().unwrap());
     }
     let listener = transport::listen(&socket).unwrap();
     let serve_identify = |stream: &mut Box<dyn transport::Stream>| {
@@ -443,6 +468,7 @@ fn legacy_server_process_helper() {
                 | "applied-close-disconnect"
                 | "persistent-close-error"
                 | "zombie-child"
+                | "reparent-on-close"
         ));
         let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
             ("zombie-child", _) => &[],
@@ -502,6 +528,12 @@ fn legacy_server_process_helper() {
                     })
                 };
             writeln!(stream, "{response}").unwrap();
+            if scenario == "reparent-on-close"
+                && let Some(mut direct) = reparent_on_close.take()
+            {
+                direct.kill().unwrap();
+                direct.wait().unwrap();
+            }
             if scenario == "kill-caller" && expected_surface == 41 {
                 let caller_pid = libc::pid_t::try_from(caller_pid).unwrap();
                 assert_eq!(unsafe { libc::kill(caller_pid, libc::SIGKILL) }, 0);
@@ -1233,6 +1265,33 @@ fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn legacy_stop_retains_pty_ownership_captured_before_surface_close() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-reparent-on-close", "reparent-on-close", None);
+    let descendant_pid = wait_for_pid_file(&server.descendant_pid_file, Duration::from_secs(5));
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !process_exists(descendant_pid),
+        "surface close reparented a captured PTY job outside the final server tree"
+    );
 }
 
 #[cfg(target_os = "macos")]

@@ -5102,6 +5102,19 @@ mod tests {
     }
 
     #[test]
+    fn local_shutdown_exits_after_cleanup_when_the_peer_drops_before_ack() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        writer.close();
+
+        assert!(!handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer));
+        assert!(mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+    }
+
+    #[test]
     fn websocket_clients_cannot_shutdown_the_server() {
         let mux = test_mux();
         let writer = test_writer();

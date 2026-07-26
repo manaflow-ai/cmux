@@ -2725,6 +2725,44 @@ mod tests {
     }
 
     #[test]
+    fn server_shutdown_bounds_external_target_confirmation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (close_tx, close_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let close = read_ws_json(&mut ws);
+            assert_eq!(close["method"], "Target.closeTarget");
+            assert_eq!(close["params"]["targetId"], "target-1");
+            close_tx.send(()).unwrap();
+            let _ = stop_rx.recv();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+
+        let started = Instant::now();
+        assert!(!runtime.close_surface_for_shutdown(
+            "target-1",
+            "session-1",
+            started + Duration::from_millis(50),
+        ));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        close_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn closed_surface_route_closes_its_cdp_target() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

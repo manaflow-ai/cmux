@@ -15,8 +15,9 @@ use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_TERMINATE_ONLY, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD,
+    MessageKind, PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame,
+    write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     TerminalHostLiveness, adopt_terminal_host, decode_terminal_color_overrides,
@@ -942,6 +943,53 @@ fn mint_capability_fences_prior_admin_input_before_renderer_input() {
         &harness.socket,
         serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
     );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn terminate_only_owner_handshake_never_materializes_a_snapshot() {
+    let harness = RecoveryHarness::start("terminate-only");
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+        }),
+    );
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert!(record.supports_terminate_only);
+    let mut stream = UnixStream::connect(&record.endpoint).unwrap();
+    let hello = ClientHello {
+        min_version: PROTOCOL_VERSION,
+        max_version: PROTOCOL_VERSION,
+        role: ClientRole::Admin,
+        requested_rights: CapabilityRights::TERMINATE,
+        terminal_id: TerminalId::from_bytes(decode_hex(&record.terminal_id).unwrap()),
+        token: CapabilityToken::from_bytes(decode_hex(&record.owner_token).unwrap()),
+    };
+    let mut hello = hello.into_frame(1);
+    hello.flags = FLAG_TERMINATE_ONLY;
+    write_frame(&mut stream, &hello).unwrap();
+    let response = read_frame(&mut stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(response.kind, MessageKind::HostHello);
+    assert_eq!(response.flags, FLAG_TERMINATE_ONLY);
+
+    write_frame(&mut stream, &Frame::new(MessageKind::Terminate, Vec::new())).unwrap();
+    stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+    match read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
+        Ok(None) => {}
+        Err(ProtocolError::Io(error))
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::ConnectionReset
+            ) => {}
+        Ok(Some(frame)) => panic!("terminate-only handshake emitted {:?}", frame.kind),
+        Err(error) => panic!("unexpected terminate-only close error: {error}"),
+    }
     wait_for_no_host_records(&harness.host_root());
 }
 

@@ -260,4 +260,25 @@ mod tests {
         assert!(!args.iter().any(|arg| arg == "--window-size=1280,900"));
         assert_eq!(args.last().map(String::as_str), Some("about:blank"));
     }
+
+    #[test]
+    fn kill_until_confirms_the_owned_process_within_its_deadline() {
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let profile_dir = make_profile_dir().unwrap();
+        let chrome = Chrome {
+            child: Mutex::new(Some(child)),
+            profile_dir,
+            profile_ephemeral: true,
+            web_socket_url: "ws://127.0.0.1/unused".to_string(),
+        };
+
+        assert!(chrome.kill_until(std::time::Instant::now() + Duration::from_secs(1)));
+        assert!(chrome.child.lock().unwrap().is_none());
+    }
 }
