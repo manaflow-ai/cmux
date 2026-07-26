@@ -85,6 +85,67 @@ struct ClaudeTaskSnapshotLoaderTests {
         ).resolve().path == "/Users/example/.claude/tasks")
     }
 
+    @Test("Task snapshots accept the entry and file-size boundaries")
+    func acceptsResourceBoundaries() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-task-boundary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("boundary", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let prefix = "{\"id\":\"1\",\"subject\":\""
+        let suffix = "\",\"status\":\"pending\"}"
+        let paddingCount = ClaudeTaskSnapshotLoader.maximumTaskFileByteCount
+            - prefix.utf8.count
+            - suffix.utf8.count
+        let boundaryJSON = prefix + String(repeating: "x", count: paddingCount) + suffix
+        try Data(boundaryJSON.utf8).write(to: sessionDirectory.appendingPathComponent("1.json"))
+        for index in 2...ClaudeTaskSnapshotLoader.maximumDirectoryEntryCount {
+            try Data().write(to: sessionDirectory.appendingPathComponent("\(index).txt"))
+        }
+
+        let todos = try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "boundary")
+
+        #expect(todos.count == 1)
+        #expect(todos[0].content.utf8.count == paddingCount)
+    }
+
+    @Test("Task snapshots reject a directory beyond the entry boundary")
+    func rejectsDirectoryBeyondEntryBoundary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-task-entry-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("entry-overflow", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        for index in 0...ClaudeTaskSnapshotLoader.maximumDirectoryEntryCount {
+            try Data().write(to: sessionDirectory.appendingPathComponent("\(index).txt"))
+        }
+
+        #expect(throws: ClaudeTaskSnapshotLoaderError.tooManyDirectoryEntries(
+            limit: ClaudeTaskSnapshotLoader.maximumDirectoryEntryCount
+        )) {
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "entry-overflow")
+        }
+    }
+
+    @Test("Task snapshots reject a task file beyond the byte boundary")
+    func rejectsTaskFileBeyondByteBoundary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-task-file-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("file-overflow", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let fileName = "1.json"
+        try Data(repeating: 0x20, count: ClaudeTaskSnapshotLoader.maximumTaskFileByteCount + 1)
+            .write(to: sessionDirectory.appendingPathComponent(fileName))
+
+        #expect(throws: ClaudeTaskSnapshotLoaderError.taskFileTooLarge(
+            fileName: fileName,
+            limit: ClaudeTaskSnapshotLoader.maximumTaskFileByteCount
+        )) {
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "file-overflow")
+        }
+    }
+
     private func writeTask(_ json: String, named name: String, in directory: URL) throws {
         try Data(json.utf8).write(to: directory.appendingPathComponent(name))
     }

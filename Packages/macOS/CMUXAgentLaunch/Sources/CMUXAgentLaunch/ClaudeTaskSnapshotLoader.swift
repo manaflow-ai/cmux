@@ -6,6 +6,11 @@ import Foundation
 /// complete directory after each task-tool event instead of accumulating
 /// partial mutations in memory.
 public struct ClaudeTaskSnapshotLoader {
+    /// Maximum visible entries inspected in one session task directory.
+    static let maximumDirectoryEntryCount = 512
+    /// Maximum bytes read from one task JSON file.
+    static let maximumTaskFileByteCount = 64 * 1024
+
     /// The directory containing Claude's per-session task directories.
     public let tasksRootURL: URL
 
@@ -34,28 +39,48 @@ public struct ClaudeTaskSnapshotLoader {
         guard let sessionDirectory = sessionDirectoryURL(sessionID: sessionID) else {
             return []
         }
-        let fileURLs = try fileManager.contentsOfDirectory(
+        var enumerationError: Error?
+        guard let enumerator = fileManager.enumerator(
             at: sessionDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-        let decoder = JSONDecoder()
-        let todos = fileURLs.compactMap { fileURL -> WorkstreamTaskTodo? in
-            guard fileURL.pathExtension.lowercased() == "json",
-                  (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                  let data = try? Data(contentsOf: fileURL),
-                  let record = try? decoder.decode(ClaudeTaskRecord.self, from: data),
-                  let state = record.canonicalState,
-                  let content = nonEmptyClaudeTaskText(record.subject) else {
-                return nil
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
+            errorHandler: { _, error in
+                enumerationError = error
+                return false
             }
-            return WorkstreamTaskTodo(
+        ) else {
+            throw ClaudeTaskSnapshotLoaderError.cannotEnumerateSessionDirectory
+        }
+        let decoder = JSONDecoder()
+        var todos: [WorkstreamTaskTodo] = []
+        var entryCount = 0
+        while let fileURL = enumerator.nextObject() as? URL {
+            entryCount += 1
+            guard entryCount <= Self.maximumDirectoryEntryCount else {
+                throw ClaudeTaskSnapshotLoaderError.tooManyDirectoryEntries(
+                    limit: Self.maximumDirectoryEntryCount
+                )
+            }
+            guard fileURL.pathExtension.lowercased() == "json" else { continue }
+            let values = try fileURL.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+            )
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+            let data = try boundedClaudeTaskData(
+                at: fileURL,
+                maximumByteCount: Self.maximumTaskFileByteCount
+            )
+            guard let record = try? decoder.decode(ClaudeTaskRecord.self, from: data),
+                  let state = record.canonicalState,
+                  let content = nonEmptyClaudeTaskText(record.subject) else { continue }
+            todos.append(WorkstreamTaskTodo(
                 id: record.id,
                 content: content,
                 activeForm: nonEmptyClaudeTaskText(record.activeForm),
                 state: state
-            )
+            ))
         }
+        if let enumerationError { throw enumerationError }
         return todos.sorted(by: claudeTaskSort)
     }
 
@@ -96,4 +121,17 @@ private func claudeTaskSort(_ lhs: WorkstreamTaskTodo, _ rhs: WorkstreamTaskTodo
         return leftNumber < rightNumber
     }
     return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+}
+
+private func boundedClaudeTaskData(at fileURL: URL, maximumByteCount: Int) throws -> Data {
+    let handle = try FileHandle(forReadingFrom: fileURL)
+    defer { try? handle.close() }
+    let data = try handle.read(upToCount: maximumByteCount + 1) ?? Data()
+    guard data.count <= maximumByteCount else {
+        throw ClaudeTaskSnapshotLoaderError.taskFileTooLarge(
+            fileName: fileURL.lastPathComponent,
+            limit: maximumByteCount
+        )
+    }
+    return data
 }
