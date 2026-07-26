@@ -178,6 +178,13 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             // (user, device, tag) binding — the exact bug this store prevents.
             // Reuse the legacy UserDefaults mirror if it is readable; otherwise
             // report `.unavailable` so binding registration defers.
+            //
+            // Returning the mirror as `.durable` is orphan-safe: a reinstall
+            // clears UserDefaults, so this branch is reachable only on a
+            // CONTINUING install whose mirror was last written from (and therefore
+            // equals) the id the existing binding already uses. Registering with
+            // it targets that same slot instead of minting a throwaway id, and a
+            // later unlocked launch re-reads the authoritative Keychain value.
             if let legacy = trimmedLegacyDeviceID(defaults) {
                 return .durable(legacy)
             }
@@ -189,22 +196,34 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// slot), or mint a fresh one. An adopted legacy id is already the id the
     /// existing binding uses, so it is durable regardless of whether the
     /// upgrade-persist to the Keychain succeeds. A freshly minted id is durable
-    /// only once the Keychain write is confirmed; otherwise it must not be
+    /// only once the Keychain confirms it holds the id; otherwise it must not be
     /// advertised, since only the reinstall-volatile mirror would hold it.
+    ///
+    /// Persistence goes through ``DeviceIdentityStoring/createOrAdopt(_:)``, which
+    /// never overwrites a value a concurrent resolution already won, so two
+    /// launches that each mint a different candidate converge on one id instead of
+    /// the last writer clobbering the winner (which would strand the winner's
+    /// binding on the next launch).
     private static func adoptOrGenerateDeviceID(
         store: any DeviceIdentityStoring,
         defaults: UserDefaults
     ) -> DurableDeviceIDResolution {
         if let legacy = trimmedLegacyDeviceID(defaults) {
-            store.write(legacy)
-            return .durable(legacy)
+            // The adopted id stays durable even if the Keychain cannot persist it
+            // right now (it is the id the existing binding uses); a later launch
+            // re-attempts the upgrade. If a concurrent resolution already persisted
+            // a winner, adopt it so all callers agree.
+            let winner = store.createOrAdopt(legacy) ?? legacy
+            if defaults.string(forKey: deviceIDKey) != winner {
+                defaults.set(winner, forKey: deviceIDKey)
+            }
+            return .durable(winner)
         }
-        let generated = UUID().uuidString.lowercased()
-        guard store.write(generated) else {
+        guard let winner = store.createOrAdopt(UUID().uuidString.lowercased()) else {
             return .unavailable
         }
-        defaults.set(generated, forKey: deviceIDKey)
-        return .durable(generated)
+        defaults.set(winner, forKey: deviceIDKey)
+        return .durable(winner)
     }
 
     /// The legacy `UserDefaults` device id, trimmed, or `nil` when absent/blank.

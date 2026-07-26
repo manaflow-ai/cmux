@@ -439,4 +439,46 @@ import Testing
         let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
         #expect(resolved == legacy)
     }
+
+    @Test func durableDeviceIDAdoptsConcurrentWinnerInsteadOfMintingSecondID() {
+        // Two launches both read an empty Keychain and each mint a different
+        // candidate. The one that loses the store's create race must adopt the
+        // winner's id so both converge on ONE (user, device, tag) slot. The prior
+        // last-writer-wins persistence let the loser overwrite the winner, so the
+        // winner's caller advertised an id the store no longer held and stranded
+        // that binding on the next launch. Here the store reports empty on read
+        // (mint path) but returns a concurrent winner from createOrAdopt; the
+        // resolver must return the winner, not its own freshly minted candidate.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let winner = "winner-device-id-\(UUID().uuidString.lowercased())"
+        let store = ConcurrentCreateWinnerStore(winner: winner)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == winner)
+        // The adopted winner is mirrored so a later UserDefaults-only build agrees.
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == winner)
+    }
+
+    @Test func inMemoryCreateOrAdoptAdoptsExistingValueInsteadOfOverwriting() {
+        // The InMemory double must model the Keychain SecItemAdd-first contract:
+        // createOrAdopt never clobbers a value already present, it adopts it. This
+        // is the store-level guarantee the convergence above relies on.
+        let store = InMemoryDeviceIdentityStore(seed: "existing-winner")
+        let adopted = store.createOrAdopt("late-candidate")
+        #expect(adopted == "existing-winner")
+        #expect(store.read() == .found("existing-winner"))
+    }
+}
+
+/// A store that reports empty on `read()` (so the resolver takes the mint path)
+/// yet returns a winner a concurrent resolution already persisted from
+/// `createOrAdopt`, modelling the Keychain `errSecDuplicateItem` race where two
+/// launches both saw an empty store before either wrote.
+private final class ConcurrentCreateWinnerStore: DeviceIdentityStoring, @unchecked Sendable {
+    private let winner: String
+    init(winner: String) { self.winner = winner }
+    func read() -> DeviceIdentityReadResult { .absent }
+    func createOrAdopt(_ desired: String) -> String? { winner }
 }

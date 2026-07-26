@@ -142,18 +142,30 @@ extension AuthCoordinator {
     /// lagging observed identity authorizes an action that then runs with a
     /// different account's credentials.
     ///
+    /// Both guards also require that no coordinator-owned token transition is in
+    /// flight (``sessionTokenTransitionIsActive``). The generation is bumped at
+    /// only one instant in a transition, so a snapshot taken elsewhere in the
+    /// transition window could still read a half-updated identity/token pair that
+    /// happens to match the pinned generation; rejecting whenever a transition
+    /// owns the store closes that window at both ends of the token read.
+    ///
     /// - Returns: The pinned generation, account id, and both tokens.
-    /// - Throws: ``AuthError/unauthorized`` when no account is signed in or the
-    ///   session changed mid-read; otherwise the same token errors as
-    ///   ``currentTokens()``.
+    /// - Throws: ``AuthError/unauthorized`` when no account is signed in, a
+    ///   session transition is active, or the session changed mid-read;
+    ///   otherwise the same token errors as ``currentTokens()``.
     public func authenticatedSessionSnapshot() async throws -> AuthenticatedSessionSnapshot {
         await awaitBootstrapped()
-        guard isAuthenticated, let accountID = currentUser?.id, !accountID.isEmpty else {
+        guard isAuthenticated,
+              !sessionTokenTransitionIsActive,
+              let accountID = currentUser?.id,
+              !accountID.isEmpty else {
             throw AuthError.unauthorized
         }
         let generation = sessionGeneration
         let tokens = try await currentTokens()
-        guard sessionGeneration == generation, currentUser?.id == accountID else {
+        guard sessionGeneration == generation,
+              !sessionTokenTransitionIsActive,
+              currentUser?.id == accountID else {
             throw AuthError.unauthorized
         }
         return AuthenticatedSessionSnapshot(

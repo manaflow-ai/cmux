@@ -28,22 +28,29 @@ enum DeviceIdentityReadResult: Equatable, Sendable {
 /// source and downgrade mirror.
 protocol DeviceIdentityStoring: Sendable {
     func read() -> DeviceIdentityReadResult
-    /// Persist `deviceID`, returning whether it is now durably stored.
+    /// Persist `desired` only if the store currently holds no id, otherwise adopt
+    /// the id already present. Returns the id the store holds afterward (the given
+    /// id when this call created it, or the pre-existing winner), or `nil` when no
+    /// id could be persisted or read back.
     ///
-    /// The caller must not advertise a freshly minted id as durable until this
-    /// reports `true`: if the write failed, only the reinstall-volatile
+    /// This is the safe primitive for minting: it never overwrites a value a
+    /// concurrent resolution already won, so two launches that each mint a
+    /// different candidate converge on ONE id. A last-writer-wins `update` would
+    /// instead let the loser clobber the winner, leaving the winner's caller
+    /// advertising an id the store no longer holds and stranding that binding on
+    /// the next launch. The caller must not advertise a freshly minted id as
+    /// durable until this returns non-`nil`: on `nil` only the reinstall-volatile
     /// `UserDefaults` mirror would hold it, so a delete/reinstall would mint a
     /// different id and strand the binding this store exists to preserve.
-    @discardableResult
-    func write(_ deviceID: String) -> Bool
+    func createOrAdopt(_ desired: String) -> String?
 }
 
 /// Device-only Keychain storage for the device-registry id.
 ///
 /// Uses a service name distinct from the iroh endpoint-identity store, so the
 /// reinstall/sign-out wipe in `CmxIrohIdentityRepository` (which deletes only
-/// the endpoint-identity service) never removes this id. `write` reports whether
-/// persistence actually succeeded so the caller never treats an unpersisted id
+/// the endpoint-identity service) never removes this id. `createOrAdopt` reports
+/// the id the store actually holds so the caller never treats an unpersisted id
 /// as durable, and a read distinguishes "no item" (`.absent`) from "cannot read
 /// the item" (`.unavailable`) so the caller never mints a fresh id while the
 /// real one is merely temporarily unreadable.
@@ -86,30 +93,33 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
         }
     }
 
-    @discardableResult
-    func write(_ deviceID: String) -> Bool {
-        guard let data = deviceID.data(using: .utf8) else { return false }
-        let query = baseQuery()
-        let updateStatus = SecItemUpdate(
-            query as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-        if updateStatus == errSecSuccess { return true }
-        guard updateStatus == errSecItemNotFound else { return false }
-        var insert = query
+    func createOrAdopt(_ desired: String) -> String? {
+        guard let data = desired.data(using: .utf8) else { return nil }
+        var insert = baseQuery()
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
-        if addStatus == errSecSuccess { return true }
-        // Lost an add race with a concurrent writer (the item now exists): an
-        // update proves it is persisted. `errSecDuplicateItem` is the only
-        // status where retrying is correct; every other error is a real failure.
-        guard addStatus == errSecDuplicateItem else { return false }
-        let retryStatus = SecItemUpdate(
-            query as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-        return retryStatus == errSecSuccess
+        switch addStatus {
+        case errSecSuccess:
+            // This call created the item; `desired` is now the persisted id.
+            return desired
+        case errSecDuplicateItem:
+            // A concurrent writer already persisted an id. Adopt whatever it
+            // stored so every racing caller converges on one id, never
+            // overwriting the winner. If the winner is somehow unreadable now,
+            // report failure rather than returning `desired` (which the store
+            // does not hold), so the caller defers instead of stranding a
+            // binding under an id the Keychain never kept.
+            if case .found(let existing) = read() {
+                return existing
+            }
+            return nil
+        default:
+            // Locked before first unlock (`errSecInteractionNotAllowed`) or any
+            // other error: nothing was persisted, so the caller must not treat
+            // `desired` as durable.
+            return nil
+        }
     }
 
     private func baseQuery() -> [String: Any] {
@@ -150,10 +160,14 @@ final class InMemoryDeviceIdentityStore: DeviceIdentityStoring, @unchecked Senda
         }
     }
 
-    @discardableResult
-    func write(_ deviceID: String) -> Bool {
-        if writeAlwaysFails { return false }
-        lock.withLock { value = deviceID }
-        return true
+    func createOrAdopt(_ desired: String) -> String? {
+        if isUnavailable || writeAlwaysFails { return nil }
+        return lock.withLock {
+            // Adopt an already-persisted winner instead of overwriting it, so
+            // racing callers converge on one id.
+            if let value, !value.isEmpty { return value }
+            value = desired
+            return desired
+        }
     }
 }
