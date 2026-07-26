@@ -11,9 +11,7 @@ use super::{middle_truncate, rail, truncate};
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::SidebarView;
 use crate::localization;
-use crate::machine::{
-    MachineRailSelection, MachineStatus, ProviderScopeKind, WorkspaceCreationMode,
-};
+use crate::machine::{MachineRailSelection, MachineStatus, WorkspaceCreationMode};
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
 /// unread. Mirrors the tab-bar severity cue (`error` > `warning` > `info`)
@@ -59,45 +57,34 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
     let managed_machines = machine_ui.managed_machines().to_vec();
-    let provider = machine_ui.provider.clone();
+    let has_settings = machine_ui
+        .provider
+        .as_ref()
+        .is_some_and(|provider| !provider.scopes.is_empty() || !provider.actions.is_empty());
     let rail_selection = machine_ui.rail_selection;
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
     rail::header(frame, area, messages.machines, palette);
 
-    let mut body_rows = 0;
-    let scope_row = provider.as_ref().filter(|provider| !provider.scopes.is_empty()).map(|_| {
-        let row = body_rows;
-        body_rows += 1;
-        row
-    });
-    let actions_row = provider.as_ref().filter(|provider| !provider.actions.is_empty()).map(|_| {
-        let row = body_rows;
-        body_rows += 1;
-        row
-    });
-    if (scope_row.is_some() || actions_row.is_some()) && !machines.is_empty() {
-        body_rows += 1;
-    }
-    let machine_start = body_rows;
-    if machines.is_empty() {
-        body_rows += 1;
-    } else {
-        body_rows += machines.len() * rail::ENTRY_STRIDE;
-    }
+    let machine_start = 0;
+    let body_rows = if machines.is_empty() { 1 } else { machines.len() * rail::ENTRY_STRIDE };
     let create_footer = capabilities.create.then_some(0);
     let connect_footer = capabilities.connect.then_some(usize::from(capabilities.create));
-    let footer_rows = usize::from(capabilities.create) + usize::from(capabilities.connect);
+    let settings_footer = has_settings
+        .then_some(usize::from(capabilities.create) + usize::from(capabilities.connect));
+    let footer_rows = usize::from(capabilities.create)
+        + usize::from(capabilities.connect)
+        + usize::from(has_settings);
     let selected_body = if app.machine_sidebar_focused() && app.machine_rail_follow_selection {
         match rail_selection {
-            MachineRailSelection::Scope => scope_row.map(|row| rail::RowSpan::new(row, 1)),
-            MachineRailSelection::Actions => actions_row.map(|row| rail::RowSpan::new(row, 1)),
             MachineRailSelection::Machine => (!machines.is_empty()).then_some(rail::RowSpan::new(
                 machine_start + selection * rail::ENTRY_STRIDE,
                 rail::ENTRY_HEIGHT,
             )),
-            MachineRailSelection::NewVm | MachineRailSelection::ConnectMachine => None,
+            MachineRailSelection::NewVm
+            | MachineRailSelection::ConnectMachine
+            | MachineRailSelection::Settings => None,
         }
     } else {
         None
@@ -108,6 +95,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             MachineRailSelection::ConnectMachine => {
                 connect_footer.map(|row| rail::RowSpan::new(row, 1))
             }
+            MachineRailSelection::Settings => settings_footer.map(|row| rail::RowSpan::new(row, 1)),
             _ => None,
         }
     } else {
@@ -124,44 +112,6 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     );
 
     let mut hits = Vec::new();
-    if let Some(provider) = provider.as_ref() {
-        if let Some(y) = scope_row.and_then(|row| viewport.body_y(rail::RowSpan::new(row, 1))) {
-            let scope_label = provider
-                .selected_scope()
-                .map(|scope| {
-                    let kind = match scope.kind {
-                        ProviderScopeKind::Personal => messages.personal_scope,
-                        ProviderScopeKind::Team => messages.team_scope,
-                    };
-                    if scope.name.trim().eq_ignore_ascii_case(kind) {
-                        format!("{} ▾", scope.name)
-                    } else {
-                        format!("{kind} · {} ▾", scope.name)
-                    }
-                })
-                .unwrap_or_else(|| format!("{} ▾", messages.scope));
-            rail::button(
-                frame,
-                area,
-                y,
-                &scope_label,
-                app.machine_sidebar_focused() && rail_selection == MachineRailSelection::Scope,
-                palette,
-            );
-            hits.push((rail::row(area, y), Hit::ProviderScope));
-        }
-        if let Some(y) = actions_row.and_then(|row| viewport.body_y(rail::RowSpan::new(row, 1))) {
-            rail::button(
-                frame,
-                area,
-                y,
-                &format!("{} ▾", messages.provider_actions),
-                app.machine_sidebar_focused() && rail_selection == MachineRailSelection::Actions,
-                palette,
-            );
-            hits.push((rail::row(area, y), Hit::ProviderActions));
-        }
-    }
     if machines.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(machine_start, 1))
     {
@@ -252,6 +202,17 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             palette,
         );
         hits.push((rail::row(area, y), Hit::ConnectMachine));
+    }
+    if let Some(y) = settings_footer.and_then(|row| viewport.footer_y(rail::RowSpan::new(row, 1))) {
+        rail::action(
+            frame,
+            area,
+            y,
+            messages.settings,
+            app.machine_sidebar_focused() && rail_selection == MachineRailSelection::Settings,
+            palette,
+        );
+        hits.push((rail::row(area, y), Hit::ProviderSettings));
     }
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Machine)));
     app.hits.extend(hits);

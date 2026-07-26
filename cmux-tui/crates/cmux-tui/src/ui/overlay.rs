@@ -182,6 +182,16 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let chrome = app.chrome;
     let Some(menu) = app.menu.as_mut() else { return };
+    let modal_title = menu.modal_title();
+    if modal_title.is_some() {
+        let buf = frame.buffer_mut();
+        for y in screen.y..screen.y.saturating_add(screen.height) {
+            for x in screen.x..screen.x.saturating_add(screen.width) {
+                let cell = &mut buf[(x, y)];
+                cell.set_style(cell.style().add_modifier(Modifier::DIM));
+            }
+        }
+    }
     let base = Style::default().bg(chrome.menu_bg).fg(chrome.menu_fg);
     let border = base.fg(chrome.menu_border);
     let selected = Style::default()
@@ -193,7 +203,12 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         let width = menu.levels[depth].rect.width.min(screen.width);
         let height = menu.levels[depth].rect.height.min(screen.height);
         let (desired_x, desired_y) = if depth == 0 {
-            (menu.levels[depth].rect.x, menu.levels[depth].rect.y)
+            modal_title.map_or((menu.levels[depth].rect.x, menu.levels[depth].rect.y), |_| {
+                (
+                    screen.x + screen.width.saturating_sub(width) / 2,
+                    screen.y + screen.height.saturating_sub(height) / 2,
+                )
+            })
         } else {
             let parent = &menu.levels[depth - 1];
             let right_x = parent.rect.x.saturating_add(parent.rect.width.saturating_sub(1));
@@ -226,6 +241,19 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
             }
         }
         draw_border(buf, level.rect, border);
+        if depth == 0
+            && let Some(title) = modal_title
+            && width > 4
+        {
+            let title = format!(" {title} ");
+            buf.set_stringn(
+                x + 2,
+                y,
+                title,
+                width.saturating_sub(4) as usize,
+                border.add_modifier(Modifier::BOLD),
+            );
+        }
 
         let pad = ContextMenu::PAD;
         let inner_x = x + 1;
