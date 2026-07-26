@@ -9,6 +9,11 @@ final class DataOnlyHTMLPasteboard: NSPasteboard {
         super.init()
     }
 
+    init(data: Data) {
+        htmlData = data
+        super.init()
+    }
+
     override var types: [NSPasteboard.PasteboardType]? { [.html] }
 
     override func string(

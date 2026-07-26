@@ -118,6 +118,23 @@ struct PasteboardTextContentsTests {
         )
     }
 
+    @Test func convertsUTF16BOMHTMLDataToPlainText() throws {
+        let html = "<p>Data-only 日本語 &amp; responsive</p>"
+        let data = try #require(html.data(using: .utf16))
+        let byteOrderMark = Data(data.prefix(2))
+        #expect(
+            byteOrderMark == Data([0xFF, 0xFE])
+                || byteOrderMark == Data([0xFE, 0xFF])
+        )
+        let pasteboard = DataOnlyHTMLPasteboard(data: data)
+        let service = TerminalPasteboardService()
+
+        #expect(
+            service.stringContents(from: pasteboard)
+                == "Data-only 日本語 & responsive"
+        )
+    }
+
     @Test func hasStringIsFalseForUnsupportedLocationAndEmptyBoard() {
         let service = TerminalPasteboardService()
         #expect(!service.hasString(for: ghostty_clipboard_e(rawValue: 99)))

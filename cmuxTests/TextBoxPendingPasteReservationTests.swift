@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -97,6 +98,52 @@ struct TextBoxPendingPasteReservationTests {
         )
         #expect(probe.changeCount == 0)
         #expect(textView.string == authoritativeText)
+    }
+
+    @Test("typing after a selected-text paste publishes the preserved selection")
+    func typingAfterSelectedTextPastePreservesBindingAndReservation() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+
+        var boundText = textView.string
+        var boundAttachments: [TextBoxAttachment] = []
+        var hasPendingAttachmentUpload = false
+        let inputView = makeInputView(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            attachments: Binding(
+                get: { boundAttachments },
+                set: { boundAttachments = $0 }
+            ),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { hasPendingAttachmentUpload = $0 }
+            )
+        )
+        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+        textView.insertText(
+            " typed",
+            replacementRange: textView.selectedRange()
+        )
+
+        coordinator.textDidChange(
+            Notification(name: NSText.didChangeNotification, object: textView)
+        )
+
+        #expect(boundText == "before selected typed after")
+        #expect(
+            !textView.synchronizeExternalTextIfNeeded(boundText)
+        )
+        #expect(textView.hasPendingAttachmentUploadPlaceholder())
+        #expect(
+            textView.replacePendingAttachmentUploadPlaceholder(
+                id: pasteID,
+                withText: "pasted"
+            )
+        )
+        #expect(textView.string == "before pasted typed after")
     }
 
     @Test("successful text paste is one undoable edit")
@@ -330,6 +377,38 @@ struct TextBoxPendingPasteReservationTests {
         textView: TextBoxInputTextView
     ) {
         textView.synchronizeExternalTextIfNeeded(externalText)
+    }
+
+    private func makeInputView(
+        text: Binding<String>,
+        attachments: Binding<[TextBoxAttachment]>,
+        hasPendingAttachmentUpload: Binding<Bool>
+    ) -> TextBoxInputView {
+        TextBoxInputView(
+            text: text,
+            attachments: attachments,
+            textViewHeight: .constant(30),
+            hasPendingAttachmentUpload: hasPendingAttachmentUpload,
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: {},
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { _ in }
+        )
     }
 
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
