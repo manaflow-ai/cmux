@@ -380,6 +380,39 @@ private func endFontState()
         )
     }
 
+    @Test
+    func configurationReloadRebasesNeverRealizedFollower() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(12, isExplicitOverride: false)
+        let surface = makeSurface(configTemplate: template)
+
+        let state =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100
+            )
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: state,
+                configuredRuntimePoints: 20,
+                magnificationPercent: 200
+            ) == .alreadySatisfied
+        )
+
+        #expect(
+            try #require(
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent: 200
+                )
+            ) == TerminalFontSizeLineage(
+                basePoints: 10,
+                isExplicitOverride: false
+            )
+        )
+        #expect(
+            surface.runtimeCreationConfigTemplate().fontSizeLineage == nil
+        )
+    }
+
     @Test func liveAdjustmentUsesDurableMobileFitBase() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(13, isExplicitOverride: true)
