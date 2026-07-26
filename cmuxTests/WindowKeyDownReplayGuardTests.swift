@@ -349,10 +349,10 @@ struct WindowKeyDownReplayGuardTests {
             hasCopyableSelection: false,
             bindingFlagsRawValue: nil
         ))
-        #expect(GhosttyNSView.shouldConsumeUnavailableCopy(
+        #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
             hasCopyableSelection: false,
             bindingFlagsRawValue: consumed | performable
-        ))
+        ), "A custom performable Cmd+C binding has the same flags as default Copy and must reach Ghostty")
         #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
             hasCopyableSelection: false,
             bindingFlagsRawValue: consumed
