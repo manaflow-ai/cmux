@@ -142,7 +142,10 @@ test("shared web test runner preserves sorted recursive discovery", () => {
         `default Bun test root was not preserved:\n${rootedResult.output}`,
       );
     }
-    expectHeadingsInOrder(rootedResult.output, [
+    // Bun owns discovery when a config supplies the root, and its reporter may
+    // emit passing files in completion order. Verify the configured scope
+    // without imposing the wrapper's manual-discovery sort contract.
+    expectHeadingsPresent(rootedResult.output, [
       "tests/beta.test.ts:",
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
@@ -164,7 +167,7 @@ test("shared web test runner preserves sorted recursive discovery", () => {
         `alternate Bun test root was not preserved:\n${configuredResult.output}`,
       );
     }
-    expectHeadingsInOrder(configuredResult.output, [
+    expectHeadingsPresent(configuredResult.output, [
       "tests/beta.test.ts:",
       "tests/nested/gamma_test.tsx:",
       "tests/nested/omega.spec.mjs:",
@@ -246,5 +249,11 @@ function expectHeadingsInOrder(output: string, headings: string[]): void {
     const index = output.indexOf(heading);
     expect(index).toBeGreaterThan(previousIndex);
     previousIndex = index;
+  }
+}
+
+function expectHeadingsPresent(output: string, headings: string[]): void {
+  for (const heading of headings) {
+    expect(output).toContain(heading);
   }
 }
