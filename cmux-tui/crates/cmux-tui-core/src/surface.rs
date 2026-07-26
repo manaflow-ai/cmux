@@ -645,6 +645,30 @@ impl LocalProcess {
             Self::Untracked(killer) => killer.lock().unwrap().kill().is_ok(),
         }
     }
+
+    #[cfg(unix)]
+    fn session_id(&self) -> Option<libc::pid_t> {
+        match self {
+            Self::Owned(process) => process.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()),
+            #[cfg(test)]
+            Self::Untracked(_) => None,
+        }
+    }
+
+    #[cfg(unix)]
+    fn terminate_and_wait_from_snapshot(
+        &self,
+        deadline: Instant,
+        snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
+    ) -> bool {
+        match self {
+            Self::Owned(process) => snapshot.is_some_and(|snapshot| {
+                process.terminate_and_wait_from_snapshot(deadline, snapshot)
+            }),
+            #[cfg(test)]
+            Self::Untracked(killer) => killer.lock().unwrap().kill().is_ok(),
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -670,6 +694,35 @@ impl SurfaceShutdownOwner {
         match &self.kind {
             SurfaceShutdownOwnerKind::Local(process) => process.terminate_and_wait(deadline),
             #[cfg(unix)]
+            SurfaceShutdownOwnerKind::Hosted(owner) => {
+                crate::terminal_host_runtime::terminate_and_confirm_terminal_host_record(
+                    &owner.record,
+                    &owner.record_path,
+                    deadline,
+                )
+            }
+            SurfaceShutdownOwnerKind::Browser(owner) => owner.terminate_until(deadline),
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn local_process_session(&self) -> Option<libc::pid_t> {
+        match &self.kind {
+            SurfaceShutdownOwnerKind::Local(process) => process.session_id(),
+            SurfaceShutdownOwnerKind::Hosted(_) | SurfaceShutdownOwnerKind::Browser(_) => None,
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn terminate_until_in_batch(
+        &self,
+        deadline: Instant,
+        process_snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
+    ) -> bool {
+        match &self.kind {
+            SurfaceShutdownOwnerKind::Local(process) => {
+                process.terminate_and_wait_from_snapshot(deadline, process_snapshot)
+            }
             SurfaceShutdownOwnerKind::Hosted(owner) => {
                 crate::terminal_host_runtime::terminate_and_confirm_terminal_host_record(
                     &owner.record,
@@ -852,7 +905,12 @@ impl LocalPtyProcess {
     }
 
     #[cfg(unix)]
-    fn signal_terminal_process_session(&self, signal: libc::c_int) -> std::io::Result<()> {
+    fn signal_terminal_process_session(
+        &self,
+        signal: libc::c_int,
+        deadline: Instant,
+        snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
+    ) -> std::io::Result<()> {
         let _signal = self.child_signal_lock.lock().unwrap();
         if self.child_reaped.load(Ordering::Acquire) {
             return Ok(());
@@ -860,11 +918,20 @@ impl LocalPtyProcess {
         let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return Err(std::io::Error::other("PTY child has no process id"));
         };
-        crate::process_session::signal(session, signal)
+        match snapshot {
+            Some(snapshot) => {
+                crate::process_session::signal_from_snapshot(snapshot, session, signal)
+            }
+            None => crate::process_session::signal_until(session, signal, deadline),
+        }
     }
 
     #[cfg(unix)]
-    fn kill_terminal_process_session_until(&self, deadline: Instant) -> std::io::Result<bool> {
+    fn kill_terminal_process_session_until(
+        &self,
+        deadline: Instant,
+        snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
+    ) -> std::io::Result<bool> {
         let _signal = self.child_signal_lock.lock().unwrap();
         if self.child_reaped.load(Ordering::Acquire) {
             return Ok(true);
@@ -872,12 +939,40 @@ impl LocalPtyProcess {
         let Some(leader) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             return Err(std::io::Error::other("PTY child has no process id"));
         };
-        crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
-            self.child_waitable.load(Ordering::Acquire)
-        })
+        match snapshot {
+            Some(snapshot) => crate::process_session::kill_until_only_leader_from_snapshot(
+                snapshot,
+                leader,
+                leader,
+                deadline,
+                || self.child_waitable.load(Ordering::Acquire),
+            ),
+            None => {
+                crate::process_session::kill_until_only_leader(leader, leader, deadline, || {
+                    self.child_waitable.load(Ordering::Acquire)
+                })
+            }
+        }
     }
 
     fn terminate_and_wait(&self, deadline: Instant) -> bool {
+        self.terminate_and_wait_inner(deadline, None)
+    }
+
+    #[cfg(unix)]
+    fn terminate_and_wait_from_snapshot(
+        &self,
+        deadline: Instant,
+        snapshot: &crate::process_session::SessionProcessSnapshot,
+    ) -> bool {
+        self.terminate_and_wait_inner(deadline, Some(snapshot))
+    }
+
+    fn terminate_and_wait_inner(
+        &self,
+        deadline: Instant,
+        #[cfg(unix)] snapshot: Option<&crate::process_session::SessionProcessSnapshot>,
+    ) -> bool {
         #[cfg(unix)]
         {
             {
@@ -887,7 +982,7 @@ impl LocalPtyProcess {
                 }
                 self.termination_started.store(true, Ordering::Release);
             }
-            if self.signal_terminal_process_session(libc::SIGHUP).is_err() {
+            if self.signal_terminal_process_session(libc::SIGHUP, deadline, snapshot).is_err() {
                 return false;
             }
             let _ = self.request_hangup();
@@ -898,7 +993,7 @@ impl LocalPtyProcess {
             // kill every member of the owned PTY session while its leader is
             // reserved with WNOWAIT, and do not acknowledge shutdown until no
             // background group remains.
-            if !matches!(self.kill_terminal_process_session_until(deadline), Ok(true)) {
+            if !matches!(self.kill_terminal_process_session_until(deadline, snapshot), Ok(true)) {
                 return false;
             }
             self.group_escalation_complete.store(true, Ordering::Release);

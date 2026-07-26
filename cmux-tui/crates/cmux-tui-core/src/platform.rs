@@ -10,7 +10,9 @@ pub mod transport {
 
     pub trait Stream: Read + Write + Send + Sync {
         fn try_clone_box(&self) -> io::Result<Box<dyn Stream>>;
+        fn read_timeout(&self) -> io::Result<Option<Duration>>;
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+        fn write_timeout(&self) -> io::Result<Option<Duration>>;
         fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn shutdown(&self, how: Shutdown) -> io::Result<()>;
         fn peer_process_id(&self) -> io::Result<Option<u32>> {
@@ -69,8 +71,16 @@ pub mod transport {
                 Ok(Box::new(self.try_clone()?))
             }
 
+            fn read_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::read_timeout(self)
+            }
+
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
+            }
+
+            fn write_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::write_timeout(self)
             }
 
             fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
@@ -179,8 +189,16 @@ pub mod transport {
                 Ok(Box::new(self.try_clone()?))
             }
 
+            fn read_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::read_timeout(self)
+            }
+
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
+            }
+
+            fn write_timeout(&self) -> io::Result<Option<Duration>> {
+                UnixStream::write_timeout(self)
             }
 
             fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {

@@ -5,7 +5,9 @@
 //! enumerates and signals every session member instead of guessing which
 //! foreground or background groups still exist.
 
+use std::collections::{HashMap, HashSet};
 use std::io;
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 const SESSION_KILL_POLL: Duration = Duration::from_millis(5);
@@ -15,12 +17,159 @@ thread_local! {
     static PROCESS_TABLE_SCAN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-pub(crate) fn signal(session: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
-    validate_session_target(session)?;
-    for pid in members(session)? {
-        signal_if_still_member(pid, session, signal)?;
+pub(crate) struct SessionProcessSnapshot {
+    sessions: HashSet<libc::pid_t>,
+    state: Mutex<SessionProcessSnapshotState>,
+    refreshed: Condvar,
+    #[cfg(test)]
+    scan_count: std::sync::atomic::AtomicUsize,
+}
+
+struct SessionProcessSnapshotState {
+    generation: u64,
+    members: HashMap<libc::pid_t, Vec<libc::pid_t>>,
+    refreshing: bool,
+    failure: Option<SessionScanFailure>,
+}
+
+#[derive(Clone)]
+struct SessionScanFailure {
+    kind: io::ErrorKind,
+    message: String,
+}
+
+impl SessionScanFailure {
+    fn from_error(error: &io::Error) -> Self {
+        Self { kind: error.kind(), message: error.to_string() }
     }
-    Ok(())
+
+    fn to_error(&self) -> io::Error {
+        io::Error::new(self.kind, self.message.clone())
+    }
+}
+
+impl SessionProcessSnapshot {
+    pub(crate) fn capture(
+        sessions: impl IntoIterator<Item = libc::pid_t>,
+        deadline: Instant,
+    ) -> io::Result<Self> {
+        let sessions = sessions.into_iter().collect::<HashSet<_>>();
+        for session in &sessions {
+            validate_session_target(*session)?;
+        }
+        let members = scan_sessions(&sessions, Some(deadline))?;
+        #[cfg(test)]
+        let has_sessions = !sessions.is_empty();
+        Ok(Self {
+            sessions,
+            state: Mutex::new(SessionProcessSnapshotState {
+                generation: 0,
+                members,
+                refreshing: false,
+                failure: None,
+            }),
+            refreshed: Condvar::new(),
+            #[cfg(test)]
+            scan_count: std::sync::atomic::AtomicUsize::new(usize::from(has_sessions)),
+        })
+    }
+
+    fn members(&self, session: libc::pid_t) -> io::Result<(u64, Vec<libc::pid_t>)> {
+        if !self.sessions.contains(&session) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PTY session is outside the shutdown snapshot",
+            ));
+        }
+        let state = self.state.lock().unwrap();
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        Ok((state.generation, state.members.get(&session).cloned().unwrap_or_default()))
+    }
+
+    fn refresh_members(
+        &self,
+        session: libc::pid_t,
+        observed_generation: u64,
+        deadline: Instant,
+    ) -> io::Result<(u64, Vec<libc::pid_t>)> {
+        if !self.sessions.contains(&session) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PTY session is outside the shutdown snapshot",
+            ));
+        }
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(failure) = &state.failure {
+                return Err(failure.to_error());
+            }
+            if state.generation != observed_generation {
+                return Ok((
+                    state.generation,
+                    state.members.get(&session).cloned().unwrap_or_default(),
+                ));
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(snapshot_deadline_error());
+            };
+            if !state.refreshing {
+                state.refreshing = true;
+                break;
+            }
+            let (next, timeout) = self.refreshed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.generation == observed_generation {
+                return Err(snapshot_deadline_error());
+            }
+        }
+        drop(state);
+
+        #[cfg(test)]
+        self.scan_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let scanned = scan_sessions(&self.sessions, Some(deadline));
+        let mut state = self.state.lock().unwrap();
+        state.refreshing = false;
+        match scanned {
+            Ok(members) => {
+                state.generation = state.generation.saturating_add(1);
+                state.members = members;
+            }
+            Err(error) => {
+                state.failure = Some(SessionScanFailure::from_error(&error));
+            }
+        }
+        self.refreshed.notify_all();
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        Ok((state.generation, state.members.get(&session).cloned().unwrap_or_default()))
+    }
+
+    #[cfg(test)]
+    fn scan_count(&self) -> usize {
+        self.scan_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+pub(crate) fn signal_until(
+    session: libc::pid_t,
+    signal: libc::c_int,
+    deadline: Instant,
+) -> io::Result<()> {
+    let snapshot = SessionProcessSnapshot::capture([session], deadline)?;
+    signal_from_snapshot(&snapshot, session, signal)
+}
+
+pub(crate) fn signal_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    session: libc::pid_t,
+    signal: libc::c_int,
+) -> io::Result<()> {
+    validate_session_target(session)?;
+    let (_, members) = snapshot.members(session)?;
+    signal_members_with(&members, session, None, signal)
 }
 
 /// Repeatedly SIGKILL every member until the session contains only its
@@ -33,32 +182,18 @@ pub(crate) fn kill_until_only_leader(
     leader_exited: impl Fn() -> bool,
 ) -> io::Result<bool> {
     validate_session_target(session)?;
-    let mut known_members = members(session)?;
-    signal_members(&known_members, session, None)?;
-    loop {
-        let known_drained = known_members
-            .iter()
-            .copied()
-            .filter(|pid| *pid != leader)
-            .map(|pid| still_member(pid, session))
-            .collect::<io::Result<Vec<_>>>()?
-            .into_iter()
-            .all(|alive| !alive);
-        if leader_exited() && known_drained {
-            let current = members(session)?;
-            if current.iter().all(|pid| *pid == leader) {
-                return Ok(true);
-            }
-            signal_members(&current, session, None)?;
-            known_members = current;
-        }
-        if Instant::now() >= deadline {
-            return Ok(false);
-        }
-        std::thread::sleep(
-            deadline.saturating_duration_since(Instant::now()).min(SESSION_KILL_POLL),
-        );
-    }
+    let snapshot = SessionProcessSnapshot::capture([session], deadline)?;
+    kill_until_only_leader_from_snapshot(&snapshot, session, leader, deadline, leader_exited)
+}
+
+pub(crate) fn kill_until_only_leader_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    session: libc::pid_t,
+    leader: libc::pid_t,
+    deadline: Instant,
+    leader_exited: impl Fn() -> bool,
+) -> io::Result<bool> {
+    kill_until_only_reserved_from_snapshot(snapshot, session, leader, deadline, leader_exited, None)
 }
 
 /// Drain a captured session while the caller keeps one exact member stopped.
@@ -73,8 +208,28 @@ pub fn kill_until_only_reserved(
     if !still_member(reserved, session)? {
         return Err(io::Error::new(io::ErrorKind::NotFound, "reserved PTY session process exited"));
     }
-    let mut known_members = members(session)?;
-    signal_members(&known_members, session, Some(reserved))?;
+    let snapshot = SessionProcessSnapshot::capture([session], deadline)?;
+    kill_until_only_reserved_from_snapshot(
+        &snapshot,
+        session,
+        reserved,
+        deadline,
+        || true,
+        Some(reserved),
+    )
+}
+
+fn kill_until_only_reserved_from_snapshot(
+    snapshot: &SessionProcessSnapshot,
+    session: libc::pid_t,
+    reserved: libc::pid_t,
+    deadline: Instant,
+    can_reconcile: impl Fn() -> bool,
+    signal_exclusion: Option<libc::pid_t>,
+) -> io::Result<bool> {
+    validate_session_target(session)?;
+    let (mut generation, mut known_members) = snapshot.members(session)?;
+    signal_members(&known_members, session, signal_exclusion)?;
     loop {
         let known_drained = known_members
             .iter()
@@ -84,12 +239,14 @@ pub fn kill_until_only_reserved(
             .collect::<io::Result<Vec<_>>>()?
             .into_iter()
             .all(|alive| !alive);
-        if known_drained {
-            let current = members(session)?;
+        if can_reconcile() && known_drained {
+            let (current_generation, current) =
+                snapshot.refresh_members(session, generation, deadline)?;
             if current.iter().all(|pid| *pid == reserved) {
                 return Ok(true);
             }
-            signal_members(&current, session, Some(reserved))?;
+            signal_members(&current, session, signal_exclusion)?;
+            generation = current_generation;
             known_members = current;
         }
         if Instant::now() >= deadline {
@@ -103,16 +260,19 @@ pub fn kill_until_only_reserved(
 
 /// Read-only proof used after every pre-close process identity in a captured
 /// legacy PTY session has already disappeared.
-pub fn session_is_empty(session: libc::pid_t) -> io::Result<bool> {
+pub fn session_is_empty_until(session: libc::pid_t, deadline: Instant) -> io::Result<bool> {
     validate_session_target(session)?;
-    members(session).map(|members| members.is_empty())
+    members_until(session, deadline).map(|members| members.is_empty())
 }
 
 /// Snapshot process IDs in a non-caller session. Callers must capture exact
 /// process birth identities before using the result for later signaling.
-pub fn session_member_pids(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+pub fn session_member_pids_until(
+    session: libc::pid_t,
+    deadline: Instant,
+) -> io::Result<Vec<libc::pid_t>> {
     validate_session_target(session)?;
-    members(session)
+    members_until(session, deadline)
 }
 
 fn signal_members(
@@ -120,8 +280,17 @@ fn signal_members(
     session: libc::pid_t,
     reserved: Option<libc::pid_t>,
 ) -> io::Result<()> {
+    signal_members_with(members, session, reserved, libc::SIGKILL)
+}
+
+fn signal_members_with(
+    members: &[libc::pid_t],
+    session: libc::pid_t,
+    reserved: Option<libc::pid_t>,
+    signal: libc::c_int,
+) -> io::Result<()> {
     for pid in members.iter().copied().filter(|pid| Some(*pid) != reserved) {
-        signal_if_still_member(pid, session, libc::SIGKILL)?;
+        signal_if_still_member(pid, session, signal)?;
     }
     Ok(())
 }
@@ -169,18 +338,37 @@ fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
     if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) }
 }
 
+#[cfg(test)]
 fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    let sessions = HashSet::from([session]);
+    Ok(scan_sessions(&sessions, None)?.remove(&session).unwrap_or_default())
+}
+
+fn members_until(session: libc::pid_t, deadline: Instant) -> io::Result<Vec<libc::pid_t>> {
+    let sessions = HashSet::from([session]);
+    Ok(scan_sessions(&sessions, Some(deadline))?.remove(&session).unwrap_or_default())
+}
+
+fn scan_sessions(
+    sessions: &HashSet<libc::pid_t>,
+    deadline: Option<Instant>,
+) -> io::Result<HashMap<libc::pid_t, Vec<libc::pid_t>>> {
+    let mut members =
+        sessions.iter().copied().map(|session| (session, Vec::new())).collect::<HashMap<_, _>>();
+    if sessions.is_empty() {
+        return Ok(members);
+    }
     #[cfg(test)]
     PROCESS_TABLE_SCAN_COUNT.set(PROCESS_TABLE_SCAN_COUNT.get() + 1);
-    let mut members = Vec::new();
-    for pid in all_process_ids()? {
+    for pid in all_process_ids(deadline)? {
+        ensure_before_deadline(deadline)?;
         if pid <= 1 {
             continue;
         }
         // SAFETY: getsid only queries process metadata.
         let current_session = unsafe { libc::getsid(pid) };
-        if current_session == session {
-            members.push(pid);
+        if let Some(session_members) = members.get_mut(&current_session) {
+            session_members.push(pid);
             continue;
         }
         if current_session < 0 {
@@ -190,9 +378,22 @@ fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
             }
         }
     }
-    members.sort_unstable();
-    members.dedup();
+    for session_members in members.values_mut() {
+        session_members.sort_unstable();
+        session_members.dedup();
+    }
     Ok(members)
+}
+
+fn ensure_before_deadline(deadline: Option<Instant>) -> io::Result<()> {
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(snapshot_deadline_error());
+    }
+    Ok(())
+}
+
+fn snapshot_deadline_error() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "process-session snapshot deadline expired")
 }
 
 #[cfg(test)]
@@ -200,18 +401,8 @@ fn shutdown_batch_members_for_test(
     sessions: &[libc::pid_t],
     deadline: Instant,
 ) -> io::Result<Vec<Vec<libc::pid_t>>> {
-    sessions
-        .iter()
-        .map(|session| {
-            if Instant::now() >= deadline {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "process-session snapshot deadline expired",
-                ));
-            }
-            members(*session)
-        })
-        .collect()
+    let snapshot = SessionProcessSnapshot::capture(sessions.iter().copied(), deadline)?;
+    sessions.iter().map(|session| snapshot.members(*session).map(|(_, members)| members)).collect()
 }
 
 #[cfg(all(target_os = "macos", test))]
@@ -220,12 +411,13 @@ fn macos_session_process_ids(session: libc::pid_t) -> io::Result<Vec<libc::pid_t
 }
 
 #[cfg(target_os = "macos")]
-fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
+fn all_process_ids(deadline: Option<Instant>) -> io::Result<Vec<libc::pid_t>> {
     use std::ffi::c_void;
     use std::mem::size_of;
 
     // Callers retain this snapshot and poll its members directly. A new full
     // process-table scan happens only after that generation has drained.
+    ensure_before_deadline(deadline)?;
     // SAFETY: a null buffer asks libproc for the current process count.
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if count < 0 {
@@ -234,6 +426,7 @@ fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
     let mut capacity =
         usize::try_from(count).map_err(|_| io::Error::other("invalid process count"))? + 32;
     for _ in 0..4 {
+        ensure_before_deadline(deadline)?;
         let mut pids = vec![0; capacity];
         let bytes = capacity
             .checked_mul(size_of::<libc::pid_t>())
@@ -258,9 +451,10 @@ fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
 }
 
 #[cfg(target_os = "linux")]
-fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
+fn all_process_ids(deadline: Option<Instant>) -> io::Result<Vec<libc::pid_t>> {
     let mut pids = Vec::new();
     for entry in std::fs::read_dir("/proc")? {
+        ensure_before_deadline(deadline)?;
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -276,7 +470,7 @@ fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
+fn all_process_ids(_deadline: Option<Instant>) -> io::Result<Vec<libc::pid_t>> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "PTY session enumeration is unavailable on this platform",
@@ -348,6 +542,43 @@ mod tests {
         assert_eq!(
             scan_count, 1,
             "one shutdown batch scanned the global process table more than once"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn concurrent_shutdown_refreshes_share_one_new_snapshot_generation() {
+        let mut children = [spawn_session_child(), spawn_session_child()];
+        let sessions = children
+            .iter()
+            .map(|child| libc::pid_t::try_from(child.id()).unwrap())
+            .collect::<Vec<_>>();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let snapshot = std::sync::Arc::new(
+            SessionProcessSnapshot::capture(sessions.clone(), deadline).unwrap(),
+        );
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(sessions.len()));
+
+        std::thread::scope(|scope| {
+            for session in &sessions {
+                let snapshot = snapshot.clone();
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    let generation = snapshot.members(*session).unwrap().0;
+                    barrier.wait();
+                    snapshot.refresh_members(*session, generation, deadline).unwrap();
+                });
+            }
+        });
+        let scan_count = snapshot.scan_count();
+
+        for child in &mut children {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        assert_eq!(
+            scan_count, 2,
+            "concurrent refreshes did not coalesce onto one new process-table snapshot"
         );
     }
 }

@@ -214,6 +214,7 @@ impl CapturedProcessSession {
 pub(super) fn capture_process_session(
     pid: libc::pid_t,
     server: ProcessIdentity,
+    deadline: Instant,
 ) -> io::Result<Option<CapturedProcessSession>> {
     if pid <= 1
         || pid == server.pid
@@ -248,7 +249,8 @@ pub(super) fn capture_process_session(
             ));
         }
         let mut members = Vec::new();
-        for member in cmux_tui_core::process_session::session_member_pids(session)? {
+        for member in cmux_tui_core::process_session::session_member_pids_until(session, deadline)?
+        {
             if let Some(identity) = ProcessIdentity::capture(member)? {
                 members.push(identity);
             }
@@ -290,13 +292,16 @@ impl CapturedSession {
                         Err(error) => error,
                     }
                 }
-                Ok(None) => match cmux_tui_core::process_session::session_is_empty(self.id) {
-                    Ok(true) => return Ok(true),
-                    Ok(false) => io::Error::other(
-                        "captured PTY session lost every exact process before termination",
-                    ),
-                    Err(error) => error,
-                },
+                Ok(None) => {
+                    match cmux_tui_core::process_session::session_is_empty_until(self.id, deadline)
+                    {
+                        Ok(true) => return Ok(true),
+                        Ok(false) => io::Error::other(
+                            "captured PTY session lost every exact process before termination",
+                        ),
+                        Err(error) => error,
+                    }
+                }
                 Err(error) => error,
             };
             if Instant::now() >= deadline {

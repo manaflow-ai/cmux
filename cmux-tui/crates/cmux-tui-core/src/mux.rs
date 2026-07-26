@@ -67,6 +67,10 @@ struct ShutdownOwnerLedger {
 }
 
 impl ShutdownOwnerLedger {
+    fn get(&self, key: &ShutdownOwnerKey) -> Option<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)> {
+        self.owners.lock().unwrap().get(key).cloned().map(|owner| (key.clone(), owner))
+    }
+
     fn stage(
         &self,
         key: ShutdownOwnerKey,
@@ -86,6 +90,10 @@ impl ShutdownOwnerLedger {
         &self,
         surface: &Arc<Surface>,
     ) -> Option<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)> {
+        let surface_key = ShutdownOwnerKey::Surface(surface.id);
+        if let Some(staged) = self.get(&surface_key) {
+            return Some(staged);
+        }
         let owner = surface.shutdown_owner()?;
         Some(self.stage(shutdown_owner_key(surface.id, &owner), owner))
     }
@@ -3835,9 +3843,19 @@ impl Mux {
         if owners.is_empty() {
             return;
         }
+        #[cfg(unix)]
+        let process_snapshot = crate::process_session::SessionProcessSnapshot::capture(
+            owners.iter().filter_map(|(_, owner)| owner.local_process_session()),
+            deadline,
+        )
+        .ok();
         let failed = Mutex::new(HashSet::new());
         let started = bounded_shutdown_fanout(&owners, deadline, |(key, owner), deadline| {
-            if !owner.terminate_until(deadline) {
+            #[cfg(unix)]
+            let terminated = owner.terminate_until_in_batch(deadline, process_snapshot.as_ref());
+            #[cfg(not(unix))]
+            let terminated = owner.terminate_until(deadline);
+            if !terminated {
                 failed.lock().unwrap().insert(key.clone());
             }
         });

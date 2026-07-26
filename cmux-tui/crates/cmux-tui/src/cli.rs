@@ -1761,9 +1761,17 @@ mod tests {
             Err(io::Error::new(io::ErrorKind::Unsupported, "test stream is not cloneable"))
         }
 
+        fn read_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(self.read_timeouts.lock().unwrap().last().copied().flatten())
+        }
+
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
             self.read_timeouts.lock().unwrap().push(timeout);
             Ok(())
+        }
+
+        fn write_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(None)
         }
 
         fn set_write_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {

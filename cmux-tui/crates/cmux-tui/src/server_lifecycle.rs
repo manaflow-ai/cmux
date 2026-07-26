@@ -149,15 +149,39 @@ impl ServerProbe {
     }
 
     fn inspect_until(reader: &mut TransportReader, deadline: Instant) -> anyhow::Result<Self> {
-        set_transport_deadline(reader.get_mut().as_ref(), deadline)?;
-        write_json_line(reader.get_mut(), &json!({"id": PROBE_REQUEST_ID, "cmd": "identify"}))
+        let previous_read_timeout = reader
+            .get_ref()
+            .read_timeout()
             .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-        let response = read_response_until(reader, PROBE_REQUEST_ID, deadline)?;
-        if response.get("ok").and_then(Value::as_bool) != Some(true) {
-            anyhow::bail!(crate::localization::catalog().server.identity_failed);
+        let previous_write_timeout = reader
+            .get_ref()
+            .write_timeout()
+            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
+        let result = (|| {
+            set_transport_deadline(reader.get_mut().as_ref(), deadline)?;
+            write_json_line(reader.get_mut(), &json!({"id": PROBE_REQUEST_ID, "cmd": "identify"}))
+                .map_err(|_| {
+                    anyhow::anyhow!(crate::localization::catalog().server.transport_failed)
+                })?;
+            let response = read_response_until(reader, PROBE_REQUEST_ID, deadline)?;
+            if response.get("ok").and_then(Value::as_bool) != Some(true) {
+                anyhow::bail!(crate::localization::catalog().server.identity_failed);
+            }
+            let data = response.get("data").unwrap_or(&Value::Null);
+            Ok(Self { identity: ServerIdentity::from_protocol_data(data)? })
+        })();
+        let restored = reader
+            .get_ref()
+            .set_read_timeout(previous_read_timeout)
+            .and_then(|()| reader.get_ref().set_write_timeout(previous_write_timeout))
+            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed));
+        match result {
+            Ok(probe) => restored.map(|()| probe),
+            Err(error) => {
+                let _ = restored;
+                Err(error)
+            }
         }
-        let data = response.get("data").unwrap_or(&Value::Null);
-        Ok(Self { identity: ServerIdentity::from_protocol_data(data)? })
     }
 
     pub(crate) fn connect(path: &Path) -> anyhow::Result<(Self, TransportReader, Option<u32>)> {
@@ -377,7 +401,7 @@ impl ServerLifecycle {
                 .ok_or_else(|| {
                     anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
                 })?;
-            let owner = capture_process_session(pid, expected)
+            let owner = capture_process_session(pid, expected, deadline)
                 .map_err(|_| {
                     anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
                 })?

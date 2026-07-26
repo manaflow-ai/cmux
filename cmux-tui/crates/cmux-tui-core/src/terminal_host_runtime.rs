@@ -1988,7 +1988,11 @@ mod unix {
             self.pty_drained.load(Ordering::Acquire)
         }
 
-        fn signal_terminal_process_session(&self, signal: libc::c_int) -> std::io::Result<()> {
+        fn signal_terminal_process_session(
+            &self,
+            signal: libc::c_int,
+            deadline: Instant,
+        ) -> std::io::Result<()> {
             // The wait thread observes exit with WNOWAIT, then takes this lock
             // before reaping. Holding it reserves the session leader and its
             // numeric session id across enumeration and signaling.
@@ -1999,7 +2003,7 @@ mod unix {
             let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 return Err(std::io::Error::other("PTY child has no process id"));
             };
-            crate::process_session::signal(session, signal)
+            crate::process_session::signal_until(session, signal, deadline)
         }
 
         fn kill_terminal_process_session_until(&self, deadline: Instant) -> std::io::Result<bool> {
@@ -2069,7 +2073,13 @@ mod unix {
             // ProcessSignaller only targets the direct child. Start with a
             // graceful session hangup so foreground and background jobs can
             // clean up too, then escalate after a strict bound.
-            if self.signal_terminal_process_session(libc::SIGHUP).is_err() {
+            if self
+                .signal_terminal_process_session(
+                    libc::SIGHUP,
+                    Instant::now() + HOST_TERMINATE_GRACE,
+                )
+                .is_err()
+            {
                 self.termination_started.store(false, Ordering::Release);
                 return;
             }
