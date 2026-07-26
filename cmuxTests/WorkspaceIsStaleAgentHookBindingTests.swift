@@ -20,7 +20,8 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         launchFlavor: SurfaceResumeLaunchFlavor
     ) -> SurfaceResumeBindingSnapshot {
         SurfaceResumeBindingSnapshot(
-            command: "claude --resume session-1",
+            kind: "codex",
+            command: "codex resume session-1",
             checkpointId: "session-1",
             source: "agent-hook",
             launchFlavor: launchFlavor
@@ -34,6 +35,21 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         let binding = Self.agentHookBinding(launchFlavor: .local)
 
         #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == true)
+    }
+
+    @Test
+    func localAgentHookBindingWithExactLiveRuntimeGenerationIsNotStale() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = Self.agentHookBinding(launchFlavor: .local)
+        workspace.recordAgentPID(
+            key: "codex.session-1",
+            pid: getpid(),
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == false)
     }
 
     @Test
