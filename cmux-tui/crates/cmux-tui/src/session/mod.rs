@@ -1500,6 +1500,9 @@ impl SurfaceHandle {
                 frame_seq,
             ),
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                let frame_seq = frame_seq.ok_or_else(|| {
+                    anyhow::anyhow!("remote browser pointer input requires an admitted frame")
+                })?;
                 let kind = match event_type {
                     "mousePressed" => "down",
                     "mouseReleased" => "up",
@@ -1538,6 +1541,9 @@ impl SurfaceHandle {
                 surface.browser_wheel_for_frame(x, y, delta_y, frame_seq)
             }
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                let frame_seq = frame_seq.ok_or_else(|| {
+                    anyhow::anyhow!("remote browser pointer input requires an admitted frame")
+                })?;
                 session
                     .request(json!({
                         "cmd": "browser-wheel",

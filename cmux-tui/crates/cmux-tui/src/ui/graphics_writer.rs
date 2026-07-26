@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use cmux_tui_core::{Rect, SurfaceId};
+
 use super::graphics::{GraphicPlacement, GraphicsState};
 
 struct GraphicsSubmission {
@@ -13,9 +15,18 @@ struct GraphicsSubmission {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PresentedGraphic {
+    pub session_generation: u64,
+    pub surface: SurfaceId,
+    pub rect: Rect,
+    pub seq: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphicsPresentation {
     pub id: u64,
-    pub frames: Vec<(cmux_tui_core::SurfaceId, u64)>,
+    pub frames: Vec<(SurfaceId, u64)>,
+    pub graphics: Vec<PresentedGraphic>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,6 +139,16 @@ fn writer_loop(
                 .iter()
                 .map(|placement| (placement.surface, placement.seq))
                 .collect();
+            let presented_graphics = submission
+                .placements
+                .iter()
+                .map(|placement| PresentedGraphic {
+                    session_generation: submission.session_generation,
+                    surface: placement.surface,
+                    rect: placement.rect,
+                    seq: placement.seq,
+                })
+                .collect();
             for batch in
                 graphics.frame_batches(submission.session_generation, &submission.placements)
             {
@@ -142,6 +163,7 @@ fn writer_loop(
                 Some(GraphicsCompletion::Presented(GraphicsPresentation {
                     id: submission.id,
                     frames,
+                    graphics: presented_graphics,
                 }));
             on_ready();
         }
@@ -251,7 +273,13 @@ mod tests {
             writer.take_completion(),
             Some(GraphicsCompletion::Presented(GraphicsPresentation {
                 id: 7,
-                frames: vec![(11, 13)]
+                frames: vec![(11, 13)],
+                graphics: vec![PresentedGraphic {
+                    session_generation: 1,
+                    surface: 11,
+                    rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                    seq: 13,
+                }],
             }))
         );
         writer.shutdown(Duration::from_secs(1));

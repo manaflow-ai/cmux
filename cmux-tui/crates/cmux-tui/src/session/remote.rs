@@ -16,7 +16,7 @@ use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, GuardedMouseEncode, MuxEvent,
     MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
     PointerSemanticProbe, PointerSnapshotProbe, Rgb, SurfaceId, SurfaceKind,
-    TerminalPointerSnapshot, platform::transport,
+    TerminalPointerSnapshot, platform::transport, server::GUARDED_BROWSER_POINTER_CAPABILITY,
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
@@ -51,6 +51,17 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     if protocol != SUPPORTED_PROTOCOL_VERSION {
         anyhow::bail!(
             "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
+        );
+    }
+    let supports_guarded_browser_pointer =
+        ident.get("capabilities").and_then(Value::as_array).is_some_and(|capabilities| {
+            capabilities
+                .iter()
+                .any(|capability| capability.as_str() == Some(GUARDED_BROWSER_POINTER_CAPABILITY))
+        });
+    if !supports_guarded_browser_pointer {
+        anyhow::bail!(
+            "cmux-tui protocol {protocol} server does not support guarded browser pointer input; restart the cmux-tui server"
         );
     }
     Ok(())
@@ -536,14 +547,9 @@ impl RemoteSurface {
         }
         if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
             browser.last_frame_at = Some(Instant::now());
-            if value.get("pointer_frame_seq").is_none() {
-                browser.pointer_frame_seq = Some(frame.frame.seq);
-            }
             browser.frame = Some(frame);
         }
-        if let Some(pointer_frame_seq) = value.get("pointer_frame_seq") {
-            browser.pointer_frame_seq = pointer_frame_seq.as_u64();
-        }
+        browser.pointer_frame_seq = value.get("pointer_frame_seq").and_then(Value::as_u64);
     }
 
     fn update_browser_frame(&self, value: &Value) {

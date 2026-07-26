@@ -3548,6 +3548,7 @@ pub struct App {
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
     pending_graphics_snapshot: Option<Vec<GraphicIdentity>>,
+    pending_graphics_affected_rects: Vec<Rect>,
     /// Graphics placements confirmed written to the outer terminal.
     last_graphics_snapshot: Vec<GraphicIdentity>,
     pub graphics_supported: bool,
@@ -4590,6 +4591,7 @@ pub fn run_with_machine_updates(
         next_graphics_submission: 0,
         pending_graphics_submission: None,
         pending_graphics_snapshot: None,
+        pending_graphics_affected_rects: Vec::new(),
         last_graphics_snapshot: Vec::new(),
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
@@ -5426,11 +5428,9 @@ impl App {
         self.pending_pointer_motion = None;
         self.deferred_input_sequence = 0;
         self.rendered_pointer_frame = RenderedPointerFrame::default();
-        self.pending_graphics_submission = None;
-        self.pending_graphics_snapshot = None;
-        // Retain the presented graphics identity until the replacement
-        // session presents its first snapshot. An empty replacement must
-        // differ here so the writer emits delete commands for old images.
+        // Retain presented and in-flight graphics state until the replacement
+        // session presents its first snapshot. The writer may still present
+        // an older accepted submission before the replacement is written.
         self.pointer_route_phase = PointerRoutePhase::DrawPending;
         self.layout_refresh_retries_remaining = 0;
         self.background_refresh_attempts = 0;
@@ -5963,6 +5963,12 @@ impl App {
         ) {
             return false;
         }
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the browser bitmap. Keep
+            // geometry barriers above, but do not wait for browser content
+            // admission that this press never enters.
+            return false;
+        }
         let route = self.rendered_pointer_frame.route_for_mouse(mouse);
         let Some((surface, rendered_generation)) = route.browser_content_generation() else {
             return false;
@@ -5977,6 +5983,9 @@ impl App {
             || self.pending_graphics_submission.is_none()
         {
             return false;
+        }
+        if self.pending_graphics_affected_rects.iter().any(|rect| rect.contains(x, y)) {
+            return true;
         }
         let pending = self.pending_graphics_snapshot.as_deref().unwrap_or(&[]);
         let graphic_at = |snapshot: &[GraphicIdentity]| {
@@ -6394,8 +6403,20 @@ impl App {
             && area.content.height > 0
     }
 
-    #[cfg(test)]
     fn track_graphics_submission(&mut self, submission: u64, snapshot: Vec<GraphicIdentity>) {
+        let previous =
+            self.pending_graphics_snapshot.as_deref().unwrap_or(&self.last_graphics_snapshot);
+        let changed_rects = previous
+            .iter()
+            .filter(|graphic| !snapshot.contains(graphic))
+            .chain(snapshot.iter().filter(|graphic| !previous.contains(graphic)))
+            .map(|graphic| graphic.rect)
+            .collect::<Vec<_>>();
+        for rect in changed_rects {
+            if !self.pending_graphics_affected_rects.contains(&rect) {
+                self.pending_graphics_affected_rects.push(rect);
+            }
+        }
         self.pending_graphics_submission = Some(submission);
         self.pending_graphics_snapshot = Some(snapshot);
     }
@@ -6425,8 +6446,7 @@ impl App {
         self.next_graphics_submission = self.next_graphics_submission.wrapping_add(1).max(1);
         let submission = self.next_graphics_submission;
         if writer.submit(submission, self.session_generation, placements) {
-            self.pending_graphics_submission = Some(submission);
-            self.pending_graphics_snapshot = Some(snapshot);
+            self.track_graphics_submission(submission, snapshot);
             self.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
         }
         Ok(())
@@ -6487,6 +6507,7 @@ impl App {
     fn disable_graphics_after_failure(&mut self) -> RenderAction {
         self.pending_graphics_submission = None;
         self.pending_graphics_snapshot = None;
+        self.pending_graphics_affected_rects.clear();
         self.graphics_supported = false;
         self.last_graphics_snapshot.clear();
         self.rendered_pane_content_generations
@@ -6500,12 +6521,21 @@ impl App {
     }
 
     fn commit_graphics_presentation(&mut self, presentation: GraphicsPresentation) {
-        if self.pending_graphics_submission != Some(presentation.id) {
-            return;
-        }
-        self.pending_graphics_submission = None;
-        if let Some(snapshot) = self.pending_graphics_snapshot.take() {
-            self.last_graphics_snapshot = snapshot;
+        let settles_latest = self.pending_graphics_submission == Some(presentation.id);
+        self.last_graphics_snapshot = presentation
+            .graphics
+            .iter()
+            .map(|graphic| GraphicIdentity {
+                session_generation: graphic.session_generation,
+                surface: graphic.surface,
+                rect: graphic.rect,
+                seq: graphic.seq,
+            })
+            .collect();
+        if settles_latest {
+            self.pending_graphics_submission = None;
+            self.pending_graphics_snapshot = None;
+            self.pending_graphics_affected_rects.clear();
         }
         self.rendered_pane_content_generations
             .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
@@ -6514,7 +6544,9 @@ impl App {
                 .insert(surface, PaneContentGeneration::Browser(generation));
         }
         self.commit_rendered_pane_content_generations();
-        if self.pointer_route_phase == PointerRoutePhase::GraphicsPresentationPending {
+        if settles_latest
+            && self.pointer_route_phase == PointerRoutePhase::GraphicsPresentationPending
+        {
             self.pointer_route_phase = PointerRoutePhase::Fresh;
         }
     }
@@ -7009,8 +7041,9 @@ impl App {
                 if replayed_route_changed {
                     return Ok(RenderAction::None);
                 }
-                if let Some((surface, expected_generation)) =
-                    rendered_route.browser_content_generation()
+                if !Self::mouse_opens_cmux_context_menu(mouse)
+                    && let Some((surface, expected_generation)) =
+                        rendered_route.browser_content_generation()
                     && missing_surface != Some(surface)
                 {
                     let Some(expected_generation) = expected_generation else {
@@ -7863,6 +7896,11 @@ impl App {
 
     fn mouse_requires_rendered_route(kind: MouseEventKind) -> bool {
         kind != MouseEventKind::Moved
+    }
+
+    fn mouse_opens_cmux_context_menu(mouse: &MouseEvent) -> bool {
+        mouse.kind == MouseEventKind::Down(MouseButton::Right)
+            && mouse.modifiers.contains(KeyModifiers::SHIFT)
     }
 
     fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
@@ -14929,6 +14967,12 @@ mod tests {
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 2,
             frames: vec![(11, 13)],
+            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+                session_generation: intermediate.session_generation,
+                surface: intermediate.surface,
+                rect: intermediate.rect,
+                seq: intermediate.seq,
+            }],
         });
         assert_eq!(app.last_graphics_snapshot, vec![intermediate]);
         assert_eq!(app.pending_graphics_submission, Some(3));
@@ -14940,6 +14984,7 @@ mod tests {
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 3,
             frames: Vec::new(),
+            graphics: Vec::new(),
         });
         assert!(app.last_graphics_snapshot.is_empty());
         assert_eq!(app.pending_graphics_submission, None);
@@ -14956,6 +15001,7 @@ mod tests {
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 7,
             frames: vec![(11, 13)],
+            graphics: Vec::new(),
         });
 
         assert_eq!(app.pending_graphics_submission, None);
@@ -14970,6 +15016,7 @@ mod tests {
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 8,
             frames: vec![(11, 14)],
+            graphics: Vec::new(),
         });
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
         assert_eq!(
@@ -18374,7 +18421,11 @@ mod tests {
 
         app.reset_session_presentation(TreeView::default());
 
-        assert_eq!(app.pending_graphics_submission, None);
+        assert_eq!(
+            app.pending_graphics_submission,
+            Some(4),
+            "an in-flight old-session presentation must remain tracked until replacement"
+        );
         assert_eq!(
             app.last_graphics_snapshot,
             vec![previous],
@@ -22514,6 +22565,7 @@ mod tests {
             next_graphics_submission: 0,
             pending_graphics_submission: None,
             pending_graphics_snapshot: None,
+            pending_graphics_affected_rects: Vec::new(),
             last_graphics_snapshot: Vec::new(),
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),

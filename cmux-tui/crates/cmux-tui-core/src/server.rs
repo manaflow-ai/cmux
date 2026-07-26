@@ -56,6 +56,7 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -325,8 +326,7 @@ enum Command {
         button: Option<String>,
         #[serde(default, alias = "click_count")]
         click_count: Option<u32>,
-        #[serde(default)]
-        frame_seq: Option<u64>,
+        frame_seq: u64,
     },
     BrowserWheel {
         surface: SurfaceId,
@@ -336,8 +336,7 @@ enum Command {
         y_px: f64,
         #[serde(alias = "delta_y_px")]
         delta_y_px: f64,
-        #[serde(default)]
-        frame_seq: Option<u64>,
+        frame_seq: u64,
     },
     BrowserKey {
         surface: SurfaceId,
@@ -2940,6 +2939,7 @@ fn handle_command(
                 "capabilities": [
                     ATTACH_INITIAL_SIZE_CAPABILITY,
                     WORKSPACE_REGISTRY_CAPABILITY,
+                    GUARDED_BROWSER_POINTER_CAPABILITY,
                     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
                 ],
                 "session": mux.session,
@@ -3477,14 +3477,14 @@ fn handle_command(
                 y_px,
                 button.as_deref(),
                 click_count,
-                frame_seq,
+                Some(frame_seq),
             )?;
             Ok(json!({}))
         }
         Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
             let surface = get_surface(mux, surface)?;
             require_browser(&surface)?;
-            surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, frame_seq)?;
+            surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, Some(frame_seq))?;
             Ok(json!({}))
         }
         Command::BrowserKey {
@@ -6520,6 +6520,7 @@ mod tests {
         for expected in [
             "attach-initial-size",
             "workspace-registry-v1",
+            GUARDED_BROWSER_POINTER_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));

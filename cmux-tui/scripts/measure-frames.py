@@ -116,6 +116,7 @@ def main() -> int:
         got_state = False
         got_response = False
         initial_seq = None
+        pointer_frame_seq = None
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline and not (got_state and got_response):
             line = reader.readline()
@@ -130,11 +131,13 @@ def main() -> int:
                 got_response = True
             elif value.get("event") == "browser-state":
                 got_state = True
+                pointer_frame_seq = value.get("pointer_frame_seq")
                 frame = value.get("frame")
                 if frame:
                     initial_seq = frame.get("seq")
             elif value.get("event") == "frame":
                 initial_seq = value.get("seq")
+                pointer_frame_seq = initial_seq
         if not got_state:
             raise RuntimeError("attach did not return browser-state")
         if not got_response:
@@ -157,7 +160,11 @@ def main() -> int:
             # Poke repeatedly until frames flow: the first interaction is what
             # un-throttles a hidden external-Chrome tab via the stall nudge.
             need_poke = wheel_sent_at is None or (not frame_times and now - wheel_sent_at >= 2.0)
-            if need_poke and now - start >= min(args.seconds / 2.0, 2.0):
+            if (
+                need_poke
+                and pointer_frame_seq is not None
+                and now - start >= min(args.seconds / 2.0, 2.0)
+            ):
                 try:
                     rpc.request(
                         {
@@ -166,6 +173,7 @@ def main() -> int:
                             "x_px": 10,
                             "y_px": 10,
                             "delta_y_px": 120,
+                            "frame_seq": pointer_frame_seq,
                         }
                     )
                 except RuntimeError:
@@ -178,11 +186,15 @@ def main() -> int:
             if not line:
                 break
             value = json.loads(line)
+            if value.get("event") == "browser-state":
+                pointer_frame_seq = value.get("pointer_frame_seq")
+                continue
             if value.get("event") != "frame":
                 continue
             received = time.monotonic()
             seq = value.get("seq")
             last_seq = seq
+            pointer_frame_seq = seq
             frame_times.append(received)
             sizes.append(frame_size(value.get("data", "")))
             dims = (value.get("width"), value.get("height"))
