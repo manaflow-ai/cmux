@@ -58,6 +58,7 @@ use crate::{
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
+pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -642,6 +643,8 @@ enum Command {
     Subscribe {
         #[serde(default)]
         tree_events: Option<String>,
+        #[serde(default)]
+        surface: Option<SurfaceId>,
     },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
@@ -3025,6 +3028,7 @@ fn handle_command(
                 "protocol": PROTOCOL_VERSION,
                 "capabilities": [
                     ATTACH_INITIAL_SIZE_CAPABILITY,
+                    SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
                     WORKSPACE_REGISTRY_CAPABILITY,
                     GUARDED_BROWSER_POINTER_CAPABILITY,
                     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
@@ -4106,13 +4110,18 @@ fn handle_command(
             surface.scroll_delta(delta)?;
             Ok(json!({}))
         }
-        Command::Subscribe { tree_events } => {
+        Command::Subscribe { tree_events, surface } => {
             let tree_deltas = match tree_events.as_deref().unwrap_or("coarse") {
                 "coarse" => false,
                 "deltas" => true,
                 other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
             };
-            let events = mux.subscribe();
+            let events = match surface {
+                Some(surface) => mux
+                    .subscribe_surface_session(surface)
+                    .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?,
+                None => mux.subscribe(),
+            };
             let event_mux = mux.clone();
             let trusted_pairing_client = mux.control_clients.is_unix(client);
             let pending_pairings =
@@ -6664,6 +6673,7 @@ mod tests {
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
         for expected in [
             "attach-initial-size",
+            SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
             "workspace-registry-v1",
             GUARDED_BROWSER_POINTER_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,

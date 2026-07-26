@@ -3641,6 +3641,63 @@ mod tests {
     }
 
     #[test]
+    fn full_command_queue_retains_mouse_releases_without_unbounded_growth() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        browser.enqueue_control(BrowserCommand::Hold { entered, release: held }).unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+            browser.enqueue_control(BrowserCommand::Activate).unwrap();
+        }
+
+        let (attempting_tx, attempting_rx) = mpsc::channel();
+        let (enqueued_tx, enqueued_rx) = mpsc::channel();
+        let release_surface = surface.clone();
+        let enqueue = thread::spawn(move || {
+            attempting_tx.send(()).unwrap();
+            let result = release_surface.browser_mouse_event(
+                "mouseReleased",
+                1.0,
+                1.0,
+                Some("left"),
+                Some(1),
+            );
+            enqueued_tx.send(result).unwrap();
+        });
+        attempting_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        enqueued_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("retaining a mouse release must not wait for regular queue capacity")
+            .unwrap();
+        for offset in 1..super::BROWSER_RETAINED_RELEASE_CAPACITY {
+            surface
+                .browser_mouse_event(
+                    "mouseReleased",
+                    1.0 + offset as f64,
+                    1.0,
+                    Some("left"),
+                    Some(1),
+                )
+                .expect("the bounded release lane must retain accepted releases");
+        }
+        assert!(
+            surface
+                .browser_mouse_event("mouseReleased", 100.0, 2.0, Some("left"), Some(1))
+                .is_err(),
+            "the bounded release lane must reject input beyond its capacity"
+        );
+
+        release.send(()).unwrap();
+        enqueue.join().unwrap();
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1))
+            .expect("browser worker exited after reliable release");
+    }
+
+    #[test]
     fn timeout_failed_status_notice_is_emitted_once_per_stall_episode() {
         let surface = test_surface();
         let mux = Mux::new("timeout-latch-test", SurfaceOptions::default());

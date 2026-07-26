@@ -5,8 +5,11 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use cmux_tui_core::{Rect, SurfaceId};
+use parking_lot::ReentrantMutex;
 
 use super::graphics::{GraphicPlacement, GraphicsState};
+
+pub type StdoutLock = ReentrantMutex<()>;
 
 struct GraphicsSubmission {
     id: u64,
@@ -44,14 +47,14 @@ pub struct GraphicsWriter {
 
 impl GraphicsWriter {
     pub fn spawn(
-        stdout_lock: Arc<Mutex<()>>,
+        stdout_lock: Arc<StdoutLock>,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
         Self::spawn_with_output(stdout_lock, std::io::stdout(), on_ready)
     }
 
     fn spawn_with_output(
-        stdout_lock: Arc<Mutex<()>>,
+        stdout_lock: Arc<StdoutLock>,
         output: impl Write + Send + 'static,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
@@ -122,7 +125,7 @@ fn writer_loop(
     slot: Arc<Mutex<Option<GraphicsSubmission>>>,
     completion: Arc<Mutex<Option<GraphicsCompletion>>>,
     rx: Receiver<()>,
-    stdout_lock: Arc<Mutex<()>>,
+    stdout_lock: Arc<StdoutLock>,
     mut output: impl Write,
     on_ready: impl Fn(),
     done: SyncSender<()>,
@@ -145,7 +148,7 @@ fn writer_loop(
             for batch in
                 graphics.frame_batches(submission.session_generation, &submission.placements)
             {
-                let _guard = stdout_lock.lock().unwrap();
+                let _guard = stdout_lock.lock();
                 if output.write_all(&batch).and_then(|_| output.flush()).is_err() {
                     *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
                     on_ready();
@@ -229,7 +232,7 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
 
-        let lock = Arc::new(Mutex::new(()));
+        let lock = Arc::new(StdoutLock::new(()));
         let mut writer = GraphicsWriter::spawn(lock, || {}).unwrap();
         writer.shutdown(Duration::from_secs(1));
         assert!(writer.handle.as_ref().is_none_or(|handle| handle.is_finished()));
@@ -237,8 +240,8 @@ mod tests {
 
     #[test]
     fn presentation_is_reported_only_after_the_snapshot_is_written() {
-        let lock = Arc::new(Mutex::new(()));
-        let held = lock.lock().unwrap();
+        let lock = Arc::new(StdoutLock::new(()));
+        let held = lock.lock();
         let (presented_tx, presented_rx) = std::sync::mpsc::channel();
         let mut writer = GraphicsWriter::spawn_with_output(lock.clone(), Vec::new(), move || {
             presented_tx.send(()).unwrap();
@@ -279,7 +282,7 @@ mod tests {
 
     #[test]
     fn output_failure_notifies_the_app_to_settle_the_submission() {
-        let lock = Arc::new(Mutex::new(()));
+        let lock = Arc::new(StdoutLock::new(()));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let mut writer = GraphicsWriter::spawn_with_output(lock, FailingOutput, move || {
             ready_tx.send(()).unwrap();
