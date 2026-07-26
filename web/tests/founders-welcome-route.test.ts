@@ -150,7 +150,7 @@ describe("founders welcome route", () => {
     expect(resendSend).toHaveBeenCalledTimes(1);
   });
 
-  test("skips a cmux Pro checkout so it receives only the separate Pro welcome", async () => {
+  test("does not send the Founder's Edition email for a cmux Pro purchase", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({

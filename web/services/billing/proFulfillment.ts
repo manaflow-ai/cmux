@@ -6,7 +6,7 @@ import enMessages from "../../messages/en.json";
 import jaMessages from "../../messages/ja.json";
 
 export const DEFAULT_PRO_FROM_EMAIL = "pro@cmux.com";
-export const PRO_REPLY_TO_EMAIL = "founders@manaflow.com";
+export const PRO_REPLY_TO_EMAIL = "pro@cmux.com";
 export const PRO_TESTFLIGHT_SIGNUP_URL = "https://cmux.com/dashboard/testflight";
 
 type ProWelcomeLocale = "en" | "ja";

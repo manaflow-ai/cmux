@@ -34,17 +34,18 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(payload).toMatchObject({
       from: "cmux Pro <pro@cmux.com>",
       to: ["ada@example.com"],
-      replyTo: "founders@manaflow.com",
-      subject: "Welcome to Pro, you’re early 🎉",
+      replyTo: "pro@cmux.com",
+      subject: "Welcome to cmux Pro 🎉",
       headers: { "X-Entity-Ref-ID": "pro-welcome/cs_pro_1" },
     });
     expect(payload).not.toHaveProperty("cc");
-    expect(payload.text).toContain("still putting the shiny bits together");
-    expect(payload.text).toContain("Every month you stay subscribed");
-    expect(payload.text).toContain("Claim your spot through");
-    expect(payload.text).toContain("Once you finish signing up, Apple will send");
+    expect(JSON.stringify(payload)).not.toContain("founders@");
+    expect(payload.text).toContain("still putting the full Pro experience together");
+    expect(payload.text).toContain("based on how many months you’ve been subscribed");
+    expect(payload.text).toContain("Sign up through the link below");
+    expect(payload.text).toContain("Apple will send your TestFlight invitation");
     expect(payload.text).toContain(
-      `Claim your spot: ${PRO_TESTFLIGHT_SIGNUP_URL}`,
+      `Sign up for TestFlight: ${PRO_TESTFLIGHT_SIGNUP_URL}`,
     );
     expect(payload.html).toContain(
       `<a href="${PRO_TESTFLIGHT_SIGNUP_URL}">Sign up for TestFlight</a>`,
@@ -62,10 +63,10 @@ describe("cmux Pro checkout fulfillment", () => {
     });
 
     expect(email.subject).toBe("cmux Pro へようこそ！");
-    expect(email.text).toContain("楽しい機能をさらに磨いています");
-    expect(email.text).toContain("購読いただいた月数が利用クレジット");
-    expect(email.text).toContain("TestFlight 登録リンク");
-    expect(email.text).toContain("登録が完了すると、Apple から");
+    expect(email.text).toContain("Pro の全体的な体験を準備");
+    expect(email.text).toContain("購読いただいた月数に応じた利用クレジット");
+    expect(email.text).toContain("下のリンクから登録");
+    expect(email.text).toContain("Apple から TestFlight の招待");
     expect(email.text).toContain(PRO_TESTFLIGHT_SIGNUP_URL);
     expect(email.html).toContain(
       `<a href="${PRO_TESTFLIGHT_SIGNUP_URL}">TestFlight に登録する</a>`,
