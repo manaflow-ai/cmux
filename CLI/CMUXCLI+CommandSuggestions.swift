@@ -102,6 +102,7 @@ extension CMUXCLI {
         "focus-panel",
         "focus-webview",
         "focus-window",
+        "goto",
         "get-url",
         "help",
         "hooks",
