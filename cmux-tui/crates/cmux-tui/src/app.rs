@@ -7809,12 +7809,17 @@ impl App {
             .iter()
             .find(|machine| machine.key == active)
             .map(|machine| machine.id.clone());
-        let workspace_id = self
-            .tree
-            .active_workspace()
-            .map(|workspace| workspace.key.clone())
-            .filter(|id| !id.is_empty())
-            .filter(|id| ui.managed_workspace(id).is_some());
+        // Provider runtimes expose a session only while its machine matches
+        // the active provider machine. That ownership is sufficient for
+        // session-created workspaces that have no lifecycle-catalog entry.
+        let workspace_id = if ui.session_available {
+            self.tree
+                .active_workspace()
+                .map(|workspace| workspace.key.clone())
+                .filter(|id| !id.is_empty())
+        } else {
+            None
+        };
         ProviderActionContext { machine_id, workspace_id }
     }
 
