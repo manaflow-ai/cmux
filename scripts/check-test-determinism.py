@@ -204,6 +204,37 @@ _SWIFT_SLEEP_CALL = re.compile(
     \s*\(\s*\)\s*\.sleep\s*\(
     """
 )
+_SWIFT_IDENTIFIER_PATTERN = r"[A-Za-z_]\w*"
+_SWIFT_CLOCK_TYPE_PATTERN = (
+    r"(?:Swift\s*\.\s*)?(?:ContinuousClock|SuspendingClock)"
+)
+_SWIFT_CLOCK_TYPED_LET = (
+    rf"\blet\s+(?P<typed_name>{_SWIFT_IDENTIFIER_PATTERN})"
+    rf"\s*:\s*{_SWIFT_CLOCK_TYPE_PATTERN}\b"
+)
+_SWIFT_CLOCK_INFERRED_LET = (
+    rf"\blet\s+(?P<inferred_name>{_SWIFT_IDENTIFIER_PATTERN})"
+    rf"\s*=\s*{_SWIFT_CLOCK_TYPE_PATTERN}\s*\(\s*\)"
+)
+_SWIFT_SIMPLE_BINDING = (
+    rf"\b(?:let|var)\s+(?P<binding_name>{_SWIFT_IDENTIFIER_PATTERN})\b"
+)
+_SWIFT_NAMED_SLEEP_CALL = (
+    rf"(?<![.$\w])(?P<receiver>{_SWIFT_IDENTIFIER_PATTERN})"
+    r"\s*\.\s*(?P<named_sleep>sleep)\s*\("
+)
+_SWIFT_CLOCK_EVENT = re.compile(
+    "|".join(
+        (
+            r"(?P<open_brace>\{)",
+            r"(?P<close_brace>\})",
+            rf"(?P<typed_let>{_SWIFT_CLOCK_TYPED_LET})",
+            rf"(?P<inferred_let>{_SWIFT_CLOCK_INFERRED_LET})",
+            rf"(?P<simple_binding>{_SWIFT_SIMPLE_BINDING})",
+            rf"(?P<named_call>{_SWIFT_NAMED_SLEEP_CALL})",
+        )
+    )
+)
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
@@ -489,6 +520,142 @@ def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
     return None
 
 
+def _swift_matching_parenthesis(text: str, start: int) -> Optional[int]:
+    """Return the matching close parenthesis for one masked Swift signature."""
+    depth = 0
+    for index in range(start, len(text)):
+        character = text[index]
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _swift_parameter_names(parameters: str) -> set[str]:
+    """Extract local names from a masked Swift function parameter list."""
+    result: set[str] = set()
+    segment_start = 0
+    depths = {"(": 0, "[": 0, "<": 0}
+    closing = {")": "(", "]": "[", ">": "<"}
+    segments: list[str] = []
+    for index, character in enumerate(parameters):
+        if character in depths:
+            depths[character] += 1
+        elif character in closing:
+            opener = closing[character]
+            depths[opener] = max(0, depths[opener] - 1)
+        elif character == "," and not any(depths.values()):
+            segments.append(parameters[segment_start:index])
+            segment_start = index + 1
+    segments.append(parameters[segment_start:])
+
+    for segment in segments:
+        colon = segment.find(":")
+        if colon < 0:
+            continue
+        labels = re.findall(_SWIFT_IDENTIFIER_PATTERN, segment[:colon])
+        local_name = next(
+            (
+                name
+                for name in reversed(labels)
+                if name not in ("_", "borrowing", "consuming", "isolated")
+            ),
+            None,
+        )
+        if local_name is not None:
+            result.add(local_name)
+    return result
+
+
+def _swift_function_parameter_scopes(text: str) -> dict[int, set[str]]:
+    """Map function-body opening braces to their lexically bound parameters."""
+    result: dict[int, set[str]] = {}
+    for function in re.finditer(r"(?<![.$\w])func\b", text):
+        opening = text.find("(", function.end())
+        if opening < 0:
+            continue
+        intervening = text[function.end() : opening]
+        if "{" in intervening or "}" in intervening or ";" in intervening:
+            continue
+        closing = _swift_matching_parenthesis(text, opening)
+        if closing is None:
+            continue
+        body_opening = text.find("{", closing + 1)
+        if body_opening < 0:
+            continue
+        suffix = text[closing + 1 : body_opening]
+        if (
+            ";" in suffix
+            or "}" in suffix
+            or re.search(r"(?<![.$\w])func\b", suffix)
+        ):
+            continue
+        result[body_opening] = _swift_parameter_names(
+            text[opening + 1 : closing]
+        )
+    return result
+
+
+def _swift_closure_parameter_names(text: str, opening: int) -> set[str]:
+    """Return simple closure parameters introduced immediately after a brace."""
+    candidate = re.match(
+        rf"\s*(?P<parameters>{_SWIFT_IDENTIFIER_PATTERN}"
+        rf"(?:\s*,\s*{_SWIFT_IDENTIFIER_PATTERN})*)\s+in\b",
+        text[opening + 1 : opening + 513],
+    )
+    if candidate is None:
+        return set()
+    return set(
+        re.findall(_SWIFT_IDENTIFIER_PATTERN, candidate.group("parameters"))
+    )
+
+
+def _swift_named_clock_sleep_positions(text: str) -> set[int]:
+    """Resolve immutable standard-clock bindings through lexical Swift scopes."""
+    function_parameters = _swift_function_parameter_scopes(text)
+    scopes: list[dict[str, bool]] = [{}]
+    result: set[int] = set()
+
+    for event in _SWIFT_CLOCK_EVENT.finditer(text):
+        if event.group("open_brace") is not None:
+            bindings = {
+                name: False
+                for name in function_parameters.get(event.start(), set())
+            }
+            for name in _swift_closure_parameter_names(text, event.start()):
+                bindings[name] = False
+            scopes.append(bindings)
+            continue
+        if event.group("close_brace") is not None:
+            if len(scopes) > 1:
+                scopes.pop()
+            continue
+        if (
+            event.group("typed_let") is not None
+            or event.group("inferred_let") is not None
+        ):
+            name = event.group("typed_name") or event.group("inferred_name")
+            scopes[-1][name] = True
+            continue
+        if event.group("simple_binding") is not None:
+            scopes[-1][event.group("binding_name")] = False
+            continue
+        if event.group("named_call") is None:
+            continue
+
+        receiver = event.group("receiver")
+        for scope in reversed(scopes):
+            if receiver not in scope:
+                continue
+            if scope[receiver]:
+                result.add(event.start("named_sleep"))
+            break
+    return result
+
+
 def _swift_real_sleep_positions(
     masked_lines: list[str],
 ) -> dict[int, set[int]]:
@@ -503,6 +670,9 @@ def _swift_real_sleep_positions(
 
     for match in _SWIFT_SLEEP_CALL.finditer(text):
         sleep_offset = match.start() + match.group().rfind("sleep")
+        record(sleep_offset)
+
+    for sleep_offset in _swift_named_clock_sleep_positions(text):
         record(sleep_offset)
 
     for task in re.finditer(r"(?<![.$\w])Task\b", text):
@@ -865,17 +1035,131 @@ class _PythonDirectCallCollector(ast.NodeVisitor):
         return
 
 
-def _python_ordered_bindings(
+def _python_binding_updates(node: ast.AST) -> dict[str, str]:
+    """Collect bindings established after one AST node has executed."""
+    collector = _PythonDeferredBindingCollector()
+    collector.visit(node)
+    return collector.deferred_bindings()
+
+
+def _python_direct_calls_in_node(
+    node: ast.AST,
+    bindings: dict[str, str],
+) -> list[tuple[str, dict[str, str]]]:
+    """Collect direct calls evaluated by one non-deferred AST node."""
+    calls = _PythonDirectCallCollector()
+    calls.visit(node)
+    return [(name, bindings.copy()) for name in calls.names]
+
+
+def _python_direct_calls_in_block(
     body: list[ast.stmt],
-    end_index: int,
-) -> dict[str, str]:
-    """Resolve parent bindings in statement order through one direct call."""
-    result: dict[str, str] = {}
-    for statement in body[: end_index + 1]:
-        collector = _PythonDeferredBindingCollector()
-        collector.visit(statement)
-        result.update(collector.deferred_bindings())
+    bindings: dict[str, str],
+) -> list[tuple[str, dict[str, str]]]:
+    """Collect direct calls with binding snapshots at their execution point."""
+    result: list[tuple[str, dict[str, str]]] = []
+    current = bindings.copy()
+    for statement in body:
+        result.extend(_python_direct_calls_in_statement(statement, current))
+        current.update(_python_binding_updates(statement))
     return result
+
+
+def _python_direct_calls_in_statement(
+    statement: ast.stmt,
+    bindings: dict[str, str],
+) -> list[tuple[str, dict[str, str]]]:
+    """Traverse compound statements without applying their later bindings."""
+    if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return []
+
+    if isinstance(statement, ast.If):
+        result = _python_direct_calls_in_node(statement.test, bindings)
+        result.extend(_python_direct_calls_in_block(statement.body, bindings))
+        result.extend(_python_direct_calls_in_block(statement.orelse, bindings))
+        return result
+
+    if isinstance(statement, (ast.For, ast.AsyncFor)):
+        result = _python_direct_calls_in_node(statement.iter, bindings)
+        body_bindings = bindings.copy()
+        body_bindings.update(_python_binding_updates(statement.target))
+        result.extend(
+            _python_direct_calls_in_block(statement.body, body_bindings)
+        )
+        result.extend(_python_direct_calls_in_block(statement.orelse, bindings))
+        return result
+
+    if isinstance(statement, ast.While):
+        result = _python_direct_calls_in_node(statement.test, bindings)
+        result.extend(_python_direct_calls_in_block(statement.body, bindings))
+        result.extend(_python_direct_calls_in_block(statement.orelse, bindings))
+        return result
+
+    if isinstance(statement, (ast.With, ast.AsyncWith)):
+        result: list[tuple[str, dict[str, str]]] = []
+        body_bindings = bindings.copy()
+        for item in statement.items:
+            result.extend(
+                _python_direct_calls_in_node(
+                    item.context_expr,
+                    body_bindings,
+                )
+            )
+            if item.optional_vars is not None:
+                body_bindings.update(
+                    _python_binding_updates(item.optional_vars)
+                )
+        result.extend(
+            _python_direct_calls_in_block(statement.body, body_bindings)
+        )
+        return result
+
+    if isinstance(statement, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+        result = _python_direct_calls_in_block(statement.body, bindings)
+        for handler in statement.handlers:
+            handler_bindings = bindings.copy()
+            if handler.type is not None:
+                result.extend(
+                    _python_direct_calls_in_node(
+                        handler.type,
+                        handler_bindings,
+                    )
+                )
+            if handler.name is not None:
+                handler_bindings[handler.name] = _PYTHON_SHADOWED_BINDING
+            result.extend(
+                _python_direct_calls_in_block(
+                    handler.body,
+                    handler_bindings,
+                )
+            )
+        body_bindings = bindings.copy()
+        for body_statement in statement.body:
+            body_bindings.update(_python_binding_updates(body_statement))
+        result.extend(
+            _python_direct_calls_in_block(statement.orelse, body_bindings)
+        )
+        result.extend(
+            _python_direct_calls_in_block(statement.finalbody, bindings)
+        )
+        return result
+
+    match_type = getattr(ast, "Match", None)
+    if match_type is not None and isinstance(statement, match_type):
+        result = _python_direct_calls_in_node(statement.subject, bindings)
+        for case in statement.cases:
+            case_bindings = bindings.copy()
+            case_bindings.update(_python_binding_updates(case.pattern))
+            if case.guard is not None:
+                result.extend(
+                    _python_direct_calls_in_node(case.guard, case_bindings)
+                )
+            result.extend(
+                _python_direct_calls_in_block(case.body, case_bindings)
+            )
+        return result
+
+    return _python_direct_calls_in_node(statement, bindings)
 
 
 def _python_direct_call_bindings(
@@ -884,23 +1168,28 @@ def _python_direct_call_bindings(
     """Map locally defined functions to parent bindings at direct call sites."""
     result: dict[int, list[dict[str, str]]] = {}
     definitions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
-    for index, statement in enumerate(body):
+    ordered_bindings: dict[str, str] = {}
+    for statement in body:
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
             definitions[statement.name] = statement
             nested = _python_direct_call_bindings(statement.body)
             for node_id, binding_variants in nested.items():
                 result.setdefault(node_id, []).extend(binding_variants)
+            ordered_bindings.update(_python_binding_updates(statement))
             continue
 
-        calls = _PythonDirectCallCollector()
-        calls.visit(statement)
-        for name in calls.names:
+        calls = _python_direct_calls_in_statement(
+            statement,
+            ordered_bindings,
+        )
+        for name, bindings_at_call in calls:
             definition = definitions.get(name)
             if definition is None:
                 continue
             result.setdefault(id(definition), []).append(
-                _python_ordered_bindings(body, index)
+                bindings_at_call
             )
+        ordered_bindings.update(_python_binding_updates(statement))
     return result
 
 
