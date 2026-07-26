@@ -138,7 +138,7 @@ struct TerminalSurfaceRegistryTests {
         #expect(traversedIds == Set(retained.map(\.id)))
     }
 
-    @Test func incrementalTraversalIncludesLateRegistrations() {
+    @Test func incrementalTraversalHasFixedRegistrationCutoff() {
         let registry = TerminalSurfaceRegistry()
         let initial = (0..<4).map { _ in FakeSurface() }
         for surface in initial {
@@ -155,6 +155,16 @@ struct TerminalSurfaceRegistryTests {
         }
         #expect(
             traversedIds
+                == Set(initial.map(\.id))
+        )
+
+        let nextTraversal = registry.makeIncrementalTraversal()
+        var nextTraversedIds: Set<UUID> = []
+        while let surface = nextTraversal.next() {
+            nextTraversedIds.insert(surface.id)
+        }
+        #expect(
+            nextTraversedIds
                 == Set((initial + [late]).map(\.id))
         )
     }
