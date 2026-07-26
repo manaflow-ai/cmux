@@ -45,11 +45,11 @@ use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView}
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    MachineActionResult, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
-    MachineRequest, MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
-    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
-    WorkspaceCreationPolicy, validate_machine_session,
+    MachineActionResult, MachineConnectRoute, MachineController, MachineKey, MachineRailSelection,
+    MachineRailTarget, MachineRequest, MachineSession, MachineUiState, MachineUpdateStream,
+    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionInputError,
+    WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
@@ -2848,7 +2848,7 @@ pub enum PromptTarget {
     ConfirmPurgeManagedWorkspace(usize),
     Screen(cmux_tui_core::ScreenId),
     Surface(SurfaceId),
-    ConnectMachine,
+    ConnectMachine(MachineConnectRoute),
     ProviderAction(usize),
     ConfirmProviderAction(usize),
 }
@@ -7432,15 +7432,28 @@ impl App {
                 }
             }
             Some(MachineRailCommand::Connect) => {
-                self.prompt = Some(Prompt::new(
-                    localization::catalog().sidebar.connect_prompt,
-                    String::new(),
-                    PromptTarget::ConnectMachine,
-                ));
+                self.prompt = Some(self.connect_machine_prompt());
             }
             None => {}
         }
         RenderAction::Draw
+    }
+
+    fn connect_machine_prompt(&self) -> Prompt {
+        let messages = &localization::catalog().sidebar;
+        if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
+            Prompt::new(
+                messages.connect_prompt,
+                String::new(),
+                PromptTarget::ConnectMachine(MachineConnectRoute::Provider),
+            )
+        } else {
+            Prompt::new(
+                messages.connect_host_prompt,
+                String::new(),
+                PromptTarget::ConnectMachine(MachineConnectRoute::Local),
+            )
+        }
     }
 
     fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
@@ -7688,11 +7701,12 @@ impl App {
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
         let input = prompt.input.as_str().to_string();
-        if matches!(prompt.target, PromptTarget::ConnectMachine) {
+        if let PromptTarget::ConnectMachine(route) = prompt.target {
             if !input.trim().is_empty()
                 && let Some(machine) = self.machine_ui.as_mut()
             {
-                machine.request = Some(MachineRequest::Connect(input.trim().to_string()));
+                machine.request =
+                    Some(MachineRequest::Connect { target: input.trim().to_string(), route });
             }
             return;
         }
@@ -7793,7 +7807,7 @@ impl App {
             // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
-            PromptTarget::ConnectMachine
+            PromptTarget::ConnectMachine(_)
             | PromptTarget::ManagedMachine(_)
             | PromptTarget::ConfirmDeleteManagedMachine(_)
             | PromptTarget::ConfirmPurgeManagedMachine(_)
@@ -10178,11 +10192,7 @@ impl App {
                     if let Some(machine) = self.machine_ui.as_mut() {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
                     }
-                    self.prompt = Some(Prompt::new(
-                        localization::catalog().sidebar.connect_prompt,
-                        String::new(),
-                        PromptTarget::ConnectMachine,
-                    ));
+                    self.prompt = Some(self.connect_machine_prompt());
                 }
                 Hit::ProviderScope => {
                     self.focus = FocusTarget::MachineRail;
@@ -11410,8 +11420,8 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
+        ForwardMuxOutcome, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
+        MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
         PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
@@ -17559,6 +17569,7 @@ mod tests {
             active: Some(machine),
             capabilities: MachineCapabilities { create: true, connect: true },
         });
+        ui.connect_accepts_pairing_code = true;
         ui.session_available = false;
         ui.set_workspace_creation_policy(
             machine,
@@ -17775,7 +17786,8 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer());
         assert!(text.contains("machines"), "{text}");
         assert!(text.contains("no machines"), "{text}");
-        assert!(text.contains("new VM"), "{text}");
+        assert!(text.contains("new machine"), "{text}");
+        assert!(!text.contains("new VM"), "{text}");
         assert!(text.contains("connect machine"), "{text}");
         assert!(text.contains("workspaces"), "{text}");
         assert!(
@@ -17787,9 +17799,72 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert!(app.machine_ui.as_ref().is_some_and(|ui| ui.request.is_none()));
         assert!(app.prompt.is_some(), "connect machine is keyboard reachable");
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
+            Some(localization::catalog().sidebar.connect_host_prompt)
+        );
         app.prompt = None;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+    }
+
+    #[test]
+    fn connect_machine_footer_captures_the_route_shown_by_each_entrypoint() {
+        let mux = Mux::new("connect-machine-footer-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.machine_ui = Some(provider_machine_ui());
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let connect = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::ConnectMachine).then_some((rect.x, rect.y))
+            })
+            .unwrap();
+        app.handle_left_down(connect.0, connect.1, KeyModifiers::NONE).unwrap();
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
+            Some(localization::catalog().sidebar.connect_prompt)
+        );
+        app.prompt.as_mut().unwrap().input.insert_str("PAIR 4J7K");
+        let mut update = app.machine_ui.clone().unwrap();
+        update.connect_accepts_pairing_code = false;
+        app.apply_machine_ui_update(update);
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Connect {
+                target: "PAIR 4J7K".into(),
+                route: MachineConnectRoute::Provider,
+            })
+        );
+
+        let machine = app.machine_ui.as_mut().unwrap();
+        machine.request = None;
+        machine.connect_accepts_pairing_code = false;
+        app.focus = FocusTarget::MachineRail;
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.prompt.as_ref().map(|prompt| prompt.label.as_str()),
+            Some(localization::catalog().sidebar.connect_host_prompt)
+        );
+        app.prompt.as_mut().unwrap().input.insert_str("mini.local");
+        let mut update = app.machine_ui.clone().unwrap();
+        update.connect_accepts_pairing_code = true;
+        app.apply_machine_ui_update(update);
+        app.commit_prompt();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Connect {
+                target: "mini.local".into(),
+                route: MachineConnectRoute::Local,
+            })
+        );
     }
 
     #[test]
