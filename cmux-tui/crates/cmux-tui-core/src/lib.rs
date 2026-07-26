@@ -46,7 +46,8 @@ pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserSource, BrowserStatus, CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
-    DefaultColors, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind, SurfaceOptions,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, DefaultColors,
+    RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind, SurfaceOptions,
     SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
 };
 pub use workspace_registry::{

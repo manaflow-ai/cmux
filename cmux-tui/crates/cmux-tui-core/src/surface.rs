@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
@@ -556,6 +556,7 @@ impl Deref for Surface {
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
+    stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<MouseEncoders>,
     runtime: Mutex<PtyRuntime>,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
@@ -613,9 +614,15 @@ enum PtyRuntime {
 
 pub const CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR: &str =
     "terminal keyboard mode cannot encode clear-history fallback key";
+pub const CLEAR_HISTORY_PRESERVATION_ERROR: &str =
+    "active terminal input extends into retained history";
+pub const CLEAR_HISTORY_STREAM_TIMEOUT_ERROR: &str =
+    "terminal output did not reach a safe clear-history boundary";
+pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub(crate) enum ClearHistoryTransition {
     Cleared(Vec<u8>),
+    Blocked,
     EncodedFallback(Vec<u8>),
     Noop,
 }
@@ -627,7 +634,10 @@ pub(crate) fn apply_clear_history_transition(
     if term.active_screen() != Screen::Alternate {
         return Ok(match term.clear_history_preserving_prompt() {
             ClearHistoryOutcome::Cleared(clear) => ClearHistoryTransition::Cleared(clear),
-            ClearHistoryOutcome::Unchanged => ClearHistoryTransition::Noop,
+            ClearHistoryOutcome::Blocked => ClearHistoryTransition::Blocked,
+            ClearHistoryOutcome::Unchanged => {
+                anyhow::bail!(CLEAR_HISTORY_PRESERVATION_ERROR)
+            }
         });
     }
     let Some(input) = fallback_key else {
@@ -635,6 +645,42 @@ pub(crate) fn apply_clear_history_transition(
     };
     let encoded = encode_key_from_terminal(term, input)?;
     Ok(ClearHistoryTransition::EncodedFallback(encoded))
+}
+
+pub(crate) struct TerminalStreamProgress {
+    revision: Mutex<u64>,
+    changed: Condvar,
+}
+
+impl Default for TerminalStreamProgress {
+    fn default() -> Self {
+        Self { revision: Mutex::new(0), changed: Condvar::new() }
+    }
+}
+
+impl TerminalStreamProgress {
+    pub(crate) fn revision(&self) -> u64 {
+        *self.revision.lock().unwrap()
+    }
+
+    pub(crate) fn notify(&self) {
+        let mut revision = self.revision.lock().unwrap();
+        *revision = revision.wrapping_add(1);
+        self.changed.notify_all();
+    }
+
+    pub(crate) fn wait_for_change(&self, observed: u64, deadline: Instant) -> Option<u64> {
+        let mut revision = self.revision.lock().unwrap();
+        while *revision == observed {
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            let (next, timeout) = self.changed.wait_timeout(revision, remaining).unwrap();
+            revision = next;
+            if timeout.timed_out() && *revision == observed {
+                return None;
+            }
+        }
+        Some(*revision)
+    }
 }
 
 fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result<Vec<u8>> {
@@ -804,6 +850,7 @@ impl Surface {
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
             host_identity: None,
@@ -891,6 +938,7 @@ impl Surface {
                         }
                         pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                     };
+                    pty.stream_progress.notify();
                     pty.request_frame(generation);
                     if let Some((offset, at_bottom)) = scroll_changed
                         && let Some(mux) = mux.upgrade()
@@ -968,6 +1016,7 @@ impl Surface {
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
             host_identity: Some(host_identity),
@@ -1464,6 +1513,7 @@ impl Surface {
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::ExitedHosted),
             host_identity: Some(identity),
@@ -1529,6 +1579,7 @@ impl Surface {
         Ok(Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            stream_progress: Box::new(TerminalStreamProgress::default()),
             mouse_encoders: Mutex::new(mouse_encoders),
             runtime: Mutex::new(PtyRuntime::Local {
                 writer: Box::new(std::io::sink()),
@@ -1665,6 +1716,8 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let result = f(&mut term);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        drop(term);
+        pty.stream_progress.notify();
         Some(result)
     }
 
@@ -1727,7 +1780,9 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        Ok(f(&mut pty.term.lock().unwrap()))
+        let result = f(&mut pty.term.lock().unwrap());
+        pty.stream_progress.notify();
+        Ok(result)
     }
 
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
@@ -1823,41 +1878,55 @@ impl Surface {
 
         // Local resize takes terminal before runtime. Keep the same order for
         // alternate-screen fallback so resize and Command-K cannot deadlock.
-        let mut term = pty.term.lock().unwrap();
-        let before = terminal_scroll_position(&term);
-        let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)? {
-            ClearHistoryTransition::EncodedFallback(encoded) => {
-                let mut runtime = pty.runtime.lock().unwrap();
-                let PtyRuntime::Local { writer, .. } = &mut *runtime else {
-                    unreachable!("a local PTY runtime cannot become hosted")
-                };
-                drop(term);
-                return writer
-                    .write_all(&encoded)
-                    .and_then(|()| writer.flush())
-                    .map_err(Into::into);
-            }
-            ClearHistoryTransition::Noop => return Ok(()),
-            ClearHistoryTransition::Cleared(clear) => {
-                pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-                pty.broadcast_attach_output(&clear);
-                let after = terminal_scroll_position(&term);
-                if before != after {
-                    broadcast_render_scroll_locked(pty, after);
+        let deadline = Instant::now() + CLEAR_HISTORY_STREAM_WAIT_TIMEOUT;
+        let mut observed_progress = pty.stream_progress.revision();
+        loop {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)? {
+                ClearHistoryTransition::Blocked => {
+                    drop(term);
+                    let Some(progress) =
+                        pty.stream_progress.wait_for_change(observed_progress, deadline)
+                    else {
+                        anyhow::bail!(CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
+                    };
+                    observed_progress = progress;
+                    continue;
                 }
-                let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                let _ = pty.build_frame_locked(&mut term, generation, false);
-                (before != after).then_some(after)
+                ClearHistoryTransition::EncodedFallback(encoded) => {
+                    let mut runtime = pty.runtime.lock().unwrap();
+                    let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+                        unreachable!("a local PTY runtime cannot become hosted")
+                    };
+                    drop(term);
+                    return writer
+                        .write_all(&encoded)
+                        .and_then(|()| writer.flush())
+                        .map_err(Into::into);
+                }
+                ClearHistoryTransition::Noop => return Ok(()),
+                ClearHistoryTransition::Cleared(clear) => {
+                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                    pty.broadcast_attach_output(&clear);
+                    let after = terminal_scroll_position(&term);
+                    if before != after {
+                        broadcast_render_scroll_locked(pty, after);
+                    }
+                    let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                    let _ = pty.build_frame_locked(&mut term, generation, false);
+                    (before != after).then_some(after)
+                }
+            };
+            drop(term);
+            if let Some((offset, at_bottom)) = scroll_changed
+                && let Some(mux) = pty.mux.upgrade()
+            {
+                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
             }
-        };
-        drop(term);
-        if let Some((offset, at_bottom)) = scroll_changed
-            && let Some(mux) = pty.mux.upgrade()
-        {
-            mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            pty.mark_output_dirty();
+            return Ok(());
         }
-        pty.mark_output_dirty();
-        Ok(())
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
@@ -3384,6 +3453,45 @@ mod tests {
             let viewport = term.viewport_text().unwrap();
             assert!(viewport.contains("prompt>"));
             assert!(!viewport.contains("history-"));
+        });
+    }
+
+    #[test]
+    fn clear_history_reports_a_partial_vt_sequence_that_does_not_finish() {
+        let mux = Mux::new_for_test("clear-history-stalled-vt", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let error = surface.clear_history().unwrap_err();
+
+        assert_eq!(error.to_string(), CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
+    }
+
+    #[test]
+    fn clear_history_reports_when_active_input_reaches_retained_history() {
+        let mux = Mux::new_for_test("clear-history-spanning-input", SurfaceOptions::default());
+        let options = SurfaceOptions { cols: 8, rows: 3, ..SurfaceOptions::default() };
+        let surface = Surface::spawn_for_test(1, options, Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..5 {
+                term.vt_write(format!("old-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07123456789012345678901234567");
+        });
+        let (history_before, contents_before) = surface
+            .with_terminal(|term| (term.history_rows(), term.plain_text().unwrap()))
+            .unwrap();
+
+        let error = surface.clear_history().unwrap_err();
+
+        assert_eq!(error.to_string(), CLEAR_HISTORY_PRESERVATION_ERROR);
+        surface.with_terminal(|term| {
+            assert!(history_before > 0);
+            assert_eq!(term.history_rows(), history_before);
+            assert_eq!(term.plain_text().unwrap(), contents_before);
         });
     }
 

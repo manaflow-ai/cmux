@@ -11,7 +11,8 @@ use ghostty_vt::{KeyInput, Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::{
-    ClearHistoryTransition, DefaultColors, SurfaceOptions, apply_clear_history_transition,
+    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryTransition,
+    DefaultColors, SurfaceOptions, TerminalStreamProgress, apply_clear_history_transition,
     replace_ghostty_cursor_defaults,
 };
 use crate::terminal_host::{
@@ -1483,6 +1484,7 @@ mod unix {
         owner_token: CapabilityToken,
         capabilities: CapabilityStore,
         term: Mutex<Terminal>,
+        stream_progress: TerminalStreamProgress,
         writer: Mutex<Box<dyn Write + Send>>,
         master: Mutex<Box<dyn MasterPty + Send>>,
         killer: Mutex<Box<dyn ChildKiller + Send>>,
@@ -1611,7 +1613,9 @@ mod unix {
             &self,
             fallback_key: Option<&KeyInput>,
         ) -> anyhow::Result<()> {
-            let encoded = {
+            let deadline = Instant::now() + CLEAR_HISTORY_STREAM_WAIT_TIMEOUT;
+            let mut observed_progress = self.stream_progress.revision();
+            loop {
                 let mut term = self.term.lock().unwrap();
                 match apply_clear_history_transition(&mut term, fallback_key)? {
                     ClearHistoryTransition::Cleared(clear) => {
@@ -1619,18 +1623,27 @@ mod unix {
                         // publication so child output cannot overtake the
                         // emulator-only erase on any attached mirror.
                         self.broadcast(MessageKind::Output, clear);
-                        None
+                        return Ok(());
                     }
-                    ClearHistoryTransition::EncodedFallback(encoded) => Some(encoded),
-                    ClearHistoryTransition::Noop => None,
+                    ClearHistoryTransition::Blocked => {
+                        drop(term);
+                        let Some(progress) =
+                            self.stream_progress.wait_for_change(observed_progress, deadline)
+                        else {
+                            anyhow::bail!(CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
+                        };
+                        observed_progress = progress;
+                    }
+                    ClearHistoryTransition::EncodedFallback(encoded) => {
+                        drop(term);
+                        let mut writer = self.writer.lock().unwrap();
+                        writer.write_all(&encoded)?;
+                        writer.flush()?;
+                        return Ok(());
+                    }
+                    ClearHistoryTransition::Noop => return Ok(()),
                 }
-            };
-            if let Some(encoded) = encoded {
-                let mut writer = self.writer.lock().unwrap();
-                writer.write_all(&encoded)?;
-                writer.flush()?;
             }
-            Ok(())
         }
 
         fn remove_client(&self, client: u64) {
@@ -2240,6 +2253,7 @@ mod unix {
             owner_token: bootstrapped.owner_token(),
             capabilities: CapabilityStore::new(64),
             term: Mutex::new(term),
+            stream_progress: TerminalStreamProgress::default(),
             writer: Mutex::new(pty_writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
@@ -2313,6 +2327,7 @@ mod unix {
                     reader_host.broadcast_frames(output_transition_frames(bytes, colors, pwd));
                     title
                 };
+                reader_host.stream_progress.notify();
                 if let Some(title) = title {
                     reader_host.broadcast(MessageKind::Title, title.into_bytes());
                 }

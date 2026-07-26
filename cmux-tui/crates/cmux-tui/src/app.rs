@@ -4535,6 +4535,10 @@ fn localized_clear_history_failure(error: &str) -> &'static str {
         cmux_tui_core::CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
             messages.clear_history_fallback_unrepresentable
         }
+        cmux_tui_core::CLEAR_HISTORY_PRESERVATION_ERROR => {
+            messages.clear_history_preservation_impossible
+        }
+        cmux_tui_core::CLEAR_HISTORY_STREAM_TIMEOUT_ERROR => messages.clear_history_stream_timeout,
         "terminal host does not support clear-history" => messages.clear_history_host_unsupported,
         "terminal host has exited" => messages.clear_history_host_exited,
         "terminal host failed to apply clear-history" => messages.clear_history_host_failed,
@@ -19808,6 +19812,14 @@ mod tests {
             (
                 "terminal keyboard mode cannot encode clear-history fallback key",
                 "現在のターミナルキーボードモードでは代替キーを送信できません",
+            ),
+            (
+                "active terminal input extends into retained history",
+                "アクティブなターミナル入力が保持中の履歴にまたがっています",
+            ),
+            (
+                "terminal output did not reach a safe clear-history boundary",
+                "ターミナル出力が履歴を安全に消去できる境界に達しませんでした",
             ),
             (
                 "terminal host does not support clear-history",

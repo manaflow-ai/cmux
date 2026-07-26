@@ -91,6 +91,7 @@ pub enum Screen {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClearHistoryOutcome {
     Cleared(Vec<u8>),
+    Blocked,
     Unchanged,
 }
 
@@ -1977,8 +1978,11 @@ impl Terminal {
     pub fn clear_history_preserving_prompt(&mut self) -> ClearHistoryOutcome {
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
 
-        if self.active_screen() == Screen::Alternate || !self.vt_boundary.is_safe() {
+        if self.active_screen() == Screen::Alternate {
             return ClearHistoryOutcome::Unchanged;
+        }
+        if !self.vt_boundary.is_safe() {
+            return ClearHistoryOutcome::Blocked;
         }
 
         let mut clear = CLEAR_SCROLLBACK.to_vec();
@@ -2925,7 +2929,7 @@ mod tests {
 
                 assert_eq!(
                     terminal.clear_history_preserving_prompt(),
-                    ClearHistoryOutcome::Unchanged,
+                    ClearHistoryOutcome::Blocked,
                     "{name} split at byte {split}"
                 );
                 assert_eq!(terminal.history_rows(), history_before, "{name} split at byte {split}");
