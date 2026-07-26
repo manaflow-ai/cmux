@@ -1883,10 +1883,9 @@ impl RemoteSession {
         })
     }
 
-    /// Mirror for a surface, attaching on first use. When a size is
-    /// provided, the caller's immediately following `resize` sends the
-    /// server resize after the attach tap is installed, so the resize
-    /// marker and any shell WINCH redraw bytes stay ordered in-stream.
+    /// Mirror for a surface, attaching on first use. Servers advertising
+    /// initial attach sizing receive the first viewer claim atomically with
+    /// the attach, so the initial replay already has its final geometry.
     pub fn try_ensure_surface(
         self: &Arc<Self>,
         id: SurfaceId,
@@ -1931,10 +1930,21 @@ impl RemoteSession {
         });
         surface.update_browser_source(source);
         self.surfaces.lock().unwrap().insert(id, surface.clone());
+        let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
+            self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
+        });
+        let mut request = json!({"cmd": "attach-surface", "surface": id});
+        if let Some((cols, rows)) = initial_size {
+            request["cols"] = json!(cols);
+            request["rows"] = json!(rows);
+        }
         // The vt-state event that follows fills the mirror.
-        if let Err(error) = self.request(json!({"cmd": "attach-surface", "surface": id})) {
+        if let Err(error) = self.request(request) {
             self.surfaces.lock().unwrap().remove(&id);
             return Err(error);
+        }
+        if let Some(size) = initial_size {
+            surface.set_reported_size(size);
         }
         if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
             recovery.attached_at = Some(Instant::now());

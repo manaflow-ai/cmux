@@ -4,11 +4,11 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
+use cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
 const CAPABILITY_REQUEST_ID: u64 = 0;
-const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;

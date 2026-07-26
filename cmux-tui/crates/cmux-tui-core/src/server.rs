@@ -54,7 +54,7 @@ use crate::{
     WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
-const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
