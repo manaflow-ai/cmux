@@ -30,7 +30,7 @@ pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
 use crate::browser::{
-    BrowserResizeWaiter, BrowserShutdownOwner, BrowserSurface, PendingBrowserResize,
+    BrowserResizeWaiter, BrowserRuntime, BrowserShutdownOwner, BrowserSurface, PendingBrowserResize,
 };
 #[cfg(unix)]
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
@@ -746,8 +746,13 @@ impl SurfaceShutdownOwner {
         }
     }
 
-    pub(crate) fn is_browser(&self) -> bool {
-        matches!(self.kind, SurfaceShutdownOwnerKind::Browser(_))
+    pub(crate) fn browser_runtime(&self) -> Option<&Arc<BrowserRuntime>> {
+        match &self.kind {
+            SurfaceShutdownOwnerKind::Browser(owner) => Some(owner.runtime()),
+            SurfaceShutdownOwnerKind::Local(_) => None,
+            #[cfg(unix)]
+            SurfaceShutdownOwnerKind::Hosted(_) => None,
+        }
     }
 
     #[cfg(unix)]

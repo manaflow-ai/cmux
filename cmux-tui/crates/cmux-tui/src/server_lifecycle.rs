@@ -373,6 +373,7 @@ impl ServerLifecycle {
     fn close_legacy_surfaces_until_stable(
         &mut self,
         expected: ProcessIdentity,
+        captured: &CapturedProcessTree,
         deadline: Instant,
     ) -> anyhow::Result<Vec<CapturedProcessSession>> {
         let mut next_request_id = LEGACY_LIST_REQUEST_ID;
@@ -387,6 +388,7 @@ impl ServerLifecycle {
             let closed = match self.close_legacy_surface_snapshot(
                 &mut next_request_id,
                 expected,
+                captured,
                 &mut owners,
                 &mut owner_ids,
                 deadline,
@@ -437,6 +439,7 @@ impl ServerLifecycle {
         &mut self,
         next_request_id: &mut u64,
         expected: ProcessIdentity,
+        captured: &CapturedProcessTree,
         owners: &mut Vec<CapturedProcessSession>,
         owner_ids: &mut HashSet<libc::pid_t>,
         deadline: Instant,
@@ -484,7 +487,7 @@ impl ServerLifecycle {
                     .ok_or_else(|| {
                         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
                     })?;
-                let owner = capture_process_session(pid, expected, deadline)
+                let owner = capture_process_session(pid, expected, captured, deadline)
                     .map_err(|_| {
                         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
                     })?
@@ -647,9 +650,10 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     let captured = capture_legacy_process_tree(actual, deadline)?;
 
     ensure_legacy_helper_active()?;
-    let owners = lifecycle.close_legacy_surfaces_until_stable(actual, deadline).map_err(|_| {
-        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-    })?;
+    let owners =
+        lifecycle.close_legacy_surfaces_until_stable(actual, &captured, deadline).map_err(
+            |_| anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed),
+        )?;
     for owner in owners {
         ensure_legacy_helper_active()?;
         owner.terminate_until(deadline).map_err(|_| {

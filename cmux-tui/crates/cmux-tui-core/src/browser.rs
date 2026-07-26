@@ -111,6 +111,10 @@ impl BrowserShutdownOwner {
     pub(crate) fn terminate_until(&self, deadline: Instant) -> bool {
         self.0.runtime.close_surface_for_shutdown(&self.0.target_id, &self.0.session_id, deadline)
     }
+
+    pub(crate) fn runtime(&self) -> &Arc<BrowserRuntime> {
+        &self.0.runtime
+    }
 }
 
 struct BrowserState {

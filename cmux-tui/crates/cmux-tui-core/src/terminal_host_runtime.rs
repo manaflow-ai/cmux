@@ -275,7 +275,9 @@ mod unix {
     use std::collections::{HashMap, HashSet};
     use std::fs::{self, File, OpenOptions};
     use std::io::{Read, Write};
-    use std::os::fd::{AsRawFd, RawFd};
+    use std::mem::{offset_of, size_of};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::os::unix::process::CommandExt;
@@ -721,11 +723,11 @@ mod unix {
             self.send(MessageKind::Terminate, &[])
         }
 
-        pub(crate) fn terminate_with_timeout(&self, timeout: Duration) -> std::io::Result<()> {
+        pub(crate) fn terminate_until(&self, deadline: Instant) -> std::io::Result<()> {
             let mut writer = self.writer.lock().unwrap();
-            writer.set_write_timeout(Some(timeout))?;
             let frame = Frame::new(MessageKind::Terminate, Vec::new());
-            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+            let result = write_frame(&mut DeadlineStream::new(&mut writer, deadline), &frame)
+                .map_err(protocol_io_error);
             if result.is_err() {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
             }
@@ -1140,19 +1142,28 @@ mod unix {
         connect_record(record, record_path)
     }
 
-    pub(crate) fn adopt_terminal_host_with_timeout(
+    pub(crate) fn adopt_terminal_host_until(
         record: TerminalHostRecord,
         record_path: PathBuf,
-        timeout: Duration,
+        deadline: Instant,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        connect_record_with_timeout(record, record_path, timeout)
+        connect_record_until(record, record_path, deadline)
     }
 
+    #[cfg(test)]
     pub(crate) fn terminate_terminal_host_with_timeout(
         record: &TerminalHostRecord,
         record_path: &Path,
         timeout: Duration,
+    ) -> anyhow::Result<()> {
+        terminate_terminal_host_until(record, record_path, Instant::now() + timeout)
+    }
+
+    fn terminate_terminal_host_until(
+        record: &TerminalHostRecord,
+        record_path: &Path,
+        deadline: Instant,
     ) -> anyhow::Result<()> {
         validate_terminal_host_record(record_path, record)?;
         if !record.supports_terminate_only {
@@ -1161,9 +1172,8 @@ mod unix {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
-        let mut stream = connect_with_timeout(Path::new(&record.endpoint), timeout)?;
-        stream.set_read_timeout(Some(timeout))?;
-        stream.set_write_timeout(Some(timeout))?;
+        let mut stream = connect_until(Path::new(&record.endpoint), deadline)?;
+        let mut stream = DeadlineStream::new(&mut stream, deadline);
         let hello = ClientHello {
             min_version: PROTOCOL_VERSION,
             max_version: PROTOCOL_VERSION,
@@ -1479,18 +1489,17 @@ mod unix {
             if last_terminate_attempt.is_none_or(|attempt: Instant| {
                 now.duration_since(attempt) >= Duration::from_millis(100)
             }) {
-                let timeout = deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(Duration::from_millis(100));
-                if !timeout.is_zero() {
+                let attempt_deadline = deadline.min(Instant::now() + Duration::from_millis(100));
+                if Instant::now() < attempt_deadline {
                     if record.supports_terminate_only {
-                        let _ = terminate_terminal_host_with_timeout(record, record_path, timeout);
-                    } else if let Ok(host) = adopt_terminal_host_with_timeout(
+                        let _ =
+                            terminate_terminal_host_until(record, record_path, attempt_deadline);
+                    } else if let Ok(host) = adopt_terminal_host_until(
                         record.clone(),
                         record_path.to_path_buf(),
-                        timeout,
+                        attempt_deadline,
                     ) {
-                        let _ = host.terminate_with_timeout(timeout);
+                        let _ = host.terminate_until(attempt_deadline);
                         host.disconnect();
                     }
                     last_terminate_attempt = Some(Instant::now());
@@ -1516,12 +1525,18 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
+        connect_record_until(record, record_path, Instant::now() + handshake_timeout)
+    }
+
+    fn connect_record_until(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        deadline: Instant,
+    ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
-        let mut stream = connect_with_timeout(Path::new(&record.endpoint), handshake_timeout)?;
-        stream.set_read_timeout(Some(handshake_timeout))?;
-        stream.set_write_timeout(Some(handshake_timeout))?;
+        let mut stream = connect_until(Path::new(&record.endpoint), deadline)?;
         let hello = ClientHello {
             min_version: PROTOCOL_VERSION,
             max_version: PROTOCOL_VERSION,
@@ -1530,35 +1545,42 @@ mod unix {
             terminal_id,
             token: owner_token,
         };
-        write_frame(&mut stream, &hello.into_frame(1))?;
-        let hello_frame = read_required_frame(&mut stream, "host hello")?;
-        if hello_frame.kind != MessageKind::HostHello {
-            anyhow::bail!("terminal host rejected owner handshake");
-        }
-        let host_hello = HostHello::decode(&hello_frame.payload)?;
-        if host_hello.terminal_id != terminal_id || host_hello.incarnation != incarnation {
-            anyhow::bail!("terminal-host record identity does not match live host");
-        }
-        let snapshot_frame = read_required_frame(&mut stream, "terminal snapshot")?;
-        if snapshot_frame.kind != MessageKind::Snapshot
-            || snapshot_frame.flags != 0
-            || snapshot_frame.request_id != 0
-        {
-            anyhow::bail!("terminal host did not send an initial snapshot");
-        }
-        let mut snapshot = decode_snapshot(&snapshot_frame.payload)?;
-        let colors_frame = read_required_frame(&mut stream, "terminal color state")?;
-        if colors_frame.kind != MessageKind::Colors
-            || colors_frame.flags != 0
-            || colors_frame.sequence != snapshot_frame.sequence
-            || colors_frame.request_id != 0
-        {
-            anyhow::bail!("terminal host did not send Colors at the snapshot sequence boundary");
-        }
-        snapshot.sequence_boundary = snapshot_frame.sequence;
-        snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
-        let snapshot_size = (snapshot.cols, snapshot.rows);
+        let (snapshot, snapshot_size) = {
+            let mut handshake = DeadlineStream::new(&mut stream, deadline);
+            write_frame(&mut handshake, &hello.into_frame(1))?;
+            let hello_frame = read_required_frame(&mut handshake, "host hello")?;
+            if hello_frame.kind != MessageKind::HostHello {
+                anyhow::bail!("terminal host rejected owner handshake");
+            }
+            let host_hello = HostHello::decode(&hello_frame.payload)?;
+            if host_hello.terminal_id != terminal_id || host_hello.incarnation != incarnation {
+                anyhow::bail!("terminal-host record identity does not match live host");
+            }
+            let snapshot_frame = read_required_frame(&mut handshake, "terminal snapshot")?;
+            if snapshot_frame.kind != MessageKind::Snapshot
+                || snapshot_frame.flags != 0
+                || snapshot_frame.request_id != 0
+            {
+                anyhow::bail!("terminal host did not send an initial snapshot");
+            }
+            let mut snapshot = decode_snapshot(&snapshot_frame.payload)?;
+            let colors_frame = read_required_frame(&mut handshake, "terminal color state")?;
+            if colors_frame.kind != MessageKind::Colors
+                || colors_frame.flags != 0
+                || colors_frame.sequence != snapshot_frame.sequence
+                || colors_frame.request_id != 0
+            {
+                anyhow::bail!(
+                    "terminal host did not send Colors at the snapshot sequence boundary"
+                );
+            }
+            snapshot.sequence_boundary = snapshot_frame.sequence;
+            snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
+            let snapshot_size = (snapshot.cols, snapshot.rows);
+            (snapshot, snapshot_size)
+        };
         stream.set_read_timeout(None)?;
+        stream.set_write_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
         // Keep bounded writes for the lifetime of the disposable admin
         // mirror. A stopped or wedged host must not block a mux/control thread
         // forever while it sends input, mouse, resize, or Terminate. Reads are
@@ -1586,18 +1608,228 @@ mod unix {
         Ok(attachment)
     }
 
-    fn connect_with_timeout(path: &Path, timeout: Duration) -> anyhow::Result<UnixStream> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            let error = match UnixStream::connect(path) {
-                Ok(stream) => return Ok(stream),
-                Err(error) => error,
-            };
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return Err(error.into());
-            };
-            thread::sleep(remaining.min(Duration::from_millis(10)));
+    struct DeadlineStream<'a> {
+        stream: &'a mut UnixStream,
+        deadline: Instant,
+    }
+
+    impl<'a> DeadlineStream<'a> {
+        fn new(stream: &'a mut UnixStream, deadline: Instant) -> Self {
+            Self { stream, deadline }
         }
+
+        fn remaining(&self) -> std::io::Result<Duration> {
+            self.deadline
+                .checked_duration_since(Instant::now())
+                .filter(|value| !value.is_zero())
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "terminal host operation exceeded its deadline",
+                    )
+                })
+        }
+
+        fn shutdown(&self, how: std::net::Shutdown) -> std::io::Result<()> {
+            self.stream.shutdown(how)
+        }
+    }
+
+    impl Read for DeadlineStream<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.stream.set_read_timeout(Some(self.remaining()?))?;
+            self.stream.read(buffer)
+        }
+    }
+
+    impl Write for DeadlineStream<'_> {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.stream.set_write_timeout(Some(self.remaining()?))?;
+            self.stream.write(buffer)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.stream.set_write_timeout(Some(self.remaining()?))?;
+            self.stream.flush()
+        }
+    }
+
+    fn connect_until(path: &Path, deadline: Instant) -> anyhow::Result<UnixStream> {
+        let mut last_error = None;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(last_error
+                    .unwrap_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "terminal host connection exceeded its deadline",
+                        )
+                    })
+                    .into());
+            }
+            match connect_once_until(path, deadline) {
+                Ok(stream) => return Ok(stream),
+                Err(error) => last_error = Some(error),
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                continue;
+            }
+            thread::sleep(deadline.saturating_duration_since(now).min(Duration::from_millis(10)));
+        }
+    }
+
+    fn connect_once_until(path: &Path, deadline: Instant) -> std::io::Result<UnixStream> {
+        let (address, address_len) = unix_socket_address(path)?;
+        // SAFETY: socket has no pointer arguments and returns a new owned
+        // descriptor on success.
+        let descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        if descriptor < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: descriptor is a fresh successful socket result and this
+        // OwnedFd takes its sole ownership.
+        let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+        // SAFETY: F_GETFD only reads flags from this valid descriptor.
+        let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
+        if descriptor_flags < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: F_SETFD updates flags on this valid descriptor.
+        if unsafe {
+            libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFD, descriptor_flags | libc::FD_CLOEXEC)
+        } < 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        let stream = UnixStream::from(descriptor);
+        stream.set_nonblocking(true)?;
+        // SAFETY: address is an initialized sockaddr_un with its exact
+        // kernel-visible length, and stream owns a valid AF_UNIX socket.
+        let connected = unsafe {
+            libc::connect(
+                stream.as_raw_fd(),
+                (&raw const address).cast::<libc::sockaddr>(),
+                address_len,
+            )
+        };
+        if connected != 0 {
+            let error = std::io::Error::last_os_error();
+            let code = error.raw_os_error();
+            if code != Some(libc::EINPROGRESS)
+                && code != Some(libc::EAGAIN)
+                && code != Some(libc::EWOULDBLOCK)
+            {
+                return Err(error);
+            }
+            wait_for_connect(&stream, deadline)?;
+        }
+        stream.set_nonblocking(false)?;
+        Ok(stream)
+    }
+
+    fn wait_for_connect(stream: &UnixStream, deadline: Instant) -> std::io::Result<()> {
+        loop {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "terminal host connection exceeded its deadline",
+                ));
+            };
+            if remaining.is_zero() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "terminal host connection exceeded its deadline",
+                ));
+            }
+            let timeout_ms = remaining.as_millis().max(1).min(i32::MAX as u128) as i32;
+            let mut descriptor =
+                libc::pollfd { fd: stream.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+            // SAFETY: descriptor points to one initialized pollfd for the
+            // duration of this call.
+            let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+            if result == 0 {
+                continue;
+            }
+            if result < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            if descriptor.revents & libc::POLLNVAL != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "terminal host connection socket became invalid",
+                ));
+            }
+            let mut socket_error = 0;
+            let mut socket_error_len = libc::socklen_t::try_from(size_of::<libc::c_int>()).unwrap();
+            // SAFETY: socket_error and its length describe a writable c_int,
+            // and stream owns a valid socket descriptor.
+            if unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_ERROR,
+                    (&raw mut socket_error).cast(),
+                    &raw mut socket_error_len,
+                )
+            } != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            return if socket_error == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::from_raw_os_error(socket_error))
+            };
+        }
+    }
+
+    fn unix_socket_address(path: &Path) -> std::io::Result<(libc::sockaddr_un, libc::socklen_t)> {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        let path = path.as_os_str().as_bytes();
+        if path.is_empty() || path.len() >= SUN_PATH_CAPACITY || path.contains(&0) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid terminal host Unix socket path",
+            ));
+        }
+        // SAFETY: all-zero is a valid starting representation for
+        // sockaddr_un; family, path, and platform length are set below.
+        let mut address = unsafe { std::mem::zeroed::<libc::sockaddr_un>() };
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (destination, source) in address.sun_path.iter_mut().zip(path) {
+            *destination = *source as libc::c_char;
+        }
+        let address_len = offset_of!(libc::sockaddr_un, sun_path) + path.len() + 1;
+        #[cfg(any(
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "macos",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            address.sun_len = u8::try_from(address_len).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "terminal host Unix socket path is too long",
+                )
+            })?;
+        }
+        Ok((
+            address,
+            libc::socklen_t::try_from(address_len).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "terminal host Unix socket path is too long",
+                )
+            })?,
+        ))
     }
 
     fn read_required_frame(reader: &mut impl Read, context: &str) -> anyhow::Result<Frame> {

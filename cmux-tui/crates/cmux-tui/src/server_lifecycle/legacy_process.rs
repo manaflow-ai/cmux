@@ -193,6 +193,10 @@ pub(super) struct CapturedProcessTree {
 }
 
 impl CapturedProcessTree {
+    fn contains_process(&self, process: ProcessIdentity) -> bool {
+        self.sessions.iter().any(|session| session.members.contains(&process))
+    }
+
     pub(super) fn terminate_until(self, deadline: Instant) -> io::Result<()> {
         for session in &self.sessions {
             if !session.kill_until_empty(deadline)? {
@@ -226,6 +230,7 @@ impl CapturedProcessSession {
 pub(super) fn capture_process_session(
     pid: libc::pid_t,
     server: ProcessIdentity,
+    captured: &CapturedProcessTree,
     deadline: Instant,
 ) -> io::Result<Option<CapturedProcessSession>> {
     if pid <= 1
@@ -235,6 +240,12 @@ pub(super) fn capture_process_session(
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid PTY owner process"));
     }
     let Some(process) = ProcessIdentity::capture(pid)? else { return Ok(None) };
+    if !captured.contains_process(process) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "PTY owner was not captured in the verified server process tree",
+        ));
+    }
     if process.signal(libc::SIGSTOP)? == ExactSignalResult::Gone {
         return Ok(None);
     }

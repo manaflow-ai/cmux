@@ -15,7 +15,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
-use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
+use crate::browser::{self, BrowserBootstrap, BrowserRuntime, BrowserSource};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
@@ -126,6 +126,12 @@ impl ShutdownOwnerLedger {
                 owners.remove(key);
             }
         }
+    }
+
+    fn remove_browser_runtime(&self, runtime: &Arc<BrowserRuntime>) {
+        self.owners.lock().unwrap().retain(|_, owner| {
+            owner.browser_runtime().is_none_or(|owner_runtime| !Arc::ptr_eq(owner_runtime, runtime))
+        });
     }
 
     fn len(&self) -> usize {
@@ -4648,7 +4654,47 @@ impl Mux {
         }
         self.terminate_staged_shutdown_owners_until(deadline);
         let retained = self.shutdown_owners.snapshot();
-        let browser_surface_failed = retained.iter().any(|(_, owner)| owner.is_browser());
+        let current_browser_runtime = self.browser_runtime.lock().unwrap().take();
+        let mut browser_runtimes = Vec::new();
+        for runtime in retained.iter().filter_map(|(_, owner)| owner.browser_runtime()) {
+            if !browser_runtimes.iter().any(|candidate| Arc::ptr_eq(candidate, runtime)) {
+                browser_runtimes.push(runtime.clone());
+            }
+        }
+        if let Some(runtime) = &current_browser_runtime
+            && !browser_runtimes.iter().any(|candidate| Arc::ptr_eq(candidate, runtime))
+        {
+            browser_runtimes.push(runtime.clone());
+        }
+        let mut browser_runtime_failed = false;
+        for runtime in browser_runtimes {
+            let is_current = current_browser_runtime
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &runtime));
+            let surface_failed = retained.iter().any(|(_, owner)| {
+                owner
+                    .browser_runtime()
+                    .is_some_and(|owner_runtime| Arc::ptr_eq(owner_runtime, &runtime))
+            });
+            if surface_failed && runtime.source() == BrowserSource::External {
+                if is_current {
+                    *self.browser_runtime.lock().unwrap() = Some(runtime);
+                }
+                continue;
+            }
+            if runtime.shutdown_until(deadline) {
+                if runtime.source() == BrowserSource::Launched {
+                    self.shutdown_owners.remove_browser_runtime(&runtime);
+                }
+            } else {
+                browser_runtime_failed = true;
+                if is_current {
+                    *self.browser_runtime.lock().unwrap() = Some(runtime);
+                }
+            }
+        }
+
+        let retained = self.shutdown_owners.snapshot();
         let mut failed_surface_ids = retained
             .iter()
             .filter_map(|(key, _)| match key {
@@ -4665,20 +4711,6 @@ impl Mux {
             })
             .collect::<Vec<_>>();
         failed_hosts.sort();
-
-        let browser_runtime = (!browser_surface_failed)
-            .then(|| self.browser_runtime.lock().unwrap().take())
-            .flatten();
-        let browser_runtime_failed = if let Some(runtime) = browser_runtime {
-            if runtime.shutdown_until(deadline) {
-                false
-            } else {
-                *self.browser_runtime.lock().unwrap() = Some(runtime);
-                true
-            }
-        } else {
-            false
-        };
 
         let mut failures = Vec::new();
         if !failed_surface_ids.is_empty() {
