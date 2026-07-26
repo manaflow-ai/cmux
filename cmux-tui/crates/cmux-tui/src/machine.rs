@@ -268,6 +268,12 @@ impl MachineSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineConnectRoute {
+    Local,
+    Provider,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineRequest {
     Switch(MachineKey),
     /// Internal lifecycle request emitted when the provider control socket
@@ -275,7 +281,10 @@ pub enum MachineRequest {
     /// before reopening the selected machine.
     ReconnectProvider,
     Create,
-    Connect(String),
+    Connect {
+        target: String,
+        route: MachineConnectRoute,
+    },
     SelectProviderScope(String),
     InvokeProviderAction {
         action_id: String,
