@@ -12091,7 +12091,6 @@ mod tests {
             app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
         assert_eq!(action, RenderAction::None);
         assert!(!app.session.has_pending_mutations());
-        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
 
         let expected = b"\x1b[107;9u";
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -12111,13 +12110,10 @@ mod tests {
         }
 
         let action =
-            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
-        assert_eq!(action, RenderAction::Draw);
-        assert!(app.prefix_armed);
-        let action =
             app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)).unwrap();
         assert_eq!(action, RenderAction::None);
         assert!(!app.prefix_armed);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
 
         let expected = b"\x1b[108;5u";
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -12133,7 +12129,7 @@ mod tests {
                 | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
                 Err(_) if Instant::now() < deadline => {}
                 Err(error) => {
-                    panic!("alternate-screen app did not receive prefixed Ctrl-L: {error}")
+                    panic!("alternate-screen app did not receive child-owned Ctrl-L: {error}")
                 }
             }
         }
