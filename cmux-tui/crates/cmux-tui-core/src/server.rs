@@ -5591,6 +5591,78 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_command_waits_for_active_clear_history_on_one_connection() {
+        let mux = test_mux();
+        let blocked = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(blocked.id).unwrap());
+        blocked.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
+        });
+
+        let nonce =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = platform::fallback_runtime_dir().join(format!(
+            "clear-lifecycle-{}-{}.sock",
+            std::process::id(),
+            nonce % 1_000_000_000
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let mut client = transport::connect(&path).unwrap();
+        let server = listener.accept().unwrap();
+        let server_mux = mux.clone();
+        let handler = std::thread::spawn(move || handle_connection(server_mux, server));
+
+        writeln!(client, "{}", json!({"id": 1, "cmd": "clear-history", "surface": blocked.id}))
+            .unwrap();
+        client.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        writeln!(client, "{}", json!({"id": 2, "cmd": "close-pane", "pane": pane})).unwrap();
+        client.flush().unwrap();
+
+        client.set_read_timeout(Some(Duration::from_millis(75))).unwrap();
+        let mut reader = BufReader::new(client);
+        let mut early_line = String::new();
+        let early_response = match reader.read_line(&mut early_line) {
+            Ok(0) => panic!("connection closed before clear-history settled"),
+            Ok(_) => Some(early_line),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                None
+            }
+            Err(error) => panic!("unexpected response read error: {error}"),
+        };
+
+        reader.get_ref().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let mut responses = early_response.iter().cloned().collect::<Vec<_>>();
+        while responses.len() < 2 {
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("ordered lifecycle response");
+            responses.push(line);
+        }
+        let _ = reader.get_ref().shutdown(Shutdown::Both);
+        handler.join().unwrap();
+        let _ = std::fs::remove_file(path);
+
+        assert!(
+            early_response.is_none(),
+            "lifecycle command responded before clear-history reached a safe boundary"
+        );
+        let response_ids = responses
+            .into_iter()
+            .map(|line| serde_json::from_str::<Value>(&line).unwrap()["id"].as_u64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(response_ids, [1, 2]);
+    }
+
+    #[test]
     fn stale_surface_lane_guard_does_not_remove_replacement() {
         let scheduler = Arc::new(ConnectionSurfaceScheduler::default());
         let stale =

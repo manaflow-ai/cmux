@@ -1308,6 +1308,106 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_surface_operations_respect_worker_cap() {
+        const EXPECTED_MAX_CONCURRENT_SURFACE_OPERATIONS: usize = 32;
+        let mut state = QueueState::default();
+        for surface in 1..=(EXPECTED_MAX_CONCURRENT_SURFACE_OPERATIONS as u64 + 1) {
+            state.events.push_back(PtyInputEvent::mutation_for_surface(
+                "blocking surface operation",
+                PtyMutationIdentity {
+                    failure_surface_id: Some(surface),
+                    concurrent_surface_operation: true,
+                    ..Default::default()
+                },
+                false,
+                None,
+                None,
+                || Ok(()),
+            ));
+        }
+
+        for _ in 0..EXPECTED_MAX_CONCURRENT_SURFACE_OPERATIONS {
+            assert!(dequeue_ready_event(&mut state).is_some());
+        }
+        assert!(
+            dequeue_ready_event(&mut state).is_none(),
+            "surface operation scheduler exceeded its worker cap"
+        );
+    }
+
+    #[test]
+    fn in_flight_surface_operation_counts_against_byte_budget() {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+
+        assert_eq!(
+            sender.enqueue_surface_operation_with_retained_bytes(
+                "retained surface operation",
+                41,
+                false,
+                MAX_QUEUED_BYTES,
+                move || {
+                    started_tx.send(()).unwrap();
+                    let _ = unblock_rx.recv();
+                    Ok(())
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert_eq!(
+            sender.enqueue(event(42, 1, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Saturated
+        );
+        unblock_tx.send(()).unwrap();
+    }
+
+    #[test]
+    fn session_mutation_blocks_later_input_behind_surface_operation() {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let (order_tx, order_rx) = std::sync::mpsc::channel();
+
+        assert_eq!(
+            sender.enqueue_surface_operation_with_retained_bytes(
+                "blocking surface operation",
+                41,
+                false,
+                0,
+                move || {
+                    started_tx.send(()).unwrap();
+                    let _ = unblock_rx.recv();
+                    Ok(())
+                },
+            ),
+            PtyInputEnqueueResult::Accepted
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let mutation_tx = order_tx.clone();
+        sender.enqueue_session_mutation("close pane", false, move || {
+            mutation_tx.send("mutation").unwrap();
+            Ok(())
+        });
+        let mut input = event(42, 1, PtyInputKind::Ordered);
+        input.after_operation = Some(Box::new(move || order_tx.send("input").unwrap()));
+        assert_eq!(sender.enqueue(input), PtyInputEnqueueResult::Accepted);
+
+        assert!(
+            order_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "input overtook the earlier session mutation"
+        );
+        unblock_tx.send(()).unwrap();
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "mutation");
+        assert_eq!(order_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "input");
+    }
+
+    #[test]
     fn timed_out_surface_operation_prunes_only_its_surface() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
         let mut dispatcher = PtyInputDispatcher::spawn(move |failure| {
