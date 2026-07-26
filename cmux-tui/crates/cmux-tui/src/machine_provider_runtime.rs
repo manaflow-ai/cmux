@@ -14,17 +14,20 @@ use zeroize::Zeroize;
 use crate::config::MachineConfig;
 use crate::localization;
 use crate::machine::{
-    MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
-    MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdateStream,
-    ManagedMachineCapabilities, ManagedMachineDescriptor, ManagedMachineStatus,
-    ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionDescriptor, ProviderActionFieldDescriptor,
-    ProviderActionFieldKind, ProviderActionValue, ProviderPresentation, ProviderScopeDescriptor,
-    ProviderScopeKind, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    MachineActionResult, MachineCapabilities, MachineConnectRoute, MachineController,
+    MachineDescriptor, MachineKey, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState,
+    MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
+    ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionDescriptor,
+    ProviderActionFieldDescriptor, ProviderActionFieldKind, ProviderActionValue,
+    ProviderPresentation, ProviderScopeDescriptor, ProviderScopeKind, WorkspaceCreationMode,
+    WorkspaceCreationPolicy,
 };
 #[cfg(test)]
 use crate::machine_provider_client::UnixProviderConnector;
-use crate::machine_provider_client::{MachineProviderConnector, ProviderClient};
+use crate::machine_provider_client::{
+    MachineProviderConnector, ProviderClient, ProviderClientError,
+};
 use crate::machine_runtime::MachineRuntime;
 use crate::session::{RemoteSession, Session};
 
@@ -43,6 +46,12 @@ struct PendingConnection {
     candidate: Option<OpenConnection>,
     rollback: Option<ProviderSelectionRollback>,
     retire_open_on_abort: bool,
+}
+
+struct PendingExternalConnect {
+    scope_id: protocol::OpaqueId,
+    specifier: protocol::ExternalMachineSpecifier,
+    mutation_id: protocol::OpaqueId,
 }
 
 #[derive(Clone)]
@@ -77,6 +86,7 @@ pub(crate) struct ProviderMachineRuntime {
     mutation_sequence: AtomicU64,
     open: Option<OpenConnection>,
     pending: Option<PendingConnection>,
+    pending_external_connect: Option<PendingExternalConnect>,
     accepted_selection: Option<AcceptedSelectionIntent>,
     last_snapshot_notice: Option<protocol::ProviderNotice>,
     pending_notice_messages: HashSet<String>,
@@ -91,6 +101,7 @@ pub(crate) struct ProviderMachineController {
     local: MachineRuntime,
     active_local: Option<MachineKey>,
     pending_active_local: Option<Option<MachineKey>>,
+    pending_provider_switch: bool,
 }
 
 impl ProviderMachineController {
@@ -104,6 +115,7 @@ impl ProviderMachineController {
             local: MachineRuntime::external(configured, connect_external),
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: false,
         })
     }
 
@@ -122,41 +134,65 @@ impl ProviderMachineController {
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
         match request {
-            MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
-            MachineRequest::Connect(target) => {
+            MachineRequest::Connect { target, route: MachineConnectRoute::Provider } => {
+                let result = self.provider.perform_external_connect(target)?;
+                self.pending_provider_switch = true;
+                Ok(self.finish_provider_result(true, result))
+            }
+            MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let key = self.local.connect_machine(&target)?;
                 self.switch_local(key)
             }
+            MachineRequest::Switch(key) if self.local.contains(key) => self.switch_local(key),
             MachineRequest::ReconnectProvider if self.active_local.is_some() => {
+                let switching_provider = self.pending_provider_switch;
                 self.provider.reconnect_control()?;
                 let ui = self.provider.ui_state_for_open_connection();
-                let mut result = MachineActionResult::ui(self.merge_local_ui(ui));
+                let mut result = MachineActionResult::ui(ui);
                 result.restart_updates = true;
-                Ok(result)
+                Ok(self.finish_provider_result(switching_provider, result))
             }
             request => {
                 let switching_provider = matches!(request, MachineRequest::Switch(_));
-                let mut result = self.provider.perform_request(request)?;
-                if result.replacement.is_some()
-                    && (switching_provider || self.active_local.is_none())
-                {
-                    self.pending_active_local = Some(None);
-                    // Update streams capture the connected machine at subscription time.
-                    result.restart_updates = true;
-                    result.ui = self.merge_local_ui_for(result.ui, None);
-                } else if self.active_local.is_some() && result.replacement.is_some() {
-                    // A provider lifecycle response must never replace an
-                    // active client-local session implicitly.
-                    self.provider.abort_replacement();
-                    result.replacement = None;
-                    result.session_label = None;
-                    result.ui = self.merge_local_ui(result.ui);
-                } else {
-                    result.ui = self.merge_local_ui(result.ui);
-                }
-                Ok(result)
+                let result = self.provider.perform_request(request)?;
+                Ok(self.finish_provider_result(switching_provider, result))
             }
         }
+    }
+
+    fn finish_provider_result(
+        &mut self,
+        switching_provider: bool,
+        mut result: MachineActionResult,
+    ) -> MachineActionResult {
+        let explicit_provider_switch = switching_provider
+            .then(|| result.ui.request.clone())
+            .flatten()
+            .filter(|request| matches!(request, MachineRequest::Switch(_)));
+        if result.replacement.is_some() && (switching_provider || self.active_local.is_none()) {
+            self.pending_active_local = Some(None);
+            // Update streams capture the connected machine at subscription time.
+            result.restart_updates = true;
+            result.ui = self.merge_local_ui_for(result.ui, None);
+        } else if switching_provider && explicit_provider_switch.is_some() {
+            // An accepted provider enrollment selects its provider-owned
+            // machine before the generated Switch request opens it. Preserve
+            // that explicit intent instead of reasserting the active local row.
+            result.ui = self.merge_local_ui_for(result.ui, None);
+        } else if self.active_local.is_some() && result.replacement.is_some() {
+            // A provider lifecycle response must never replace an
+            // active client-local session implicitly.
+            self.provider.abort_replacement();
+            result.replacement = None;
+            result.session_label = None;
+            result.ui = self.merge_local_ui(result.ui);
+        } else {
+            result.ui = self.merge_local_ui(result.ui);
+        }
+        if let Some(request) = explicit_provider_switch {
+            result.ui.request = Some(request);
+        }
+        result
     }
 
     fn switch_local(&mut self, key: MachineKey) -> anyhow::Result<MachineActionResult> {
@@ -174,7 +210,12 @@ impl ProviderMachineController {
     }
 
     fn merge_local_ui(&self, ui: MachineUiState) -> MachineUiState {
-        self.merge_local_ui_for(ui, self.active_local)
+        merge_local_machine_ui_for_provider_switch(
+            ui,
+            &self.local.snapshot_with_active(self.active_local),
+            self.active_local,
+            self.pending_provider_switch,
+        )
     }
 
     fn merge_local_ui_for(
@@ -190,6 +231,7 @@ impl ProviderMachineController {
         let (provider_receiver, provider_stop, provider_worker) = provider_updates.into_parts();
         let local_snapshot = self.local.snapshot_with_active(self.active_local);
         let active_local = self.active_local;
+        let pending_provider_switch = self.pending_provider_switch;
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
@@ -199,7 +241,12 @@ impl ProviderMachineController {
                     match provider_receiver.recv_timeout(Duration::from_millis(250)) {
                         Ok(ui) => {
                             if sender
-                                .send(merge_local_machine_ui(ui, &local_snapshot, active_local))
+                                .send(merge_local_machine_ui_for_provider_switch(
+                                    ui,
+                                    &local_snapshot,
+                                    active_local,
+                                    pending_provider_switch,
+                                ))
                                 .is_err()
                             {
                                 break;
@@ -228,6 +275,7 @@ impl ProviderMachineController {
         self.provider.commit_replacement()?;
         self.pending_active_local.take();
         self.active_local = active_local;
+        self.pending_provider_switch = false;
         Ok(())
     }
 
@@ -292,6 +340,7 @@ impl ProviderMachineRuntime {
             mutation_sequence: AtomicU64::new(1),
             open: None,
             pending: None,
+            pending_external_connect: None,
             accepted_selection: None,
             last_snapshot_notice: None,
             pending_notice_messages: HashSet::new(),
@@ -415,22 +464,10 @@ impl ProviderMachineRuntime {
                     self.snapshot.selected_scope_id.clone(),
                     self.next_mutation_id()?,
                 )?;
-                let created_machine_id = created.machine_id;
-                self.set_notice(created.notice);
-                self.accepted_selection = Some(AcceptedSelectionIntent {
-                    scope_id: Some(self.snapshot.selected_scope_id.clone()),
-                    machine_id: Some(created_machine_id),
-                });
-                Ok(self.finish_accepted_action(
-                    AcceptedProviderEffects {
-                        restart_updates: true,
-                        ..AcceptedProviderEffects::default()
-                    },
-                    |runtime| {
-                        runtime.refresh()?;
-                        Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
-                    },
-                ))
+                Ok(self.finish_accepted_machine_selection(created.machine_id, created.notice))
+            }
+            MachineRequest::Connect { .. } => {
+                unreachable!("external connect requests are routed by ProviderMachineController")
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
@@ -634,13 +671,116 @@ impl ProviderMachineRuntime {
                     Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                 }))
             }
-            MachineRequest::Connect(_) => {
-                anyhow::bail!(
-                    localization::catalog().sidebar.machine_provider_external_connect_unsupported
-                )
-            }
             MachineRequest::ReconnectProvider => unreachable!("handled before refresh"),
         }
+    }
+
+    fn perform_external_connect(
+        &mut self,
+        specifier: String,
+    ) -> anyhow::Result<MachineActionResult> {
+        let matches_pending = protocol::ExternalMachineSpecifier::new(specifier.clone())
+            .ok()
+            .is_some_and(|candidate| {
+                self.pending_external_connect
+                    .as_ref()
+                    .is_some_and(|pending| pending.specifier == candidate)
+            });
+        if self.pending_external_connect.is_some() && !matches_pending {
+            anyhow::bail!(
+                localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+            );
+        }
+        match self.client.supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY) {
+            Ok(true) => {}
+            Ok(false) => {
+                if matches_pending {
+                    anyhow::bail!(
+                        localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+                    );
+                }
+                self.pending_external_connect = None;
+                anyhow::bail!(
+                    localization::catalog().sidebar.machine_provider_external_connect_unsupported
+                );
+            }
+            Err(ProviderClientError::Disconnected | ProviderClientError::NotAuthenticated) => {
+                anyhow::bail!(localization::catalog().sidebar.machine_provider_disconnected);
+            }
+            Err(error) => return Err(error.into()),
+        }
+        if let Err(error) = self.refresh() {
+            match error.downcast_ref::<ProviderClientError>() {
+                Some(ProviderClientError::Disconnected | ProviderClientError::NotAuthenticated) => {
+                    anyhow::bail!(localization::catalog().sidebar.machine_provider_disconnected);
+                }
+                _ => return Err(error),
+            }
+        }
+        if !self.snapshot.capabilities.connect_external_machine {
+            if matches_pending {
+                anyhow::bail!(
+                    localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+                );
+            }
+            self.pending_external_connect = None;
+            anyhow::bail!(
+                localization::catalog().sidebar.machine_provider_external_connect_unsupported
+            );
+        }
+        self.connect_external_after_refresh(specifier)
+    }
+
+    fn connect_external_after_refresh(
+        &mut self,
+        specifier: String,
+    ) -> anyhow::Result<MachineActionResult> {
+        let specifier = match protocol::ExternalMachineSpecifier::new(specifier) {
+            Ok(specifier) => specifier,
+            Err(error) => {
+                self.pending_external_connect = None;
+                return Err(error.into());
+            }
+        };
+        let scope_id = self.snapshot.selected_scope_id.clone();
+        if self
+            .pending_external_connect
+            .as_ref()
+            .is_some_and(|pending| pending.specifier == specifier && pending.scope_id != scope_id)
+        {
+            anyhow::bail!(
+                localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+            );
+        }
+        let mutation_id = if let Some(pending) = self
+            .pending_external_connect
+            .as_ref()
+            .filter(|pending| pending.scope_id == scope_id && pending.specifier == specifier)
+        {
+            pending.mutation_id.clone()
+        } else {
+            self.next_mutation_id()?
+        };
+        self.pending_external_connect = Some(PendingExternalConnect {
+            scope_id: scope_id.clone(),
+            specifier: specifier.clone(),
+            mutation_id: mutation_id.clone(),
+        });
+        let connected = match self.client.connect_external_machine(scope_id, specifier, mutation_id)
+        {
+            Ok(connected) => connected,
+            Err(error) => {
+                if matches!(
+                    &error,
+                    ProviderClientError::Provider(provider_error) if !provider_error.retryable
+                ) {
+                    self.pending_external_connect = None;
+                }
+                return Err(error.into());
+            }
+        };
+        self.pending_external_connect = None;
+        Ok(self.finish_accepted_machine_selection(connected.machine_id, connected.notice))
     }
 
     pub(crate) fn close(&mut self) {
@@ -683,7 +823,7 @@ impl ProviderMachineRuntime {
                                     last_workspace_snapshot.as_ref(),
                                     &keys,
                                     false,
-                                    provider_connect_supported,
+                                    false,
                                 );
                                 ui.notice = Some(
                                     localization::catalog()
@@ -726,7 +866,7 @@ impl ProviderMachineRuntime {
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
-                                provider_connect_supported,
+                                false,
                             );
                             ui.notice = Some(if client.is_live() {
                                 format!(
@@ -758,7 +898,7 @@ impl ProviderMachineRuntime {
                                     last_workspace_snapshot.as_ref(),
                                     &keys,
                                     false,
-                                    provider_connect_supported,
+                                    false,
                                 );
                                 ui.notice = Some(format!(
                                     "{}: {error}",
@@ -780,7 +920,7 @@ impl ProviderMachineRuntime {
                                 last_workspace_snapshot.as_ref(),
                                 &keys,
                                 false,
-                                provider_connect_supported,
+                                false,
                             );
                             ui.notice = Some(format!(
                                 "{}: {error}",
@@ -987,6 +1127,27 @@ impl ProviderMachineRuntime {
             runtime.refresh()?;
             Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
         }))
+    }
+
+    /// Reconcile every mutation that selects a newly created or enrolled
+    /// machine through the same authoritative refresh and switch request.
+    fn finish_accepted_machine_selection(
+        &mut self,
+        machine_id: protocol::OpaqueId,
+        notice: Option<protocol::ProviderNotice>,
+    ) -> MachineActionResult {
+        self.set_notice(notice);
+        self.accepted_selection = Some(AcceptedSelectionIntent {
+            scope_id: Some(self.snapshot.selected_scope_id.clone()),
+            machine_id: Some(machine_id),
+        });
+        self.finish_accepted_action(
+            AcceptedProviderEffects { restart_updates: true, ..AcceptedProviderEffects::default() },
+            |runtime| {
+                runtime.refresh()?;
+                Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
+            },
+        )
     }
 
     fn finish_accepted_workspace_mutation(
@@ -1252,6 +1413,21 @@ fn merge_local_machine_ui(
     ui
 }
 
+fn merge_local_machine_ui_for_provider_switch(
+    ui: MachineUiState,
+    local: &MachineSnapshot,
+    active_local: Option<MachineKey>,
+    pending_provider_switch: bool,
+) -> MachineUiState {
+    let active_local =
+        if pending_provider_switch && matches!(ui.request, Some(MachineRequest::Switch(_))) {
+            None
+        } else {
+            active_local
+        };
+    merge_local_machine_ui(ui, local, active_local)
+}
+
 fn random_mutation_nonce() -> anyhow::Result<String> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes)
@@ -1263,28 +1439,6 @@ fn random_mutation_nonce() -> anyhow::Result<String> {
     }
     bytes.zeroize();
     Ok(encoded)
-}
-
-impl MachineController for ProviderMachineRuntime {
-    fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
-        self.perform_request(request)
-    }
-
-    fn subscribe_updates(&self) -> anyhow::Result<Option<MachineUpdateStream>> {
-        self.subscribe_ui_updates().map(Some)
-    }
-
-    fn commit_replacement(&mut self) -> anyhow::Result<()> {
-        ProviderMachineRuntime::commit_replacement(self)
-    }
-
-    fn abort_replacement(&mut self) {
-        ProviderMachineRuntime::abort_replacement(self);
-    }
-
-    fn close(&mut self) {
-        ProviderMachineRuntime::close(self);
-    }
 }
 
 fn connect_client(
@@ -1464,6 +1618,8 @@ fn machine_ui_state(
             connect: snapshot.capabilities.connect_external_machine && provider_connect_supported,
         },
     });
+    ui.connect_accepts_pairing_code =
+        snapshot.capabilities.connect_external_machine && provider_connect_supported;
     ui.session_available = session_available;
     ui.set_managed_machines(
         machine_lifecycle_snapshot
@@ -1663,6 +1819,14 @@ mod tests {
         protocol::BearerToken::new("runtime-test-token").unwrap()
     }
 
+    fn provider_connect(target: &str) -> MachineRequest {
+        MachineRequest::Connect { target: target.into(), route: MachineConnectRoute::Provider }
+    }
+
+    fn local_connect(target: &str) -> MachineRequest {
+        MachineRequest::Connect { target: target.into(), route: MachineConnectRoute::Local }
+    }
+
     fn read_frame<T: DeserializeOwned>(reader: &mut BufReader<UnixStream>) -> T {
         let mut line = String::new();
         assert_ne!(reader.read_line(&mut line).unwrap(), 0, "provider client reached EOF");
@@ -1679,6 +1843,14 @@ mod tests {
         listener: &UnixListener,
         snapshot: protocol::SnapshotResult,
     ) -> (UnixStream, BufReader<UnixStream>) {
+        serve_initial_snapshot_with_capabilities(listener, snapshot, &[])
+    }
+
+    fn serve_initial_snapshot_with_capabilities(
+        listener: &UnixListener,
+        snapshot: protocol::SnapshotResult,
+        additional_capabilities: &[&str],
+    ) -> (UnixStream, BufReader<UnixStream>) {
         let (mut stream, _) = listener.accept().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let hello: protocol::RequestEnvelope = read_frame(&mut reader);
@@ -1686,6 +1858,13 @@ mod tests {
             panic!("first provider request was not hello");
         };
         assert_eq!(params.token.expose(), "runtime-test-token");
+        let capabilities = [
+            protocol::MACHINE_LIFECYCLE_CAPABILITY,
+            protocol::WORKSPACE_LIFECYCLE_CAPABILITY,
+            protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY,
+        ]
+        .into_iter()
+        .chain(additional_capabilities.iter().copied());
         write_frame(
             &mut stream,
             &protocol::ResponseEnvelope::success(
@@ -1696,11 +1875,7 @@ mod tests {
                     negotiated_version: protocol::Version,
                 },
             )
-            .with_capabilities([
-                protocol::MACHINE_LIFECYCLE_CAPABILITY,
-                protocol::WORKSPACE_LIFECYCLE_CAPABILITY,
-                protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY,
-            ]),
+            .with_capabilities(capabilities),
         );
 
         let request: protocol::RequestEnvelope = read_frame(&mut reader);
@@ -2767,6 +2942,580 @@ mod tests {
     }
 
     #[test]
+    fn negotiated_external_connect_routes_opaque_input_to_provider_selection_path() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut initial = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        initial.capabilities.connect_external_machine = true;
+        let mut enrolled = initial.clone();
+        enrolled.revision = 2;
+        enrolled.machines.push(protocol::MachineDescriptor {
+            id: id("paired-machine"),
+            display_name: "Paired mini".into(),
+            subtitle: "external".into(),
+            status: protocol::MachineStatus::Running,
+            connectable: true,
+            workspace_create: protocol::WorkspaceCreatePolicy::Session,
+        });
+        enrolled.selected_machine_id = Some(id("paired-machine"));
+        let server_initial = initial;
+        let server_enrolled = enrolled.clone();
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                server_initial.clone(),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_initial, None);
+
+            let request: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::ConnectExternalMachine(params) = request.request else {
+                panic!("connect request did not use the provider protocol");
+            };
+            assert_eq!(params.scope_id, id("personal"));
+            assert_eq!(params.specifier.expose(), "PAIR 4J7K;$(opaque)");
+            assert!(params.mutation_id.as_str().starts_with("cmux-"));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    request.id,
+                    protocol::ConnectExternalMachineResult {
+                        machine_id: id("paired-machine"),
+                        revision: 2,
+                        notice: Some(protocol::ProviderNotice {
+                            level: protocol::NoticeLevel::Info,
+                            message: "Paired machine enrolled".into(),
+                        }),
+                    },
+                ),
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_enrolled, None);
+            finished.recv().unwrap();
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+        let result = controller.perform_request(provider_connect("PAIR 4J7K;$(opaque)")).unwrap();
+
+        let paired = result
+            .ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == "paired-machine")
+            .unwrap();
+        assert_eq!(result.ui.snapshot.active, Some(paired.key));
+        assert_eq!(result.ui.request, Some(MachineRequest::Switch(paired.key)));
+        assert_eq!(result.ui.notice.as_deref(), Some("Paired machine enrolled"));
+        assert!(
+            result.ui.snapshot.machines.iter().all(|machine| !machine.id.starts_with("ssh:")),
+            "provider-owned input leaked into the client-local SSH catalog"
+        );
+
+        finish.send(()).unwrap();
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn accepted_external_connect_reconnect_keeps_provider_switch_over_local_session() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut initial = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        initial.capabilities.connect_external_machine = true;
+        let mut enrolled = initial.clone();
+        enrolled.revision = 2;
+        enrolled.machines.push(protocol::MachineDescriptor {
+            id: id("paired-machine"),
+            display_name: "Paired mini".into(),
+            subtitle: "external".into(),
+            status: protocol::MachineStatus::Running,
+            connectable: false,
+            workspace_create: protocol::WorkspaceCreatePolicy::Session,
+        });
+        enrolled.selected_machine_id = Some(id("paired-machine"));
+        let server_initial = initial;
+        let server_enrolled = enrolled;
+        let (finish, finished) = mpsc::channel();
+        let server = thread::spawn(move || {
+            {
+                let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                    &listener,
+                    server_initial.clone(),
+                    &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+                );
+                serve_runtime_refresh(&mut stream, &mut reader, &server_initial, None);
+                let connect: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(
+                    connect.request,
+                    protocol::ProviderRequest::ConnectExternalMachine(_)
+                ));
+                write_frame(
+                    &mut stream,
+                    &protocol::ResponseEnvelope::success(
+                        connect.id,
+                        protocol::ConnectExternalMachineResult {
+                            machine_id: id("paired-machine"),
+                            revision: 2,
+                            notice: None,
+                        },
+                    ),
+                );
+                let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+                write_frame(
+                    &mut stream,
+                    &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+                        refresh.id,
+                        protocol::ProviderError {
+                            code: protocol::ProviderErrorCode::Unavailable,
+                            message: "accepted pairing refresh failed".into(),
+                            retryable: true,
+                        },
+                    ),
+                );
+            }
+
+            let (_stream, _reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                server_enrolled,
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            finished.recv().unwrap();
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+        let accepted = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
+        assert_eq!(accepted.ui.request, Some(MachineRequest::ReconnectProvider));
+
+        let reconnected = controller.perform_request(MachineRequest::ReconnectProvider).unwrap();
+        let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
+        assert_eq!(reconnected.ui.snapshot.active, Some(local_key));
+        assert!(reconnected.ui.request.is_none());
+
+        controller.provider.snapshot.machines[1].connectable = true;
+        let provider_update = controller.provider.ui_state_for_open_connection();
+        let available = controller.merge_local_ui(provider_update);
+        let paired = reconnected
+            .ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == "paired-machine")
+            .unwrap();
+        assert_eq!(available.snapshot.active, Some(paired.key));
+        assert_eq!(available.request, Some(MachineRequest::Switch(paired.key)));
+
+        finish.send(()).unwrap();
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn retryable_external_connect_error_reuses_mutation_id() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        catalog.capabilities.connect_external_machine = true;
+        let mut enrolled = catalog.clone();
+        enrolled.revision = 2;
+        enrolled.selected_machine_id = Some(id("machine-1"));
+        let server_catalog = catalog;
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                server_catalog.clone(),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+            let first: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::ConnectExternalMachine(first_params) = first.request
+            else {
+                panic!("first request was not external connect");
+            };
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::<protocol::ConnectExternalMachineResult>::failure(
+                    first.id,
+                    protocol::ProviderError {
+                        code: protocol::ProviderErrorCode::Unavailable,
+                        message: "pairing outcome unknown".into(),
+                        retryable: true,
+                    },
+                ),
+            );
+
+            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+            let retry: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::ConnectExternalMachine(retry_params) = retry.request
+            else {
+                panic!("retry request was not external connect");
+            };
+            assert_eq!(retry_params.specifier, first_params.specifier);
+            assert_eq!(retry_params.mutation_id, first_params.mutation_id);
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    retry.id,
+                    protocol::ConnectExternalMachineResult {
+                        machine_id: id("machine-1"),
+                        revision: 2,
+                        notice: None,
+                    },
+                ),
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &enrolled, None);
+        });
+
+        let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let Err(first) = runtime.perform_external_connect("PAIR 4J7K".into()) else {
+            panic!("retryable provider error unexpectedly completed external connect");
+        };
+        assert!(first.to_string().contains("pairing outcome unknown"));
+        let retry = runtime.perform_external_connect("PAIR 4J7K".into()).unwrap();
+
+        assert!(retry.ui.request.is_some());
+        runtime.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn capability_revocation_fails_the_presented_provider_route_closed() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut initial = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        initial.capabilities.connect_external_machine = true;
+        let mut revoked = initial.clone();
+        revoked.revision = 2;
+        revoked.capabilities.connect_external_machine = false;
+        let server = thread::spawn(move || {
+            let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                initial,
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &revoked, None);
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => {}
+                Ok(_) => panic!("revoked provider received connect input: {unexpected}"),
+                Err(error) => panic!("provider read failed: {error}"),
+            }
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+        let Err(error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
+            panic!("revoked provider unexpectedly handled external connect");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.machine_provider_external_connect_unsupported
+        );
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn ambiguous_protocol_failure_reuses_external_connect_mutation_id_after_reconnect() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        catalog.capabilities.connect_external_machine = true;
+        let server_catalog = catalog;
+        let server = thread::spawn(move || {
+            let first_mutation_id = {
+                let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                    &listener,
+                    server_catalog.clone(),
+                    &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+                );
+                serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+                let request: protocol::RequestEnvelope = read_frame(&mut reader);
+                let protocol::ProviderRequest::ConnectExternalMachine(params) = request.request
+                else {
+                    panic!("first request was not external connect");
+                };
+                assert_eq!(params.specifier.expose(), "PAIR 4J7K");
+                stream.write_all(b"{\"invalid\":}\n").unwrap();
+                stream.flush().unwrap();
+                params.mutation_id
+            };
+
+            let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                server_catalog.clone(),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+            let request: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::ConnectExternalMachine(params) = request.request else {
+                panic!("retry request was not external connect");
+            };
+            assert_eq!(params.specifier.expose(), "PAIR 4J7K");
+            assert_eq!(params.mutation_id, first_mutation_id);
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    request.id,
+                    protocol::ConnectExternalMachineResult {
+                        machine_id: id("machine-1"),
+                        revision: server_catalog.revision,
+                        notice: None,
+                    },
+                ),
+            );
+            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+        let Err(first_error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
+            panic!("invalid provider response unexpectedly completed external connect");
+        };
+        assert!(first_error.to_string().contains("protocol error"));
+        for unrelated in ["PAIR 9ZZZ", "not a valid local machine"] {
+            let Err(error) = controller.perform_request(provider_connect(unrelated)) else {
+                panic!("unrelated input discarded an ambiguous external connect");
+            };
+            assert_eq!(
+                error.to_string(),
+                localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+            );
+        }
+        let Err(retry_while_disconnected) =
+            controller.perform_request(provider_connect("PAIR 4J7K"))
+        else {
+            panic!("ambiguous connect retry was rerouted while its provider was disconnected");
+        };
+        assert_eq!(
+            retry_while_disconnected.to_string(),
+            localization::catalog().sidebar.machine_provider_disconnected
+        );
+        controller.provider.reconnect_control().unwrap();
+        let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
+
+        assert!(result.ui.request.is_some());
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn ambiguous_external_connect_does_not_fall_back_after_capability_revocation() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut supported = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        supported.capabilities.connect_external_machine = true;
+        let mut revoked = supported.clone();
+        revoked.revision = 2;
+        revoked.capabilities.connect_external_machine = false;
+        let server = thread::spawn(move || {
+            {
+                let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                    &listener,
+                    supported.clone(),
+                    &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+                );
+                serve_runtime_refresh(&mut stream, &mut reader, &supported, None);
+                let request: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(
+                    request.request,
+                    protocol::ProviderRequest::ConnectExternalMachine(_)
+                ));
+            }
+
+            let (stream, mut reader) =
+                serve_initial_snapshot_with_capabilities(&listener, revoked, &[]);
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => {}
+                Ok(_) => panic!("ambiguous retry was rerouted after capability loss: {unexpected}"),
+                Err(error) => panic!("provider read failed: {error}"),
+            }
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+        assert!(controller.perform_request(provider_connect("PAIR 4J7K")).is_err());
+        controller.provider.reconnect_control().unwrap();
+
+        let Err(error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
+            panic!("ambiguous retry fell back after capability revocation");
+        };
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.machine_provider_external_connect_ambiguous
+        );
+
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn unnegotiated_external_connect_preserves_client_local_validation() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
+        catalog.capabilities.connect_external_machine = true;
+        let server_catalog = catalog;
+        let server = thread::spawn(move || {
+            let (stream, mut reader) = serve_initial_snapshot(&listener, server_catalog);
+            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let mut unexpected = String::new();
+            match reader.read_line(&mut unexpected) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Ok(0) => {}
+                Ok(_) => panic!("unnegotiated provider received local SSH input: {unexpected}"),
+                Err(error) => panic!("provider read failed: {error}"),
+            }
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+        let Err(error) = controller.perform_request(local_connect("PAIR 4J7K")) else {
+            panic!("unnegotiated provider unexpectedly handled local connect input");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "machine address must be a host or user@host without whitespace"
+        );
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn disconnected_provider_external_connect_never_reaches_local_ssh() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (disconnect, disconnect_now) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_stream, _reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                snapshot(1, "Existing", protocol::MachineStatus::Running),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            disconnect_now.recv().unwrap();
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        disconnect.send(()).unwrap();
+        server.join().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while provider.client.is_live() && std::time::Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert!(!provider.client.is_live(), "provider reader did not observe disconnect");
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+
+        let Err(error) = controller.perform_request(provider_connect("ABCD-EFGH")) else {
+            panic!("disconnected provider unexpectedly completed external connect");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.machine_provider_disconnected
+        );
+        controller.close();
+    }
+
+    #[test]
+    fn provider_disconnect_during_external_connect_refresh_fails_closed() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (stream, mut reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                snapshot(1, "Existing", protocol::MachineStatus::Running),
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            drop(stream);
+        });
+
+        let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let mut controller = ProviderMachineController {
+            provider,
+            local: MachineRuntime::external(Vec::new(), true),
+            active_local: None,
+            pending_active_local: None,
+            pending_provider_switch: false,
+        };
+        let Err(error) = controller.perform_request(provider_connect("ABCD-EFGH")) else {
+            panic!("refresh-disconnected provider unexpectedly handled external connect");
+        };
+
+        assert_eq!(
+            error.to_string(),
+            localization::catalog().sidebar.machine_provider_disconnected
+        );
+        controller.close();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn local_overlay_appends_disjoint_machines_and_owns_active_session() {
         let snapshot = snapshot(1, "Cloud machine", protocol::MachineStatus::Running);
         let lifecycle = machine_lifecycle_snapshot(&snapshot);
@@ -3052,6 +3801,7 @@ mod tests {
             local,
             active_local: None,
             pending_active_local: None,
+            pending_provider_switch: true,
         };
 
         let result = controller.perform_request(MachineRequest::Switch(local_key)).unwrap();
@@ -3061,8 +3811,16 @@ mod tests {
         assert_eq!(result.ui.snapshot.active, Some(local_key));
         assert!(result.ui.session_available);
         assert_eq!(controller.active_local, None, "candidate is not active before commit");
+        assert!(
+            controller.pending_provider_switch,
+            "an uncommitted local candidate cannot cancel the pairing handoff"
+        );
         controller.commit_replacement().unwrap();
         assert_eq!(controller.active_local, Some(local_key));
+        assert!(
+            !controller.pending_provider_switch,
+            "the committed local selection supersedes the automatic pairing handoff"
+        );
         let failed = controller.perform_request(MachineRequest::Switch(offline_key));
         assert!(failed.is_err());
         assert_eq!(
