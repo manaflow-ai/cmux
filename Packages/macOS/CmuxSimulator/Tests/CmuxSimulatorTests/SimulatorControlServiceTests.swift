@@ -140,12 +140,12 @@ struct SimulatorControlServiceTests {
         #expect(invocations.map(\.arguments) == [
             ["simctl", "terminate", deviceIdentifier, bundleIdentifier],
             [
-                "simctl", "launch", "--terminate-running-process",
-                deviceIdentifier, bundleIdentifier,
-            ],
-            [
                 "simctl", "privacy", deviceIdentifier, "revoke",
                 "camera", bundleIdentifier,
+            ],
+            [
+                "simctl", "launch", "--terminate-running-process",
+                deviceIdentifier, bundleIdentifier,
             ],
         ])
         #expect(try authorizationStore.authorization(

@@ -1927,11 +1927,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.replyToTerminateOnce(true)
             }
             terminateOwnedCleanupTask = cleanupTask
+            // Remote SSH cleanup force-stops its subprocess on cancellation.
             // Simulator camera disable can legitimately consume its 120-second
             // worker deadline before durable simctl rollback begins. The
             // watchdog requests cancellation after that contract plus cleanup
-            // headroom, then still joins the owned task before allowing AppKit
-            // teardown. It never bypasses externally visible rollback.
+            // headroom, then still joins the bounded owned task before allowing
+            // AppKit teardown. It never bypasses externally visible rollback.
             let cleanupDeadline: Duration = simulatorCleanupTasks.isEmpty
                 ? .milliseconds(3_500)
                 : .seconds(150)

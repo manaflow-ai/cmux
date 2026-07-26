@@ -9,7 +9,7 @@ struct SimulatorCameraAutomaticReinjectionTask {
 extension SimulatorCameraAdapter {
     func prepareForIntentionalApplicationMutation(
         bundleIdentifier: String
-    ) async {
+    ) async throws {
         _ = advanceAutomaticReinjectionGeneration(bundleIdentifier: bundleIdentifier)
         let matchingTasks = automaticReinjectionTasks.filter {
             $0.value.bundleIdentifier == bundleIdentifier
@@ -18,6 +18,16 @@ extension SimulatorCameraAdapter {
         for (generation, record) in matchingTasks {
             await record.task.value
             automaticReinjectionTasks.removeValue(forKey: generation)
+        }
+        if let deviceIdentifier {
+            try await mutationGate.withLocks([
+                .tcc(deviceIdentifier: deviceIdentifier),
+            ]) {
+                try await cameraPermission.restore(
+                    deviceIdentifier: deviceIdentifier,
+                    bundleIdentifier: bundleIdentifier
+                )
+            }
         }
         removeInjectionRecord(bundleIdentifier: bundleIdentifier)
         injectedBundleIdentifiers.remove(bundleIdentifier)

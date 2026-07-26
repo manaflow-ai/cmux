@@ -19,6 +19,7 @@ public actor SimulatorControlService: SimulatorControlling {
     let routeSleep: @Sendable (Duration) async throws -> Void
     let locationOwnershipRegistry: SimulatorLocationOwnershipRegistry
     let cameraCleanupOwnershipStore: SimulatorCrossProcessOwnershipStore
+    let cameraAuthorizationStore: SimulatorCameraAuthorizationStore
     let fractionalDateFormatter: ISO8601DateFormatter
     let internetDateFormatter: ISO8601DateFormatter
     let mutationGate = SimulatorMutationGate()
@@ -37,6 +38,7 @@ public actor SimulatorControlService: SimulatorControlling {
     ///   - makeUUID: Identifier source used to name private staging files.
     ///   - now: Injected wall clock used to estimate a paused route position.
     ///   - cameraCleanupOwnershipScope: Shared camera cleanup ownership for this service graph.
+    ///   - cameraAuthorizationStore: Durable pre-injection camera authorization snapshots.
     ///   - routeSleep: Injected monotonic delay used to complete or restart routes.
     public init(
         commands: any CommandRunning = CommandRunner(),
@@ -49,6 +51,8 @@ public actor SimulatorControlService: SimulatorControlling {
         locationOwnershipScope: SimulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(),
         cameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope =
             SimulatorCameraCleanupOwnershipScope(),
+        cameraAuthorizationStore: SimulatorCameraAuthorizationStore =
+            SimulatorCameraAuthorizationStore(),
         routeSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         }
@@ -69,6 +73,7 @@ public actor SimulatorControlService: SimulatorControlling {
         self.now = now
         self.locationOwnershipRegistry = locationOwnershipScope.registry
         self.cameraCleanupOwnershipStore = cameraCleanupOwnershipScope.ownershipStore
+        self.cameraAuthorizationStore = cameraAuthorizationStore
         self.routeSleep = routeSleep
         let fractionalDateFormatter = ISO8601DateFormatter()
         fractionalDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

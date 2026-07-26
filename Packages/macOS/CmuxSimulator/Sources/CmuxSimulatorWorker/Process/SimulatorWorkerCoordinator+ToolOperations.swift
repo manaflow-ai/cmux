@@ -360,7 +360,7 @@ extension SimulatorWorkerCoordinator {
     ) async {
         do {
             try await webInspector.releaseSession(ifOwnedBy: bundleIdentifier)
-            await camera.prepareForIntentionalApplicationMutation(
+            try await camera.prepareForIntentionalApplicationMutation(
                 bundleIdentifier: bundleIdentifier
             )
             guard toolOperationDidCommit(operationGeneration) else { return }

@@ -23,7 +23,11 @@ extension SimulatorPrivatePrivacyAdapter {
             .appendingPathComponent("TCC/TCC.db")
         guard fileSystem.isReadableFile(atPath: databaseURL.path) else {
             throw SimulatorWorkerFailure.privateAPIUnavailable(
-                "The Simulator TCC database is unavailable; wait for the device to finish booting."
+                String(
+                    localized: "simulator.failure.tccUnavailable",
+                    defaultValue:
+                        "The Simulator TCC database is unavailable; wait for the device to finish booting."
+                )
             )
         }
         try await runSQLite(databaseURL: databaseURL, sql: sql)
@@ -47,6 +51,50 @@ extension SimulatorPrivatePrivacyAdapter {
             action: action,
             service: service
         )
+    }
+
+    func cameraAuthorizationWithoutMutationGate(
+        deviceIdentifier: String,
+        bundleIdentifier: String
+    ) async throws -> SimulatorPrivacyAuthorization {
+        guard simulatorPrivacyIdentifierIsSafe(deviceIdentifier),
+              simulatorPrivacyIdentifierIsSafe(bundleIdentifier) else {
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                String(
+                    localized: "simulator.failure.cameraAuthorizationIdentifier",
+                    defaultValue:
+                        "Camera authorization readback rejected an invalid device or bundle identifier."
+                )
+            )
+        }
+        let databaseURL = simulatorLibrary(deviceIdentifier: deviceIdentifier)
+            .appendingPathComponent("TCC/TCC.db")
+        guard fileSystem.isReadableFile(atPath: databaseURL.path) else {
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                String(
+                    localized: "simulator.failure.tccUnavailable",
+                    defaultValue:
+                        "The Simulator TCC database is unavailable; wait for the device to finish booting."
+                )
+            )
+        }
+        let value = try await readTCCRows(
+            databaseURL: databaseURL,
+            bundleIdentifier: bundleIdentifier
+        )["kTCCServiceCamera"]
+        return switch value {
+        case nil: .notDetermined
+        case 0: .denied
+        case 2: .granted
+        default:
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                String(
+                    localized: "simulator.failure.cameraAuthorizationUnsupported",
+                    defaultValue:
+                        "The Simulator camera authorization has an unsupported value and was not changed."
+                )
+            )
+        }
     }
 
     func tccMutationSQL(
@@ -90,7 +138,10 @@ extension SimulatorPrivatePrivacyAdapter {
         databaseURL: URL,
         bundleIdentifier: String
     ) async throws -> [String: Int] {
-        let sql = "SELECT service, auth_value FROM access WHERE client='\(bundleIdentifier)';"
+        let sql = """
+        SELECT service, auth_value FROM access
+        WHERE client='\(bundleIdentifier)' AND client_type=0;
+        """
         let result = try await subprocessRunner.run(
             executableURL: URL(fileURLWithPath: "/usr/bin/sqlite3"),
             arguments: sqliteArguments(databaseURL: databaseURL, sql: sql)

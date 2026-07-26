@@ -93,6 +93,7 @@ extension SimulatorControlService {
     /// Terminates a running application by bundle identifier.
     public func terminateApplication(deviceID: String, bundleIdentifier: String) async throws {
         try await mutationGate.withLocks([
+            .tcc(deviceIdentifier: deviceID),
             .application(deviceIdentifier: deviceID, bundleIdentifier: bundleIdentifier),
         ]) {
             _ = try await output(arguments: [
@@ -107,6 +108,7 @@ extension SimulatorControlService {
         ownershipToken: UUID
     ) async throws {
         try await mutationGate.withLocks([
+            .tcc(deviceIdentifier: deviceID),
             .application(deviceIdentifier: deviceID, bundleIdentifier: bundleIdentifier),
         ]) {
             let components = [deviceID, bundleIdentifier]
@@ -123,10 +125,50 @@ extension SimulatorControlService {
                 namespace: "camera",
                 components: components
             ) else { return }
+            try await restoreCameraAuthorizationIfRecorded(
+                deviceIdentifier: deviceID,
+                bundleIdentifier: bundleIdentifier
+            )
+            guard cameraCleanupOwnershipStore.isCurrent(
+                ownershipToken,
+                namespace: "camera",
+                components: components
+            ) else { return }
             _ = try await output(arguments: [
                 "simctl", "launch", "--terminate-running-process", deviceID, bundleIdentifier,
             ])
         }
+    }
+
+    private func restoreCameraAuthorizationIfRecorded(
+        deviceIdentifier: String,
+        bundleIdentifier: String
+    ) async throws {
+        guard let authorization = try cameraAuthorizationStore.authorization(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ) else { return }
+        let action: String = switch authorization {
+        case .notDetermined: "reset"
+        case .denied: "revoke"
+        case .granted: "grant"
+        default:
+            throw SimulatorControlError(
+                code: "camera_authorization_snapshot_invalid",
+                arguments: [],
+                message: String(
+                    localized: "simulator.failure.cameraAuthorizationRestore",
+                    defaultValue: "The saved Simulator camera authorization could not be restored."
+                )
+            )
+        }
+        _ = try await output(arguments: [
+            "simctl", "privacy", deviceIdentifier, action, "camera", bundleIdentifier,
+        ])
+        try cameraAuthorizationStore.remove(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
     }
 
     /// Opens a URL through the selected simulated operating system.

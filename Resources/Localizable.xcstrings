@@ -220114,6 +220114,57 @@
         }
       }
     },
+    "simulator.failure.cameraAuthorizationIdentifier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera authorization readback rejected an invalid device or bundle identifier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ権限の読み取りで、無効なデバイスまたはバンドル識別子が拒否されました。"
+          }
+        }
+      }
+    },
+    "simulator.failure.cameraAuthorizationRestore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved Simulator camera authorization could not be restored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されていた Simulator のカメラ権限を復元できませんでした。"
+          }
+        }
+      }
+    },
+    "simulator.failure.cameraAuthorizationUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator camera authorization has an unsupported value and was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator のカメラ権限に対応していない値が含まれているため、変更されませんでした。"
+          }
+        }
+      }
+    },
     "simulator.failure.cameraCleanupPending": {
       "extractionState": "manual",
       "localizations": {
@@ -220790,6 +220841,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "技術的な詳細"
+          }
+        }
+      }
+    },
+    "simulator.failure.tccUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Simulator TCC database is unavailable; wait for the device to finish booting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator の TCC データベースを利用できません。デバイスの起動が完了するまでお待ちください。"
           }
         }
       }

@@ -464,7 +464,7 @@ struct SimulatorCameraAdapterTests {
             inferredApplication: nil
         )
 
-        await adapter.prepareForIntentionalApplicationMutation(
+        try await adapter.prepareForIntentionalApplicationMutation(
             bundleIdentifier: bundleIdentifier
         )
         adapter.handleExitedInjection(

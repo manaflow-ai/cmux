@@ -301,18 +301,25 @@ final class SimulatorCameraAdapter {
                     activeTargetBundleIdentifier = nil
                     activeTargetProcessIdentifier = nil
                 }
-                if applicationMutationCommitted {
-                    _ = try? await mutationGate.withLocks([
-                        .application(
-                            deviceIdentifier: deviceIdentifier,
-                            bundleIdentifier: bundleIdentifier
-                        ),
-                    ]) {
+                _ = try? await mutationGate.withLocks([
+                    .tcc(deviceIdentifier: deviceIdentifier),
+                    .application(
+                        deviceIdentifier: deviceIdentifier,
+                        bundleIdentifier: bundleIdentifier
+                    ),
+                ]) {
+                    if applicationMutationCommitted {
                         applicationMutationWillCommit(bundleIdentifier)
                         _ = try? await runSimctl([
                             "terminate", deviceIdentifier, bundleIdentifier,
                         ])
-                        return try await runSimctl([
+                    }
+                    try await cameraPermission.restore(
+                        deviceIdentifier: deviceIdentifier,
+                        bundleIdentifier: bundleIdentifier
+                    )
+                    if applicationMutationCommitted {
+                        _ = try await runSimctl([
                             "launch", deviceIdentifier, bundleIdentifier,
                         ])
                     }
@@ -389,6 +396,7 @@ final class SimulatorCameraAdapter {
         for bundleIdentifier in bundles {
             do {
                 try await mutationGate.withLocks([
+                    .tcc(deviceIdentifier: deviceIdentifier),
                     .application(
                         deviceIdentifier: deviceIdentifier,
                         bundleIdentifier: bundleIdentifier
@@ -398,6 +406,10 @@ final class SimulatorCameraAdapter {
                     _ = try? await runSimctl([
                         "terminate", deviceIdentifier, bundleIdentifier,
                     ])
+                    try await cameraPermission.restore(
+                        deviceIdentifier: deviceIdentifier,
+                        bundleIdentifier: bundleIdentifier
+                    )
                     _ = try await runSimctl([
                         "launch", deviceIdentifier, bundleIdentifier,
                     ])
