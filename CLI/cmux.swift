@@ -28189,7 +28189,7 @@ struct CMUXCLI {
         if def.name == "codex" {
             return 5_000
         }
-        return 120_000
+        return Self.feedHookProcessTimeoutMilliseconds
     }
 
     private static func timeoutSecondsFromMilliseconds(_ timeoutMs: Int) -> Int {
@@ -33934,17 +33934,17 @@ export default CMUXSessionRestore;
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
-        // Sync. For actionable events we block up to 120s waiting
-        // for the user's Feed click; the hook's stdout is then a
+        // Sync. For actionable events we wait for the user's Feed click;
+        // the hook's stdout is then a
         // proper hookSpecificOutput that Claude honors directly
         // (no keystroke injection, no guessing the TUI layout).
         // If the user doesn't click in time the hook emits {}
         // and Claude falls back to its native TUI prompt.
         //
-        // Wait is capped at 120s and the wrapper's hook timeout
-        // is 125s so the socket always returns before Claude
-        // would kill the hook subprocess itself.
-        let waitTimeout: Double = isActionable ? 120 : 0
+        // The response deadline stays below the generated 120s process
+        // timeout, so a stalled daemon still returns neutral output before
+        // the agent kills (and may deny) the hook subprocess.
+        let waitTimeout = isActionable ? Self.feedHookDecisionWaitSeconds : 0
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -34004,7 +34004,7 @@ export default CMUXSessionRestore;
         do {
             response = try activeClient.send(
                 command: line,
-                responseTimeout: waitTimeout + 5
+                responseTimeout: Self.feedHookResponseTimeoutSeconds
             )
         } catch {
             print("{}")
@@ -34365,15 +34365,6 @@ export default CMUXSessionRestore;
                     return hermesAgentBlock("User denied permission via cmux Feed.")
                 }
                 return "{}"
-            }
-            if source == "antigravity" {
-                let reason = mode == "deny"
-                    ? "User denied permission via cmux Feed."
-                    : "User approved via cmux Feed."
-                return encode([
-                    "decision": mode == "deny" ? "deny" : "allow",
-                    "reason": reason,
-                ])
             }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(

@@ -4,6 +4,10 @@ import Foundation
 extension CMUXCLI {
     // MARK: - Generic agent hook system
 
+    // The client deadline must fire before the generated agent-hook timeout.
+    static let feedHookProcessTimeoutMilliseconds = 120_000
+    static let feedHookResponseTimeoutSeconds = Double(feedHookProcessTimeoutMilliseconds) / 1_000 - 2
+    static let feedHookDecisionWaitSeconds = feedHookResponseTimeoutSeconds - 3
     /// Configuration for a hook-based agent integration.
     struct AgentHookDef {
         let name: String            // CLI name: "cursor", "gemini", etc.
@@ -40,11 +44,7 @@ extension CMUXCLI {
         /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
         /// action, which performs the destructive cleanup this flag suppresses.
         let sessionEndIsTurnBoundary: Bool
-        /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
+        /// Events that install a `cmux hooks feed --source <name>` bridge.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
         /// Optional CLI note printed after a successful install (or

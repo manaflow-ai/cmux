@@ -90,22 +90,21 @@ struct FeedEventClassificationTests {
         }
     }
 
-    // MARK: Generic agents without a dedicated approval event
+    // MARK: Explicit approval-capable agents
 
-    /// Agents whose only signal is `PreToolUse` (gemini, copilot, …) still
-    /// escalate side-effecting tools to an approval — that path is correct
-    /// and must be preserved.
-    @Test func genericPreToolUseEscalatesSideEffectingTools() {
+    /// Gemini has a verified PreToolUse decision contract and explicitly
+    /// opts in to escalating side-effecting tools.
+    @Test func geminiPreToolUseEscalatesSideEffectingTools() {
         #expect(classify("gemini", "PreToolUse", tool: "Bash").name == "PermissionRequest")
         #expect(classify("gemini", "PreToolUse", tool: "Bash").actionable == true)
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
-    /// Even on the maybe-approval (generic pre-tool) path, the two dedicated
+    /// Even on the maybe-approval pre-tool path, the two dedicated
     /// approval tool names route to their own wire kinds — they are never
     /// collapsed into a generic `PermissionRequest`. Guards the shared
     /// `dedicatedApprovalEvent(for:)` branch inside `.toolStartMaybeApproval`.
-    @Test func genericPreToolUseRoutesDedicatedApprovalTools() {
+    @Test func geminiPreToolUseRoutesDedicatedApprovalTools() {
         #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").name == "ExitPlanMode")
         #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").actionable == true)
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").name == "AskUserQuestion")
