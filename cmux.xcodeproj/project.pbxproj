@@ -2079,6 +2079,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B88351000000000000000009 /* TextBoxPastePreparedContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835100000000000000000A /* TextBoxPastePreparedContent.swift */; };
 		B88354000000000000000001 /* TextBoxPendingPasteEditRestoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88354000000000000000002 /* TextBoxPendingPasteEditRestoration.swift */; };
 		B88353000000000000000003 /* TextBoxPendingPasteReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88353000000000000000004 /* TextBoxPendingPasteReservation.swift */; };
+		B88358000000000000000001 /* TextBoxPendingPasteReservationInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000002 /* TextBoxPendingPasteReservationInteractionTests.swift */; };
 		B88352000000000000000001 /* TextBoxPendingPasteReservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */; };
 		B88351000000000000000007 /* TextBoxPreparedAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000008 /* TextBoxPreparedAttachment.swift */; };
 		C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */; };
@@ -4351,6 +4352,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B8835100000000000000000A /* TextBoxPastePreparedContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPastePreparedContent.swift; sourceTree = "<group>"; };
 		B88354000000000000000002 /* TextBoxPendingPasteEditRestoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteEditRestoration.swift; sourceTree = "<group>"; };
 		B88353000000000000000004 /* TextBoxPendingPasteReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservation.swift; sourceTree = "<group>"; };
+		B88358000000000000000002 /* TextBoxPendingPasteReservationInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservationInteractionTests.swift; sourceTree = "<group>"; };
 		B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservationTests.swift; sourceTree = "<group>"; };
 		B88351000000000000000008 /* TextBoxPreparedAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPreparedAttachment.swift; sourceTree = "<group>"; };
 		C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxProcessTerminationStatus.swift; sourceTree = "<group>"; };
@@ -6594,6 +6596,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8835700000000000000000C /* PastePreparationFailureProbe.swift */,
 				B8835700000000000000000E /* TerminalClipboardInputSequencerTests.swift */,
 				B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */,
+				B88358000000000000000002 /* TextBoxPendingPasteReservationInteractionTests.swift */,
 				A11E5E1E0000000000000012 /* TerminalSelectionAccessibilityIngressGateTests.swift */,
 				570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */,
 				43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */,
@@ -9605,6 +9608,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5330A0015330A0015330A001 /* TextBoxInlineAttachmentRenderingTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				7898A0010000000000000001 /* TextBoxMentionGitIgnoreProbeTests.swift in Sources */,
+				B88358000000000000000001 /* TextBoxPendingPasteReservationInteractionTests.swift in Sources */,
 				B88352000000000000000001 /* TextBoxPendingPasteReservationTests.swift in Sources */,
 				C0DE7B410000000000000001 /* TextBoxSubmitActionMemoryTests.swift in Sources */,
 				C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */,
