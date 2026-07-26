@@ -14099,7 +14099,10 @@ class TerminalController {
         case "notification.reconcile":
             result = v2MobileNotificationReconcile(params: request.params)
         case "notification.feed.list":
-            result = v2MobileNotificationFeedList(params: request.params)
+            result = await v2MobileNotificationFeedList(
+                params: request.params,
+                responseID: request.id.map { String(describing: $0) }
+            )
         case "notification.feed.mark_read":
             result = v2MobileNotificationFeedMarkRead(params: request.params)
         case "notification.feed.mark_unread":

@@ -11,6 +11,26 @@ import Testing
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("reopen workspace default yields to an explicit legacy browser binding")
+    func reopenWorkspaceDefaultYieldsToLegacyBrowserBinding() {
+        let workspaceAction = KeyboardShortcutSettings.Action.reopenClosedWorkspace
+        let browserAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
+        let commandShiftT = workspaceAction.defaultShortcut
+
+        let resolved = KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: workspaceAction,
+            explicitlyConfiguredShortcut: { action in
+                action == browserAction ? commandShiftT : nil
+            }
+        )
+
+        #expect(resolved == nil)
+        #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: workspaceAction,
+            explicitlyConfiguredShortcut: { _ in nil }
+        ) == commandShiftT)
+    }
+
     @Test("markdown and view zoom contexts do not collide")
     func markdownAndViewZoomContextsDoNotCollide() {
         let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
