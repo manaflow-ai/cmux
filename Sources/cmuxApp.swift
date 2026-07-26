@@ -17,10 +17,11 @@ import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
 
-/// The process entry point. When the binary is launched with a sidebar worker
-/// flag (the app re-executes its own binary that way so a crash in the
-/// interpreter or renderer kills only the worker process), run that worker
-/// loop instead of the app:
+/// The process entry point. When the binary is launched with a worker flag
+/// (the app re-executes its own binary so a crash or hang kills only the
+/// worker process), run that worker instead of the app:
+/// - the paste worker resolves providers and prepares images before any app or
+///   SwiftUI startup;
 /// - the render worker hosts its own faceless AppKit session and shares the
 ///   rendered layer tree with the host;
 /// - the interpreter worker (stage-1 fallback path) runs before any
@@ -36,6 +37,15 @@ enum CmuxMain {
         // appenders, concurrent lines interleaved and landed out of order.
         Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
 #endif
+        if CommandLine.arguments.contains(
+            TerminalPastePreparationWorkerClient.workerModeArgument
+        ) {
+            exit(
+                TerminalPastePreparationWorker().run(
+                    arguments: CommandLine.arguments
+                )
+            )
+        }
         if CommandLine.arguments.contains(RenderWorkerClient.workerModeArgument) {
             runSidebarRenderWorker()
         }

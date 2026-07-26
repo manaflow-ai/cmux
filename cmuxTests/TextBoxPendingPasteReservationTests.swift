@@ -258,6 +258,50 @@ struct TextBoxPendingPasteReservationTests {
         #expect(textView.string == "before pasted after")
     }
 
+    @Test("representable update preserves a pending selected-attachment paste")
+    func representableUpdatePreservesPendingSelectedAttachmentPaste() throws {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        setInsertionPoint(in: textView)
+        let attachment = TextBoxAttachment(
+            displayName: "image.png",
+            submissionText: "/tmp/image.png",
+            submissionPath: "/tmp/image.png",
+            localURL: nil
+        )
+        textView.insertAttachments(
+            [attachment],
+            replacementRange: textView.selectedRange()
+        )
+        let detectedAttachmentRange = (textView.string as NSString).range(
+            of: String(TextBoxInputTextView.attachmentReplacementCharacter)
+        )
+        let attachmentRange = try #require(
+            detectedAttachmentRange.location == NSNotFound
+                ? nil
+                : detectedAttachmentRange
+        )
+        textView.setSelectedRange(attachmentRange)
+        let authoritativeText = textView.plainText()
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+
+        simulateRepresentableUpdate(
+            externalText: authoritativeText,
+            textView: textView
+        )
+
+        #expect(textView.hasPendingAttachmentUploadPlaceholder())
+        #expect(
+            textView.replacePendingAttachmentUploadPlaceholder(
+                id: pasteID,
+                withText: "pasted"
+            )
+        )
+        #expect(textView.plainText().contains("pasted"))
+        #expect(textView.inlineAttachments().isEmpty)
+    }
+
     @Test("external text replacement cancels a pending paste reservation")
     func externalTextReplacementCancelsPendingPasteReservation() {
         let (window, textView) = makeTextView()
@@ -285,14 +329,7 @@ struct TextBoxPendingPasteReservationTests {
         externalText: String,
         textView: TextBoxInputTextView
     ) {
-        if shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: textView.inlineAttachments().count,
-            plainText: textView.plainText(),
-            externalText: externalText,
-            hasMarkedText: textView.hasMarkedText()
-        ) {
-            textView.string = externalText
-        }
+        textView.synchronizeExternalTextIfNeeded(externalText)
     }
 
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {

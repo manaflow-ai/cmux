@@ -261,4 +261,130 @@ struct ImageMaterializationTests {
         #expect(FileManager.default.fileExists(atPath: foreign.path))
         #expect(!service.isOwnedTemporaryImageFile(foreign))
     }
+
+    @Test func adoptsValidatedWorkerImageAndConsumesTheSource() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let ownedDir = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: ownedDir,
+            withIntermediateDirectories: false
+        )
+        let source = workerDir.appendingPathComponent("prepared.png")
+        try tinyPNGData().write(to: source)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDir
+        )
+
+        let adopted = try service.adoptTemporaryImageFile(
+            source,
+            from: workerDir
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(adopted.deletingLastPathComponent() == ownedDir)
+        #expect(service.isOwnedTemporaryImageFile(adopted))
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: adopted.path
+        )
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+
+        service.cleanupTransferredTemporaryImageFiles([adopted])
+        #expect(!FileManager.default.fileExists(atPath: adopted.path))
+    }
+
+    @Test func adoptionRejectsFilesOutsideTheWorkerDirectory() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let ownedDir = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: ownedDir,
+            withIntermediateDirectories: false
+        )
+        let outside = scratchDir.appendingPathComponent("outside.png")
+        try tinyPNGData().write(to: outside)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDir
+        )
+
+        #expect(throws: (any Error).self) {
+            try service.adoptTemporaryImageFile(
+                outside,
+                from: workerDir
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: outside.path))
+        #expect(!service.isOwnedTemporaryImageFile(outside))
+    }
+
+    @Test func adoptionRejectsSymlinksAndNonImageFiles() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let ownedDir = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: ownedDir,
+            withIntermediateDirectories: false
+        )
+        let target = scratchDir.appendingPathComponent("target.png")
+        let symlink = workerDir.appendingPathComponent("linked.png")
+        let text = workerDir.appendingPathComponent("payload.txt")
+        try tinyPNGData().write(to: target)
+        try FileManager.default.createSymbolicLink(
+            at: symlink,
+            withDestinationURL: target
+        )
+        try Data("not an image".utf8).write(to: text)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDir
+        )
+
+        #expect(throws: (any Error).self) {
+            try service.adoptTemporaryImageFile(
+                symlink,
+                from: workerDir
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try service.adoptTemporaryImageFile(
+                text,
+                from: workerDir
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: target.path))
+        #expect(FileManager.default.fileExists(atPath: symlink.path))
+        #expect(FileManager.default.fileExists(atPath: text.path))
+    }
 }

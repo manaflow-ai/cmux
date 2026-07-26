@@ -1,5 +1,5 @@
 /// A prepared value returned by the shared terminal/composer paste pipeline.
-enum TerminalPastePreparationResult: Sendable {
+enum TerminalPastePreparationResult: Codable, Sendable {
     case terminal(TerminalImageTransferPreparedContent)
     case composer(TextBoxPastePreparedContent)
 

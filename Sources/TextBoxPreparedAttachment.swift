@@ -1,7 +1,7 @@
 import Foundation
 
 /// Immutable composer attachment data produced before returning to the main actor.
-struct TextBoxPreparedAttachment: Equatable, Sendable {
+struct TextBoxPreparedAttachment: Codable, Equatable, Sendable {
     let fileURL: URL
     let thumbnailPNGData: Data?
 

@@ -12,4 +12,5 @@ struct TerminalPastePreparationJob {
         Never
     >?
     var deadlineTask: Task<Void, Never>?
+    var operationTask: Task<Void, Never>?
 }

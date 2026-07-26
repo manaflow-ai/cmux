@@ -1,7 +1,7 @@
 import AppKit
 
 /// Identifies one immutable generation of a named pasteboard without carrying AppKit objects across executors.
-struct TerminalPasteboardReadRequest: Sendable {
+struct TerminalPasteboardReadRequest: Codable, Sendable {
     let pasteboardName: String
     let changeCount: Int
 

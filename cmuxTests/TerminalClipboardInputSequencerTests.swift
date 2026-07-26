@@ -13,12 +13,12 @@ import Testing
 struct TerminalClipboardInputSequencerTests {
     @Test("blocked paste completes before queued suffix and return")
     func blockedPasteCompletesBeforeQueuedInput() async {
-        let operation = BlockingPastePreparationOperation()
+        let operation = ControlledPastePreparationOperation()
         let deadlines = ControlledPastePreparationDeadlines()
         let service = TerminalImageTransferPreparationService(
             deadline: .seconds(30),
             deadlineSleep: { _ in try await deadlines.sleep() },
-            operation: { operation.run($0) },
+            operation: { try await operation.run($0) },
             cleanup: { _ in },
             failureSignal: { _ in }
         )
@@ -40,7 +40,7 @@ struct TerminalClipboardInputSequencerTests {
         #expect(sequencer.route("return") == .queued)
         #expect(delivered.isEmpty)
 
-        operation.release(request.pasteboardName)
+        await operation.release(request.pasteboardName)
         let pasteResult = await pasteTask.value
         #expect(pasteResult == .insertText(request.pasteboardName))
         delivered.append("paste")

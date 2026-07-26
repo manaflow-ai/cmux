@@ -1,5 +1,5 @@
 /// The caller-specific result produced by the shared paste-preparation lane.
-enum TerminalPastePreparationDestination: Sendable {
+enum TerminalPastePreparationDestination: Codable, Sendable {
     case terminal
     case composer
 }

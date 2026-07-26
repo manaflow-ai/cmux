@@ -1,4 +1,4 @@
-enum TextBoxPastePreparedContent: Equatable, Sendable {
+enum TextBoxPastePreparedContent: Codable, Equatable, Sendable {
     case insertText(String)
     case attachments([TextBoxPreparedAttachment])
     case reject

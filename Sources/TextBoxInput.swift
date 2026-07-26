@@ -3071,14 +3071,7 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        if shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: textView.inlineAttachments().count,
-            plainText: textView.plainText(),
-            externalText: text,
-            hasMarkedText: textView.hasMarkedText()
-        ) {
-            textView.string = text
-        }
+        textView.synchronizeExternalTextIfNeeded(text)
         updateTextView(textView, context: context)
     }
 

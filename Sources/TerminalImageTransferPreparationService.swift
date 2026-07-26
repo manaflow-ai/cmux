@@ -5,7 +5,7 @@ import Foundation
 actor TerminalImageTransferPreparationService {
     typealias Operation = @Sendable (
         TerminalPastePreparationRequest
-    ) -> TerminalPastePreparationResult
+    ) async throws -> TerminalPastePreparationResult
     typealias Cleanup = @Sendable (TerminalPastePreparationResult) -> Void
     typealias DeadlineSleep = @Sendable (Duration) async throws -> Void
     typealias FailureSignal = @MainActor @Sendable (
@@ -13,48 +13,43 @@ actor TerminalImageTransferPreparationService {
     ) -> Void
 
     static let defaultDeadline: Duration = .seconds(5)
-    static let defaultMaximumBlockingOperations = 2
     static let defaultMaximumQueuedJobs = 32
 
     private let deadline: Duration
-    private let maximumBlockingOperations: Int
     private let maximumQueuedJobs: Int
     private let deadlineSleep: DeadlineSleep
     private let operation: Operation
     private let cleanup: Cleanup
     private let failureSignal: FailureSignal
-    private let cleanupQueue: DispatchQueue
-    private var activeJobID: UUID?
-    private var runningJobs: [UUID: TerminalPastePreparationJob] = [:]
+    private var activeJob: TerminalPastePreparationJob?
     private var queuedJobs: [TerminalPastePreparationJob] = []
 
     init(
-        deadline: Duration = TerminalImageTransferPreparationService.defaultDeadline,
-        maximumBlockingOperations: Int = TerminalImageTransferPreparationService
-            .defaultMaximumBlockingOperations,
+        deadline: Duration = TerminalImageTransferPreparationService
+            .defaultDeadline,
         maximumQueuedJobs: Int = TerminalImageTransferPreparationService
             .defaultMaximumQueuedJobs,
         deadlineSleep: @escaping DeadlineSleep = { duration in
             // Genuine request deadline; cancellation tears down the sleeper.
             try await ContinuousClock().sleep(for: duration)
         },
-        operation: @escaping Operation = TerminalImageTransferPreparationService
-            .prepareSynchronously,
+        operation: Operation? = nil,
         cleanup: @escaping Cleanup = TerminalImageTransferPreparationService
             .cleanupSynchronously,
         failureSignal: @escaping FailureSignal = { _ in NSSound.beep() }
     ) {
         self.deadline = deadline
-        self.maximumBlockingOperations = max(1, maximumBlockingOperations)
         self.maximumQueuedJobs = max(0, maximumQueuedJobs)
         self.deadlineSleep = deadlineSleep
-        self.operation = operation
+        self.operation = operation ?? { request in
+            let client = TerminalPastePreparationWorkerClient
+                .reexecingCurrentBinary(
+                    pasteboardService: GhosttyApp.terminalPasteboard
+                )
+            return try await client.prepare(request)
+        }
         self.cleanup = cleanup
         self.failureSignal = failureSignal
-        self.cleanupQueue = DispatchQueue(
-            label: "com.cmuxterm.paste-preparation.cleanup",
-            qos: .utility
-        )
     }
 
     func prepare(
@@ -113,9 +108,7 @@ actor TerminalImageTransferPreparationService {
                     continuation.resume(returning: .failure(.cancelled))
                     return
                 }
-
-                let canStartImmediately = canStartNextJob
-                guard canStartImmediately
+                guard activeJob == nil
                         || queuedJobs.count < maximumQueuedJobs else {
                     continuation.resume(returning: .failure(.queueFull))
                     return
@@ -125,23 +118,21 @@ actor TerminalImageTransferPreparationService {
                     id: id,
                     request: request,
                     continuation: continuation,
-                    deadlineTask: nil
+                    deadlineTask: nil,
+                    operationTask: nil
                 )
                 job.deadlineTask = makeDeadlineTask(for: id)
-                if canStartImmediately {
+                if activeJob == nil {
                     start(job)
                 } else {
                     queuedJobs.append(job)
                 }
             }
         } onCancel: {
-            Task { await self.cancel(jobID: id) }
+            Task {
+                await self.cancel(jobID: id)
+            }
         }
-    }
-
-    private var canStartNextJob: Bool {
-        activeJobID == nil
-            && runningJobs.count < maximumBlockingOperations
     }
 
     private func makeDeadlineTask(for jobID: UUID) -> Task<Void, Never> {
@@ -159,47 +150,60 @@ actor TerminalImageTransferPreparationService {
     }
 
     private func start(_ job: TerminalPastePreparationJob) {
-        precondition(canStartNextJob)
-        activeJobID = job.id
-        runningJobs[job.id] = job
-
+        precondition(activeJob == nil)
+        var runningJob = job
         let id = job.id
         let request = job.request
         let operation = self.operation
         let cleanup = self.cleanup
-        // Each quarantinable job owns one serial legacy-I/O queue. The actor
-        // caps in-flight queues, so stuck AppKit providers cannot grow threads.
-        let blockingQueue = DispatchQueue(
-            label: "com.cmuxterm.paste-preparation.\(id.uuidString)",
-            qos: .userInitiated
-        )
-        blockingQueue.async { [weak self] in
-            let result = operation(request)
-            guard let self else {
-                cleanup(result)
-                return
-            }
-            Task {
-                await self.finishRunningJob(id: id, result: result)
+        runningJob.operationTask = Task { [weak self] in
+            do {
+                let result = try await operation(request)
+                guard let self else {
+                    cleanup(result)
+                    return
+                }
+                await self.finish(jobID: id, result: result)
+            } catch is CancellationError {
+                await self?.finish(
+                    jobID: id,
+                    failure: .cancelled
+                )
+            } catch {
+                await self?.finish(
+                    jobID: id,
+                    failure: .workerFailed
+                )
             }
         }
+        activeJob = runningJob
     }
 
-    private func finishRunningJob(
-        id: UUID,
+    private func finish(
+        jobID: UUID,
         result: TerminalPastePreparationResult
     ) {
-        guard var job = runningJobs.removeValue(forKey: id) else {
-            discard(result)
+        guard var job = activeJob, job.id == jobID else {
+            cleanup(result)
             return
         }
-        if activeJobID == id {
-            activeJobID = nil
-        }
+        activeJob = nil
         if job.continuation == nil {
-            discard(result)
+            cleanup(result)
         } else {
             resume(&job, returning: .success(result))
+        }
+        startNextJobIfPossible()
+    }
+
+    private func finish(
+        jobID: UUID,
+        failure: TerminalPastePreparationFailure
+    ) {
+        guard var job = activeJob, job.id == jobID else { return }
+        activeJob = nil
+        if job.continuation != nil {
+            resume(&job, returning: .failure(failure))
         }
         startNextJobIfPossible()
     }
@@ -216,28 +220,27 @@ actor TerminalImageTransferPreparationService {
         jobID: UUID,
         with failure: TerminalPastePreparationFailure
     ) {
-        if let queuedIndex = queuedJobs.firstIndex(where: { $0.id == jobID }) {
+        if let queuedIndex = queuedJobs.firstIndex(
+            where: { $0.id == jobID }
+        ) {
             var job = queuedJobs.remove(at: queuedIndex)
             resume(&job, returning: .failure(failure))
             return
         }
-        guard activeJobID == jobID,
-              var job = runningJobs[jobID],
+        guard var job = activeJob,
+              job.id == jobID,
               job.continuation != nil else {
             return
         }
 
         resume(&job, returning: .failure(failure))
-        runningJobs[jobID] = job
-        activeJobID = nil
-        startNextJobIfPossible()
+        let operationTask = job.operationTask
+        activeJob = job
+        operationTask?.cancel()
     }
 
     private func startNextJobIfPossible() {
-        guard canStartNextJob,
-              !queuedJobs.isEmpty else {
-            return
-        }
+        guard activeJob == nil, !queuedJobs.isEmpty else { return }
         start(queuedJobs.removeFirst())
     }
 
@@ -254,61 +257,11 @@ actor TerminalImageTransferPreparationService {
         job.continuation = nil
     }
 
-    private func discard(_ result: TerminalPastePreparationResult) {
-        let cleanup = self.cleanup
-        cleanupQueue.async {
-            cleanup(result)
-        }
-    }
-
     private func signalFailureIfNeeded(
         _ failure: TerminalPastePreparationFailure
     ) async {
         guard failure != .cancelled else { return }
         await failureSignal(failure)
-    }
-
-    private nonisolated static func prepareSynchronously(
-        request: TerminalPastePreparationRequest
-    ) -> TerminalPastePreparationResult {
-        let readRequest = request.pasteboard
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name(readRequest.pasteboardName)
-        )
-        guard pasteboard.changeCount == readRequest.changeCount else {
-            return rejectedResult(for: request.destination)
-        }
-
-        let preparedContent = TerminalImageTransferPlanner.prepareSynchronously(
-            pasteboard: pasteboard,
-            mode: request.mode
-        )
-        guard pasteboard.changeCount == readRequest.changeCount else {
-            preparedContent.cleanupTransferredTemporaryFiles()
-            return rejectedResult(for: request.destination)
-        }
-
-        switch request.destination {
-        case .terminal:
-            return .terminal(preparedContent)
-        case .composer:
-            return .composer(
-                TextBoxPastePreparationService().prepare(
-                    preparedContent: preparedContent
-                )
-            )
-        }
-    }
-
-    private nonisolated static func rejectedResult(
-        for destination: TerminalPastePreparationDestination
-    ) -> TerminalPastePreparationResult {
-        switch destination {
-        case .terminal:
-            return .terminal(.reject)
-        case .composer:
-            return .composer(.reject)
-        }
     }
 
     private nonisolated static func cleanupSynchronously(
