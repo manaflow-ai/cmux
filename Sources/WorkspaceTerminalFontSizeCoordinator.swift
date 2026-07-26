@@ -1339,7 +1339,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 terminalPanel.fontSizePanelTransfer {
             arbiter.associatePanelTransfer(
                 panelTransfer,
-                with: windowDockSlot
+                with: dock
             )
         }
         let createsPanelTransferStage =
