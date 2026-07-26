@@ -2952,6 +2952,65 @@ mod tests {
     }
 
     #[test]
+    fn browser_state_cannot_grant_new_authority_to_cached_pixels() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        surface.update_browser_frame(&json!({
+            "seq": 8,
+            "width": 80,
+            "height": 40,
+            "data": "b2xk",
+            "status": "live",
+            "pointer_frame_seq": 8,
+        }));
+        surface.update_browser_state(&json!({
+            "url": "https://old.test",
+            "title": "same document",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 8,
+        }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            Some(8),
+            "state may retain authority already paired with the cached pixels"
+        );
+
+        surface.update_browser_state(&json!({
+            "url": "https://new.test",
+            "title": "new document",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(surface.browser_frame().map(|frame| frame.seq), Some(8));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "state must not authorize old pixels with a token belonging to a delayed frame"
+        );
+
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "bmV3",
+            "status": "live",
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(surface.browser_frame().map(|frame| frame.seq), Some(9));
+        assert_eq!(surface.browser_frame_seq(), Some(9));
+    }
+
+    #[test]
     fn stale_frame_does_not_restore_failed_browser_pointer_admission() {
         let surface = RemoteSurface {
             id: 1,

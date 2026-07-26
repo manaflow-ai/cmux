@@ -5006,6 +5006,23 @@ mod tests {
     }
 
     #[test]
+    fn browser_attach_stream_publishes_frame_before_positive_state_authority() {
+        let source = include_str!("server.rs");
+        let (_, worker) = source
+            .split_once("let update = std::mem::take(&mut *frames.slot.lock().unwrap());")
+            .expect("browser attach worker");
+        let (worker, _) =
+            worker.split_once("report_attach_overflow").expect("browser attach worker end");
+        let frame = worker.find("if let Some(frame) = update.frame").expect("frame send");
+        let state = worker.find("if let Some(state) = update.state").expect("state send");
+
+        assert!(
+            frame < state,
+            "the frame carrying new pointer authority must arrive before state can expose it"
+        );
+    }
+
+    #[test]
     fn stack_json_uses_the_stored_expansion_while_focus_is_elsewhere() {
         let stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 

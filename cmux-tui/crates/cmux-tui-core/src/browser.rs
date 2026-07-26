@@ -5447,6 +5447,31 @@ mod tests {
     }
 
     #[test]
+    fn same_document_navigation_preserves_an_accepted_pointer_capture() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let authority = browser.latest_frame_seq().expect("initial pointer authority");
+        let (_, capture_generation) = browser
+            .capture_guarded_input_point(authority, 1.0, 1.0)
+            .expect("accepted pointer press");
+        browser.begin_targeted_navigation_frame_transition().expect("same-document reservation");
+
+        let _observed = handle_same_document_navigated(
+            browser,
+            &json!({"frameId": "main-frame", "url": "https://example.test/#next"}),
+        )
+        .expect("same-document URL");
+        let capture_epoch = browser.frame_epoch.advance();
+        assert!(browser.accept_same_document_paint(capture_epoch, test_frame(2)));
+
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "a same-document navigation must preserve the balancing release for an accepted press"
+        );
+    }
+
+    #[test]
     fn ordinary_repaint_preserves_pointer_authority() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -6305,6 +6330,60 @@ mod tests {
 
         runtime.shutdown();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn abandoned_pointer_release_timeout_gets_one_bounded_retry() {
+        let (runtime, server, retry_rx) = runtime_rejecting_then_observing_mouse_retry();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert(
+            "left".to_string(),
+            super::ActivePointerPress::new(
+                super::BrowserPointerOwner::Client(41),
+                capture_generation,
+                1.0,
+                1.0,
+                Some(1),
+            ),
+        );
+        let now = Instant::now();
+
+        super::release_abandoned_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            now,
+        );
+        let retained_after_timeout = failures.active_pointer_presses.contains_key("left");
+        super::release_abandoned_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            now + Duration::from_secs(1),
+        );
+        let consumed_after_retry = failures.active_pointer_presses.is_empty();
+        let retry_observed = retry_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(
+            retained_after_timeout,
+            "the first ambiguous cleanup release must remain owned for one retry"
+        );
+        assert!(consumed_after_retry, "the bounded cleanup retry must consume the press");
+        assert!(retry_observed, "cleanup must dispatch one balancing release retry");
     }
 
     #[test]
