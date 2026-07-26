@@ -226,7 +226,7 @@ impl ServerLifecycle {
             Err(error) => return Err(error),
         };
         if response.get("ok").and_then(Value::as_bool) == Some(true) {
-            return wait_for_disconnect(&mut self.reader);
+            return wait_for_disconnect(&mut self.reader, &self.path);
         }
         if let Some(error) = response.get("error").and_then(Value::as_str) {
             anyhow::bail!("{}: {error}", crate::localization::catalog().server.shutdown_failed);
@@ -399,7 +399,7 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
     terminate_captured_legacy_process_tree(captured)?;
-    wait_for_disconnect(&mut lifecycle.reader)
+    wait_for_disconnect(&mut lifecycle.reader, &lifecycle.path)
 }
 
 #[cfg(unix)]
@@ -598,7 +598,7 @@ fn legacy_surface_ids(data: &Value) -> Vec<u64> {
     surfaces
 }
 
-fn wait_for_disconnect(reader: &mut TransportReader) -> anyhow::Result<()> {
+fn wait_for_disconnect(reader: &mut TransportReader, path: &Path) -> anyhow::Result<()> {
     let deadline = Instant::now() + RESPONSE_TIMEOUT;
     let mut line = String::new();
     loop {
@@ -616,11 +616,21 @@ fn wait_for_disconnect(reader: &mut TransportReader) -> anyhow::Result<()> {
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                 ) =>
             {
-                anyhow::bail!(crate::localization::catalog().server.shutdown_timed_out)
+                if connection_is_gone(path) {
+                    return Ok(());
+                }
+                anyhow::bail!(crate::localization::catalog().server.shutdown_timed_out);
             }
-            Err(_) => anyhow::bail!(crate::localization::catalog().server.transport_failed),
+            Err(_) => return shutdown_read_error(path),
         }
     }
+}
+
+fn shutdown_read_error(path: &Path) -> anyhow::Result<()> {
+    if connection_is_gone(path) {
+        return Ok(());
+    }
+    anyhow::bail!(crate::localization::catalog().server.transport_failed)
 }
 
 fn connection_is_gone(path: &Path) -> bool {
@@ -690,13 +700,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn shutdown_read_error_accepts_a_socket_that_stopped_listening() {
-        let path = std::env::temp_dir().join(format!(
+        let path = PathBuf::from("/tmp").join(format!(
             "cmux-tui-shutdown-disconnect-{}-{}.sock",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
 
         assert!(shutdown_read_error(&path).is_ok());
+
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        assert!(shutdown_read_error(&path).is_err());
+        drop(listener);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(unix)]
