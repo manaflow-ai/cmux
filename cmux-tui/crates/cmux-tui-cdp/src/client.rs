@@ -1099,7 +1099,7 @@ impl WsEndpoint {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc::sync_channel;
     use std::sync::{Arc, Barrier};
@@ -1299,6 +1299,49 @@ mod tests {
             read_http_response_with_limits(&mut stream, 64 * 1024, Duration::from_secs(2)).unwrap();
         assert!(response.ends_with("{}"));
         server.join().unwrap();
+    }
+
+    #[test]
+    fn websocket_handshake_uses_one_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                if stream.read(&mut byte).unwrap_or(0) == 0 {
+                    return;
+                }
+                request.push(byte[0]);
+            }
+            for byte in b"HTTP/1.1 400 Bad Request\r\n\r\n" {
+                if stream.write_all(&[*byte]).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let (events, _receiver) = sync_channel(1);
+
+        let started = Instant::now();
+        let error = match CdpClient::connect_to_addr_with_timeout(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            addr,
+            events,
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!("invalid WebSocket handshake unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        let elapsed = started.elapsed();
+        server.join().unwrap();
+
+        assert!(!error.to_string().is_empty());
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "WebSocket handshake exceeded its absolute deadline: {elapsed:?}"
+        );
     }
 
     #[test]

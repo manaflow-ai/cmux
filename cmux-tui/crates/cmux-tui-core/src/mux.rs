@@ -146,6 +146,8 @@ struct ShutdownOwnerReconciler {
     state: Mutex<ShutdownOwnerReconcilerState>,
     wake: std::sync::Condvar,
     mux: std::sync::OnceLock<Weak<Mux>>,
+    #[cfg(test)]
+    after_attempt: Mutex<Option<Arc<dyn Fn(usize) + Send + Sync>>>,
 }
 
 impl ShutdownOwnerReconciler {
@@ -221,6 +223,10 @@ impl ShutdownOwnerReconciler {
                     break;
                 }
                 attempts += 1;
+                #[cfg(test)]
+                if let Some(hook) = self.after_attempt.lock().unwrap().clone() {
+                    hook(attempts);
+                }
                 if attempts >= SHUTDOWN_RECONCILE_MAX_ATTEMPTS {
                     let mut state = self.state.lock().unwrap();
                     state.pending = false;
@@ -1158,6 +1164,11 @@ pub struct Mux {
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    terminal_adoption_after_attach: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(all(test, unix))]
+    terminal_adoption_surface_factory:
+        Mutex<Option<Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>>>,
+    #[cfg(test)]
     browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     shutdown_owner_capacity: AtomicUsize,
@@ -1392,6 +1403,10 @@ impl Mux {
             terminal_create_after_materialization_lock: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            terminal_adoption_after_attach: Mutex::new(None),
+            #[cfg(all(test, unix))]
+            terminal_adoption_surface_factory: Mutex::new(None),
             #[cfg(test)]
             browser_bootstrap_before_runtime: Mutex::new(None),
             #[cfg(test)]
@@ -1952,13 +1967,35 @@ impl Mux {
                         break;
                     }
                     let id = mux.next_id();
-                    if let Ok(surface) = Surface::adopt_hosted(
+                    #[cfg(test)]
+                    let adopted = if let Some(factory) =
+                        mux.terminal_adoption_surface_factory.lock().unwrap().clone()
+                    {
+                        factory(id)
+                    } else {
+                        Surface::adopt_hosted(
+                            id,
+                            options.clone(),
+                            Arc::downgrade(&mux),
+                            record.clone(),
+                            record_path.clone(),
+                        )
+                    };
+                    #[cfg(not(test))]
+                    let adopted = Surface::adopt_hosted(
                         id,
                         options.clone(),
                         Arc::downgrade(&mux),
                         record.clone(),
                         record_path.clone(),
-                    ) {
+                    );
+                    if let Ok(surface) = adopted {
+                        #[cfg(test)]
+                        if let Some(hook) =
+                            mux.terminal_adoption_after_attach.lock().unwrap().clone()
+                        {
+                            hook();
+                        }
                         if mux
                             .finish_terminal_adoption(
                                 &terminal_id,
@@ -10704,6 +10741,189 @@ mod tests {
         assert_eq!(
             mux.shutdown_cleanup_health(),
             ShutdownCleanupHealth { pending: 1, retrying: false, degraded: true }
+        );
+    }
+
+    #[test]
+    fn cleanup_scheduled_during_the_final_retry_gets_a_fresh_retry_budget() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first = mux.surface(first.id).unwrap();
+        let (first_failing, _) = first.set_recovering_server_shutdown_for_test();
+        let second = Surface::spawn_for_test(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let (second_failing, _) = second.set_recovering_server_shutdown_for_test();
+        let injected = Arc::new(AtomicBool::new(false));
+        *mux.shutdown_owner_reconciler.after_attempt.lock().unwrap() = Some(Arc::new({
+            let mux = mux.clone();
+            let second = second.clone();
+            let first_failing = first_failing.clone();
+            let second_failing = second_failing.clone();
+            let injected = injected.clone();
+            move |attempt| {
+                if attempt != SHUTDOWN_RECONCILE_MAX_ATTEMPTS
+                    || injected.swap(true, Ordering::AcqRel)
+                {
+                    return;
+                }
+                mux.retire_surface_runtime(second.clone());
+                first_failing.store(false, Ordering::Release);
+                second_failing.store(false, Ordering::Release);
+            }
+        }));
+
+        assert!(mux.close_surface(first.id).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while (!injected.load(Ordering::Acquire) || !mux.shutdown_owners.is_empty())
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let reconciled = injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty();
+        if !reconciled {
+            mux.close_all_surfaces_for_shutdown().unwrap();
+        }
+
+        assert!(
+            reconciled,
+            "cleanup staged during the final attempt was left without a retry worker"
+        );
+    }
+
+    #[test]
+    fn rejected_sidebar_admission_does_not_launch_a_process() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-sidebar-admission-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let pid_path = root.join("sidebar.pid");
+        let mux = Mux::new("sidebar-admission", SurfaceOptions::default());
+        mux.set_shutdown_owner_capacity_for_test(0);
+        let options = SidebarPluginOptions {
+            command: vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                format!("echo $$ > {}; exec sleep 30", pid_path.display()),
+            ],
+            cwd: None,
+        };
+
+        let error = mux.spawn_sidebar_plugin_surface(&options, (80, 24)).unwrap_err();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !pid_path.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let spawned_pid = std::fs::read_to_string(&pid_path)
+            .ok()
+            .and_then(|pid| pid.trim().parse::<libc::pid_t>().ok());
+        if let Some(pid) = spawned_pid {
+            // SAFETY: this PID was written by the test-owned sidebar command.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
+
+        assert_eq!(error.to_string(), "surface_owner_capacity_exhausted");
+        assert!(
+            spawned_pid.is_none(),
+            "capacity rejection launched sidebar process {spawned_pid:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_handoff_does_not_terminate_an_in_flight_terminal_adoption() {
+        let options = SurfaceOptions::default();
+        let mux = Mux::new_for_test("adoption-handoff", options.clone());
+        let workspace = mux.create_empty_workspace(Some("survivor".into()), None, None).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let terminal_hex = terminal_id.to_hex();
+        let incarnation = crate::terminal_host::HostIncarnation::random().unwrap().to_hex();
+        let record_path = std::env::temp_dir().join(format!("{terminal_hex}.json"));
+        let record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 2,
+            terminal_id: terminal_hex.clone(),
+            incarnation: incarnation.clone(),
+            endpoint: record_path.with_extension("sock").to_string_lossy().into_owned(),
+            owner_token: "00".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+            host_pid: 0,
+            host_start_nonce: String::new(),
+            workspace_key: workspace.key.clone(),
+            supports_set_defaults: true,
+            supports_terminate_only: true,
+        };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "adoption-handoff-reserve",
+                &RegistryTerminal {
+                    terminal_id: terminal_hex.clone(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-adopting",
+                "adoption-handoff-adopting",
+                &terminal_hex,
+                TerminalLifecycle::Adopting,
+                Some(&incarnation),
+                None,
+            )
+            .unwrap();
+        }
+        let kill_attempts = Arc::new(Mutex::new(None));
+        *mux.terminal_adoption_surface_factory.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(&mux);
+            let options = options.clone();
+            let kill_attempts = kill_attempts.clone();
+            move |id| {
+                let surface = Surface::spawn_for_test(id, options.clone(), mux.clone())?;
+                let (_, attempts) = surface.set_recovering_server_shutdown_for_test();
+                *kill_attempts.lock().unwrap() = Some(attempts);
+                Ok(surface)
+            }
+        }));
+        let (attached_tx, attached_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.terminal_adoption_after_attach.lock().unwrap() = Some(Arc::new({
+            move || {
+                attached_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+
+        mux.schedule_terminal_adoption(options, record.clone(), record_path.clone());
+        attached_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        mux.request_daemon_shutdown();
+        release_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !mux.terminal_adoptions.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let attempts = kill_attempts
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("adoption surface was not created")
+            .load(Ordering::Acquire);
+
+        assert_eq!(
+            attempts, 0,
+            "daemon handoff terminated the surface attached to the durable host"
         );
     }
 
