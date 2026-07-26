@@ -1724,12 +1724,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             outcome = .alreadySatisfied
         }
         guard outcome.didSucceed else {
-            // Cancel this callback's obligation instead of letting a later
-            // request overtake the failed head. The resource ledger retains
-            // the request, so a later transfer callback retries from the
-            // earliest request that is still outstanding.
-            removeTransferObligation(obligation)
-            return true
+            // Keep the failed head in the heap. Returning false ends this
+            // bounded drain, and the scheduled continuation retries it before
+            // any later request can overtake it, even if the panel has already
+            // moved beyond this coordinator's ownership.
+            return false
         }
         if case .windowDock = request.target {
             request.batchLineage.didParticipateWindowDock = true
@@ -1929,10 +1928,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
         )
     }
 
+    @discardableResult
     private func apply(
         _ candidate: WorkspaceTerminalFontSizePanelDiscovery.Candidate,
         to activeRequest: inout ActiveRequest
-    ) {
+    ) -> TerminalFontSizeMutationOutcome {
         let terminalPanel = candidate.panel
         let alreadyIncludesChange = surfaceIncludesChange(
             on: terminalPanel,
@@ -1952,7 +1952,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         } else {
             outcome = .alreadySatisfied
         }
-        guard outcome.didSucceed else { return }
+        guard outcome.didSucceed else { return outcome }
         recordAppliedChange(
             on: terminalPanel,
             for: activeRequest.request
@@ -1974,6 +1974,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 .windowDockLineageSelection
                 .consider(terminalPanel)
         }
+        return outcome
     }
 
     private func finish(_ activeRequest: ActiveRequest) {
@@ -2189,10 +2190,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     break drainLoop
                 }
                 current.pendingCandidate = nil
-                apply(
+                let outcome = apply(
                     pendingCandidate,
                     to: &current
                 )
+                if !outcome.didSucceed {
+                    current.pendingCandidate = pendingCandidate
+                    activeRequest = current
+                    break drainLoop
+                }
                 activeRequest = current
                 continue
             }
@@ -2237,7 +2243,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 break drainLoop
             }
 
-            apply(candidate, to: &current)
+            let outcome = apply(candidate, to: &current)
+            if !outcome.didSucceed {
+                current.pendingCandidate = candidate
+                activeRequest = current
+                break drainLoop
+            }
             activeRequest = current
         }
 

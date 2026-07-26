@@ -7480,6 +7480,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             clearNonFocusSplitFocusReassert()
         }
+        terminalFontSizeChangeCoordinator?
+            .terminalDidEnterWorkspace(
+                newPanel,
+                workspace: self
+            )
         rememberTerminalConfigInheritanceSource(newPanel)
 
         if autoRefreshMetadata {
