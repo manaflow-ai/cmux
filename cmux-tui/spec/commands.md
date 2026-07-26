@@ -654,6 +654,11 @@ Errors: `unknown workspace <id>`, `layout must contain at least one leaf`,
 `leaf command must not be empty`, spawn or PTY error string, and `bad request:
 ...`.
 
+Protocol v9 can expose raw upstream text in these errors. Clients must not parse
+or persist it as a stable API value. The structured, sanitized replacement is a
+required vNext primitive in
+[`programmability.md`](programmability.md#required-vnext-primitives).
+
 CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--cols <n> --rows <n>] --layout <json>`; plain stdout prints the new screen and created pane/surface pairs; JSON stdout prints the exact result object.
 
 ### send
@@ -3391,7 +3396,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` permanently outrank later socket reports until another hook report changes the record or the surface closes. Protocol v9 accepts only `socket` and `hook`; `detected` is an enum-only reserved value with no current producer. The server trusts the caller-supplied source string and does not authenticate hook provenance.
+Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` permanently outrank later socket reports until another hook report changes the record or the surface closes. Protocol v9 accepts only `socket` and `hook`; `detected` is an enum-only reserved value with no current producer. The server trusts the caller-supplied source string and does not authenticate hook provenance. This is a v9 integrity limitation; vNext must bind source precedence to authenticated producer context.
 
 Params:
 

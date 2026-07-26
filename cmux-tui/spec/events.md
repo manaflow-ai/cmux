@@ -952,7 +952,7 @@ object{
 }
 ```
 
-The initial browser state includes `frame`; later state updates omit it. Browser commands returning `object{}` are queue acknowledgements, so clients observe their eventual outcome here.
+The initial browser state includes `frame`; later state updates omit it. Browser commands returning `object{}` are queue acknowledgements, so clients observe their eventual outcome here. Protocol v9 `error` can contain raw browser-runtime text and is not stable or safe to parse; vNext replaces it with the structured, sanitized error contract.
 
 ### frame
 

@@ -97,6 +97,11 @@ When a machine declares provider-owned workspaces, the provider must advertise `
 
 The authority is a random value of at least 32 bytes scoped to one long-lived mux. The provider persists it server-side, provisions the same value as `CMUX_PROVIDER_WORKSPACE_AUTHORITY` when starting that mux, and returns it to every authorized team member who opens the machine. It stays stable across frontend reconnects, concurrent team members, and mux software upgrades. On Linux, a root-owned manager may rotate it live through [`provider-management-v1`](provider-management.md) using mux-generation and authority-generation fences. Without that protocol, rotation requires an atomic mux restart and persisted-record update. A session-owned machine must omit the result field. The client rejects either a missing provider-owned authority or an authority attached to a session-owned machine.
 
+V1 treats that shared value as a bearer capability. Any frontend that receives it
+and can reach the mux socket can invoke provider-authority commands directly.
+vNext must replace the shared bearer with a provider-authenticated channel or
+scoped per-frontend or per-operation capabilities.
+
 A provider-authorized mux starts in provider-managed mode before accepting its first control connection. Ordinary rename and close commands are blocked immediately. The provider frontend includes the authority only in the private mirror handshake and post-provider rename or close commit; the mux compares it in constant time. This prevents an ordinary control-socket client from claiming ownership or forging a mirror commit after a provider mutation succeeds.
 
 Control requests time out after 30 seconds. Machine open may wait up to five minutes for provisioning or wake. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids and bearer values are bounded. Bearer and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.

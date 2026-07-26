@@ -199,6 +199,10 @@ Static tokens and reconnect credentials are bearer credentials with ordinary con
 
 The v9 server begins commands serially in receive order on each connection. A blocking `wait-for` delays later commands on that connection. A client request timeout stops local waiting only; it does not cancel execution, and a late mutation may still commit.
 
+After a timeout, clients must not retry a non-idempotent legacy mutation until a
+snapshot or event reconciles the original outcome. A durable mutation retries
+with the same `(origin, mutation_id)` so the server can replay its receipt.
+
 Repeated `subscribe` calls and repeated attachments create independent server streams without public stream ids. Closing a local iterator on a shared connection does not cancel its server stream. A v9 client that needs independent cancellation uses a dedicated connection and closes it. On one shared connection, use at most one subscription and one attachment per surface.
 
 The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
