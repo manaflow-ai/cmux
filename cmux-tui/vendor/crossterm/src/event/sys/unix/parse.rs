@@ -607,7 +607,13 @@ pub(crate) fn parse_csi_u_encoded_key_code(buffer: &[u8]) -> io::Result<Option<I
         kind,
         state_from_keycode | state_from_modifiers,
     );
-    let input_event = if shifted_key.is_some() || base_layout_key.is_some() || !text.is_empty() {
+    let ambiguous_alt_character =
+        modifiers.contains(KeyModifiers::ALT) && matches!(keycode, KeyCode::Char(_));
+    let input_event = if shifted_key.is_some()
+        || base_layout_key.is_some()
+        || !text.is_empty()
+        || ambiguous_alt_character
+    {
         Event::EnhancedKey(EnhancedKeyEvent { key_event, shifted_key, base_layout_key, text })
     } else {
         Event::Key(key_event.normalize_case())
