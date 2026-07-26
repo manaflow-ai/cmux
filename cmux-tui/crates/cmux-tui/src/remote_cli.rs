@@ -1016,6 +1016,47 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum RpcInputEvent {
+    Line(String),
+    End,
+    RuntimeFinished,
+}
+
+fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Result<String>>> {
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    let _reader = thread::Builder::new()
+        .name("cmux-rpc-stdin".into())
+        .spawn(move || {
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {
+                if sender.blocking_send(line).is_err() {
+                    break;
+                }
+            }
+        })
+        .context("could not start RPC stdin reader")?;
+    Ok(receiver)
+}
+
+async fn next_rpc_input(
+    input: &mut tokio::sync::mpsc::Receiver<io::Result<String>>,
+    finished: &mut tokio::sync::watch::Receiver<bool>,
+) -> anyhow::Result<RpcInputEvent> {
+    if *finished.borrow() {
+        return Ok(RpcInputEvent::RuntimeFinished);
+    }
+    tokio::select! {
+        biased;
+        _ = finished.changed() => Ok(RpcInputEvent::RuntimeFinished),
+        line = input.recv() => match line {
+            Some(Ok(line)) => Ok(RpcInputEvent::Line(line)),
+            Some(Err(error)) => Err(error.into()),
+            None => Ok(RpcInputEvent::End),
+        },
+    }
+}
+
 fn run_rpc(args: &[String]) -> anyhow::Result<()> {
     let mut flags = parse_connect_flags(args)?;
     let single = flags.rpc_request.take();
@@ -1030,9 +1071,9 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
             println!("{}", serde_json::to_string(&response)?);
             return Ok::<_, anyhow::Error>(());
         }
-        let stdin = io::stdin();
-        for line in stdin.lock().lines() {
-            let line = line?;
+        let mut input = spawn_rpc_stdin_reader()?;
+        let mut finished = connected.runtime.subscribe_finished();
+        while let RpcInputEvent::Line(line) = next_rpc_input(&mut input, &mut finished).await? {
             if line.trim().is_empty() {
                 continue;
             }

@@ -1061,7 +1061,9 @@ impl RemoteDaemon {
                 let connections = self.connections().await;
                 for connection in connections {
                     if !self.auth.device_is_active(&connection.device_id).await {
-                        let _ = connection.close().await;
+                        tokio::spawn(async move {
+                            let _ = connection.close().await;
+                        });
                     }
                 }
             }

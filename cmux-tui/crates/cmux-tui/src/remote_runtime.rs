@@ -371,6 +371,7 @@ pub struct ClientRuntimeHandle {
     connection: Arc<ClientConnection>,
     multiplexer: Arc<ServiceMultiplexer>,
     shutdown: watch::Sender<bool>,
+    finished: watch::Receiver<bool>,
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
 }
 
@@ -389,6 +390,10 @@ impl ClientRuntimeHandle {
 
     pub fn is_finished(&self) -> bool {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
+    }
+
+    pub fn subscribe_finished(&self) -> watch::Receiver<bool> {
+        self.finished.clone()
     }
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
@@ -416,13 +421,16 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     options.reconnect.validate()?;
     let startup_timeout = options.startup_timeout;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let thread = thread::Builder::new()
         .name("cmux-remote-client".into())
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
-            runtime.block_on(run_client(options, shutdown_rx, ready_tx))
+            let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            finished_tx.send_replace(true);
+            result
         })
         .context("could not start remote client thread")?;
     let ready = match ready_rx.recv_timeout(startup_timeout) {
@@ -446,6 +454,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
         connection: ready.connection,
         multiplexer: ready.multiplexer,
         shutdown: shutdown_tx,
+        finished: finished_rx,
         thread: Some(thread),
     })
 }
