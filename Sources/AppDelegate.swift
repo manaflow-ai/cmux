@@ -7332,7 +7332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             title: title,
             initialBrowserURL: url,
             initialBrowserOmnibarVisible: false,
-            initialBrowserTransparentBackground: true,
+            initialBrowserTransparentBackground: true, shouldApplyWorkspaceDirectoryCustomization: false,
             focusInitialBrowserAddressBarOnCreate: false,
             createdWorkspaceHandler: { workspace in
                 createdWorkspace = workspace
@@ -7381,7 +7381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false,
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
@@ -7423,8 +7423,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         title: title,
                         initialSurface: .browser,
                         initialBrowserURL: initialBrowserURL,
-                        initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                        initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                        initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                        shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
                     )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
@@ -7471,8 +7471,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialSurface: initialSurface,
                 title: title,
                 initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             ) else {
                 return false
             }
@@ -7489,8 +7489,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title,
                 initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             )
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -7504,7 +7504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialSurface: initialSurface,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization,
             event: event,
             debugSource: debugSource
         ) {
@@ -7598,6 +7598,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             workspace = context.tabManager.addWorkspace(
                 title: workspaceTitle,
+                titleSource: .auto,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
                 select: true,
@@ -8286,7 +8287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false,
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -8341,7 +8342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true
+                select: true, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
@@ -8349,10 +8350,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
                 select: true,
-                autoWelcomeIfNeeded: initialTerminalInput == nil
+                autoWelcomeIfNeeded: initialTerminalInput == nil, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
             )
         } else if title != nil {
-            workspace = context.tabManager.addWorkspace(title: title, select: true)
+            workspace = context.tabManager.addWorkspace(title: title, select: true, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization)
         } else {
             workspace = context.tabManager.addTab(select: true)
         }
@@ -8690,6 +8691,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
+            workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore(
+                defaults: .standard
+            ),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
@@ -12552,7 +12556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 var shortcutMs: Double = 0
                 CmuxTypingTiming.logEventDelay(path: "appMonitor", event: event)
                 let shortcutMonitorTraceEnabled =
-                    ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+                    Self.shortcutMonitorTraceEnvironmentEnabled
                     || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
                 if shortcutMonitorTraceEnabled {
                     let frType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -12932,23 +12936,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // charactersIgnoringModifiers returns non-ASCII characters that never match
         // Latin shortcut keys. Normalize via KeyboardLayout so downstream comparisons
         // (Cmd+1-9, Ctrl+1-9, omnibar N/P, command palette, etc.) work correctly.
-        let chars = KeyboardLayout.normalizedCharacters(for: event)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let hasControl = flags.contains(.control)
-        let hasCommand = flags.contains(.command)
-        let hasOption = flags.contains(.option)
-        let isControlOnly = hasControl && !hasCommand && !hasOption
-        let controlDChar = chars == "d" || event.characters == "\u{04}"
-        let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
-        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
         if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
+           pendingConfiguredShortcutChord.windowNumber == configuredShortcutChordWindowNumber(for: event) {
             activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
         } else {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
+
+        if let textBoxShortcutTabManager = terminalTextShortcutBypassTabManagerBeforeContextResolution(
+            event: event,
+            normalizedFlags: flags.subtracting([.numericPad, .function, .capsLock])
+        ) {
+            textBoxShortcutTabManager.clearFocusedTerminalTextBoxHideEscapeArm()
+            return false
+        }
+
+        let chars = KeyboardLayout.normalizedCharacters(for: event)
+        let hasControl = flags.contains(.control)
+        let hasCommand = flags.contains(.command)
+        let hasOption = flags.contains(.option)
+        let isControlOnly = hasControl && !hasCommand && !hasOption
+        let controlDChar = chars == "d" || event.characters == "\u{04}"
+        let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -14218,6 +14230,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !reopenPreviousSession() {
                 NSSound.beep()
             }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .reopenClosedWorkspace) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = reopenMostRecentlyClosedWorkspace(preferredTabManager: routedManager)
             return true
         }
 
@@ -17433,6 +17451,12 @@ private extension NSWindow {
             }
 #endif
             if !consumedByMenu {
+                if firstResponderGhosttyView.consumeUnavailableCopyMenuAction(event) {
+#if DEBUG
+                    cmuxDebugLog("  → mainMenu miss; consumed unavailable terminal Copy")
+#endif
+                    return true
+                }
                 // After a direct-to-menu miss, let Ghostty resolve the command key
                 // through its normal binding path so user key overrides still win.
                 let consumedByGhostty = firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event)

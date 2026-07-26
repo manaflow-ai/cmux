@@ -32,10 +32,4 @@ public protocol WorkspaceSurfaceResumeBinding: Sendable {
         temporaryDirectory: URL,
         allowLauncherScript: Bool
     ) -> String?
-
-    /// Returns a launcher command used when the restored terminal should run a command.
-    func startupCommandWithLauncherScript(
-        fileManager: FileManager,
-        temporaryDirectory: URL
-    ) -> String?
 }
