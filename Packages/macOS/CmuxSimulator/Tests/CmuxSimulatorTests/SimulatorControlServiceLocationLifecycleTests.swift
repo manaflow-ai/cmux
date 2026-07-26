@@ -691,11 +691,3 @@ struct SimulatorControlServiceLocationLifecycleTests {
         Issue.record("Condition did not become true")
     }
 }
-
-private struct LegacyLocationRouteRecoveryRecord: Codable {
-    let deviceIdentifier: String
-    let initialCoordinate: SimulatorLocationCoordinate
-    let state: SimulatorLocationRouteRecoveryState
-    let ownershipToken: UUID
-    let ownerProcessIdentity: SimulatorProcessIdentity
-}
