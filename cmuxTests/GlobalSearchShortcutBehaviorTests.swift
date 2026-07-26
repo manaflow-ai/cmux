@@ -126,6 +126,58 @@ extension GlobalSearchShortcutBehaviorTests {
 #endif
     }
 
+    @Test func visibleSearchChordEditingSuffixCompletesThroughLocalMonitorChain() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        defer { closeWindow(window, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                chordKey: "c",
+                chordCommand: true
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        let popoverWindow = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The real Search popover and its local key monitor must be active"
+        )
+
+        NSApp.sendEvent(
+            try makeKeyDownEvent(
+                key: "k",
+                modifiers: [.command],
+                keyCode: 40,
+                windowNumber: popoverWindow.windowNumber
+            )
+        )
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        NSApp.sendEvent(
+            try makeKeyDownEvent(
+                key: "c",
+                modifiers: [.command],
+                keyCode: 8,
+                windowNumber: popoverWindow.windowNumber
+            )
+        )
+
+        #expect(
+            waitUntilGlobalSearchCloses(),
+            "An editing-key suffix must complete an already-active Global Search chord"
+        )
+#else
+        Issue.record("Global Search local-monitor routing requires a DEBUG app-host build")
+#endif
+    }
+
     @Test func unrelatedChordSuffixPreservesPendingPrefixForDownstreamMonitor() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
