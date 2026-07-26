@@ -85,6 +85,9 @@ test("shared web test runner fails when default discovery finds no tests", () =>
       fixtureRoot,
     );
     expect(result.status).not.toBe(0);
+    expect(result.output).toContain(
+      "cmux web test runner found no test files",
+    );
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
