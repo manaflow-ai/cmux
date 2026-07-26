@@ -101,36 +101,29 @@ function decodedImageBytes(image: RenderGraphicImage): number {
   if (channels === 0) {
     throw new CmuxProtocolError(`render graphics image ${image.id} has an invalid format`);
   }
-  if (typeof image.data !== "string" || image.data.length % 4 !== 0) {
-    throw new CmuxProtocolError(`render graphics image ${image.id} data is not padded base64 text`);
-  }
-
-  const padding = image.data.endsWith("==") ? 2 : image.data.endsWith("=") ? 1 : 0;
-  const payloadLength = image.data.length - padding;
-  for (let index = 0; index < image.data.length; index += 1) {
-    const code = image.data.charCodeAt(index);
-    const payload = index < payloadLength;
-    const base64 = code >= 65 && code <= 90
-      || code >= 97 && code <= 122
-      || code >= 48 && code <= 57
-      || code === 43
-      || code === 47;
-    if (payload ? !base64 : code !== 61) {
-      throw new CmuxProtocolError(
-        `render graphics image ${image.id} data is not padded base64 text`,
-      );
-    }
-  }
-  const decodedBytes = (image.data.length / 4) * 3 - padding;
   const expectedBytes = image.width * image.height * channels;
   if (!Number.isSafeInteger(expectedBytes)
-    || expectedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES
-    || decodedBytes !== expectedBytes) {
+    || expectedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) {
     throw new CmuxProtocolError(
       `render graphics image ${image.id} pixel data does not match its dimensions`,
     );
   }
-  return decodedBytes;
+  const expectedEncodedLength = Math.ceil(expectedBytes / 3) * 4;
+  if (typeof image.data !== "string" || image.data.length !== expectedEncodedLength) {
+    throw new CmuxProtocolError(
+      `render graphics image ${image.id} pixel data does not match its dimensions`,
+    );
+  }
+  const expectedPadding = (3 - expectedBytes % 3) % 3;
+  const hasExpectedPadding = expectedPadding === 0
+    ? !image.data.endsWith("=")
+    : expectedPadding === 1
+      ? image.data.endsWith("=") && !image.data.endsWith("==")
+      : image.data.endsWith("==");
+  if (!hasExpectedPadding) {
+    throw new CmuxProtocolError(`render graphics image ${image.id} data is not padded base64 text`);
+  }
+  return expectedBytes;
 }
 
 function validateAuthoritativeImages(

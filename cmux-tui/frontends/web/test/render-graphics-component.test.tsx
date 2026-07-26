@@ -1,12 +1,17 @@
 import { render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RenderGraphicPlacement } from "cmux/browser";
 import { RenderGraphics } from "../src/components/RenderGraphics";
 import {
+  decodeRenderGraphicImage,
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   RENDER_GRAPHIC_CANVAS_COUNT_CAP,
 } from "../src/lib/renderGraphics";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
+import type {
+  RenderGraphicsDecodeRequest,
+  RenderGraphicsDecodeResponse,
+} from "../src/workers/renderGraphicsDecoder";
 
 function zeroBytesBase64(byteCount: number): string {
   const padding = byteCount % 3 === 1 ? "==" : byteCount % 3 === 2 ? "=" : "";
@@ -41,6 +46,38 @@ function placement(
     z,
   };
 }
+
+class WorkingWorker {
+  onmessage: ((event: MessageEvent<RenderGraphicsDecodeResponse>) => void) | null = null;
+  onerror: ((event: ErrorEvent) => void) | null = null;
+  onmessageerror: ((event: MessageEvent) => void) | null = null;
+  private terminated = false;
+
+  postMessage(request: RenderGraphicsDecodeRequest): void {
+    setTimeout(() => {
+      if (this.terminated) return;
+      const results = request.images.map((image) => {
+        const decoded = decodeRenderGraphicImage(image);
+        return {
+          id: image.id,
+          generation: image.generation,
+          pixels: decoded?.pixels.buffer ?? null,
+        };
+      });
+      this.onmessage?.(new MessageEvent("message", {
+        data: { requestId: request.requestId, results },
+      }));
+    }, 0);
+  }
+
+  terminate(): void {
+    this.terminated = true;
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal("Worker", WorkingWorker);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -93,6 +130,56 @@ describe("RenderGraphics canvas resource policy", () => {
     },
   );
 
+  it("does not decode a large image on the browser thread after worker failure", async () => {
+    class FailingWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      postMessage(): void {
+        setTimeout(() => this.onerror?.(new ErrorEvent("error")), 0);
+      }
+
+      terminate(): void {}
+    }
+    vi.stubGlobal("Worker", FailingWorker);
+    const width = 1_000;
+    const height = 1_000;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: "AAAAAA==",
+      }, {
+        id: 2,
+        generation: 1,
+        width,
+        height,
+        format: "rgba",
+        data: zeroBytesBase64(width * height * 4),
+      }],
+      placements: [
+        placement(1, 1, 1),
+        { ...placement(2, width, height), image_id: 2 },
+      ],
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(1);
+    });
+    expect(container.querySelector("[data-graphic-placement='2:2:0']")).toBeNull();
+  });
+
   it("decodes asynchronously and bounds aggregate backing for repeated large placements", async () => {
     const width = 1_000;
     const height = 1_000;
@@ -137,7 +224,7 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(backingBytes).toBeLessThanOrEqual(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
   });
 
-  it("admits an exact-cap z-ordered protocol prefix", async () => {
+  it("preserves the topmost placement under the backing cap", async () => {
     const width = 1_024;
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
@@ -178,8 +265,63 @@ describe("RenderGraphics canvas resource policy", () => {
 
     expect(backingBytes).toBe(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
     expect(canvases.map((canvas) => canvas.dataset.graphicPlacement)).toEqual(
-      Array.from({ length: 16 }, (_, index) => `1:${index + 1}:0`),
+      [
+        ...Array.from({ length: 15 }, (_, index) => `1:${index + 2}:0`),
+        "1:17:0",
+      ],
     );
+  });
+
+  it("shares one backing budget across terminal surfaces and releases it on unmount", async () => {
+    const width = 1_024;
+    const height = 1_024;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width,
+        height,
+        format: "rgba",
+        data: zeroBytesBase64(width * height * 4),
+      }],
+      placements: Array.from(
+        { length: 16 },
+        (_, index) => placement(index + 1, width, height),
+      ),
+    };
+    const surfaces = (includeFirst: boolean) => (
+      <>
+        {includeFirst && (
+          <section data-testid="first" key="first">
+            <RenderGraphics graphics={graphics}>
+              <div>first terminal</div>
+            </RenderGraphics>
+          </section>
+        )}
+        <section data-testid="second" key="second">
+          <RenderGraphics graphics={graphics}>
+            <div>second terminal</div>
+          </RenderGraphics>
+        </section>
+      </>
+    );
+    const { container, getByTestId, rerender } = render(surfaces(true));
+
+    await waitFor(
+      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
+      { timeout: 5_000 },
+    );
+    const backingBytes = [...container.querySelectorAll<HTMLCanvasElement>(
+      "[data-graphic-placement]",
+    )].reduce((total, canvas) => total + canvas.width * canvas.height * 4, 0);
+    expect(backingBytes).toBe(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
+
+    rerender(surfaces(false));
+    await waitFor(() => {
+      expect(getByTestId("second").querySelectorAll("[data-graphic-placement]"))
+        .toHaveLength(16);
+    });
   });
 
   it("caps tiny placements by canvas count independently of backing bytes", async () => {

@@ -78,6 +78,25 @@ describe("render graphics", () => {
     expect(decodeRenderGraphicImage(oversized)).toBeNull();
   });
 
+  it("rejects invalid base64 characters and padding in the decoder", () => {
+    const image: RenderGraphicImage = {
+      id: 9,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgb",
+      data: "AAA!",
+    };
+
+    expect(decodeRenderGraphicImage(image)).toBeNull();
+    expect(decodeRenderGraphicImage({ ...image, data: "AA=A" })).toBeNull();
+    expect(decodeRenderGraphicImage({
+      ...image,
+      format: "rgba",
+      data: "AAAAAA=A",
+    })).toBeNull();
+  });
+
   it("shares the transport budget and continues decoding after an oversized image", () => {
     expect(RENDER_GRAPHIC_MAX_DECODED_BYTES).toBe(10_000_000);
     expect(RENDER_GRAPHIC_MAX_ENCODED_CHARS).toBe(13_333_336);

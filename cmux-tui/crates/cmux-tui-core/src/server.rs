@@ -717,6 +717,7 @@ const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 const OUTBOUND_GLOBAL_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 4;
+const OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY: usize = OUTBOUND_CONTROL_BYTE_RESERVE * 4;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -879,20 +880,30 @@ impl Drop for BudgetedJsonWriter {
 struct RenderService {
     graphic_base64: Mutex<RenderGraphicBase64Cache>,
     outbound_budget: Arc<OutboundByteBudget>,
+    control_budget: Arc<OutboundByteBudget>,
 }
 
 impl RenderService {
     fn new() -> Self {
-        Self::new_with_outbound_budget(OUTBOUND_GLOBAL_BYTE_CAPACITY)
+        Self::new_with_outbound_budgets(
+            OUTBOUND_GLOBAL_BYTE_CAPACITY,
+            OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY,
+        )
     }
 
+    #[cfg(test)]
     fn new_with_outbound_budget(max_bytes: usize) -> Self {
+        Self::new_with_outbound_budgets(max_bytes, OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY)
+    }
+
+    fn new_with_outbound_budgets(max_bytes: usize, control_max_bytes: usize) -> Self {
         Self {
             graphic_base64: Mutex::new(RenderGraphicBase64Cache::new(
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES,
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES,
             )),
             outbound_budget: Arc::new(OutboundByteBudget::new(max_bytes)),
+            control_budget: Arc::new(OutboundByteBudget::new(control_max_bytes)),
         }
     }
 
@@ -902,6 +913,15 @@ impl RenderService {
 
     fn serialize<T: Serialize + ?Sized>(&self, value: &T) -> std::io::Result<Arc<BudgetedText>> {
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
+        Ok(writer.finish())
+    }
+
+    fn serialize_control<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
         Ok(writer.finish())
     }
@@ -1008,7 +1028,7 @@ impl MessageWriter {
     fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
         Ok(OutboundStream::new(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
-            self.render_service.serialize(overflow)?,
+            self.render_service.serialize_control(overflow)?,
         ))
     }
 
@@ -1076,7 +1096,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize(value)
+            .serialize_control(value)
             .and_then(|text| self.sink.send_terminal(text, stream));
         if result.is_err() {
             self.close();
@@ -1088,8 +1108,10 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result =
-            self.render_service.serialize(value).and_then(|text| self.sink.send_control(text));
+        let result = self
+            .render_service
+            .serialize_control(value)
+            .and_then(|text| self.sink.send_control(text));
         if result.is_err() {
             self.close();
         }
@@ -5475,6 +5497,37 @@ mod tests {
     }
 
     #[test]
+    fn global_render_pressure_does_not_starve_control_replies() {
+        let overflow = attach_overflow_json(1);
+        let render = json!({"event": "render-state", "data": "x".repeat(300)});
+        let render_bytes = serde_json::to_vec(&render).unwrap().len();
+        let service = Arc::new(RenderService::new_with_outbound_budgets(render_bytes, 1_024));
+        let render_outbound = Arc::new(BoundedOutbound::default());
+        let control_outbound = Arc::new(BoundedOutbound::default());
+        let render_writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: render_outbound, control: None },
+            service.clone(),
+        );
+        let control_writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: control_outbound.clone(), control: None },
+            service,
+        );
+        let render_stream = render_writer.start_stream(&overflow).unwrap();
+        let blocked_stream = control_writer.start_stream(&overflow).unwrap();
+
+        render_writer.send_initial(&render, &render_stream).unwrap();
+        assert_eq!(
+            control_writer.send_initial(&render, &blocked_stream).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        control_writer.send_control(&json!({"id": 7, "ok": true})).unwrap();
+
+        let reply: Value = serde_json::from_str(&control_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(reply["id"], 7);
+        assert!(control_writer.is_open());
+    }
+
+    #[test]
     fn render_service_shares_cache_across_connections_and_releases_it_with_its_owner() {
         let service = Arc::new(RenderService::new());
         let weak = Arc::downgrade(&service);
@@ -5929,7 +5982,7 @@ mod tests {
         let regular = outbound.push_regular(regular_text, &stream).unwrap_err();
         assert_eq!(regular.kind(), std::io::ErrorKind::WouldBlock);
         let control_text =
-            service.serialize(&"x".repeat(OUTBOUND_CONTROL_BYTE_RESERVE + 1)).unwrap();
+            service.serialize_control(&"x".repeat(OUTBOUND_CONTROL_BYTE_RESERVE + 1)).unwrap();
         let control = outbound.push_control(control_text).unwrap_err();
         assert_eq!(control.kind(), std::io::ErrorKind::WouldBlock);
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();

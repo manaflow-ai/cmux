@@ -7,6 +7,7 @@ import type {
   RenderRow,
   RenderStateEvent,
 } from "cmux/browser";
+import { decodeRenderGraphicImage } from "../src/lib/renderGraphics";
 import { applyDelta, applySnapshot } from "../src/lib/renderModel";
 
 const cursor: RenderCursor = {
@@ -170,11 +171,11 @@ describe("render model", () => {
     expect(replaced.graphics.placements[0]?.viewport_col).toBe(3);
   });
 
-  it("does not rescan retained image payloads for graphics deltas", () => {
+  it("does not scan image payload characters on the browser thread", () => {
     const charCodeAt = vi.spyOn(String.prototype, "charCodeAt");
     try {
       const initial = applySnapshot(snapshot());
-      charCodeAt.mockClear();
+      expect(charCodeAt).not.toHaveBeenCalled();
 
       const moved = applyDelta(initial, delta({
         graphics: {
@@ -195,7 +196,7 @@ describe("render model", () => {
           }],
         },
       }));
-      expect(charCodeAt).toHaveBeenCalledTimes(8);
+      expect(charCodeAt).not.toHaveBeenCalled();
     } finally {
       charCodeAt.mockRestore();
     }
@@ -324,18 +325,22 @@ describe("render model", () => {
     }))).toThrow(/pixel data does not match its dimensions/);
   });
 
-  it("rejects non-base64 image text even when its length matches the dimensions", () => {
-    expect(() => applySnapshot(snapshot([], {
+  it("defers full base64 validation to the image decoder", () => {
+    const image: RenderGraphicImage = {
+      id: 1,
       generation: 1,
-      images: [{
-        id: 1,
-        generation: 1,
-        width: 1,
-        height: 1,
-        format: "rgb",
-        data: "AAA!",
-      }],
+      width: 1,
+      height: 1,
+      format: "rgb",
+      data: "AAA!",
+    };
+    const model = applySnapshot(snapshot([], {
+      generation: 1,
+      images: [image],
       placements: [],
-    }))).toThrow(/not padded base64 text/);
+    }));
+
+    expect(model.graphics.images).toHaveLength(1);
+    expect(decodeRenderGraphicImage(image)).toBeNull();
   });
 });

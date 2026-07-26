@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RenderGraphicImage } from "cmux/browser";
 import {
   decodeRenderGraphicImage,
+  renderGraphicDecodedByteLength,
   type DecodedRenderGraphicImage,
 } from "../lib/renderGraphics";
 import type {
@@ -13,6 +14,8 @@ interface DecodedPixels {
   pixels: Uint8ClampedArray<ArrayBuffer>;
 }
 
+const RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES = 256 * 1024;
+
 function imageKey(image: RenderGraphicImage): string {
   return `${image.id}:${image.generation}`;
 }
@@ -21,7 +24,13 @@ function decodeWithoutWorker(
   images: readonly RenderGraphicImage[],
 ): RenderGraphicsDecodeResponse["results"] {
   return images.map((image) => {
-    const decoded = decodeRenderGraphicImage(image);
+    // A failed or unavailable worker must not turn a multi-megabyte validation
+    // scan and decode into one long task on the browser thread.
+    const byteLength = renderGraphicDecodedByteLength(image);
+    const decoded = byteLength !== null
+      && byteLength <= RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES
+      ? decodeRenderGraphicImage(image)
+      : null;
     return {
       id: image.id,
       generation: image.generation,

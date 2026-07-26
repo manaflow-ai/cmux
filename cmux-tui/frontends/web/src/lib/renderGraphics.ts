@@ -7,8 +7,9 @@ import {
 
 const KITTY_BELOW_BACKGROUND_Z = -1_073_741_824;
 
-// Per rendered terminal surface. This admits sixteen 1024px square RGBA
-// placements while bounding their simultaneous canvas backing to 64 MiB.
+// Shared by every rendered terminal surface in the browser page. This admits
+// sixteen 1024px square RGBA placements while bounding all canvas backing to
+// 64 MiB.
 export const RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP = 64 * 1024 * 1024;
 
 // Each placement owns a DOM canvas, 2D context, and ImageData even when its
@@ -42,9 +43,10 @@ function nonnegativeInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
-export function decodeRenderGraphicImage(
+export function renderGraphicDecodedByteLength(
   image: RenderGraphicImage,
-): DecodedRenderGraphicImage | null {
+): number | null {
+  if (typeof image.data !== "string") return null;
   if (!nonnegativeInteger(image.width) || !nonnegativeInteger(image.height)
     || image.width === 0 || image.height === 0) return null;
   const pixelCount = image.width * image.height;
@@ -53,8 +55,39 @@ export function decodeRenderGraphicImage(
   const expectedBytes = pixelCount * bytesPerPixel;
   if (bytesPerPixel === 0 || !Number.isSafeInteger(expectedBytes)
     || expectedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) return null;
-  const maximumEncodedLength = Math.ceil(expectedBytes / 3) * 4;
-  if (image.data.length > maximumEncodedLength) return null;
+  const expectedEncodedLength = Math.ceil(expectedBytes / 3) * 4;
+  if (image.data.length !== expectedEncodedLength) return null;
+  const expectedPadding = (3 - expectedBytes % 3) % 3;
+  const hasExpectedPadding = expectedPadding === 0
+    ? !image.data.endsWith("=")
+    : expectedPadding === 1
+      ? image.data.endsWith("=") && !image.data.endsWith("==")
+      : image.data.endsWith("==");
+  return hasExpectedPadding ? expectedBytes : null;
+}
+
+function hasCanonicalBase64Payload(data: string, decodedBytes: number): boolean {
+  const padding = (3 - decodedBytes % 3) % 3;
+  const payloadLength = data.length - padding;
+  for (let index = 0; index < payloadLength; index += 1) {
+    const code = data.charCodeAt(index);
+    if (!(code >= 65 && code <= 90)
+      && !(code >= 97 && code <= 122)
+      && !(code >= 48 && code <= 57)
+      && code !== 43
+      && code !== 47) return false;
+  }
+  for (let index = payloadLength; index < data.length; index += 1) {
+    if (data.charCodeAt(index) !== 61) return false;
+  }
+  return true;
+}
+
+export function decodeRenderGraphicImage(
+  image: RenderGraphicImage,
+): DecodedRenderGraphicImage | null {
+  const expectedBytes = renderGraphicDecodedByteLength(image);
+  if (expectedBytes === null || !hasCanonicalBase64Payload(image.data, expectedBytes)) return null;
 
   let bytes: Uint8Array;
   try {
@@ -69,6 +102,7 @@ export function decodeRenderGraphicImage(
     return { image, pixels };
   }
 
+  const pixelCount = image.width * image.height;
   const pixels = new Uint8ClampedArray(pixelCount * 4);
   for (let source = 0, destination = 0; source < bytes.length; source += 3, destination += 4) {
     pixels[destination] = bytes[source];
