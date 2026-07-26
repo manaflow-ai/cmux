@@ -4703,6 +4703,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (start_tx, start_rx) = mpsc::channel();
+        let (next_frame_tx, next_frame_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
@@ -4813,6 +4814,19 @@ mod tests {
                     method => panic!("unexpected CDP method {method}"),
                 }
             }
+            next_frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "c2Vjb25k",
+                        "sessionId": 10,
+                        "metadata": {"deviceWidth": 80, "deviceHeight": 48}
+                    }
+                }),
+            );
             stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
@@ -4843,6 +4857,19 @@ mod tests {
         assert_eq!(
             browser.latest_frame().map(|frame| frame.data_b64),
             Some(ONE_PIXEL_PNG.to_string())
+        );
+
+        next_frame_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline
+            && browser.latest_frame().is_none_or(|frame| frame.data_b64 != "c2Vjb25k")
+        {
+            thread::yield_now();
+        }
+        assert_eq!(
+            browser.latest_frame().map(|frame| frame.data_b64),
+            Some("c2Vjb25k".to_string()),
+            "loader verification must keep later timestamp-less stream frames updating"
         );
 
         stop_tx.send(()).unwrap();
@@ -4913,6 +4940,104 @@ mod tests {
         assert!(
             !browser.may_need_screencast_capture(frame_epoch, navigation_epoch),
             "one verified replacement must suppress repeated captures for the same frame epoch"
+        );
+    }
+
+    #[test]
+    fn failed_screencast_authority_suppresses_retries_for_epoch() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let mut capture_attempts = 0;
+            loop {
+                if stop_rx.try_recv().is_ok() {
+                    break;
+                }
+                let request = match ws.read() {
+                    Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).unwrap(),
+                    Ok(Message::Binary(bytes)) => serde_json::from_slice::<Value>(&bytes).unwrap(),
+                    Ok(_) => continue,
+                    Err(tungstenite::Error::Io(error))
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        continue;
+                    }
+                    Err(_) => break,
+                };
+                let method = request["method"].as_str().unwrap();
+                let response = match method {
+                    "Target.setDiscoverTargets" => {
+                        json!({"id": request["id"], "result": {}})
+                    }
+                    "Page.getFrameTree" => json!({
+                        "id": request["id"],
+                        "result": {
+                            "frameTree": {
+                                "frame": {
+                                    "id": "main-frame",
+                                    "loaderId": "loader-1",
+                                    "url": "https://example.test"
+                                }
+                            }
+                        }
+                    }),
+                    "Page.captureScreenshot" => {
+                        capture_attempts += 1;
+                        json!({
+                            "id": request["id"],
+                            "error": {
+                                "code": -32000,
+                                "message": "injected persistent capture failure"
+                            }
+                        })
+                    }
+                    method => panic!("unexpected CDP method {method}"),
+                };
+                write_ws_json(&mut ws, response);
+            }
+            capture_attempts
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let frame_epoch = browser.frame_epoch.current();
+        let navigation_epoch = browser.frame_epoch.latest_navigation();
+
+        let capture = browser.authorize_screencast_capture_blocking(
+            "session-1",
+            "main-frame",
+            "loader-1",
+            frame_epoch,
+            navigation_epoch,
+        );
+        let retry_needed = browser.may_need_screencast_capture(frame_epoch, navigation_epoch);
+
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        let capture_attempts = server.join().unwrap();
+        assert!(capture.is_err());
+        assert_eq!(capture_attempts, AUTHORITY_CAPTURE_ATTEMPTS);
+        assert!(
+            !retry_needed,
+            "an exhausted recovery epoch must not start another frame-rate capture batch"
         );
     }
 
@@ -5379,6 +5504,22 @@ mod tests {
         );
         runtime.shutdown();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn captured_release_remains_admitted_during_ambiguous_reconfigure() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let (_, capture_generation) =
+            browser.capture_guarded_input_point(1, 1.0, 1.0).expect("live pointer capture");
+
+        browser.begin_reconfigure_frame_transition();
+
+        assert!(
+            browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
+            "a geometry barrier must preserve an accepted press's balancing release"
+        );
     }
 
     #[test]
