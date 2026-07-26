@@ -18,6 +18,21 @@ import Foundation
 /// telemetry that never notifies. Conflating a tool-start with an approval
 /// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
 struct FeedEventClassifier {
+    /// Maps a hidden Claude hook subcommand to the canonical Feed wire event.
+    static func wireEventName(forClaudeHookSubcommand subcommand: String) -> String {
+        switch subcommand {
+        case "session-start", "active": return "SessionStart"
+        case "prompt-submit": return "UserPromptSubmit"
+        case "pre-tool-use", "cron-create-guard": return "PreToolUse"
+        case "post-tool-use", "push-notification": return "PostToolUse"
+        case "task-sync": return "TodoWrite"
+        case "stop", "idle": return "Stop"
+        case "session-end": return "SessionEnd"
+        case "notification", "notify": return "Notification"
+        default: return ""
+        }
+    }
+
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
     /// blocks waiting for a user decision (and whether `FeedCoordinator`

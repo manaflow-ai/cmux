@@ -217,7 +217,7 @@ struct WorkstreamStoreTests {
             sessionId: "s1",
             hookEventName: .todoWrite,
             source: "claude",
-            toolInputJSON: #"{"todos":[{"id":"t1","content":"test","status":"in_progress"}]}"#
+            toolInputJSON: #"{"todos":[{"id":"t1","content":"test","activeForm":"testing","status":"in_progress"}]}"#
         ))
 
         if case .userPrompt(let text) = store.items[0].payload {
@@ -232,6 +232,8 @@ struct WorkstreamStoreTests {
         }
         if case .todos(let todos) = store.items[2].payload {
             #expect(todos.first?.content == "test")
+            #expect(todos.first?.activeForm == "testing")
+            #expect(todos.first?.displayContent == "testing")
             #expect(todos.first?.state == .inProgress)
         } else {
             Issue.record("expected todos payload")

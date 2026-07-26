@@ -90,6 +90,10 @@ struct FeedEventClassificationTests {
         }
     }
 
+    @Test func claudeTaskSyncUsesCanonicalTodoWriteEvent() {
+        #expect(FeedEventClassifier.wireEventName(forClaudeHookSubcommand: "task-sync") == "TodoWrite")
+    }
+
     // MARK: Generic agents without a dedicated approval event
 
     /// Agents whose only signal is `PreToolUse` (gemini, copilot, …) still

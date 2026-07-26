@@ -24580,6 +24580,15 @@ struct CMUXCLI {
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             printClaudeHookAck()
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
+        case "task-sync": runClaudeTaskSyncHook(
+            client: client,
+            telemetry: telemetry,
+            parsedInput: parsedInput,
+            sessionStore: sessionStore,
+            routing: hookRouting,
+            socketPassword: socketPassword,
+            markFeedTelemetryHandled: { didSendFeedTelemetry = true }
+        )
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -31825,16 +31834,18 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func sendFeedTelemetry(
+    func sendFeedTelemetry(
         client: SocketClient,
         source: String,
         subcommand: String,
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String? = nil,
         surfaceId: String? = nil,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        toolNameOverride: String? = nil,
+        toolInputOverride: Any? = nil
     ) {
-        let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
+        let hookEventName = FeedEventClassifier.wireEventName(forClaudeHookSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
@@ -31862,11 +31873,13 @@ export default CMUXSessionRestore;
             event["transcript_path"] = transcriptPath
         }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
-        let toolName = parsedInput.object?["tool_name"] as? String
+        let toolName = toolNameOverride ?? parsedInput.object?["tool_name"] as? String
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
-        if let toolInput = parsedInput.object?["tool_input"] {
+        if let toolInputOverride {
+            event["tool_input"] = toolInputOverride
+        } else if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -32363,19 +32376,6 @@ export default CMUXSessionRestore;
             if preferIncoming || target[key] == nil {
                 target[key] = value
             }
-        }
-    }
-
-    private static func feedEventName(forClaudeSubcommand sub: String) -> String {
-        switch sub {
-        case "session-start", "active": return "SessionStart"
-        case "prompt-submit": return "UserPromptSubmit"
-        case "pre-tool-use", "cron-create-guard": return "PreToolUse"
-        case "post-tool-use", "push-notification": return "PostToolUse"
-        case "stop", "idle": return "Stop"
-        case "session-end": return "SessionEnd"
-        case "notification", "notify": return "Notification"
-        default: return ""
         }
     }
 

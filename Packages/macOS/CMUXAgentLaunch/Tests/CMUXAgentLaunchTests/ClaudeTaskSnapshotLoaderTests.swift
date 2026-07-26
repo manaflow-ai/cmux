@@ -36,6 +36,39 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(todos.map(\.content) == ["Write the test", "Ship the fix"])
         #expect(todos.map(\.activeForm) == ["Writing the test", "Shipping the fix"])
         #expect(todos.map(\.state) == [.completed, .inProgress])
+        #expect(todos.map(\.displayContent) == ["Write the test", "Shipping the fix"])
+    }
+
+    @Test("Supports the unprefixed session directory layout")
+    func supportsUnprefixedSessionDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-tasks-\(UUID().uuidString)", isDirectory: true)
+        let sessionDirectory = root.appendingPathComponent("abc", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeTask(
+            #"{"id":"1","subject":"First task","status":"pending"}"#,
+            named: "1.json",
+            in: sessionDirectory
+        )
+
+        let todos = try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "abc")
+
+        #expect(todos.map(\.content) == ["First task"])
+    }
+
+    @Test("Resolves the task root from Claude's configured directory")
+    func resolvesConfiguredTaskRoot() {
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+
+        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+            environment: [:],
+            homeDirectoryURL: home
+        ).path == "/Users/example/.claude/tasks")
+        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+            environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude-profile"],
+            homeDirectoryURL: home
+        ).path == "/tmp/claude-profile/tasks")
     }
 
     private func writeTask(_ json: String, named name: String, in directory: URL) throws {

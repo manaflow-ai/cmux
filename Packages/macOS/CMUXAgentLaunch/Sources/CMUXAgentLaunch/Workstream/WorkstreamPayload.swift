@@ -72,12 +72,28 @@ public struct WorkstreamTaskTodo: Codable, Sendable, Equatable {
 
     public let id: String
     public let content: String
+    /// Present-tense task text used while this item is actively running.
+    public let activeForm: String?
     public let state: State
 
-    public init(id: String, content: String, state: State) {
+    public init(
+        id: String,
+        content: String,
+        activeForm: String? = nil,
+        state: State
+    ) {
         self.id = id
         self.content = content
+        self.activeForm = activeForm
         self.state = state
+    }
+
+    /// The task text best suited to a current-progress summary.
+    public var displayContent: String {
+        guard state == .inProgress,
+              let activeForm,
+              !activeForm.isEmpty else { return content }
+        return activeForm
     }
 }
 
