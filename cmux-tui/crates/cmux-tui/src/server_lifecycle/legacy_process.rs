@@ -648,6 +648,38 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
+    fn process_tree_termination_retries_post_freeze_metadata_errors() {
+        let mut child = Command::new("sleep")
+            .arg("60")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let process =
+            ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
+        let mut attempts = 0;
+
+        let result = retry_process_tree_termination(
+            process,
+            Instant::now() + Duration::from_secs(1),
+            |_| {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(io::Error::other("transient process metadata read"))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        child.kill().unwrap();
+        child.wait().unwrap();
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 2);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
     fn captured_session_waits_for_an_unavailable_exact_member_to_exit() {
         let mut command = Command::new("sleep");
         command.arg("60").stdout(Stdio::null()).stderr(Stdio::null());
