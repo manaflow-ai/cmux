@@ -140,11 +140,9 @@ actor BrowserDesignModeArtifactStore {
     func retainHandoffArtifacts(at paths: [String], lease: UUID) -> Bool {
         (try? withDirectoryLock {
             let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
-            let standardizedDirectory = directory.standardizedFileURL
             guard !urls.isEmpty,
                   urls.allSatisfy({
-                      $0.deletingLastPathComponent() == standardizedDirectory
-                          && !$0.lastPathComponent.hasPrefix(".")
+                      isStoreOwnedArtifactURL($0)
                           && fileManager.fileExists(atPath: $0.path)
                   }) else { return false }
 
@@ -191,14 +189,19 @@ actor BrowserDesignModeArtifactStore {
 
     /// Deletes one rejected candidate bundle under a single directory lock.
     func remove(_ urls: [URL]) {
-        guard !urls.isEmpty else { return }
+        let ownedURLs = urls
+            .map(\.standardizedFileURL)
+            .filter(isStoreOwnedArtifactURL)
+        guard !ownedURLs.isEmpty else { return }
         try? withDirectoryLock {
-            urls.forEach { removeArtifactLocked(at: $0) }
+            ownedURLs.forEach { removeArtifactLocked(at: $0) }
         }
     }
 
     /// Makes a former live-context file prunable without changing its handed-off path.
     func release(_ url: URL) {
+        let url = url.standardizedFileURL
+        guard isStoreOwnedArtifactURL(url) else { return }
         try? withDirectoryLock {
             if url.lastPathComponent.hasSuffix("-\(liveContextSuffix)"),
                fileManager.fileExists(atPath: url.path) {
@@ -252,6 +255,15 @@ actor BrowserDesignModeArtifactStore {
                 removeArtifactLocked(at: staleURL)
             }
         }
+    }
+
+    private func isStoreOwnedArtifactURL(_ url: URL) -> Bool {
+        let filename = url.lastPathComponent
+        guard url.deletingLastPathComponent() == directory.standardizedFileURL,
+              filename.hasPrefix("surface-") else { return false }
+        return filename.hasSuffix("-\(Self.screenshotSuffix)")
+            || filename.hasSuffix("-context.json")
+            || filename.hasSuffix("-\(liveContextSuffix)")
     }
 
     private func isLiveContext(_ url: URL) -> Bool {
