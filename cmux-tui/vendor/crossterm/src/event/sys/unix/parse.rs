@@ -220,14 +220,16 @@ where
         .map_err(|_| could_not_parse_event_error())
 }
 
-fn modifier_and_kind_parsed(
-    iter: &mut dyn Iterator<Item = &str>,
-) -> io::Result<Option<(u16, u8)>> {
+fn modifier_and_kind_parsed(iter: &mut dyn Iterator<Item = &str>) -> io::Result<Option<(u16, u8)>> {
     let Some(value) = iter.next() else {
         return Ok(None);
     };
     let mut sub_split = value.split(':');
-    let modifier_mask = next_parsed::<u16>(&mut sub_split)?;
+    let modifier_mask = match sub_split.next() {
+        Some("") => 1,
+        Some(value) => value.parse::<u16>().map_err(|_| could_not_parse_event_error())?,
+        None => unreachable!("split always yields at least one field"),
+    };
     if !(1..=256).contains(&modifier_mask) {
         return Err(could_not_parse_event_error());
     }
