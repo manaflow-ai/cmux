@@ -49,6 +49,131 @@ enum Command {
                 CHECKER.TUI = original_tui
 
 
+class RuntimeMetadataTests(unittest.TestCase):
+    def test_command_profiles_come_from_rust_dispatch_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text(
+                """\
+enum Command {
+    Ping,
+    ShutdownDaemon { pid: u32 },
+}
+
+impl Command {
+    fn profile(&self) -> CommandProfile {
+        match self {
+            Command::Ping => CommandProfile::Control,
+            Command::ShutdownDaemon { .. } => CommandProfile::LocalAdmin,
+        }
+    }
+}
+"""
+            )
+
+            original_tui = CHECKER.TUI
+            CHECKER.TUI = tui
+            try:
+                self.assertEqual(
+                    CHECKER.command_profiles(),
+                    {
+                        "control": {"ping"},
+                        "local-admin": {"shutdown-daemon"},
+                    },
+                )
+            finally:
+                CHECKER.TUI = original_tui
+
+    def test_event_streams_come_from_rust_writer_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text(
+                """\
+const PUBLIC_EVENT_CATALOG: &[PublicEvent] = &[
+    PublicEvent::new("bell", &[PublicEventStream::Subscribe]),
+    PublicEvent::new(
+        "notification",
+        &[
+            PublicEventStream::Subscribe,
+            PublicEventStream::AttachByte,
+        ],
+    ),
+];
+"""
+            )
+
+            original_tui = CHECKER.TUI
+            CHECKER.TUI = tui
+            try:
+                self.assertEqual(
+                    CHECKER.event_streams(),
+                    {
+                        "bell": {"subscribe"},
+                        "notification": {"subscribe", "attach-byte"},
+                    },
+                )
+            finally:
+                CHECKER.TUI = original_tui
+
+    def test_action_contracts_come_from_rust_execution_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            config = tui / "crates/cmux-tui/src/config.rs"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                """\
+enum Action {
+    NewTab,
+    SelectTab(u8),
+}
+
+impl Action {
+    fn metadata(&self) -> ActionMetadata {
+        match self {
+            Action::NewTab => ActionMetadata::new(
+                "new-tab",
+                ActionClassification::Direct,
+                "new-tab",
+                ActionExecution::NewTab,
+            ),
+            Action::SelectTab(number) => ActionMetadata::new(
+                "select-tab-{number}",
+                ActionClassification::Direct,
+                "select-tab index",
+                ActionExecution::SelectTab(*number),
+            ),
+        }
+    }
+}
+"""
+            )
+
+            original_tui = CHECKER.TUI
+            CHECKER.TUI = tui
+            try:
+                self.assertEqual(
+                    CHECKER.action_metadata(),
+                    {
+                        "NewTab": {
+                            "key": "new-tab",
+                            "classification": "direct",
+                            "route": "new-tab",
+                        },
+                        "SelectTab": {
+                            "key": "select-tab-{number}",
+                            "classification": "direct",
+                            "route": "select-tab index",
+                        },
+                    },
+                )
+            finally:
+                CHECKER.TUI = original_tui
+
+
 class SchemaValidationTests(unittest.TestCase):
     SCHEMA = {
         "type": "object",
