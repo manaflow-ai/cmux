@@ -108,6 +108,7 @@ def _wait_for_child(pid: int, master_fd: int, output: bytearray) -> int:
             return os.waitstatus_to_exitcode(status)
 
         if not master_open:
+            time.sleep(0.01)
             continue
         readable, _, _ = select.select([master_fd], [], [], 0.2)
         if master_fd not in readable:

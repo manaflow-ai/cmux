@@ -1726,12 +1726,12 @@ _cmux_precmd() {
         cmd_dur=$(( now - cmd_start ))
     fi
 
-    if (( cmux_has_unix_socket )); then
-        [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    else
+    if (( ! cmux_has_unix_socket )); then
         if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
             _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
         fi
+    else
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
     fi
 
     _cmux_set_git_active_pwd "$pwd"
