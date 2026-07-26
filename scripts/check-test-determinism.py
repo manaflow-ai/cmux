@@ -485,9 +485,24 @@ def _shell_sleep_in_loop(lines: list[str], idx: int) -> bool:
     pending_loops = 0
     active_loops = 0
     command_position = True
+    case_state: tuple[int, ...] = ()
     for line in lines[:idx]:
         for match in _SHELL_LOOP_TOKEN.finditer(line):
             token = match.group()
+            token_case_state = _shell_case_state_after_prefix(
+                line,
+                match.start(),
+                case_state,
+            )
+            if (
+                token_case_state
+                and token_case_state[-1]
+                in (
+                    _SHELL_CASE_EMPTY_PATTERN,
+                    _SHELL_CASE_PATTERN,
+                )
+            ):
+                continue
             if token in (";", "&", "|", "&&", "||", "(", ")", "{", "}"):
                 command_position = True
                 continue
@@ -508,6 +523,11 @@ def _shell_sleep_in_loop(lines: list[str], idx: int) -> bool:
                 command_position = False
                 continue
             command_position = token in ("then", "do", "else", "elif")
+        case_state = _shell_case_state_after_prefix(
+            line,
+            len(line),
+            case_state,
+        )
         command_position = True
     return active_loops > 0
 
@@ -953,11 +973,25 @@ def _javascript_parameter_aliases(
         rf"(?:\basync\s+)?(?P<parameters>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
         r"\s*=>\s*$",
         r"\bcatch\s*\((?P<parameters>[^()]*)\)\s*$",
+        rf"(?:(?:public|private|protected|static|async|get|set|override|"
+        rf"abstract|readonly)\s+)*(?P<method>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
+        r"(?:\s*<[^\{\}()]*>)?\s*"
+        r"\((?P<parameters>[^()]*)\)\s*(?::\s*[^\{\}]+)?$",
     )
     parameters: Optional[str] = None
     for pattern in patterns:
         signature = re.search(pattern, prefix)
         if signature is not None:
+            method_name = signature.groupdict().get("method")
+            if method_name in (
+                "if",
+                "for",
+                "while",
+                "switch",
+                "catch",
+                "function",
+            ):
+                continue
             parameters = signature.group("parameters")
             break
     if parameters is None:
