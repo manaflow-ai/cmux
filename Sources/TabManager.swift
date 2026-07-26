@@ -4405,7 +4405,7 @@ class TabManager: ObservableObject {
     func triggerFocusFlash() {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId else { return }
-        tab.triggerFocusFlash(panelId: panelId)
+        tab.triggerUserInitiatedFocusFlash(panelId: panelId)
     }
 
     /// Ensure AppKit first responder matches the currently focused terminal panel.
