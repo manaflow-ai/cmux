@@ -3413,17 +3413,17 @@ impl BrowserSurface {
         let invalidation = self.begin_latest_navigation_frame_transition(&session)?;
         match session.runtime.client.navigate(&session.session_id, &normalized) {
             Ok(result) => {
-                if let Some(error) = result.error_text {
-                    self.abandon_frame_transition();
-                    self.mark_failed(error.clone());
-                    anyhow::bail!("browser failed: {error}");
-                }
                 if result.is_download {
                     // Chrome explicitly confirmed that the response was handed
                     // to the download manager, so the current document and its
                     // rendered frame remain authoritative.
                     self.restore_pointer_frame_after_failed_command(invalidation);
                     return Ok(());
+                }
+                if let Some(error) = result.error_text {
+                    self.abandon_frame_transition();
+                    self.mark_failed(error.clone());
+                    anyhow::bail!("browser failed: {error}");
                 }
                 let loaderless = result.loader_id.is_none();
                 self.finish_navigation_command(invalidation, Ok(()))?;

@@ -1,9 +1,9 @@
+use std::collections::VecDeque;
 use std::io::Write;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::{Rect, SurfaceId};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -16,6 +16,8 @@ use super::graphics::{
 
 pub type StdoutLock = ReentrantMutex<()>;
 const PROCESSING_FENCE_TIMEOUT: Duration = Duration::from_secs(1);
+const LATE_FENCE_RESPONSE_GRACE: Duration = Duration::from_secs(4);
+const MAX_RETIRED_FENCES: usize = 4;
 const MAX_GRAPHICS_RESPONSE_EVENTS: usize = 128;
 
 struct GraphicsSubmission {
@@ -42,6 +44,7 @@ pub struct GraphicsProcessing {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphicsCompletion {
     Processed(GraphicsProcessing),
+    TimedOut { id: u64, session_generation: u64 },
     Failed,
 }
 
@@ -53,31 +56,88 @@ struct GraphicsFenceResponse {
 
 pub struct GraphicsFenceWaiter {
     responses: Receiver<GraphicsFenceResponse>,
-    expected: Arc<AtomicU32>,
+    state: Arc<Mutex<GraphicsFenceState>>,
 }
 
 #[derive(Clone)]
 pub struct GraphicsFenceNotifier {
     responses: SyncSender<GraphicsFenceResponse>,
-    expected: Arc<AtomicU32>,
+    state: Arc<Mutex<GraphicsFenceState>>,
+}
+
+#[derive(Default)]
+struct GraphicsFenceState {
+    expected: u32,
+    retired: VecDeque<RetiredGraphicsFence>,
+}
+
+struct RetiredGraphicsFence {
+    id: u32,
+    expires_at: Instant,
+}
+
+impl GraphicsFenceState {
+    fn prune(&mut self, now: Instant) {
+        self.retired.retain(|fence| fence.expires_at > now);
+    }
+
+    fn retire(&mut self, id: u32, now: Instant) {
+        if id == 0 {
+            return;
+        }
+        self.prune(now);
+        self.retired.retain(|fence| fence.id != id);
+        self.retired
+            .push_back(RetiredGraphicsFence { id, expires_at: now + LATE_FENCE_RESPONSE_GRACE });
+        while self.retired.len() > MAX_RETIRED_FENCES {
+            self.retired.pop_front();
+        }
+    }
+
+    fn candidates(&mut self, now: Instant) -> Vec<u32> {
+        self.prune(now);
+        let mut candidates =
+            Vec::with_capacity(self.retired.len() + usize::from(self.expected != 0));
+        if self.expected != 0 {
+            candidates.push(self.expected);
+        }
+        for fence in &self.retired {
+            if !candidates.contains(&fence.id) {
+                candidates.push(fence.id);
+            }
+        }
+        candidates
+    }
 }
 
 pub fn graphics_fence_channel() -> (GraphicsFenceWaiter, GraphicsFenceNotifier) {
     let (responses, pending) = sync_channel(4);
-    let expected = Arc::new(AtomicU32::new(0));
+    let state = Arc::new(Mutex::new(GraphicsFenceState::default()));
     (
-        GraphicsFenceWaiter { responses: pending, expected: expected.clone() },
-        GraphicsFenceNotifier { responses, expected },
+        GraphicsFenceWaiter { responses: pending, state: state.clone() },
+        GraphicsFenceNotifier { responses, state },
     )
 }
 
 impl GraphicsFenceWaiter {
     fn prepare(&self, expected: u32) {
-        self.expected.store(expected, Ordering::Release);
+        while self.responses.try_recv().is_ok() {}
+        let now = Instant::now();
+        let mut state = self.state.lock().unwrap();
+        if state.expected != 0 && state.expected != expected {
+            let previous = state.expected;
+            state.retire(previous, now);
+        }
+        state.expected = expected;
     }
 
     fn cancel(&self, expected: u32) {
-        let _ = self.expected.compare_exchange(expected, 0, Ordering::AcqRel, Ordering::Acquire);
+        let now = Instant::now();
+        let mut state = self.state.lock().unwrap();
+        if state.expected == expected {
+            state.expected = 0;
+            state.retire(expected, now);
+        }
     }
 
     fn wait_for(&self, expected: u32) -> std::io::Result<()> {
@@ -108,23 +168,33 @@ impl GraphicsFenceWaiter {
 }
 
 impl GraphicsFenceNotifier {
-    fn expected(&self) -> u32 {
-        self.expected.load(Ordering::Acquire)
+    fn candidate_ids(&self) -> Vec<u32> {
+        self.state.lock().unwrap().candidates(Instant::now())
+    }
+
+    fn has_active_candidate(&self, candidates: &[u32]) -> bool {
+        let state = self.state.lock().unwrap();
+        state.expected != 0 && candidates.contains(&state.expected)
     }
 
     fn notify(&self, response: GraphicsFenceResponse) {
-        if self
-            .expected
-            .compare_exchange(response.id, 0, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-        {
+        let now = Instant::now();
+        let mut state = self.state.lock().unwrap();
+        state.prune(now);
+        let active = state.expected == response.id;
+        if active {
+            state.expected = 0;
+            state.retire(response.id, now);
+        }
+        drop(state);
+        if active {
             let _ = self.responses.try_send(response);
         }
     }
 }
 
 struct BufferedGraphicsResponse {
-    expected: u32,
+    candidates: Vec<u32>,
     events: Vec<Event>,
     payload: String,
 }
@@ -143,20 +213,20 @@ impl GraphicsResponseFilter {
     }
 
     pub fn filter(&mut self, event: Event) -> Vec<Event> {
-        if self
-            .buffered
-            .as_ref()
-            .is_some_and(|buffered| buffered.expected != self.notifier.expected())
-        {
+        if self.buffered.as_ref().is_some_and(|buffered| {
+            !self.notifier.has_active_candidate(&buffered.candidates)
+                && !buffered.payload.is_empty()
+                && !buffered.payload.starts_with('G')
+        }) {
             let mut replay = self.buffered.take().unwrap().events;
             replay.extend(self.filter(event));
             return replay;
         }
         if self.buffered.is_none() {
-            let expected = self.notifier.expected();
-            if expected != 0 && is_apc_boundary(&event, '_') {
+            let candidates = self.notifier.candidate_ids();
+            if !candidates.is_empty() && is_apc_boundary(&event, '_') {
                 self.buffered = Some(BufferedGraphicsResponse {
-                    expected,
+                    candidates,
                     events: vec![event],
                     payload: String::new(),
                 });
@@ -167,12 +237,12 @@ impl GraphicsResponseFilter {
 
         if is_apc_boundary(&event, '_') {
             let mut replay = self.buffered.take().unwrap().events;
-            let expected = self.notifier.expected();
-            if expected == 0 {
+            let candidates = self.notifier.candidate_ids();
+            if candidates.is_empty() {
                 replay.push(event);
             } else {
                 self.buffered = Some(BufferedGraphicsResponse {
-                    expected,
+                    candidates,
                     events: vec![event],
                     payload: String::new(),
                 });
@@ -185,7 +255,7 @@ impl GraphicsResponseFilter {
             buffered.events.push(event);
             if let Some(response) = parse_graphics_response(&buffered.payload)
                 && response.id >= PROCESSING_FENCE_ID_BASE
-                && response.id == self.notifier.expected()
+                && buffered.candidates.contains(&response.id)
             {
                 self.notifier.notify(response);
                 return Vec::new();
@@ -456,9 +526,43 @@ where
                 }
                 result
             };
-            let processed = output_result.and_then(|()| processing_fence_waiter.wait(fence_id));
-            if processed.is_err() {
+            if output_result.is_err() {
                 processing_fence_waiter.cancel(fence_id);
+                *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
+                on_ready();
+                return;
+            }
+            let mut processed = processing_fence_waiter.wait(fence_id);
+            if processed.as_ref().is_err_and(|error| error.kind() == std::io::ErrorKind::TimedOut) {
+                // The graphics bytes were written successfully. A second
+                // ordered query distinguishes a delayed response from a
+                // failed output stream without retransmitting image data.
+                processing_fence_waiter.prepare(fence_id);
+                let retry_output = {
+                    let _guard = stdout_lock.lock();
+                    output.write_all(&processing_fence(fence_id)).and_then(|()| output.flush())
+                };
+                if retry_output.is_err() {
+                    processing_fence_waiter.cancel(fence_id);
+                    *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
+                    on_ready();
+                    return;
+                }
+                processed = processing_fence_waiter.wait(fence_id);
+            }
+            if let Err(error) = processed {
+                processing_fence_waiter.cancel(fence_id);
+                if error.kind() == std::io::ErrorKind::TimedOut {
+                    // Keep graphics enabled, but discard all unconfirmed
+                    // processing state so the app can redraw and retransmit.
+                    graphics = GraphicsState::default();
+                    *completion.lock().unwrap() = Some(GraphicsCompletion::TimedOut {
+                        id: submission.id,
+                        session_generation: submission.session_generation,
+                    });
+                    on_ready();
+                    continue;
+                }
                 *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
                 on_ready();
                 return;
@@ -722,17 +826,14 @@ mod tests {
         let mut writer = GraphicsWriter::spawn_with_output_and_fence(
             lock,
             Vec::new(),
-            {
-                let attempts = attempts.clone();
-                move || {
-                    if attempts.fetch_add(1, Ordering::AcqRel) == 0 {
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "injected transient fence timeout",
-                        ))
-                    } else {
-                        Ok(())
-                    }
+            move || {
+                if attempts.fetch_add(1, std::sync::atomic::Ordering::AcqRel) == 0 {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "injected transient fence timeout",
+                    ))
+                } else {
+                    Ok(())
                 }
             },
             move || {

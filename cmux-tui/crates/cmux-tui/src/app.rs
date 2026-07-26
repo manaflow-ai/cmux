@@ -7107,20 +7107,37 @@ impl App {
                 self.commit_graphics_processing(processing);
                 RenderAction::None
             }
+            GraphicsCompletion::TimedOut { id, session_generation } => {
+                self.retry_graphics_after_timeout(id, session_generation)
+            }
             GraphicsCompletion::Failed => self.disable_graphics_after_failure(),
         }
     }
 
-    fn disable_graphics_after_failure(&mut self) -> RenderAction {
+    fn reset_unconfirmed_graphics(&mut self) {
         self.pending_graphics_submission = None;
         self.pending_graphics_snapshot = None;
         self.pending_graphics_affected_rects.clear();
-        self.graphics_supported = false;
         self.last_graphics_snapshot.clear();
         self.rendered_pane_content_generations
             .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
         self.commit_rendered_pane_content_generations();
         self.pointer_route_phase = PointerRoutePhase::DrawPending;
+    }
+
+    fn retry_graphics_after_timeout(&mut self, id: u64, session_generation: u64) -> RenderAction {
+        if self.pending_graphics_submission != Some(id)
+            || self.session_generation != session_generation
+        {
+            return RenderAction::None;
+        }
+        self.reset_unconfirmed_graphics();
+        RenderAction::Draw
+    }
+
+    fn disable_graphics_after_failure(&mut self) -> RenderAction {
+        self.reset_unconfirmed_graphics();
+        self.graphics_supported = false;
         if let Some(mut writer) = self.graphics_writer.take() {
             writer.shutdown(Duration::from_millis(200));
         }
@@ -17117,6 +17134,49 @@ mod tests {
                 .values()
                 .any(|generation| matches!(generation, PaneContentGeneration::Browser(_)))
         );
+    }
+
+    #[test]
+    fn graphics_writer_timeout_retries_without_disabling_graphics() {
+        let mux = Mux::new("graphics-timeout-pointer-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.graphics_supported = true;
+        app.pending_graphics_submission = Some(9);
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
+        app.last_graphics_snapshot.push(GraphicIdentity {
+            session_generation: app.session_generation,
+            surface: 11,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq: 15,
+            pointer_frame_seq: Some(15),
+        });
+        app.rendered_pane_content_generations.insert(11, PaneContentGeneration::Browser(15));
+
+        assert_eq!(app.retry_graphics_after_timeout(9, app.session_generation), RenderAction::Draw);
+
+        assert!(app.graphics_supported);
+        assert_eq!(app.pending_graphics_submission, None);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
+        assert!(app.last_graphics_snapshot.is_empty());
+        assert!(
+            !app.rendered_pane_content_generations
+                .values()
+                .any(|generation| matches!(generation, PaneContentGeneration::Browser(_)))
+        );
+    }
+
+    #[test]
+    fn stale_graphics_timeout_preserves_a_newer_submission() {
+        let mux = Mux::new("stale-graphics-timeout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.graphics_supported = true;
+        app.pending_graphics_submission = Some(10);
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
+
+        assert_eq!(app.retry_graphics_after_timeout(9, app.session_generation), RenderAction::None);
+        assert!(app.graphics_supported);
+        assert_eq!(app.pending_graphics_submission, Some(10));
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::GraphicsProcessingPending);
     }
 
     #[test]
