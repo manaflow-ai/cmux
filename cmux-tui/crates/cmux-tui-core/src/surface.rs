@@ -3717,7 +3717,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_without_prompt_metadata_preserves_wrapped_active_rows() {
+    fn clear_history_without_prompt_metadata_fails_closed_with_retained_history() {
         let mux = Mux::new_for_test("clear-wrapped-input", SurfaceOptions::default());
         let surface = Surface::spawn_for_test(
             1,
@@ -3727,26 +3727,23 @@ mod tests {
         .unwrap();
         let writer = CapturingWriter::default();
         replace_local_writer(&surface, Box::new(writer.clone()));
-        let viewport_before = surface
+        let (history_before, contents_before) = surface
             .with_terminal(|term| {
                 for line in 0..12 {
                     term.vt_write(format!("history-{line}\r\n").as_bytes());
                 }
                 term.vt_write(b"wrapped-edit-buffer");
-                assert!(term.history_rows() > 0);
-                term.viewport_text().unwrap()
+                (term.history_rows(), term.plain_text().unwrap())
             })
             .unwrap();
 
-        surface.clear_history().unwrap();
+        let error = surface.clear_history().unwrap_err();
 
+        assert_eq!(error.to_string(), CLEAR_HISTORY_PRESERVATION_ERROR);
+        assert!(history_before > 0);
         surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            let viewport = term.viewport_text().unwrap();
-            let compact =
-                viewport.chars().filter(|character| !character.is_whitespace()).collect::<String>();
-            assert!(compact.contains("wrapped-edit-buffer"));
-            assert_eq!(viewport, viewport_before);
+            assert_eq!(term.history_rows(), history_before);
+            assert_eq!(term.plain_text().unwrap(), contents_before);
         });
         assert!(writer.0.lock().unwrap().is_empty());
     }

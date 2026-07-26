@@ -51,12 +51,16 @@ impl KeyboardInput {
     pub fn from_enhanced(event: EnhancedKeyEvent) -> Self {
         // Kitty reports generated text per event, but no consumed-modifier
         // mask. Nonempty text that differs from the active layout means macOS
-        // Option produced text and consumed Alt. Ghostty suppresses composing
-        // key events, so empty text leaves Alt active as a terminal modifier.
+        // Option produced text and consumed Alt. An Alt character without
+        // associated text is ambiguous across hosts, so it cannot safely
+        // trigger a cmux shortcut.
         let alt_pressed = event.key_event.modifiers.contains(KeyModifiers::ALT);
         let text_matches_layout = text_matches_active_layout(&event);
         let alt_generated_text = alt_pressed && !event.text.is_empty() && !text_matches_layout;
-        let suppress_alt_shortcut = alt_generated_text;
+        let ambiguous_alt_character = alt_pressed
+            && event.text.is_empty()
+            && matches!(event.key_event.code, KeyCode::Char(_));
+        let suppress_alt_shortcut = alt_generated_text || ambiguous_alt_character;
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,

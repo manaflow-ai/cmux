@@ -146,6 +146,9 @@ pub enum AppEvent {
     BrowserResizeFailed(BrowserResizeFailure),
     PtyFailuresReady,
     PtyOperationFailed(PtyOperationFailure),
+    ClearHistorySucceeded {
+        surface: SurfaceId,
+    },
     SessionMutationSettled {
         outcome: SessionMutationOutcome,
         routing: bool,
@@ -1991,22 +1994,32 @@ impl OrderedSession {
     }
 
     pub fn clear_history(&self, surface: SurfaceId) {
+        let events = self.events.clone();
         self.enqueue_coalescing_surface_operation(
             "clear terminal history",
             surface,
-            move |session| session.clear_history(surface),
+            move |session| {
+                session.clear_history(surface)?;
+                let _ = events.send(AppEvent::ClearHistorySucceeded { surface });
+                Ok(())
+            },
         );
     }
 
     pub fn clear_history_or_send_key(&self, surface: SurfaceId, fallback_key: KeyInput) {
         let session = self.inner.clone();
+        let events = self.events.clone();
         let retained_bytes = fallback_key.utf8.capacity();
         self.operations.enqueue_surface_operation_with_retained_bytes(
             "clear terminal history",
             surface,
             self.remote,
             retained_bytes,
-            move || session.clear_history_or_send_key(surface, &fallback_key),
+            move || {
+                session.clear_history_or_send_key(surface, &fallback_key)?;
+                let _ = events.send(AppEvent::ClearHistorySucceeded { surface });
+                Ok(())
+            },
         );
     }
 
@@ -6339,6 +6352,17 @@ impl App {
             }
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
+            AppEvent::ClearHistorySucceeded { surface } => {
+                let Some(handle) = self.session.surface(surface) else {
+                    return Ok(RenderAction::None);
+                };
+                let _ = handle.scroll_to_bottom();
+                self.render_states.remove(&surface);
+                if self.selection.is_some_and(|selection| selection.surface == surface) {
+                    self.selection = None;
+                }
+                Ok(RenderAction::Draw)
+            }
             AppEvent::SessionMutationSettled { outcome, routing } => {
                 self.session.settle_pending_mutation(routing);
                 match outcome {
@@ -8453,8 +8477,6 @@ impl App {
                     && self.tree.surface_kind(surface) == SurfaceKind::Pty
                 {
                     self.session.clear_history(surface);
-                    self.render_states.remove(&surface);
-                    self.selection = None;
                 }
                 return Ok(RenderAction::None);
             }
@@ -9039,13 +9061,10 @@ impl App {
         let Some(key_input) = input.into_terminal_input() else {
             return RenderAction::None;
         };
-        let Some(surface) = self.session.surface(surface_id) else {
+        if self.session.surface(surface_id).is_none() {
             return RenderAction::None;
-        };
-        let _ = surface.scroll_to_bottom();
+        }
         self.session.clear_history_or_send_key(surface_id, key_input);
-        self.render_states.remove(&surface_id);
-        self.selection = None;
         if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
     }
 
@@ -12110,7 +12129,7 @@ mod tests {
             key_event: KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT),
             shifted_key: Some('1'),
             base_layout_key: Some('1'),
-            text: String::new(),
+            text: "1".to_string(),
         };
         let input = crate::keys::KeyboardInput::from(enhanced);
         let (key, fallback) = input.shortcut_keys();
@@ -12139,7 +12158,7 @@ mod tests {
     }
 
     #[test]
-    fn alt_binding_without_associated_text_remains_active() {
+    fn alt_character_without_associated_text_does_not_match_modeless_bindings() {
         let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
@@ -12148,10 +12167,10 @@ mod tests {
         });
         let (key, fallback) = input.shortcut_keys();
 
-        assert!(!input.suppresses_alt_shortcut());
+        assert!(input.suppresses_alt_shortcut());
         assert_eq!(
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
-            Some(Action::FocusDown)
+            None
         );
     }
 
@@ -13486,12 +13505,14 @@ mod tests {
         });
         assert!(surface.with_terminal(|term| term.history_rows()).unwrap() > 0);
 
-        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
+        app.selection = Some(Selection { surface: surface.id, anchor: (1, 1), head: (2, 1) });
         let action =
             app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
         assert_eq!(action, RenderAction::None);
+        assert!(app.selection.is_some());
         assert!(!app.session.has_pending_mutations());
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('x'),
@@ -13500,6 +13521,18 @@ mod tests {
         .unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        let completion = loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(
+                &event,
+                AppEvent::ClearHistorySucceeded { surface: completed }
+                    if *completed == surface.id
+            ) {
+                break event;
+            }
+        };
+        app.handle(completion).unwrap();
+        assert!(app.selection.is_none());
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
@@ -13548,9 +13581,6 @@ mod tests {
             current.surface == selection.surface
                 && current.anchor == selection.anchor
                 && current.head == selection.head
-        }));
-        assert!(app.status_message.as_deref().is_some_and(|message| {
-            message.starts_with(localization::catalog().terminal.clear_history_failed)
         }));
         mux.close_surface(surface.id).unwrap();
     }

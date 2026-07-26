@@ -2005,7 +2005,8 @@ impl Terminal {
         };
         if self.history_rows() > 0
             && preserve_from_y == 0
-            && ((cursor_is_at_prompt && prompt_start_y.is_none())
+            && (prompt_semantic == PromptSemantic::Unknown
+                || (cursor_is_at_prompt && prompt_start_y.is_none())
                 || (!cursor_is_at_prompt && self.active_row_wrap_continuation(0).unwrap_or(true)))
         {
             return ClearHistoryOutcome::Unchanged;
@@ -2886,21 +2887,21 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_without_prompt_metadata_preserves_hard_newline_input() {
+    fn clear_history_without_prompt_metadata_fails_closed_with_retained_history() {
         let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
         for line in 0..6 {
             terminal.vt_write(format!("old-{line}\r\n").as_bytes());
         }
         terminal.vt_write(b"first-active\r\nsecond-active");
-        assert!(terminal.history_rows() > 0);
-        let viewport_before = terminal.viewport_text().unwrap();
+        let history_before = terminal.history_rows();
+        let contents_before = terminal.plain_text().unwrap();
 
-        let ClearHistoryOutcome::Cleared(_) = terminal.clear_history_preserving_prompt() else {
-            panic!("visible rows do not extend into scrollback");
-        };
+        let outcome = terminal.clear_history_preserving_prompt();
 
-        assert_eq!(terminal.history_rows(), 0);
-        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+        assert_eq!(outcome, ClearHistoryOutcome::Unchanged);
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), history_before);
+        assert_eq!(terminal.plain_text().unwrap(), contents_before);
     }
 
     #[test]
