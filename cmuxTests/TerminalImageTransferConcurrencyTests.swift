@@ -85,6 +85,31 @@ struct TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
+    @Test("oversized plain text is rejected by the worker boundary")
+    func oversizedPlainTextIsRejected() async {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-oversized-text-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let oversizedText = String(
+            repeating: "x",
+            count: 16 * 1024 * 1024 + 1
+        )
+        pasteboard.setString(oversizedText, forType: .string)
+
+        let preparedContent = await TerminalImageTransferPlanner.prepare(
+            pasteboard: pasteboard,
+            mode: .paste
+        )
+
+        #expect(preparedContent == .reject)
+    }
+
+    @MainActor
     @Test("accepted paste preparations execute in FIFO order without drops")
     func pastePreparationPreservesFIFOOrder() async {
         let operation = ControlledPastePreparationOperation()
