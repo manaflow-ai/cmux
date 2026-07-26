@@ -220,16 +220,27 @@ where
         .map_err(|_| could_not_parse_event_error())
 }
 
-fn modifier_and_kind_parsed(iter: &mut dyn Iterator<Item = &str>) -> io::Result<(u8, u8)> {
-    let mut sub_split = iter.next().ok_or_else(could_not_parse_event_error)?.split(':');
-
-    let modifier_mask = next_parsed::<u8>(&mut sub_split)?;
-
-    if let Ok(kind_code) = next_parsed::<u8>(&mut sub_split) {
-        Ok((modifier_mask, kind_code))
-    } else {
-        Ok((modifier_mask, 1))
+fn modifier_and_kind_parsed(
+    iter: &mut dyn Iterator<Item = &str>,
+) -> io::Result<Option<(u16, u8)>> {
+    let Some(value) = iter.next() else {
+        return Ok(None);
+    };
+    let mut sub_split = value.split(':');
+    let modifier_mask = next_parsed::<u16>(&mut sub_split)?;
+    if !(1..=256).contains(&modifier_mask) {
+        return Err(could_not_parse_event_error());
     }
+    let kind_code = sub_split
+        .next()
+        .map(str::parse::<u8>)
+        .transpose()
+        .map_err(|_| could_not_parse_event_error())?
+        .unwrap_or(1);
+    if sub_split.next().is_some() {
+        return Err(could_not_parse_event_error());
+    }
+    Ok(Some((modifier_mask, kind_code)))
 }
 
 pub(crate) fn parse_csi_cursor_position(buffer: &[u8]) -> io::Result<Option<InternalEvent>> {
@@ -280,7 +291,7 @@ fn parse_csi_primary_device_attributes(buffer: &[u8]) -> io::Result<Option<Inter
     Ok(Some(InternalEvent::PrimaryDeviceAttributes))
 }
 
-fn parse_modifiers(mask: u8) -> KeyModifiers {
+fn parse_modifiers(mask: u16) -> KeyModifiers {
     let modifier_mask = mask.saturating_sub(1);
     let mut modifiers = KeyModifiers::empty();
     if modifier_mask & 1 != 0 {
@@ -304,7 +315,7 @@ fn parse_modifiers(mask: u8) -> KeyModifiers {
     modifiers
 }
 
-fn parse_modifiers_to_state(mask: u8) -> KeyEventState {
+fn parse_modifiers_to_state(mask: u16) -> KeyEventState {
     let modifier_mask = mask.saturating_sub(1);
     let mut state = KeyEventState::empty();
     if modifier_mask & 64 != 0 {
@@ -335,14 +346,14 @@ pub(crate) fn parse_csi_modifier_key_code(buffer: &[u8]) -> io::Result<Option<In
     split.next();
 
     let (modifiers, kind) =
-        if let Ok((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split) {
+        if let Some((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split)? {
             (parse_modifiers(modifier_mask), parse_key_event_kind(kind_code))
         } else if buffer.len() > 3 {
             (
                 parse_modifiers(
                     (buffer[buffer.len() - 2] as char)
                         .to_digit(10)
-                        .ok_or_else(could_not_parse_event_error)? as u8,
+                        .ok_or_else(could_not_parse_event_error)? as u16,
                 ),
                 KeyEventKind::Press,
             )
@@ -517,7 +528,7 @@ pub(crate) fn parse_csi_u_encoded_key_code(buffer: &[u8]) -> io::Result<Option<I
     }
 
     let (mut modifiers, kind, state_from_modifiers) =
-        if let Ok((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split) {
+        if let Some((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split)? {
             (
                 parse_modifiers(modifier_mask),
                 parse_key_event_kind(kind_code),
@@ -634,7 +645,7 @@ pub(crate) fn parse_csi_special_key_code(buffer: &[u8]) -> io::Result<Option<Int
     let first = next_parsed::<u8>(&mut split)?;
 
     let (modifiers, kind, state) =
-        if let Ok((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split) {
+        if let Some((modifier_mask, kind_code)) = modifier_and_kind_parsed(&mut split)? {
             (
                 parse_modifiers(modifier_mask),
                 parse_key_event_kind(kind_code),

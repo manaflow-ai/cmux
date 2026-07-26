@@ -154,6 +154,8 @@ pub enum AppEvent {
     PtyOperationFailed(PtyOperationFailure),
     ClearHistorySucceeded {
         surface: SurfaceId,
+        input_revision: u64,
+        selection_at_invocation: Option<Selection>,
     },
     SessionMutationSettled {
         outcome: SessionMutationOutcome,
@@ -2058,7 +2060,12 @@ impl OrderedSession {
         self.enqueue_routing("close tab", move |session| session.close_surface(surface));
     }
 
-    pub fn clear_history(&self, surface: SurfaceId) {
+    pub fn clear_history(
+        &self,
+        surface: SurfaceId,
+        input_revision: u64,
+        selection_at_invocation: Option<Selection>,
+    ) {
         let events = self.events.clone();
         self.enqueue_coalescing_surface_operation(
             "clear terminal history",
@@ -2067,13 +2074,23 @@ impl OrderedSession {
                 session
                     .clear_history_classified(surface)
                     .map_err(classify_clear_history_failure)?;
-                let _ = events.send(AppEvent::ClearHistorySucceeded { surface });
+                let _ = events.send(AppEvent::ClearHistorySucceeded {
+                    surface,
+                    input_revision,
+                    selection_at_invocation,
+                });
                 Ok(())
             },
         );
     }
 
-    pub fn clear_history_or_send_key(&self, surface: SurfaceId, fallback_key: KeyInput) {
+    pub fn clear_history_or_send_key(
+        &self,
+        surface: SurfaceId,
+        fallback_key: KeyInput,
+        input_revision: u64,
+        selection_at_invocation: Option<Selection>,
+    ) {
         let session = self.inner.clone();
         let events = self.events.clone();
         let retained_bytes = fallback_key.utf8.capacity();
@@ -2086,7 +2103,11 @@ impl OrderedSession {
                 session
                     .clear_history_or_send_key_classified(surface, &fallback_key)
                     .map_err(classify_clear_history_failure)?;
-                let _ = events.send(AppEvent::ClearHistorySucceeded { surface });
+                let _ = events.send(AppEvent::ClearHistorySucceeded {
+                    surface,
+                    input_revision,
+                    selection_at_invocation,
+                });
                 Ok(())
             },
         );
@@ -3118,7 +3139,7 @@ impl Prompt {
 /// A text selection in one surface. Rows are absolute scrollback rows:
 /// viewport row + scrollbar offset at capture time, so the selection
 /// remains stable while the viewport scrolls.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Selection {
     pub surface: SurfaceId,
     pub anchor: (u16, u64),
@@ -3389,6 +3410,7 @@ pub struct App {
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
+    input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
     /// Whether the terminal pointer is currently the hand shape (over a
@@ -4474,6 +4496,7 @@ pub fn run_with_machine_updates(
         toast: None,
         shake_frames: 0,
         selection: None,
+        input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
         pointer_shape: false,
@@ -6448,6 +6471,7 @@ impl App {
             event => event,
         };
         if let AppEvent::Input(input) = event {
+            self.input_revision = self.input_revision.wrapping_add(1);
             return self.handle_terminal_input(TerminalInput::from_event(input));
         }
         match &event {
@@ -6661,13 +6685,21 @@ impl App {
             }
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
-            AppEvent::ClearHistorySucceeded { surface } => {
+            AppEvent::ClearHistorySucceeded {
+                surface,
+                input_revision,
+                selection_at_invocation,
+            } => {
                 let Some(handle) = self.session.surface(surface) else {
                     return Ok(RenderAction::None);
                 };
-                let _ = handle.scroll_to_bottom();
+                if self.input_revision == input_revision {
+                    let _ = handle.scroll_to_bottom();
+                }
                 self.render_states.remove(&surface);
-                if self.selection.is_some_and(|selection| selection.surface == surface) {
+                if self.selection == selection_at_invocation
+                    && self.selection.is_some_and(|selection| selection.surface == surface)
+                {
                     self.selection = None;
                 }
                 Ok(RenderAction::Draw)
@@ -8824,7 +8856,7 @@ impl App {
                 if let Some(surface) = self.active_surface()
                     && self.tree.surface_kind(surface) == SurfaceKind::Pty
                 {
-                    self.session.clear_history(surface);
+                    self.session.clear_history(surface, self.input_revision, self.selection);
                 }
                 return Ok(RenderAction::None);
             }
@@ -9412,7 +9444,12 @@ impl App {
         if self.session.surface(surface_id).is_none() {
             return RenderAction::None;
         }
-        self.session.clear_history_or_send_key(surface_id, key_input);
+        self.session.clear_history_or_send_key(
+            surface_id,
+            key_input,
+            self.input_revision,
+            self.selection,
+        );
         if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
     }
 
@@ -13874,7 +13911,7 @@ mod tests {
             let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
             if matches!(
                 &event,
-                AppEvent::ClearHistorySucceeded { surface: completed }
+                AppEvent::ClearHistorySucceeded { surface: completed, .. }
                     if *completed == surface.id
             ) {
                 break event;
@@ -13916,7 +13953,7 @@ mod tests {
             let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
             if matches!(
                 &event,
-                AppEvent::ClearHistorySucceeded { surface: completed }
+                AppEvent::ClearHistorySucceeded { surface: completed, .. }
                     if *completed == surface.id
             ) {
                 break event;
@@ -14008,7 +14045,12 @@ mod tests {
         let fallback_key = KeyInput { utf8: "x".repeat(1024), ..Default::default() };
         let retained_bytes = fallback_key.utf8.capacity();
         for _ in 0..8 {
-            app.session.clear_history_or_send_key(surface.id, fallback_key.clone());
+            app.session.clear_history_or_send_key(
+                surface.id,
+                fallback_key.clone(),
+                app.input_revision,
+                app.selection,
+            );
         }
 
         assert_eq!(app.session.operations.queued_bytes_for_test(), retained_bytes * 8);
@@ -21280,6 +21322,7 @@ mod tests {
             toast: None,
             shake_frames: 0,
             selection: None,
+            input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),
             pointer_shape: false,
