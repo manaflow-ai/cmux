@@ -4601,23 +4601,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         return Self.shouldConsumeUnavailableCopy(
             hasCopyableSelection: hasCopyableSelection,
-            bindingFlagsRawValue: ghosttyBindingFlags(for: event, surface: surface)?.rawValue
+            bindingIsDefaultCopy: ghosttyBindingIsExactAction(
+                "copy_to_clipboard",
+                for: event,
+                surface: surface
+            )
         )
     }
 
-    /// The default Cmd+C binding is consumed and performable, so Ghostty treats
-    /// it as unbound when there is no selection. A configured non-performable
-    /// binding must still reach Ghostty's binding path.
+    /// Only Ghostty's exact default Copy action is safe to consume here.
+    /// Configured actions, explicit unbinds, and key-sequence misses must still
+    /// reach Ghostty's normal binding/input path.
     static func shouldConsumeUnavailableCopy(
         hasCopyableSelection: Bool,
-        bindingFlagsRawValue: UInt32?
+        bindingIsDefaultCopy: Bool
     ) -> Bool {
-        guard !hasCopyableSelection else { return false }
-        guard let bindingFlagsRawValue else { return true }
-        let defaultCopyFlags =
-            GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue |
-            GHOSTTY_BINDING_FLAGS_PERFORMABLE.rawValue
-        return bindingFlagsRawValue == defaultCopyFlags
+        !hasCopyableSelection && bindingIsDefaultCopy
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -5420,14 +5419,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         for event: NSEvent,
         surface: ghostty_surface_t
     ) -> ghostty_binding_flags_e? {
-        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-        let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
         var flags = ghostty_binding_flags_e(0)
-        let isBinding = text.withCString { ptr in
-            keyEvent.text = ptr
+        let isBinding = withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
             return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
         }
         return isBinding ? flags : nil
+    }
+
+    private func ghosttyBindingIsExactAction(
+        _ action: String,
+        for event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        withGhosttyBindingKeyEvent(for: event, surface: surface) { keyEvent in
+            action.withCString { actionPointer in
+                ghostty_surface_key_binding_is_exact_action(
+                    surface,
+                    keyEvent,
+                    actionPointer,
+                    UInt(action.utf8.count)
+                )
+            }
+        }
+    }
+
+    private func withGhosttyBindingKeyEvent<Result>(
+        for event: NSEvent,
+        surface: ghostty_surface_t,
+        _ body: (ghostty_input_key_s) -> Result
+    ) -> Result {
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
+        return text.withCString { pointer in
+            keyEvent.text = pointer
+            return body(keyEvent)
+        }
     }
 
     override func keyDown(with event: NSEvent) {
