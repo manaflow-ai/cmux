@@ -378,15 +378,24 @@ final class WorkspaceTerminalFontSizeCoordinator {
     /// fresh instance by default unless they intentionally model two windows.
     @MainActor
     final class Arbiter {
+        private typealias FontSizeWorkIdleAction =
+            @MainActor () -> Void
+
         private let maximumDeferredCoordinatorJoinCount: Int
         private var deferredCoordinatorJoins:
             [DeferredCoordinatorJoin] = []
         private var deferredCoordinatorJoinHead = 0
+        private var deferredCoordinatorJoinsAfterFontSizeWorkIdle:
+            [DeferredCoordinatorJoin] = []
         private var isPromotingDeferredCoordinatorJoins = false
         private var isCancellingWindowOwnedWork = false
         private var isDeferredCoordinatorJoinPromotionScheduled = false
         private var retainedCoordinators:
             [ObjectIdentifier: WorkspaceTerminalFontSizeCoordinator] = [:]
+        private var fontSizeWorkIdleActions:
+            [FontSizeWorkIdleAction] = []
+        private var fontSizeWorkIdleActionHead = 0
+        private var isPerformingFontSizeWorkIdleActions = false
 
         nonisolated init(
             maximumDeferredCoordinatorJoinCount: Int = 256
@@ -409,6 +418,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
             retainedCoordinators.removeValue(
                 forKey: ObjectIdentifier(coordinator)
             )
+            promoteDeferredCoordinatorJoins()
+            performFontSizeWorkIdleActionsIfPossible()
+        }
+
+        /// Runs configuration work after every previously accepted font
+        /// mutation. New mutations are retained behind the barrier so they
+        /// observe the refreshed surface configuration.
+        func performWhenFontSizeWorkIsIdle(
+            _ action: @escaping @MainActor () -> Void
+        ) {
+            fontSizeWorkIdleActions.append(action)
+            signalRetainedCoordinators()
+            promoteDeferredCoordinatorJoins()
+            performFontSizeWorkIdleActionsIfPossible()
         }
 
         @discardableResult
@@ -421,31 +444,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 WorkspaceTerminalFontSizeCoordinator,
             deferFlush: Bool
         ) -> Bool {
-            let lastIndex = deferredCoordinatorJoins.indices.last
-            if let lastIndex,
-               lastIndex >= deferredCoordinatorJoinHead,
-               deferredCoordinatorJoins[lastIndex].matches(
-                    workspace: workspace,
-                    windowDockSlot: windowDockSlot
-               ) {
-                var existing = deferredCoordinatorJoins[lastIndex]
-                append(change, to: &existing.change)
-                existing.deferFlush =
-                    existing.deferFlush && deferFlush
-                deferredCoordinatorJoins[lastIndex] = existing
-                return true
-            }
-
-            // Preserve every accepted join's order, but stop accepting new
-            // distinct pairs once blocked owners fill the bounded backlog.
-            // Adjacent repeats above still coalesce into constant-size
-            // transforms at the limit.
-            guard deferredCoordinatorJoins.count
-                    - deferredCoordinatorJoinHead
-                    < maximumDeferredCoordinatorJoinCount else {
-                return false
-            }
-            deferredCoordinatorJoins.append(
+            appendDeferredCoordinatorJoin(
                 DeferredCoordinatorJoin(
                     workspaceId: workspace.id,
                     workspaceReference: workspaceReference,
@@ -453,9 +452,37 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     preferredCoordinator: preferredCoordinator,
                     change: change,
                     deferFlush: deferFlush
-                )
+                ),
+                afterFontSizeWorkIdle: false
             )
-            return true
+        }
+
+        /// Returns nil when no configuration barrier owns subsequent input.
+        /// A non-nil result reports whether the bounded post-barrier queue
+        /// accepted the change.
+        fileprivate func deferCoordinatorJoinAfterFontSizeWorkIdleIfNeeded(
+            _ change: WorkspaceTerminalFontSizeChange,
+            workspace: Workspace,
+            workspaceReference: WeakWorkspaceReference,
+            windowDockSlot: WindowDockSlot,
+            preferredCoordinator:
+                WorkspaceTerminalFontSizeCoordinator,
+            deferFlush: Bool
+        ) -> Bool? {
+            guard hasFontSizeWorkIdleBarrier else { return nil }
+            let accepted = appendDeferredCoordinatorJoin(
+                DeferredCoordinatorJoin(
+                    workspaceId: workspace.id,
+                    workspaceReference: workspaceReference,
+                    windowDockSlot: windowDockSlot,
+                    preferredCoordinator: preferredCoordinator,
+                    change: change,
+                    deferFlush: deferFlush
+                ),
+                afterFontSizeWorkIdle: true
+            )
+            signalRetainedCoordinators()
+            return accepted
         }
 
         fileprivate func promoteDeferredCoordinatorJoins() {
@@ -464,7 +491,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 return
             }
             isPromotingDeferredCoordinatorJoins = true
-            defer { isPromotingDeferredCoordinatorJoins = false }
+            defer {
+                isPromotingDeferredCoordinatorJoins = false
+                performFontSizeWorkIdleActionsIfPossible()
+            }
 
             var joinVisitCount = 0
             while deferredCoordinatorJoinHead
@@ -570,6 +600,10 @@ final class WorkspaceTerminalFontSizeCoordinator {
             ].filter { !shouldRemove($0) }
             deferredCoordinatorJoins = Array(remaining)
             deferredCoordinatorJoinHead = 0
+            deferredCoordinatorJoinsAfterFontSizeWorkIdle.removeAll(
+                where: shouldRemove
+            )
+            performFontSizeWorkIdleActionsIfPossible()
         }
 
         fileprivate func hasDeferredCoordinatorJoin(
@@ -606,6 +640,152 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 existing.appendReset()
                 existing.append(transform)
             }
+        }
+
+        private var deferredCoordinatorJoinCount: Int {
+            deferredCoordinatorJoins.count
+                - deferredCoordinatorJoinHead
+        }
+
+        private var totalDeferredCoordinatorJoinCount: Int {
+            deferredCoordinatorJoinCount
+                + deferredCoordinatorJoinsAfterFontSizeWorkIdle.count
+        }
+
+        private var hasPendingFontSizeWorkIdleActions: Bool {
+            fontSizeWorkIdleActionHead < fontSizeWorkIdleActions.count
+        }
+
+        private var hasFontSizeWorkIdleBarrier: Bool {
+            hasPendingFontSizeWorkIdleActions
+                || isPerformingFontSizeWorkIdleActions
+                || !deferredCoordinatorJoinsAfterFontSizeWorkIdle.isEmpty
+        }
+
+        private var isFontSizeWorkIdleBeforeBarrier: Bool {
+            retainedCoordinators.isEmpty
+                && deferredCoordinatorJoinCount == 0
+                && !isPromotingDeferredCoordinatorJoins
+                && !isCancellingWindowOwnedWork
+        }
+
+        @discardableResult
+        private func appendDeferredCoordinatorJoin(
+            _ join: DeferredCoordinatorJoin,
+            afterFontSizeWorkIdle: Bool
+        ) -> Bool {
+            if afterFontSizeWorkIdle {
+                if let lastIndex =
+                        deferredCoordinatorJoinsAfterFontSizeWorkIdle
+                            .indices.last,
+                   let workspace = join.workspaceReference.value,
+                   deferredCoordinatorJoinsAfterFontSizeWorkIdle[
+                        lastIndex
+                   ].matches(
+                        workspace: workspace,
+                        windowDockSlot: join.windowDockSlot
+                   ) {
+                    var existing =
+                        deferredCoordinatorJoinsAfterFontSizeWorkIdle[
+                            lastIndex
+                        ]
+                    append(join.change, to: &existing.change)
+                    existing.deferFlush =
+                        existing.deferFlush && join.deferFlush
+                    deferredCoordinatorJoinsAfterFontSizeWorkIdle[
+                        lastIndex
+                    ] = existing
+                    return true
+                }
+            } else if let lastIndex =
+                        deferredCoordinatorJoins.indices.last,
+                      lastIndex >= deferredCoordinatorJoinHead,
+                      let workspace = join.workspaceReference.value,
+                      deferredCoordinatorJoins[lastIndex].matches(
+                        workspace: workspace,
+                        windowDockSlot: join.windowDockSlot
+                      ) {
+                var existing = deferredCoordinatorJoins[lastIndex]
+                append(join.change, to: &existing.change)
+                existing.deferFlush =
+                    existing.deferFlush && join.deferFlush
+                deferredCoordinatorJoins[lastIndex] = existing
+                return true
+            }
+
+            // Preserve every accepted join's order, but stop accepting new
+            // distinct pairs once blocked owners fill the bounded backlog.
+            // Adjacent repeats above still coalesce into constant-size
+            // transforms at the limit.
+            guard totalDeferredCoordinatorJoinCount
+                    < maximumDeferredCoordinatorJoinCount else {
+                return false
+            }
+            if afterFontSizeWorkIdle {
+                deferredCoordinatorJoinsAfterFontSizeWorkIdle.append(join)
+            } else {
+                deferredCoordinatorJoins.append(join)
+            }
+            return true
+        }
+
+        private func signalRetainedCoordinators() {
+            let coordinators = Array(retainedCoordinators.values)
+            for coordinator in coordinators {
+                coordinator.signalMutationRetry()
+            }
+        }
+
+        private func popFontSizeWorkIdleAction()
+            -> FontSizeWorkIdleAction? {
+            guard hasPendingFontSizeWorkIdleActions else { return nil }
+            let action =
+                fontSizeWorkIdleActions[fontSizeWorkIdleActionHead]
+            fontSizeWorkIdleActionHead += 1
+            if fontSizeWorkIdleActionHead
+                    == fontSizeWorkIdleActions.count {
+                fontSizeWorkIdleActions.removeAll(keepingCapacity: false)
+                fontSizeWorkIdleActionHead = 0
+            } else if fontSizeWorkIdleActionHead >= 16,
+                      fontSizeWorkIdleActionHead * 2
+                        >= fontSizeWorkIdleActions.count {
+                fontSizeWorkIdleActions.removeFirst(
+                    fontSizeWorkIdleActionHead
+                )
+                fontSizeWorkIdleActionHead = 0
+            }
+            return action
+        }
+
+        private func performFontSizeWorkIdleActionsIfPossible() {
+            guard !isPerformingFontSizeWorkIdleActions,
+                  isFontSizeWorkIdleBeforeBarrier else {
+                return
+            }
+
+            if hasPendingFontSizeWorkIdleActions {
+                isPerformingFontSizeWorkIdleActions = true
+                while isFontSizeWorkIdleBeforeBarrier,
+                      let action = popFontSizeWorkIdleAction() {
+                    action()
+                }
+                isPerformingFontSizeWorkIdleActions = false
+            }
+
+            guard isFontSizeWorkIdleBeforeBarrier,
+                  !hasPendingFontSizeWorkIdleActions,
+                  !deferredCoordinatorJoinsAfterFontSizeWorkIdle
+                    .isEmpty else {
+                return
+            }
+            deferredCoordinatorJoins.append(
+                contentsOf:
+                    deferredCoordinatorJoinsAfterFontSizeWorkIdle
+            )
+            deferredCoordinatorJoinsAfterFontSizeWorkIdle.removeAll(
+                keepingCapacity: false
+            )
+            promoteDeferredCoordinatorJoins()
         }
 
         private func scheduleDeferredCoordinatorJoinPromotion() {
@@ -836,10 +1016,22 @@ final class WorkspaceTerminalFontSizeCoordinator {
             return false
         }
         arbiter.promoteDeferredCoordinatorJoins()
+        let workspaceReference = WeakWorkspaceReference(workspace)
+        if let accepted =
+                arbiter
+                    .deferCoordinatorJoinAfterFontSizeWorkIdleIfNeeded(
+                        change,
+                        workspace: workspace,
+                        workspaceReference: workspaceReference,
+                        windowDockSlot: windowDockSlot,
+                        preferredCoordinator: self,
+                        deferFlush: deferFlush
+                    ) {
+            return accepted
+        }
         workspace.terminalFontSizeChangeCoordinator?
             .signalMutationRetry()
         windowDockSlot.coordinator?.signalMutationRetry()
-        let workspaceReference = WeakWorkspaceReference(workspace)
         if arbiter.hasDeferredCoordinatorJoin(
             targeting: workspace,
             or: windowDockSlot
