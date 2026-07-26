@@ -604,7 +604,7 @@ struct SimulatorCameraAdapterTests {
             startSeconds: 1,
             startMicroseconds: 1
         )
-        try authorizationStore.save(
+        try await authorizationStore.save(
             .denied,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
@@ -622,7 +622,7 @@ struct SimulatorCameraAdapterTests {
             bundleIdentifier: bundleIdentifier
         )
 
-        let storedRecord = try authorizationStore.record(
+        let storedRecord = try await authorizationStore.record(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )

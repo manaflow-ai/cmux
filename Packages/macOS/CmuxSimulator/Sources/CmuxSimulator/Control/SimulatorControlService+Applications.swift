@@ -11,7 +11,7 @@ extension SimulatorControlService {
             hadFailures: Bool
         )
         do {
-            scan = try cameraAuthorizationStore.records()
+            scan = try await cameraAuthorizationStore.records()
         } catch {
             return false
         }
@@ -204,14 +204,14 @@ extension SimulatorControlService {
                 bundleIdentifier: bundleIdentifier
             ),
         ]) {
-            guard let record = try cameraAuthorizationStore.record(
+            guard let record = try await cameraAuthorizationStore.record(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifier: bundleIdentifier
             ), !record.isOwnedByRunningProcess else { return }
             _ = try? await output(arguments: [
                 "simctl", "terminate", deviceIdentifier, bundleIdentifier,
             ])
-            guard let currentRecord = try cameraAuthorizationStore.record(
+            guard let currentRecord = try await cameraAuthorizationStore.record(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifier: bundleIdentifier
             ), !currentRecord.isOwnedByRunningProcess else { return }
@@ -230,7 +230,7 @@ extension SimulatorControlService {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) async throws {
-        guard let authorization = try cameraAuthorizationStore.authorization(
+        guard let authorization = try await cameraAuthorizationStore.authorization(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         ) else { return }
@@ -251,7 +251,7 @@ extension SimulatorControlService {
         _ = try await output(arguments: [
             "simctl", "privacy", deviceIdentifier, action, "camera", bundleIdentifier,
         ])
-        try cameraAuthorizationStore.remove(
+        try await cameraAuthorizationStore.remove(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )

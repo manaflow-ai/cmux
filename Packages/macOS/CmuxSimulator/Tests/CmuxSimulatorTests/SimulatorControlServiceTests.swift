@@ -112,7 +112,7 @@ struct SimulatorControlServiceTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
-        try authorizationStore.save(
+        try await authorizationStore.save(
             .denied,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -151,7 +151,7 @@ struct SimulatorControlServiceTests {
                 deviceIdentifier, bundleIdentifier,
             ],
         ])
-        #expect(try authorizationStore.authorization(
+        #expect(try await authorizationStore.authorization(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         ) == nil)
@@ -168,7 +168,7 @@ struct SimulatorControlServiceTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
-        try authorizationStore.save(
+        try await authorizationStore.save(
             .denied,
             deviceIdentifier: orphanDevice,
             bundleIdentifier: bundleIdentifier,
@@ -179,7 +179,7 @@ struct SimulatorControlServiceTests {
             )
         )
         let liveIdentity = try #require(SimulatorProcessIdentity(pid: getpid()))
-        try authorizationStore.save(
+        try await authorizationStore.save(
             .granted,
             deviceIdentifier: liveDevice,
             bundleIdentifier: bundleIdentifier,
@@ -209,18 +209,18 @@ struct SimulatorControlServiceTests {
                 orphanDevice, bundleIdentifier,
             ],
         ])
-        #expect(try authorizationStore.authorization(
+        #expect(try await authorizationStore.authorization(
             deviceIdentifier: orphanDevice,
             bundleIdentifier: bundleIdentifier
         ) == nil)
-        #expect(try authorizationStore.authorization(
+        #expect(try await authorizationStore.authorization(
             deviceIdentifier: liveDevice,
             bundleIdentifier: bundleIdentifier
         ) == .granted)
     }
 
     @Test("The default camera journal survives temporary-directory cleanup")
-    func defaultCameraJournalUsesApplicationSupport() throws {
+    func defaultCameraJournalUsesApplicationSupport() async throws {
         let fileManager = FileManager.default
         let applicationSupportDirectory = try #require(
             fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -231,17 +231,11 @@ struct SimulatorControlServiceTests {
         let deviceIdentifier = "DURABLE-\(UUID().uuidString)"
         let bundleIdentifier = "com.example.\(UUID().uuidString)"
         let store = SimulatorCameraAuthorizationStore()
-        try store.save(
+        try await store.save(
             .denied,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
-        defer {
-            try? store.remove(
-                deviceIdentifier: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-            )
-        }
 
         let records = (try? fileManager.contentsOfDirectory(
             at: expectedDirectory,
@@ -256,6 +250,10 @@ struct SimulatorControlServiceTests {
             return record.deviceIdentifier == deviceIdentifier
                 && record.bundleIdentifier == bundleIdentifier
         })
+        try await store.remove(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
     }
 
     @Test("Camera launch recovery fails closed on a corrupt journal")
@@ -268,7 +266,7 @@ struct SimulatorControlServiceTests {
         let recoverableDeviceID = "RECOVERABLE-\(UUID().uuidString)"
         let bundleIdentifier = "com.example.camera"
         let authorizationStore = SimulatorCameraAuthorizationStore(directory: directory)
-        try authorizationStore.save(
+        try await authorizationStore.save(
             .denied,
             deviceIdentifier: recoverableDeviceID,
             bundleIdentifier: bundleIdentifier,
@@ -302,7 +300,7 @@ struct SimulatorControlServiceTests {
                 recoverableDeviceID, bundleIdentifier,
             ],
         ])
-        #expect(try authorizationStore.authorization(
+        #expect(try await authorizationStore.authorization(
             deviceIdentifier: recoverableDeviceID,
             bundleIdentifier: bundleIdentifier
         ) == nil)
@@ -326,7 +324,7 @@ struct SimulatorControlServiceTests {
         let deviceIdentifier = "LEGACY-\(UUID().uuidString)"
         let bundleIdentifier = "com.example.\(UUID().uuidString)"
         let legacyStore = SimulatorCameraAuthorizationStore(directory: legacyDirectory)
-        try legacyStore.save(
+        try await legacyStore.save(
             .denied,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -352,10 +350,6 @@ struct SimulatorControlServiceTests {
         try JSONEncoder().encode(legacyRecord).write(to: legacyURL, options: .atomic)
         defer {
             try? fileManager.removeItem(at: legacyURL)
-            try? SimulatorCameraAuthorizationStore().remove(
-                deviceIdentifier: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-            )
         }
         let commands = RecordingCommandRunner(results: [
             .success(""),
@@ -378,10 +372,14 @@ struct SimulatorControlServiceTests {
             ],
         ])
         #expect(!fileManager.fileExists(atPath: legacyURL.path))
+        try await SimulatorCameraAuthorizationStore().remove(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
     }
 
     @Test("Migration suppresses a durable duplicate while its legacy owner is live")
-    func cameraMigrationPreservesLiveLegacyJournal() throws {
+    func cameraMigrationPreservesLiveLegacyJournal() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "camera-live-legacy-\(UUID().uuidString)",
@@ -393,7 +391,7 @@ struct SimulatorControlServiceTests {
         let deviceIdentifier = UUID().uuidString
         let bundleIdentifier = "com.example.\(UUID().uuidString)"
         let legacyStore = SimulatorCameraAuthorizationStore(directory: legacyDirectory)
-        try legacyStore.save(
+        try await legacyStore.save(
             .denied,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
@@ -406,7 +404,7 @@ struct SimulatorControlServiceTests {
         let staleDurableStore = SimulatorCameraAuthorizationStore(
             directory: durableDirectory
         )
-        try staleDurableStore.save(
+        try await staleDurableStore.save(
             .denied,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
@@ -421,7 +419,7 @@ struct SimulatorControlServiceTests {
             legacyDirectory: legacyDirectory
         )
 
-        let scan = try durableStore.records()
+        let scan = try await durableStore.records()
 
         #expect(scan.records.isEmpty)
         #expect(fileManager.fileExists(atPath: legacyURL.path))
@@ -429,12 +427,12 @@ struct SimulatorControlServiceTests {
             at: durableDirectory,
             includingPropertiesForKeys: nil
         ).filter { $0.pathExtension == "json" }.count == 1)
-        #expect(try durableStore.authorization(
+        #expect(try await durableStore.authorization(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         ) == nil)
-        #expect(throws: (any Error).self) {
-            try durableStore.save(
+        await #expect(throws: (any Error).self) {
+            try await durableStore.save(
                 .denied,
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifier: bundleIdentifier
@@ -443,7 +441,7 @@ struct SimulatorControlServiceTests {
     }
 
     @Test("A dead legacy camera journal replaces a stale durable duplicate")
-    func deadLegacyCameraJournalReplacesDurableDuplicate() throws {
+    func deadLegacyCameraJournalReplacesDurableDuplicate() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "camera-dead-legacy-\(UUID().uuidString)",
@@ -459,13 +457,13 @@ struct SimulatorControlServiceTests {
             startSeconds: 1,
             startMicroseconds: 1
         )
-        try SimulatorCameraAuthorizationStore(directory: durableDirectory).save(
+        try await SimulatorCameraAuthorizationStore(directory: durableDirectory).save(
             .granted,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
             ownerProcessIdentity: deadOwner
         )
-        try SimulatorCameraAuthorizationStore(directory: legacyDirectory).save(
+        try await SimulatorCameraAuthorizationStore(directory: legacyDirectory).save(
             .denied,
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
@@ -476,7 +474,7 @@ struct SimulatorControlServiceTests {
             legacyDirectory: legacyDirectory
         )
 
-        let scan = try store.records()
+        let scan = try await store.records()
 
         #expect(scan.records.count == 1)
         #expect(scan.records[0].authorization == .denied)
@@ -530,6 +528,9 @@ struct SimulatorControlServiceTests {
         #expect(scan.records.isEmpty)
         #expect(scan.hadFailures)
         #expect(fileManager.fileExists(atPath: legacyURL.path))
+        let repeatedScan = try await store.records()
+        #expect(repeatedScan.records.isEmpty)
+        #expect(repeatedScan.hadFailures)
     }
 
     @Test("Legacy cleanup cannot expose its stale durable duplicate")
@@ -603,6 +604,7 @@ struct SimulatorControlServiceTests {
         let journalKey = SimulatorMutationKey(
             value: "camera-authorization-journal\0\(fileName)"
         )
+        #expect(journalKey.deviceScope == nil)
         let lease = try await SimulatorMutationGate().acquireLocks([journalKey])
         let completion = CameraJournalCompletionProbe()
         let scan = Task {
