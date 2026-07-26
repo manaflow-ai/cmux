@@ -17,7 +17,10 @@ struct OnboardingAgentsView: View {
                     "mobile.onboarding.agents.body",
                     defaultValue: "See every workspace and its latest activity, wherever you are."
                 ),
-                visual: OnboardingWorkspacePreview()
+                visual: OnboardingScreenshot(
+                    content: .workspaces,
+                    accessibilityLabel: title
+                )
             )
         }
     }

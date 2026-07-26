@@ -23,6 +23,9 @@ struct AgentResumeLivenessTests {
             snapshot: SessionRestorableAgentSnapshot(kind: kind, sessionId: sessionId),
             lifecycle: nil,
             updatedAt: 0,
+            // `hasLiveProcess` decides from the PID set alone, so keep the recorded
+            // liveness consistent with the PIDs each case asks for instead of pinning
+            // one value that would contradict the empty-PID case.
             processLiveness: processIDs.isEmpty ? .exited : .running,
             processIDs: processIDs,
             agentProcessIDs: processIDs,

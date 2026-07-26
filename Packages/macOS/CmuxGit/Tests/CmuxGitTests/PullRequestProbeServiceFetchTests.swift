@@ -79,8 +79,8 @@ struct PullRequestProbeServiceFetchTests {
         PullRequestProbeStubURLProtocol.capturedRequests().map { $0.url?.absoluteString ?? "" }
     }
 
-    private func containsPageQuery(_ rawURL: String) -> Bool {
-        URLComponents(string: rawURL)?.queryItems?.contains { $0.name == "page" } == true
+    private func hasQueryItem(named name: String, in urlString: String) -> Bool {
+        URLComponents(string: urlString)?.queryItems?.contains { $0.name == name } == true
     }
 
     @Test func coldFetchIssuesPerBranchHeadRequestsAndNoListPagination() async throws {
@@ -98,7 +98,7 @@ struct PullRequestProbeServiceFetchTests {
         #expect(urls.allSatisfy { $0.contains("head=") })
         // The defeated-cache pagination path (?state=all&sort=updated&…&page=N)
         // must be gone — no listing request should be issued.
-        #expect(urls.allSatisfy { !containsPageQuery($0) })
+        #expect(urls.allSatisfy { !hasQueryItem(named: "page", in: $0) })
     }
 
     @Test func secondRefreshRevalidatesUnchangedBranchTo304() async throws {
@@ -172,7 +172,7 @@ struct PullRequestProbeServiceFetchTests {
         #expect(urls.count == 2)
         #expect(urls.contains { $0.contains("feat/alpha") || $0.contains("feat%2Falpha") })
         #expect(urls.contains { $0.contains("feat/beta") || $0.contains("feat%2Fbeta") })
-        #expect(urls.allSatisfy { !containsPageQuery($0) })
+        #expect(urls.allSatisfy { !hasQueryItem(named: "page", in: $0) })
     }
 }
 

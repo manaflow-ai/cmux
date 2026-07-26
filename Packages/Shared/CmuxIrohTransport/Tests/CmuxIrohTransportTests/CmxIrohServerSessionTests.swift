@@ -5,6 +5,44 @@ import Testing
 
 @Suite
 struct CmxIrohServerSessionTests {
+    @Test(arguments: [
+        DiagnosticFailureKind.admissionLeaseExpired,
+        .admissionDenied,
+        .admissionRevalidationFailed,
+    ])
+    func namedHostCloseOverridesTheObservedSupervisorExit(
+        failure: DiagnosticFailureKind
+    ) async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream]
+        )
+        let serverSession = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        let peer = try await serverSession.admit()
+        let session = CmxIrohAdmittedServerSession(
+            peer: peer,
+            session: serverSession
+        )
+        let observedExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .controlReadFailed,
+            failure: .connectionClosed
+        )
+
+        await serverSession.close(failure: failure)
+
+        #expect(
+            await session.connectionExit(resolving: observedExit)
+                == CmxIrohAdmittedConnectionExit(
+                    lifecycle: .explicitlyInvalidated,
+                    failure: failure
+                )
+        )
+    }
+
     @Test
     func acceptedControlPreservesPayloadAndUnlocksIndependentLanes() async throws {
         let events = TestIrohEventRecorder()

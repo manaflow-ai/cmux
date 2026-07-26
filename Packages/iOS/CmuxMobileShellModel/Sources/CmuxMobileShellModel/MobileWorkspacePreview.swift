@@ -50,6 +50,17 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var windowID: String?
     /// The workspace's user-facing display name.
     public var name: String
+    /// The workspace's custom description, when one was set on the Mac.
+    /// Kept separate from ``previewText`` so durable workspace context and live
+    /// terminal activity can render together instead of replacing each other.
+    public var customDescription: String?
+    /// True when ``customDescription`` is only the mobile-safe prefix of a
+    /// longer Mac-authored durable description.
+    public var customDescriptionIsTruncated: Bool
+    /// The workspace's custom `#RRGGBB` accent color, when one was set on the Mac.
+    /// This is workspace identity and must not be confused with
+    /// ``machineCustomColor``, which colors the owning Mac's avatar.
+    public var customColorHex: String?
     /// The workspace's last reported current directory on its owning Mac.
     public var currentDirectory: String?
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
@@ -121,6 +132,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         macDisplayName: String? = nil,
         windowID: String? = nil,
         name: String,
+        customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
+        customColorHex: String? = nil,
         currentDirectory: String? = nil,
         isPinned: Bool = false,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
@@ -136,6 +150,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.macDisplayName = macDisplayName
         self.windowID = windowID
         self.name = name
+        self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
+        self.customColorHex = customColorHex
         self.currentDirectory = currentDirectory
         self.isPinned = isPinned
         self.groupID = groupID

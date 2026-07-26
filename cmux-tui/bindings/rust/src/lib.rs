@@ -2,9 +2,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
+use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
@@ -70,8 +72,31 @@ pub fn env_socket_path() -> Option<PathBuf> {
 }
 
 pub fn default_socket_path(session: &str) -> PathBuf {
-    let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join(format!("cmux-tui-{}", current_uid_component())).join(format!("{session}.sock"))
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
+}
+
+fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+    let file_name = format!("{session}.sock");
+    let preferred = runtime_dir.join(&file_name);
+    if !unix_socket_path_fits(&preferred) {
+        return PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+    }
+    preferred
+}
+
+fn private_runtime_dir_name() -> String {
+    format!("cmux-tui-{}", current_uid_component())
+}
+
+fn unix_socket_path_fits(path: &Path) -> bool {
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 #[cfg(unix)]
@@ -104,6 +129,63 @@ pub struct IdentifyDetails {
     pub capabilities: Vec<String>,
     pub session: String,
     pub pid: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClientSurfaceSize {
+    pub surface: u64,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+    pub size_participating: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientInfo {
+    pub client: u64,
+    pub transport: String,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+    pub connected_seconds: u64,
+    pub attached: Vec<u64>,
+    pub sizes: Vec<ClientSurfaceSize>,
+    pub is_self: bool,
+}
+
+#[derive(Deserialize)]
+struct ClientInfoWire {
+    client: u64,
+    transport: String,
+    name: Option<String>,
+    kind: Option<String>,
+    connected_seconds: u64,
+    attached: Vec<u64>,
+    sizes: Vec<ClientSurfaceSize>,
+    size_participating: Option<bool>,
+    #[serde(rename = "self")]
+    is_self: bool,
+}
+
+impl<'de> Deserialize<'de> for ClientInfo {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut wire = ClientInfoWire::deserialize(deserializer)?;
+        let fallback = wire.size_participating.unwrap_or(true);
+        for size in &mut wire.sizes {
+            size.size_participating.get_or_insert(fallback);
+        }
+        Ok(Self {
+            client: wire.client,
+            transport: wire.transport,
+            name: wire.name,
+            kind: wire.kind,
+            connected_seconds: wire.connected_seconds,
+            attached: wire.attached,
+            sizes: wire.sizes,
+            is_self: wire.is_self,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -447,6 +529,34 @@ impl CmuxClient {
 
     pub fn list_workspaces(&mut self) -> Result<Tree> {
         self.request("list-workspaces", Map::new())
+    }
+
+    pub fn list_clients(&mut self) -> Result<Vec<ClientInfo>> {
+        self.request("list-clients", Map::new())
+    }
+
+    pub fn set_client_sizing(&mut self, surface: u64, client: u64, enabled: bool) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(enabled));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_only_client_size(&mut self, surface: u64, client: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(true));
+        params.insert("exclusive".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_all_client_sizes(&mut self, surface: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("enabled".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
     }
 
     pub fn send(&mut self, surface: u64, text: Option<&str>, bytes: Option<&str>) -> Result<()> {
@@ -1077,6 +1187,42 @@ mod tests {
     }
 
     #[test]
+    fn default_socket_path_preserves_compatible_runtime_dir() {
+        let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
+        assert_eq!(
+            default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
+            runtime_dir.join("main.sock")
+        );
+    }
+
+    #[test]
+    fn default_socket_path_falls_back_for_long_tmpdir() {
+        let long_tmpdir = PathBuf::from("/tmp").join("x".repeat(200));
+        let preferred_runtime_dir = long_tmpdir.join(private_runtime_dir_name());
+        let path = default_socket_path_in_runtime_dir(
+            "cmux-browser-0123456789abcdef",
+            preferred_runtime_dir,
+        );
+
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp")
+                .join(private_runtime_dir_name())
+                .join("cmux-browser-0123456789abcdef.sock")
+        );
+        assert!(unix_socket_path_fits(&path));
+        assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[test]
+    fn unix_socket_path_reserves_trailing_nul() {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        assert!(unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY - 1))));
+        assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
+    }
+
+    #[test]
     fn title_changed_decodes_authoritative_title() {
         let event = parse_event(serde_json::json!({
             "event": "title-changed",
@@ -1149,6 +1295,28 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn client_info_normalizes_protocol_nine_sizing_participation() {
+        let client: ClientInfo = serde_json::from_value(serde_json::json!({
+            "client": 7,
+            "transport": "ws",
+            "name": null,
+            "kind": "web",
+            "connected_seconds": 12,
+            "attached": [31, 32],
+            "sizes": [
+                {"surface": 31, "cols": 126, "rows": 38},
+                {"surface": 32, "cols": 100, "rows": 30, "size_participating": true},
+            ],
+            "size_participating": false,
+            "self": true,
+        }))
+        .unwrap();
+
+        assert_eq!(client.sizes[0].size_participating, Some(false));
+        assert_eq!(client.sizes[1].size_participating, Some(true));
     }
 
     #[test]

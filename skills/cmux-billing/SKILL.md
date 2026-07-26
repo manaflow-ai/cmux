@@ -40,7 +40,7 @@ Use this skill before changing billing, pricing, Stripe, Pro entitlement, checko
 ## Feature Flags
 
 - `pro-upgrade-ui-enabled-release` (PostHog id `741838`) gates all Pro UI and stays OFF in release until launch. DEBUG builds default the UI on.
-- `pro-checkout-enabled-release` (PostHog id `741839`) routes the public pricing CTA.
+- Public Pro and Team pricing CTAs always route through `/api/billing/checkout`; do not fall back to the download confirmation page.
 - `cmux __internal_flags`, once merged, inspects and overrides flags locally.
 
 ## Prod Runbook

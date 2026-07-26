@@ -66,14 +66,14 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
-    func forgottenLiveCandidateIsNeitherDialedNorRecreated() async throws {
+    func hiddenLiveCandidateIsNeitherDialedNorRecreated() async throws {
         let fixture = try await makeFixture(
             candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
             reportedDeviceID: "mac-a"
         )
         defer { fixture.cleanup() }
         let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
-        await fixture.shell.rememberForgottenMacDeviceID(
+        await fixture.shell.rememberHiddenMacDeviceID(
             MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
             scope: scope
         )
@@ -81,98 +81,6 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(!(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
         #expect(fixture.factory.attemptedRouteIDs().isEmpty)
         #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
-    }
-
-    @Test
-    func explicitAccountRecoveryDialsForgottenLiveMacAndClearsMarker() async throws {
-        let fixture = try await makeFixture(
-            candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
-            reportedDeviceID: "mac-a"
-        )
-        defer { fixture.cleanup() }
-        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
-        await fixture.shell.rememberForgottenMacDeviceID(
-            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
-            scope: scope
-        )
-
-        await fixture.shell.loadPairedMacs()
-        #expect(fixture.shell.hasRecoverableDeletedComputers)
-        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount())
-
-        #expect(fixture.shell.connectionState == .connected)
-        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
-        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
-        let saved = try #require(rows.first)
-        #expect(rows.count == 1)
-        #expect(saved.macDeviceID == "mac-a")
-        #expect(saved.instanceTag == "stable")
-        #expect(!fixture.shell.hasRecoverableDeletedComputers)
-        #expect(!(await fixture.shell.isForgottenMacDeviceID(
-            "mac-a",
-            instanceTag: "stable",
-            scope: scope
-        )))
-    }
-
-    @Test
-    func explicitAccountRecoveryAcceptsMixedRouteCandidateWhenIrohRouteExists() async throws {
-        let mixedRouteCandidate = try candidate(
-            deviceID: "mac-a",
-            endpointByte: "a",
-            extraRoutes: [
-                try CmxAttachRoute(
-                    id: "tailscale-mac-a",
-                    kind: .tailscale,
-                    endpoint: .hostPort(host: "100.64.0.1", port: 58465)
-                ),
-            ]
-        )
-        let fixture = try await makeFixture(
-            candidates: [mixedRouteCandidate],
-            reportedDeviceID: "mac-a"
-        )
-        defer { fixture.cleanup() }
-        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
-        await fixture.shell.rememberForgottenMacDeviceID(
-            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
-            scope: scope
-        )
-
-        await fixture.shell.loadPairedMacs()
-        #expect(fixture.shell.hasRecoverableDeletedComputers)
-        #expect(await fixture.shell.recoverForgottenIrohMacFromAccount())
-
-        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
-        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
-        let saved = try #require(rows.first)
-        #expect(saved.routes.map(\.kind) == [.iroh])
-        #expect(!fixture.shell.hasRecoverableDeletedComputers)
-    }
-
-    @Test
-    func failedExplicitAccountRecoveryLeavesForgottenMarker() async throws {
-        let fixture = try await makeFixture(
-            candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
-            reportedDeviceID: "different-mac"
-        )
-        defer { fixture.cleanup() }
-        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
-        await fixture.shell.rememberForgottenMacDeviceID(
-            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
-            scope: scope
-        )
-
-        #expect(!(await fixture.shell.recoverForgottenIrohMacFromAccount()))
-
-        #expect(fixture.shell.connectionState == .disconnected)
-        #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"])
-        #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
-        #expect(await fixture.shell.isForgottenMacDeviceID(
-            "mac-a",
-            instanceTag: "stable",
-            scope: scope
-        ))
     }
 
     @Test
@@ -425,13 +333,14 @@ struct IrohZeroTouchDiscoveryTests {
     private func candidate(
         deviceID: String,
         endpointByte: Character,
+        instanceTag: String = "stable",
         extraRoutes: [CmxAttachRoute] = []
     ) throws -> MobileDiscoveredIrohMac {
         let endpointID = String(repeating: String(endpointByte), count: 64)
         return MobileDiscoveredIrohMac(
             deviceID: deviceID,
             displayName: "Test \(deviceID)",
-            instanceTag: "stable",
+            instanceTag: instanceTag,
             routes: [try CmxAttachRoute(
                 id: "iroh-\(deviceID)",
                 kind: .iroh,
