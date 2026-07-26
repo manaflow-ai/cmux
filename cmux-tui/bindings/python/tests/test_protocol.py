@@ -183,6 +183,27 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(requests, [("set-split-ratio", {"split": 1, "ratio": 0.5})])
 
+    def test_resize_methods_forward_explicit_transactions(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {"viewport-column-resize-v1"}
+        requests = []
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.set_split_ratio(1, 0.5, transaction=17)
+        client.set_viewport_pane_width(2, 0.75, transaction=17)
+
+        self.assertEqual(
+            requests,
+            [
+                ("set-split-ratio", {"split": 1, "ratio": 0.5, "transaction": 17}),
+                (
+                    "set-viewport-pane-width",
+                    {"pane": 2, "width": 0.75, "transaction": 17},
+                ),
+            ],
+        )
+
     def test_layout_undo_preserves_preview_revision_for_confirmation(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 10

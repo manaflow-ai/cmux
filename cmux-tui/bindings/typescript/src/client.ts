@@ -83,6 +83,11 @@ export interface CmuxClientOptions {
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 
+export interface ResizeTransactionOptions {
+  /** Reuse across one continuous drag, then choose a new value for the next drag. */
+  transaction?: number | null;
+}
+
 function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
   if ("workspace" in result
     && "key" in result
@@ -561,16 +566,24 @@ export class CmuxClient {
   setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
     return this.request("set-ratio", { pane, dir, ratio });
   }
-  async setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
+  async setSplitRatio(
+    split: Id,
+    ratio: number,
+    options: ResizeTransactionOptions = {},
+  ): Promise<EmptyResult> {
     await this.requireProtocol(8, "set-split-ratio");
-    return this.request("set-split-ratio", { split, ratio });
+    return this.request("set-split-ratio", { split, ratio, ...options });
   }
-  async setViewportPaneWidth(pane: Id, width: number): Promise<EmptyResult> {
+  async setViewportPaneWidth(
+    pane: Id,
+    width: number,
+    options: ResizeTransactionOptions = {},
+  ): Promise<EmptyResult> {
     await this.requireCapability(
       "viewport-column-resize-v1",
       "viewport pane resizing",
     );
-    return this.request("set-viewport-pane-width", { pane, width });
+    return this.request("set-viewport-pane-width", { pane, width, ...options });
   }
   async undoLayout(
     pane: Id,

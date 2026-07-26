@@ -751,18 +751,56 @@ impl CmuxClient {
     }
 
     pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        self.set_split_ratio_request(split, ratio, None)
+    }
+
+    pub fn set_split_ratio_in_transaction(
+        &mut self,
+        split: u64,
+        ratio: f32,
+        transaction: u64,
+    ) -> Result<()> {
+        self.set_split_ratio_request(split, ratio, Some(transaction))
+    }
+
+    fn set_split_ratio_request(
+        &mut self,
+        split: u64,
+        ratio: f32,
+        transaction: Option<u64>,
+    ) -> Result<()> {
         self.require_protocol(8, "set-split-ratio")?;
         let mut params = Map::new();
         params.insert("split".to_string(), Value::from(split));
         params.insert("ratio".to_string(), Value::from(ratio));
+        insert_opt(&mut params, "transaction", transaction);
         self.request::<Empty>("set-split-ratio", params).map(|_| ())
     }
 
     pub fn set_viewport_pane_width(&mut self, pane: u64, width: f32) -> Result<()> {
+        self.set_viewport_pane_width_request(pane, width, None)
+    }
+
+    pub fn set_viewport_pane_width_in_transaction(
+        &mut self,
+        pane: u64,
+        width: f32,
+        transaction: u64,
+    ) -> Result<()> {
+        self.set_viewport_pane_width_request(pane, width, Some(transaction))
+    }
+
+    fn set_viewport_pane_width_request(
+        &mut self,
+        pane: u64,
+        width: f32,
+        transaction: Option<u64>,
+    ) -> Result<()> {
         self.require_capability("viewport-column-resize-v1", "viewport pane resizing")?;
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));
         params.insert("width".to_string(), Value::from(width));
+        insert_opt(&mut params, "transaction", transaction);
         self.request::<Empty>("set-viewport-pane-width", params).map(|_| ())
     }
 
@@ -1564,6 +1602,43 @@ mod tests {
             capabilities: Vec::new(),
         };
         client.require_protocol(8, "set-split-ratio").unwrap();
+    }
+
+    #[test]
+    fn resize_methods_forward_explicit_transactions() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(10),
+            capabilities: vec!["viewport-column-resize-v1".to_string()],
+        };
+        let peer_reader = peer.try_clone().unwrap();
+        let capture = std::thread::spawn(move || {
+            let mut reader = BufReader::new(peer_reader);
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let id = request["id"].clone();
+                requests.push(request);
+                writeln!(peer, "{}", serde_json::json!({"id": id, "ok": true, "data": {}}))
+                    .unwrap();
+            }
+            requests
+        });
+
+        client.set_split_ratio_in_transaction(42, 0.6, 17).unwrap();
+        client.set_viewport_pane_width_in_transaction(9, 0.75, 17).unwrap();
+
+        let requests = capture.join().unwrap();
+        assert_eq!(requests[0]["cmd"], "set-split-ratio");
+        assert_eq!(requests[0]["transaction"], 17);
+        assert_eq!(requests[1]["cmd"], "set-viewport-pane-width");
+        assert_eq!(requests[1]["transaction"], 17);
     }
 
     #[test]

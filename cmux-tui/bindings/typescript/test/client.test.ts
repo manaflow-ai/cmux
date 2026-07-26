@@ -817,6 +817,39 @@ test("setSplitRatio sends the stable split id", async () => {
   await client.close();
 });
 
+test("resize methods forward one explicit transaction across drag samples", async () => {
+  const sent: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["viewport-column-resize-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    sent.push(request);
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.setSplitRatio(42, 0.6, { transaction: 17 });
+  await client.setViewportPaneWidth(9, 0.75, { transaction: 17 });
+
+  assert.deepEqual(sent, [
+    { id: 2, cmd: "set-split-ratio", split: 42, ratio: 0.6, transaction: 17 },
+    { id: 3, cmd: "set-viewport-pane-width", pane: 9, width: 0.75, transaction: 17 },
+  ]);
+  await client.close();
+});
+
 test("listClients returns the exact client presence response shape", async () => {
   const response = [{
     client: 7,

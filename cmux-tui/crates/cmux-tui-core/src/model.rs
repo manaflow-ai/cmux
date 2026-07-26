@@ -366,6 +366,19 @@ impl Node {
             Node::Stack { .. } => false,
         }
     }
+
+    fn set_split_ratios(&mut self, ratios: &BTreeMap<SplitId, f32>) {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => {}
+            Node::Split { id, ratio, a, b, .. } => {
+                if let Some(updated) = ratios.get(id) {
+                    *ratio = *updated;
+                }
+                a.set_split_ratios(ratios);
+                b.set_split_ratios(ratios);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -518,9 +531,37 @@ impl Screen {
         }
     }
 
+    fn coalesces_layout_change(&self, key: LayoutMutationKey) -> bool {
+        self.layout_undo.back().is_some_and(|entry| {
+            entry.created_panes.is_empty()
+                && entry.coalesce == Some(key)
+                && entry.after_revision == self.layout_revision
+        })
+    }
+
+    pub(crate) fn layout_snapshot_for_coalescing_change(
+        &self,
+        key: Option<LayoutMutationKey>,
+    ) -> Option<ScreenLayoutSnapshot> {
+        if key.is_some_and(|key| self.coalesces_layout_change(key)) {
+            None
+        } else {
+            Some(self.layout_snapshot())
+        }
+    }
+
     pub(crate) fn record_layout_change(
         &mut self,
         before: ScreenLayoutSnapshot,
+        created_panes: Vec<PaneId>,
+        coalesce: Option<LayoutMutationKey>,
+    ) {
+        self.record_prepared_layout_change(Some(before), created_panes, coalesce);
+    }
+
+    pub(crate) fn record_prepared_layout_change(
+        &mut self,
+        before: Option<ScreenLayoutSnapshot>,
         created_panes: Vec<PaneId>,
         coalesce: Option<LayoutMutationKey>,
     ) {
@@ -538,6 +579,7 @@ impl Screen {
             }
             return;
         }
+        let before = before.expect("non-coalesced layout changes require a prior snapshot");
         self.layout_undo.push_back(LayoutUndoEntry {
             before,
             after_revision: self.layout_revision,
@@ -625,6 +667,28 @@ impl Screen {
             width_before += column.width;
         }
         self.root = root;
+        debug_assert!(self.layout_column_projection_is_consistent());
+    }
+
+    pub(crate) fn sync_layout_column_width_projection(&mut self) {
+        let Some(first) = self.layout_columns.first() else {
+            self.viewport_splits.clear();
+            self.viewport_base_width = None;
+            return;
+        };
+        self.viewport_splits.clear();
+        self.viewport_base_width = Some(first.width);
+        let mut ratios = BTreeMap::new();
+        let mut width_before = first.width;
+        for column in self.layout_columns.iter().skip(1) {
+            ratios.insert(
+                column.id,
+                (width_before / (width_before + column.width)).clamp(0.05, 0.95),
+            );
+            self.viewport_splits.insert(column.id, column.width);
+            width_before += column.width;
+        }
+        self.root.set_split_ratios(&ratios);
         debug_assert!(self.layout_column_projection_is_consistent());
     }
 

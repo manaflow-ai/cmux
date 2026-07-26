@@ -13,6 +13,7 @@ export {
   type CloseWorkspaceOptions,
   type MoveWorkspaceOptions,
   type RenameWorkspaceOptions,
+  type ResizeTransactionOptions,
   type SelectOptions,
   type SelectTabOptions,
   type SendOptions,

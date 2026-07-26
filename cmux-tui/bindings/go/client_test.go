@@ -228,6 +228,49 @@ func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
 	}
 }
 
+func TestResizeMethodsForwardExplicitTransactions(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"viewport-column-resize-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 2)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for range 2 {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": map[string]any{}})
+		}
+	}()
+
+	if err := client.SetSplitRatioInTransaction(context.Background(), 42, 0.6, 17); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetViewportPaneWidthInTransaction(context.Background(), 9, 0.75, 17); err != nil {
+		t.Fatal(err)
+	}
+
+	split := <-requests
+	if split["cmd"] != "set-split-ratio" || split["transaction"] != float64(17) {
+		t.Fatalf("split request = %#v", split)
+	}
+	column := <-requests
+	if column["cmd"] != "set-viewport-pane-width" || column["transaction"] != float64(17) {
+		t.Fatalf("column request = %#v", column)
+	}
+}
+
 func TestUndoLayoutPreservesPreviewRevisionForConfirmation(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer serverConn.Close()

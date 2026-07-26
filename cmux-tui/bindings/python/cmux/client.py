@@ -648,16 +648,26 @@ class CmuxClient:
         self._request("set-ratio", pane=pane, dir=dir, ratio=ratio)
         return EmptyResult()
 
-    def set_split_ratio(self, split: int, ratio: float) -> EmptyResult:
+    def set_split_ratio(
+        self, split: int, ratio: float, *, transaction: Optional[int] = None
+    ) -> EmptyResult:
         self._require_protocol(8, "set-split-ratio")
-        self._request("set-split-ratio", split=split, ratio=ratio)
+        params = {"split": split, "ratio": ratio}
+        if transaction is not None:
+            params["transaction"] = transaction
+        self._request("set-split-ratio", **params)
         return EmptyResult()
 
-    def set_viewport_pane_width(self, pane: int, width: float) -> EmptyResult:
+    def set_viewport_pane_width(
+        self, pane: int, width: float, *, transaction: Optional[int] = None
+    ) -> EmptyResult:
         self._require_capability(
             "viewport-column-resize-v1", "viewport pane resizing"
         )
-        self._request("set-viewport-pane-width", pane=pane, width=width)
+        params = {"pane": pane, "width": width}
+        if transaction is not None:
+            params["transaction"] = transaction
+        self._request("set-viewport-pane-width", **params)
         return EmptyResult()
 
     def undo_layout(

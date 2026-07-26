@@ -30,6 +30,7 @@ public final class WireCaptureTest {
         assertProtocolV7RejectsSetSplitRatio();
         assertProtocolV8RejectsNewPane();
         assertProtocolV9AllowsSetSplitRatio();
+        assertResizeTransactionsAreForwarded();
         assertPartialAttachSizeIsRejected();
     }
 
@@ -122,6 +123,32 @@ public final class WireCaptureTest {
             "protocol 9 set-split-ratio",
             "{\"split\":4,\"ratio\":0.625,\"id\":2,\"cmd\":\"set-split-ratio\"}\n",
             server.firstLine(1)
+        );
+    }
+
+    private static void assertResizeTransactionsAreForwarded() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":10,\"capabilities\":[\"viewport-column-resize-v1\"],\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":true,\"data\":{}}",
+            "{\"id\":3,\"ok\":true,\"data\":{}}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            client.setSplitRatio(4, 0.625, 17L);
+            client.setViewportPaneWidth(9, 0.75, 17L);
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "transactional set-split-ratio",
+            "{\"split\":4,\"ratio\":0.625,\"transaction\":17,\"id\":2,\"cmd\":\"set-split-ratio\"}\n",
+            server.firstLine(1)
+        );
+        assertLine(
+            "transactional set-viewport-pane-width",
+            "{\"pane\":9,\"width\":0.75,\"transaction\":17,\"id\":3,\"cmd\":\"set-viewport-pane-width\"}\n",
+            server.firstLine(2)
         );
     }
 

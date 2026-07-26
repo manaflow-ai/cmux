@@ -21,9 +21,9 @@ use cmux_tui_core::{
     BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, LayoutUndoError,
     LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node,
     PairingChallenge, PaneId, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
-    ViewportColumn, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
-    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
-    split_sides, zellij_default_pane_layout,
+    ViewportColumn, ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode,
+    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -2424,9 +2424,9 @@ impl PaneArea {
 fn viewport_column_rects(
     root: &Node,
     viewport_splits: &std::collections::BTreeMap<SplitId, f32>,
-    panes: &[(PaneId, Rect)],
-) -> Vec<(ViewportColumn, PaneId, Rect)> {
-    let mut columns = Vec::<(ViewportColumn, PaneId, Rect)>::new();
+    panes: &[(PaneId, VirtualRect)],
+) -> Vec<(ViewportColumn, PaneId, VirtualRect)> {
+    let mut columns = Vec::<(ViewportColumn, PaneId, VirtualRect)>::new();
     for (pane, rect) in panes.iter().copied().filter(|(_, rect)| rect.width > 0) {
         let Some(owner) = root.viewport_column_owner(pane, viewport_splits) else {
             continue;
@@ -3324,10 +3324,10 @@ const VIEWPORT_ANIMATION_DURATION: Duration = Duration::from_millis(180);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ViewportGeometry {
-    active_span: Option<(u16, u16)>,
-    viewport_x: u16,
+    active_span: Option<(u64, u64)>,
+    viewport_x: u64,
     viewport_width: u16,
-    virtual_width: u16,
+    virtual_width: u64,
 }
 
 #[derive(Debug)]
@@ -3368,8 +3368,8 @@ impl ViewportMotion {
         (self.current - previous).abs() >= 0.01
     }
 
-    fn retarget(&mut self, target: u16, animate: bool, now: Instant) {
-        let target = f64::from(target);
+    fn retarget(&mut self, target: u64, animate: bool, now: Instant) {
+        let target = target as f64;
         let _ = self.update(now);
         if (self.target - target).abs() < f64::EPSILON {
             if !animate {
@@ -3394,25 +3394,82 @@ impl ViewportMotion {
         (self.current - self.target).abs() >= 0.01
     }
 
-    fn offset(&self) -> u16 {
-        self.current.round().clamp(0.0, f64::from(u16::MAX)) as u16
+    fn offset(&self) -> u64 {
+        self.current.round().clamp(0.0, u64::MAX as f64) as u64
     }
 }
 
-fn clip_horizontal_rect(rect: Rect, viewport: Rect, output_x: u16) -> Option<(Rect, u16)> {
-    let left = rect.x.max(viewport.x);
-    let right = rect.x.saturating_add(rect.width).min(viewport.x.saturating_add(viewport.width));
+fn clip_horizontal_rect(
+    rect: VirtualRect,
+    viewport_x: u64,
+    viewport_width: u16,
+    output_x: u16,
+) -> Option<(Rect, u16)> {
+    let left = rect.x.max(viewport_x);
+    let right =
+        rect.x.saturating_add(rect.width).min(viewport_x.saturating_add(u64::from(viewport_width)));
     if left >= right {
         return None;
     }
+    let visible_width = u16::try_from(right - left).ok()?;
+    let source_x = u16::try_from(left - rect.x).ok()?;
     Some((
         Rect {
-            x: output_x.saturating_add(left.saturating_sub(viewport.x)),
+            x: output_x.saturating_add(u16::try_from(left - viewport_x).ok()?),
             y: rect.y,
-            width: right - left,
+            width: visible_width,
             height: rect.height,
         },
-        left - rect.x,
+        source_x,
+    ))
+}
+
+fn terminal_rect_from_virtual(rect: VirtualRect) -> Option<Rect> {
+    Some(Rect {
+        x: u16::try_from(rect.x).ok()?,
+        y: rect.y,
+        width: u16::try_from(rect.width).ok()?,
+        height: rect.height,
+    })
+}
+
+fn virtualize_local_rect(parent_x: u64, rect: Rect) -> VirtualRect {
+    VirtualRect {
+        x: parent_x.saturating_add(u64::from(rect.x)),
+        y: rect.y,
+        width: u64::from(rect.width),
+        height: rect.height,
+    }
+}
+
+type PaneParts<T> = (Option<T>, Option<T>, T, Option<T>);
+
+fn pane_parts_for_virtual_rect(
+    rect: VirtualRect,
+    scrollbar_position: ScrollbarPosition,
+    has_browser_omnibar: bool,
+) -> Option<PaneParts<VirtualRect>> {
+    let local =
+        Rect { x: 0, y: rect.y, width: u16::try_from(rect.width).ok()?, height: rect.height };
+    let (bar, omnibar, content, track) =
+        pane_parts_for_rect(local, scrollbar_position, has_browser_omnibar);
+    Some((
+        bar.map(|part| virtualize_local_rect(rect.x, part)),
+        omnibar.map(|part| virtualize_local_rect(rect.x, part)),
+        virtualize_local_rect(rect.x, content),
+        track.map(|part| virtualize_local_rect(rect.x, part)),
+    ))
+}
+
+fn stacked_header_parts_for_virtual_rect(rect: VirtualRect) -> Option<PaneParts<VirtualRect>> {
+    let local =
+        Rect { x: 0, y: rect.y, width: u16::try_from(rect.width).ok()?, height: rect.height };
+    let (bar, omnibar, content, track) = stacked_header_parts_for_rect(local);
+    Some((
+        bar.map(|part| virtualize_local_rect(rect.x, part)),
+        omnibar.map(|part| virtualize_local_rect(rect.x, part)),
+        virtualize_local_rect(rect.x, content),
+        track.map(|part| virtualize_local_rect(rect.x, part)),
     ))
 }
 
@@ -3519,10 +3576,10 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<StdoutLock>,
     pub pane_areas: Vec<PaneArea>,
-    viewport_layout: Vec<(PaneId, Rect)>,
+    viewport_layout: Vec<(PaneId, VirtualRect)>,
     viewport_states: HashMap<ScreenId, ViewportMotion>,
-    viewport_virtual_width: u16,
-    viewport_offset: u16,
+    viewport_virtual_width: u64,
+    viewport_offset: u64,
     pane_focus_history: PaneFocusHistory,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
@@ -3879,7 +3936,7 @@ fn pane_parts_for_rect(
     rect: Rect,
     scrollbar: ScrollbarPosition,
     browser_omnibar: bool,
-) -> (Option<Rect>, Option<Rect>, Rect, Option<Rect>) {
+) -> PaneParts<Rect> {
     let (bar, mut content, track) = if rect.width > 2 && rect.height > 2 {
         let reserved_cols = match scrollbar {
             ScrollbarPosition::Column => 3,
@@ -3920,7 +3977,7 @@ fn pane_parts_for_rect(
     (bar, omnibar, content, track)
 }
 
-fn stacked_header_parts_for_rect(rect: Rect) -> (Option<Rect>, Option<Rect>, Rect, Option<Rect>) {
+fn stacked_header_parts_for_rect(rect: Rect) -> PaneParts<Rect> {
     (Some(rect), None, Rect { y: rect.y.saturating_add(rect.height), height: 0, ..rect }, None)
 }
 
@@ -6348,30 +6405,30 @@ impl App {
         &mut self,
         screen: ScreenId,
         active_pane: PaneId,
-        active_rect: Option<Rect>,
+        active_rect: Option<VirtualRect>,
         area: Rect,
-        virtual_width: u16,
+        virtual_width: u64,
         now: Instant,
-    ) -> u16 {
-        let maximum = virtual_width.saturating_sub(area.width);
+    ) -> u64 {
+        let maximum = virtual_width.saturating_sub(u64::from(area.width));
         let animate = self.config.viewport.animation;
         let motion = self.viewport_states.entry(screen).or_insert_with(|| ViewportMotion::new(now));
         let geometry = ViewportGeometry {
             active_span: active_rect.map(|rect| (rect.x, rect.width)),
-            viewport_x: area.x,
+            viewport_x: u64::from(area.x),
             viewport_width: area.width,
             virtual_width,
         };
         let reveal_active =
             motion.last_active_pane != Some(active_pane) || motion.last_geometry != Some(geometry);
-        let mut target = (motion.target.round() as u16).min(maximum);
+        let mut target = (motion.target.round() as u64).min(maximum);
         if reveal_active && let Some(rect) = active_rect {
-            let left = rect.x.saturating_sub(area.x);
+            let left = rect.x.saturating_sub(u64::from(area.x));
             let right = left.saturating_add(rect.width);
             if left < target {
                 target = left;
-            } else if right > target.saturating_add(area.width) {
-                target = right.saturating_sub(area.width);
+            } else if right > target.saturating_add(u64::from(area.width)) {
+                target = right.saturating_sub(u64::from(area.width));
             }
         }
         motion.retarget(target.min(maximum), animate, now);
@@ -6380,13 +6437,14 @@ impl App {
         motion.offset().min(maximum)
     }
 
-    fn set_viewport_target(&mut self, target: u16, animate: bool) -> bool {
+    fn set_viewport_target(&mut self, target: u64, animate: bool) -> bool {
         let Some(screen) = self.active_screen_id() else { return false };
-        let maximum = self.viewport_virtual_width.saturating_sub(self.content_area.width);
+        let maximum =
+            self.viewport_virtual_width.saturating_sub(u64::from(self.content_area.width));
         let target = target.min(maximum);
         let now = Instant::now();
         let motion = self.viewport_states.entry(screen).or_insert_with(|| ViewportMotion::new(now));
-        let changed = motion.target.round() as u16 != target || motion.offset() != target;
+        let changed = motion.target.round() as u64 != target || motion.offset() != target;
         motion.retarget(target, animate && self.config.viewport.animation, now);
         changed
     }
@@ -6453,10 +6511,10 @@ impl App {
         let viewport_enabled = self.surface_only.is_none()
             && screen.zoomed_pane.is_none()
             && !screen.viewport_splits.is_empty();
-        let layout = if self.surface_only.is_some() {
-            layout_screen(&Node::Leaf(screen.active_pane), area, Some(screen.active_pane))
+        let layout: ViewportLayoutResult = if self.surface_only.is_some() {
+            layout_screen(&Node::Leaf(screen.active_pane), area, Some(screen.active_pane)).into()
         } else if let Some(pane) = screen.zoomed_pane {
-            layout_screen(&Node::Leaf(pane), area, Some(pane))
+            layout_screen(&Node::Leaf(pane), area, Some(pane)).into()
         } else if viewport_enabled {
             layout_screen_with_viewport(
                 &screen.layout,
@@ -6466,9 +6524,9 @@ impl App {
                 &screen.viewport_splits,
             )
         } else {
-            layout_screen(&screen.layout, area, Some(screen.active_pane))
+            layout_screen(&screen.layout, area, Some(screen.active_pane)).into()
         };
-        let viewport_enabled = viewport_enabled && layout.virtual_width > area.width;
+        let viewport_enabled = viewport_enabled && layout.virtual_width > u64::from(area.width);
         self.viewport_layout = if viewport_enabled { layout.panes.clone() } else { Vec::new() };
         self.viewport_virtual_width = layout.virtual_width;
         self.viewport_offset = if viewport_enabled {
@@ -6483,51 +6541,77 @@ impl App {
         } else {
             0
         };
-        let viewport =
-            Rect { x: area.x.saturating_add(self.viewport_offset), width: area.width, ..area };
+        let viewport_x = u64::from(area.x).saturating_add(self.viewport_offset);
         let stacked_headers = layout.stacked_headers;
         for (pane_id, full_rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
                 pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let (full_bar, full_omnibar, full_content, full_track) = if self.surface_only.is_some()
-            {
-                (None, None, full_rect, None)
-            } else if stacked_headers.contains(&pane_id) {
-                stacked_header_parts_for_rect(full_rect)
-            } else {
-                pane_parts_for_rect(full_rect, self.config.scrollbar.position, has_browser_omnibar)
+            let Some((full_bar, full_omnibar, full_content, full_track)) =
+                (if self.surface_only.is_some() {
+                    Some((None, None, full_rect, None))
+                } else if stacked_headers.contains(&pane_id) {
+                    stacked_header_parts_for_virtual_rect(full_rect)
+                } else {
+                    pane_parts_for_virtual_rect(
+                        full_rect,
+                        self.config.scrollbar.position,
+                        has_browser_omnibar,
+                    )
+                })
+            else {
+                continue;
             };
             let (rect, rect_source_x, bar, omnibar, content, content_source_x, track) =
                 if viewport_enabled {
                     let Some((rect, rect_source_x)) =
-                        clip_horizontal_rect(full_rect, viewport, area.x)
+                        clip_horizontal_rect(full_rect, viewport_x, area.width, area.x)
                     else {
                         continue;
                     };
                     let bar = full_bar.and_then(|rect| {
-                        clip_horizontal_rect(rect, viewport, area.x).map(|(rect, _)| rect)
+                        clip_horizontal_rect(rect, viewport_x, area.width, area.x)
+                            .map(|(rect, _)| rect)
                     });
                     let omnibar = full_omnibar.and_then(|rect| {
-                        clip_horizontal_rect(rect, viewport, area.x).map(|(rect, _)| rect)
+                        clip_horizontal_rect(rect, viewport_x, area.width, area.x)
+                            .map(|(rect, _)| rect)
                     });
                     let (content, content_source_x) =
-                        clip_horizontal_rect(full_content, viewport, area.x)
-                            .unwrap_or((Rect { x: rect.x, width: 0, ..full_content }, 0));
+                        clip_horizontal_rect(full_content, viewport_x, area.width, area.x)
+                            .unwrap_or((
+                                Rect {
+                                    x: rect.x,
+                                    y: full_content.y,
+                                    width: 0,
+                                    height: full_content.height,
+                                },
+                                0,
+                            ));
                     let track = full_track.and_then(|rect| {
-                        clip_horizontal_rect(rect, viewport, area.x).map(|(rect, _)| rect)
+                        clip_horizontal_rect(rect, viewport_x, area.width, area.x)
+                            .map(|(rect, _)| rect)
                     });
                     (rect, rect_source_x, bar, omnibar, content, content_source_x, track)
                 } else {
-                    (full_rect, 0, full_bar, full_omnibar, full_content, 0, full_track)
+                    let Some(rect) = terminal_rect_from_virtual(full_rect) else {
+                        continue;
+                    };
+                    let bar = full_bar.and_then(terminal_rect_from_virtual);
+                    let omnibar = full_omnibar.and_then(terminal_rect_from_virtual);
+                    let Some(content) = terminal_rect_from_virtual(full_content) else {
+                        continue;
+                    };
+                    let track = full_track.and_then(terminal_rect_from_virtual);
+                    (rect, 0, bar, omnibar, content, 0, track)
                 };
             let pane_viewport = viewport_enabled
                 .then_some(PaneViewportClip {
                     rect_source_x,
-                    full_rect_width: full_rect.width,
+                    full_rect_width: u16::try_from(full_rect.width).unwrap_or(u16::MAX),
                     content_source_x,
-                    full_content_width: full_content.width,
+                    full_content_width: u16::try_from(full_content.width).unwrap_or(u16::MAX),
                 })
                 .filter(|clip| clip.rect_source_x > 0 || rect.width < clip.full_rect_width);
             self.pane_areas.push(PaneArea {
@@ -7546,9 +7630,9 @@ impl App {
         }
     }
 
-    pub(crate) fn horizontal_scrollbar_state(&self) -> Option<(u16, u16, u16)> {
+    pub(crate) fn horizontal_scrollbar_state(&self) -> Option<(u64, u16, u64)> {
         let viewport_width = self.content_area.width;
-        if viewport_width == 0 || self.viewport_virtual_width <= viewport_width {
+        if viewport_width == 0 || self.viewport_virtual_width <= u64::from(viewport_width) {
             return None;
         }
         Some((self.viewport_virtual_width, viewport_width, self.viewport_offset))
@@ -7559,12 +7643,15 @@ impl App {
         let Some((content_width, viewport_width, _)) = self.horizontal_scrollbar_state() else {
             return false;
         };
-        let maximum = content_width.saturating_sub(viewport_width);
+        let maximum = content_width.saturating_sub(u64::from(viewport_width));
         let current = self
             .viewport_states
             .get(&screen)
-            .map_or(self.viewport_offset, |motion| motion.target.round() as u16);
-        self.set_viewport_target(current.saturating_add_signed(delta).min(maximum), animate)
+            .map_or(self.viewport_offset, |motion| motion.target.round() as u64);
+        self.set_viewport_target(
+            current.saturating_add_signed(i64::from(delta)).min(maximum),
+            animate,
+        )
     }
 
     fn scroll_horizontal_track(&mut self, track: Rect, x: u16, animate: bool) {
@@ -7651,6 +7738,8 @@ impl App {
         };
         let Some(surface_id) = self.selection.map(|sel| sel.surface) else { return false };
         let Some(surface) = self.session.surface(surface_id) else { return false };
+        let content =
+            self.current_selection_geometry(surface_id).map_or(content, |(content, _)| content);
         let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
@@ -9589,11 +9678,11 @@ impl App {
             Direction::Down => (0, 1),
         };
         let panes = if self.viewport_layout.is_empty() {
-            self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect()
+            self.pane_areas.iter().map(|area| (area.pane, area.rect.into())).collect()
         } else {
             self.viewport_layout.clone()
         };
-        let layout = cmux_tui_core::LayoutResult { panes, ..Default::default() };
+        let layout = ViewportLayoutResult { panes, ..Default::default() };
         if let Some(next) =
             layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
         {
@@ -10431,6 +10520,11 @@ impl App {
         }
         match self.drag.take() {
             Some(Drag::Browser { surface, content, position }) => {
+                let content = self.current_browser_content(surface).unwrap_or(content);
+                let position = (
+                    position.0.clamp(content.x, content.x + content.width.saturating_sub(1)),
+                    position.1.clamp(content.y, content.y + content.height.saturating_sub(1)),
+                );
                 self.send_browser_mouse(
                     surface,
                     content,
@@ -10814,6 +10908,15 @@ impl App {
             .iter()
             .find(|area| area.surface == surface)
             .map(|area| self.canonical_pty_content(surface, area.logical_content_rect()))
+    }
+
+    fn current_browser_content(&self, surface: SurfaceId) -> Option<Rect> {
+        self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
+    }
+
+    fn current_selection_geometry(&self, surface: SurfaceId) -> Option<(Rect, u16)> {
+        let area = self.pane_areas.iter().find(|area| area.surface == surface)?;
+        Some((self.terminal_input_rect(area)?, area.content_source_x()))
     }
 
     fn current_pty_pointer(&self, surface: SurfaceId, x: u16, y: u16) -> Option<(Rect, u16, u16)> {
@@ -11335,7 +11438,11 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             Some(Drag::Select { content, source_x, .. }) => {
-                let (content, source_x) = (*content, *source_x);
+                let fallback = (*content, *source_x);
+                let (content, source_x) = self
+                    .selection
+                    .and_then(|selection| self.current_selection_geometry(selection.surface))
+                    .unwrap_or(fallback);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 let col = source_x.saturating_add(cx - content.x);
@@ -11355,7 +11462,8 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             Some(Drag::Browser { surface, content, .. }) => {
-                let (surface, content) = (*surface, *content);
+                let surface = *surface;
+                let content = self.current_browser_content(surface).unwrap_or(*content);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 self.send_browser_mouse(
@@ -11481,6 +11589,7 @@ impl App {
         }
         if let Some(Drag::Browser { surface, content, .. }) = self.drag {
             self.drag = None;
+            let content = self.current_browser_content(surface).unwrap_or(content);
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
             let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
             self.send_browser_mouse(
@@ -11701,6 +11810,7 @@ impl App {
                         pane,
                         split_edge,
                     )
+                    .map(Into::into)
                 } else {
                     exact_split_for_pane_edge_with_viewport(
                         &screen.layout,
@@ -11715,7 +11825,9 @@ impl App {
                 .map(|target| (pane_edge, target))
             })
             .filter(|(_, target)| !screen.viewport_splits.contains_key(&target.split))
-            .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
+            .min_by_key(|(_, target)| {
+                u128::from(target.area.width) * u128::from(target.area.height)
+            })
         else {
             return;
         };
@@ -11723,7 +11835,7 @@ impl App {
             .viewport_layout
             .iter()
             .find(|(candidate, _)| *candidate == pane)
-            .map_or(area.rect, |(_, rect)| *rect);
+            .map_or_else(|| area.rect.into(), |(_, rect)| *rect);
         let (current, sign) = match edge {
             PaneEdge::Left => (
                 (pane_rect.x.saturating_sub(target.area.x)) as f32
@@ -11736,13 +11848,14 @@ impl App {
                 1.0,
             ),
             PaneEdge::Top => (
-                (pane_rect.y.saturating_sub(target.area.y)) as f32
-                    / target.area.height.max(1) as f32,
+                f32::from(pane_rect.y.saturating_sub(target.area.y))
+                    / f32::from(target.area.height.max(1)),
                 -1.0,
             ),
             PaneEdge::Bottom => (
-                (pane_rect.y + pane_rect.height).saturating_sub(target.area.y) as f32
-                    / target.area.height.max(1) as f32,
+                f32::from(
+                    pane_rect.y.saturating_add(pane_rect.height).saturating_sub(target.area.y),
+                ) / f32::from(target.area.height.max(1)),
                 1.0,
             ),
         };
@@ -11798,15 +11911,13 @@ impl App {
         let Some((_, representative, column)) = target else {
             return false;
         };
-        let virtual_x = self
-            .content_area
-            .x
+        let virtual_x = u64::from(self.content_area.x)
             .saturating_add(self.viewport_offset)
-            .saturating_add(x.saturating_sub(self.content_area.x));
+            .saturating_add(u64::from(x.saturating_sub(self.content_area.x)));
         let boundary =
             if edge == PaneEdge::Right { virtual_x.saturating_add(1) } else { virtual_x };
         let cells = boundary.saturating_sub(column.x);
-        let width = (f32::from(cells) / f32::from(self.content_area.width))
+        let width = (((cells as f64) / f64::from(self.content_area.width)) as f32)
             .clamp(MIN_VIEWPORT_PANE_WIDTH, MAX_VIEWPORT_PANE_WIDTH);
         if self.prepare_pty_input_before_mutation() {
             self.session.set_viewport_pane_width_deferred(representative, width);
@@ -11833,6 +11944,7 @@ impl App {
                 pane,
                 split_edge,
             )
+            .map(Into::into)
         } else {
             exact_split_for_pane_edge_with_viewport(
                 &screen.layout,
@@ -11850,21 +11962,25 @@ impl App {
         if screen.viewport_splits.contains_key(&target.split) {
             return;
         }
-        let virtual_x = self
-            .content_area
-            .x
+        let virtual_x = u64::from(self.content_area.x)
             .saturating_add(self.viewport_offset)
-            .saturating_add(x.saturating_sub(self.content_area.x));
+            .saturating_add(u64::from(x.saturating_sub(self.content_area.x)));
         let (coord, start, extent) = match edge {
             PaneEdge::Left => (virtual_x, target.area.x, target.area.width),
             PaneEdge::Right => (virtual_x.saturating_add(1), target.area.x, target.area.width),
-            PaneEdge::Top => (y, target.area.y, target.area.height),
-            PaneEdge::Bottom => (y.saturating_add(1), target.area.y, target.area.height),
+            PaneEdge::Top => {
+                (u64::from(y), u64::from(target.area.y), u64::from(target.area.height))
+            }
+            PaneEdge::Bottom => (
+                u64::from(y.saturating_add(1)),
+                u64::from(target.area.y),
+                u64::from(target.area.height),
+            ),
         };
         if extent == 0 {
             return;
         }
-        let requested = coord.saturating_sub(start) as f32 / extent as f32;
+        let requested = (coord.saturating_sub(start) as f64 / extent as f64) as f32;
         let ratio = clamp_split_ratio_for_tab_bars(
             &screen.layout,
             target.split,
@@ -12533,12 +12649,13 @@ mod tests {
         SurfaceResizeDecision, SurfaceResizeOwnership, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
         WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
         browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
-        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item, forward_host_input,
-        forward_mux_event, forward_mux_events, layout_undo_error_completion, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
+        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item,
+        clip_horizontal_rect, forward_host_input, forward_mux_event, forward_mux_events,
+        layout_undo_error_completion, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -12549,7 +12666,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Direction, LayoutUndoError, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId,
-        SurfaceKind, SurfaceOptions, ZoomMode, layout_screen,
+        SurfaceKind, SurfaceOptions, VirtualRect, ZoomMode, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -13642,6 +13759,16 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(expected.iter().any(|symbol| symbol != "─"));
 
+        assert!(app.set_viewport_target(1, false));
+        app.sync_layout((80, 25));
+        let border_only = app.pane_areas.iter().find(|area| area.pane == appended).unwrap();
+        assert_eq!(border_only.rect.width, 1);
+        assert_eq!(
+            border_only.content,
+            Rect { x: 79, y: 1, width: 0, height: 22 },
+            "a border-only crop must retain the terminal content rows"
+        );
+
         assert!(app.set_viewport_target(4, false));
         app.sync_layout((80, 25));
         let clipped = app.pane_areas.iter().find(|area| area.pane == left).unwrap();
@@ -13697,12 +13824,10 @@ mod tests {
         let appended_area = *app.pane_areas.iter().find(|area| area.pane == appended).unwrap();
         let drag_x = appended_area.rect.x.saturating_sub(8).max(app.content_area.x);
         let virtual_boundary = app
-            .content_area
-            .x
-            .saturating_add(app.viewport_offset)
-            .saturating_add(drag_x.saturating_sub(app.content_area.x));
+            .viewport_offset
+            .saturating_add(u64::from(drag_x.saturating_sub(app.content_area.x)));
         let expected_base_width =
-            f32::from(virtual_boundary - app.content_area.x) / f32::from(app.content_area.width);
+            (virtual_boundary as f64 / f64::from(app.content_area.width)) as f32;
         let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let handle = app
@@ -13865,7 +13990,7 @@ mod tests {
             app.sync_viewport_motion(
                 screen_id,
                 active_pane,
-                Some(original_active),
+                Some(original_active.into()),
                 original_area,
                 133,
                 now,
@@ -13877,7 +14002,7 @@ mod tests {
             app.sync_viewport_motion(
                 screen_id,
                 active_pane,
-                Some(original_active),
+                Some(original_active.into()),
                 original_area,
                 133,
                 now,
@@ -13889,7 +14014,7 @@ mod tests {
             app.sync_viewport_motion(
                 screen_id,
                 active_pane,
-                Some(Rect { y: 1, height: 20, ..original_active }),
+                Some(Rect { y: 1, height: 20, ..original_active }.into()),
                 Rect { y: 1, height: 20, ..original_area },
                 133,
                 now,
@@ -13902,7 +14027,7 @@ mod tests {
             app.sync_viewport_motion(
                 screen_id,
                 active_pane,
-                Some(Rect { x: 120, y: 0, width: 80, height: 24 }),
+                Some(Rect { x: 120, y: 0, width: 80, height: 24 }.into()),
                 Rect { x: 0, y: 0, width: 120, height: 24 },
                 200,
                 now,
@@ -14615,7 +14740,7 @@ mod tests {
         assert_eq!(app.encode_buf, b"\x1b[<65;5;3M");
 
         app.content_area = content;
-        app.viewport_virtual_width = content.width * 2;
+        app.viewport_virtual_width = u64::from(content.width) * 2;
         app.handle_mouse(event(MouseEventKind::ScrollLeft, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<66;5;3M");
 
@@ -14734,6 +14859,19 @@ mod tests {
         assert_eq!(browser_source_crop(101, 20, 40, 100), Some((20, 41)));
         assert_eq!(browser_source_crop(50, 90, 20, 100), Some((45, 5)));
         assert_eq!(browser_source_crop(0, 20, 40, 100), None);
+    }
+
+    #[test]
+    fn horizontal_clip_projects_virtual_coordinates_after_u16_extent() {
+        assert_eq!(
+            clip_horizontal_rect(
+                VirtualRect { x: 131_070, y: 3, width: 65_535, height: 20 },
+                131_100,
+                80,
+                5,
+            ),
+            Some((Rect { x: 5, y: 3, width: 80, height: 20 }, 30))
+        );
     }
 
     #[test]
@@ -17725,6 +17863,48 @@ mod tests {
     }
 
     #[test]
+    fn browser_drag_retargets_to_the_animated_pane_geometry() {
+        let mux = Mux::new("browser-live-drag-geometry-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let mut app = test_app(Session::Local(mux.clone()));
+        let (dispatcher, received) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        let current = Rect { x: 20, y: 4, width: 10, height: 5 };
+        app.pane_areas = vec![PaneArea {
+            pane,
+            surface: surface.id,
+            rect: current,
+            bar: None,
+            omnibar: None,
+            content: current,
+            track: None,
+            viewport: None,
+        }];
+        app.drag = Some(Drag::Browser {
+            surface: surface.id,
+            content: Rect { x: 2, y: 3, width: 10, height: 5 },
+            position: (5, 4),
+        });
+
+        app.handle_left_drag(23, 6).unwrap();
+
+        assert!(matches!(
+            app.drag,
+            Some(Drag::Browser {
+                surface: id,
+                content,
+                position: (23, 6),
+            }) if id == surface.id && content == current
+        ));
+        assert!(matches!(
+            received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
+            Some(BrowserInputKind::Mouse { event_type: "mouseMoved", .. })
+        ));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn selection_drag_and_release_bypass_a_pending_focus_mutation() {
         let mux = Mux::new("selection-release-barrier-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
@@ -17753,6 +17933,52 @@ mod tests {
         .unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn selection_drag_retargets_to_the_animated_pane_geometry() {
+        let mux = Mux::new("selection-live-drag-geometry-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let mut app = test_app(Session::Local(mux.clone()));
+        let current = Rect { x: 20, y: 4, width: 10, height: 5 };
+        app.pane_areas = vec![PaneArea {
+            pane,
+            surface: surface.id,
+            rect: current,
+            bar: None,
+            omnibar: None,
+            content: current,
+            track: None,
+            viewport: Some(PaneViewportClip {
+                rect_source_x: 7,
+                full_rect_width: 20,
+                content_source_x: 7,
+                full_content_width: 20,
+            }),
+        }];
+        app.rendered_terminal_bounds.insert(surface.id, current);
+        app.selection = Some(Selection { surface: surface.id, anchor: (7, 0), head: (7, 0) });
+        app.drag = Some(Drag::Select {
+            content: Rect { x: 2, y: 3, width: 10, height: 5 },
+            source_x: 0,
+            auto_scroll: None,
+            col: 1,
+        });
+
+        app.handle_left_drag(23, 6).unwrap();
+
+        assert_eq!(app.selection.map(|selection| selection.head), Some((10, 2)));
+        assert!(matches!(
+            app.drag,
+            Some(Drag::Select {
+                content,
+                source_x: 7,
+                col: 10,
+                ..
+            }) if content == current
+        ));
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

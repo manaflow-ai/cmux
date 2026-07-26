@@ -6480,7 +6480,10 @@ impl Mux {
                 .and_then(|workspace| workspace.screens.get_mut(screen_index))
                 .filter(|screen| screen.id == owner)
                 .and_then(|screen| {
-                    let before = screen.layout_snapshot();
+                    let coalesce = transaction.map(|(client, transaction)| {
+                        LayoutMutationKey::Split { split, client, transaction }
+                    });
+                    let before = screen.layout_snapshot_for_coalescing_change(coalesce);
                     let changed = if screen.layout_columns_active() {
                         if screen.layout_columns.iter().any(|column| column.id == split) {
                             false
@@ -6493,7 +6496,8 @@ impl Mux {
                                 changed
                             });
                             if changed {
-                                screen.sync_layout_column_projection();
+                                let projection_changed = screen.root.set_split_ratio(split, ratio);
+                                debug_assert!(projection_changed);
                             }
                             changed
                         }
@@ -6505,15 +6509,7 @@ impl Mux {
                         changed
                     };
                     if changed {
-                        screen.record_layout_change(
-                            before,
-                            Vec::new(),
-                            transaction.map(|(client, transaction)| LayoutMutationKey::Split {
-                                split,
-                                client,
-                                transaction,
-                            }),
-                        );
+                        screen.record_prepared_layout_change(before, Vec::new(), coalesce);
                         Some(screen.id)
                     } else {
                         None
@@ -6568,25 +6564,24 @@ impl Mux {
             if !screen.layout_columns_active() {
                 return false;
             }
-            let before = screen.layout_snapshot();
-            let Some(column) = screen.layout_column_for_pane_mut(pane) else {
+            let Some(column_index) =
+                screen.layout_columns.iter().position(|column| column.root.contains(pane))
+            else {
                 return false;
             };
-            let column_id = column.id;
-            if (column.width - width).abs() < f32::EPSILON {
+            let column_id = screen.layout_columns[column_index].id;
+            if (screen.layout_columns[column_index].width - width).abs() < f32::EPSILON {
                 return true;
             }
-            column.width = width;
-            screen.sync_layout_column_projection();
-            screen.record_layout_change(
-                before,
-                Vec::new(),
-                transaction.map(|(client, transaction)| LayoutMutationKey::Column {
-                    column: column_id,
-                    client,
-                    transaction,
-                }),
-            );
+            let coalesce = transaction.map(|(client, transaction)| LayoutMutationKey::Column {
+                column: column_id,
+                client,
+                transaction,
+            });
+            let before = screen.layout_snapshot_for_coalescing_change(coalesce);
+            screen.layout_columns[column_index].width = width;
+            screen.sync_layout_column_width_projection();
+            screen.record_prepared_layout_change(before, Vec::new(), coalesce);
             Some(screen.id)
         };
         if let Some(screen) = changed_screen {
@@ -8575,7 +8570,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
+    use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
@@ -9937,7 +9932,7 @@ mod tests {
             assert_eq!(layout.rect_of(second_pane).unwrap().width, 40);
             assert_eq!(
                 layout.rect_of(appended_pane).unwrap(),
-                Rect { x: 80, y: 0, width: 53, height: 24 }
+                VirtualRect { x: 80, y: 0, width: 53, height: 24 }
             );
         });
         assert_eq!(mux.pane_neighbor(second_pane, Direction::Right).unwrap(), Some(appended_pane));
@@ -10022,7 +10017,7 @@ mod tests {
             assert_eq!(layout.rect_of(second_pane).unwrap().width, 30);
             assert_eq!(
                 layout.rect_of(appended_pane).unwrap(),
-                Rect { x: 60, y: 0, width: 40, height: 24 }
+                VirtualRect { x: 60, y: 0, width: 40, height: 24 }
             );
         });
     }
@@ -10164,6 +10159,20 @@ mod tests {
         let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
 
         assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 7, 11));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let column = screen.layout_columns[1].id;
+            assert!(
+                screen
+                    .layout_snapshot_for_coalescing_change(Some(LayoutMutationKey::Column {
+                        column,
+                        client: 7,
+                        transaction: 11,
+                    }))
+                    .is_none(),
+                "continuation samples must reuse the transaction's first snapshot"
+            );
+        });
         assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 7, 11));
         assert!(matches!(
             mux.undo_layout(right_pane, None, false).unwrap(),

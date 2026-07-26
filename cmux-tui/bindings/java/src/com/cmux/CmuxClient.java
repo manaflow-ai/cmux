@@ -268,18 +268,29 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public void setSplitRatio(long split, double ratio) throws CmuxException {
+        setSplitRatio(split, ratio, null);
+    }
+
+    public void setSplitRatio(long split, double ratio, Long transaction) throws CmuxException {
         requireProtocol(8, "set-split-ratio");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("split", split);
         params.put("ratio", ratio);
+        putIfNotNull(params, "transaction", transaction);
         request("set-split-ratio", params);
     }
 
     public void setViewportPaneWidth(long pane, double width) throws CmuxException {
+        setViewportPaneWidth(pane, width, null);
+    }
+
+    public void setViewportPaneWidth(long pane, double width, Long transaction)
+        throws CmuxException {
         requireCapability("viewport-column-resize-v1", "viewport pane resizing");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pane", pane);
         params.put("width", width);
+        putIfNotNull(params, "transaction", transaction);
         request("set-viewport-pane-width", params);
     }
 

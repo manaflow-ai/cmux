@@ -412,17 +412,43 @@ func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio fl
 }
 
 func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	return c.setSplitRatio(ctx, split, ratio, nil)
+}
+
+// SetSplitRatioInTransaction coalesces samples that share one client-scoped transaction.
+func (c *Client) SetSplitRatioInTransaction(ctx context.Context, split uint64, ratio float32, transaction uint64) error {
+	return c.setSplitRatio(ctx, split, ratio, &transaction)
+}
+
+func (c *Client) setSplitRatio(ctx context.Context, split uint64, ratio float32, transaction *uint64) error {
 	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
 		return err
 	}
-	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
+	params := map[string]any{"split": split, "ratio": ratio}
+	if transaction != nil {
+		params["transaction"] = *transaction
+	}
+	return c.request(ctx, "set-split-ratio", params, nil)
 }
 
 func (c *Client) SetViewportPaneWidth(ctx context.Context, pane uint64, width float32) error {
+	return c.setViewportPaneWidth(ctx, pane, width, nil)
+}
+
+// SetViewportPaneWidthInTransaction coalesces samples that share one client-scoped transaction.
+func (c *Client) SetViewportPaneWidthInTransaction(ctx context.Context, pane uint64, width float32, transaction uint64) error {
+	return c.setViewportPaneWidth(ctx, pane, width, &transaction)
+}
+
+func (c *Client) setViewportPaneWidth(ctx context.Context, pane uint64, width float32, transaction *uint64) error {
 	if err := c.requireCapability(ctx, "viewport-column-resize-v1", "viewport pane resizing"); err != nil {
 		return err
 	}
-	return c.request(ctx, "set-viewport-pane-width", map[string]any{"pane": pane, "width": width}, nil)
+	params := map[string]any{"pane": pane, "width": width}
+	if transaction != nil {
+		params["transaction"] = *transaction
+	}
+	return c.request(ctx, "set-viewport-pane-width", params, nil)
 }
 
 // UndoLayout previews the latest layout undo when confirmationRevision is nil.

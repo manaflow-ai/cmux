@@ -340,12 +340,16 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
   split: Id;
   /** The server clamps this value to `0.05..0.95`. */
   ratio: number;
+  /** Samples sharing one client-scoped transaction form one undo entry. */
+  transaction?: number | null;
 }
 
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   cmd: "set-viewport-pane-width";
   pane: Id;
   width: number;
+  /** Samples sharing one client-scoped transaction form one undo entry. */
+  transaction?: number | null;
 }
 
 interface UndoLayoutRequestBase extends CmuxRequestBase {

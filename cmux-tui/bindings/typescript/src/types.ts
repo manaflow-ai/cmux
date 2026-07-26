@@ -8,6 +8,7 @@ export type {
   NewTabOptions,
   NewPaneRightOptions,
   NewWorkspaceOptions,
+  ResizeTransactionOptions,
   SelectOptions,
   SelectTabOptions,
   SendOptions,

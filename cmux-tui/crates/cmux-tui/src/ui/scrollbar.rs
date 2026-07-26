@@ -167,38 +167,38 @@ mod viewport_tests {
 
 /// Thumb position and length for a horizontally scrollable viewport.
 pub(crate) fn horizontal_thumb_geometry(
-    content_width: u16,
+    content_width: u64,
     viewport_width: u16,
-    offset: u16,
+    offset: u64,
     track_width: u16,
 ) -> (u16, u16) {
     if content_width == 0 || viewport_width == 0 || track_width == 0 {
         return (0, 0);
     }
-    let thumb_width = (u32::from(track_width) * u32::from(viewport_width))
-        .div_ceil(u32::from(content_width))
-        .clamp(1, u32::from(track_width)) as u16;
+    let thumb_width = (u128::from(track_width) * u128::from(viewport_width))
+        .div_ceil(u128::from(content_width))
+        .clamp(1, u128::from(track_width)) as u16;
     let travel = track_width.saturating_sub(thumb_width);
-    let maximum = content_width.saturating_sub(viewport_width);
+    let maximum = content_width.saturating_sub(u64::from(viewport_width));
     if maximum == 0 || travel == 0 {
         return (0, thumb_width);
     }
-    let x = (u32::from(offset.min(maximum)) * u32::from(travel) + u32::from(maximum) / 2)
-        / u32::from(maximum);
+    let x = (u128::from(offset.min(maximum)) * u128::from(travel) + u128::from(maximum) / 2)
+        / u128::from(maximum);
     (x as u16, thumb_width)
 }
 
 /// Viewport offset represented by a cell position inside a track.
 pub(crate) fn horizontal_offset_at(
-    content_width: u16,
+    content_width: u64,
     viewport_width: u16,
     track_width: u16,
     position: u16,
-) -> Option<u16> {
+) -> Option<u64> {
     if content_width == 0 || viewport_width == 0 || track_width == 0 {
         return None;
     }
-    let maximum = content_width.saturating_sub(viewport_width);
+    let maximum = content_width.saturating_sub(u64::from(viewport_width));
     let (_, thumb_width) = horizontal_thumb_geometry(content_width, viewport_width, 0, track_width);
     let travel = track_width.saturating_sub(thumb_width);
     if maximum == 0 || travel == 0 {
@@ -206,11 +206,11 @@ pub(crate) fn horizontal_offset_at(
     }
     // Treat the pointer as the thumb center so drag coordinates use the
     // same travel range as horizontal_thumb_geometry.
-    let position = u32::from(position.min(track_width - 1))
-        .saturating_sub(u32::from(thumb_width) / 2)
-        .min(u32::from(travel));
-    let offset = (position * u32::from(maximum) + u32::from(travel) / 2) / u32::from(travel);
-    Some(offset as u16)
+    let position = u128::from(position.min(track_width - 1))
+        .saturating_sub(u128::from(thumb_width) / 2)
+        .min(u128::from(travel));
+    let offset = (position * u128::from(maximum) + u128::from(travel) / 2) / u128::from(travel);
+    Some(offset as u64)
 }
 
 #[cfg(test)]
@@ -241,5 +241,18 @@ mod tests {
             let (thumb_x, thumb_width) = horizontal_thumb_geometry(120, 80, offset, 12);
             assert_eq!(horizontal_offset_at(120, 80, 12, thumb_x + thumb_width / 2), Some(offset));
         }
+    }
+
+    #[test]
+    fn horizontal_scrollbar_reaches_content_past_u16_extent() {
+        let content_width = u64::from(u16::MAX) * 3;
+        let maximum = content_width - 80;
+        let (thumb_x, thumb_width) = horizontal_thumb_geometry(content_width, 80, maximum, 80);
+
+        assert_eq!(thumb_x + thumb_width, 80);
+        assert_eq!(
+            horizontal_offset_at(content_width, 80, 80, thumb_x + thumb_width / 2),
+            Some(maximum)
+        );
     }
 }
