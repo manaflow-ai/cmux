@@ -275,6 +275,71 @@ enum Outbound {
     Flush(Sender<()>),
 }
 
+struct DeadlineTcpStream {
+    stream: TcpStream,
+    deadline: Option<Instant>,
+}
+
+impl DeadlineTcpStream {
+    fn new(stream: TcpStream, deadline: Instant) -> Self {
+        Self { stream, deadline: Some(deadline) }
+    }
+
+    fn clear_deadline(&mut self) {
+        self.deadline = None;
+    }
+
+    fn remaining(&self) -> std::io::Result<Option<Duration>> {
+        let Some(deadline) = self.deadline else {
+            return Ok(None);
+        };
+        deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .map(Some)
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "CDP connection deadline expired")
+            })
+    }
+
+    fn set_nodelay(&self, nodelay: bool) -> std::io::Result<()> {
+        self.stream.set_nodelay(nodelay)
+    }
+
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_read_timeout(timeout)
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_write_timeout(timeout)
+    }
+}
+
+impl Read for DeadlineTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(remaining) = self.remaining()? {
+            self.stream.set_read_timeout(Some(remaining))?;
+        }
+        self.stream.read(buffer)
+    }
+}
+
+impl Write for DeadlineTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        if let Some(remaining) = self.remaining()? {
+            self.stream.set_write_timeout(Some(remaining))?;
+        }
+        self.stream.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(remaining) = self.remaining()? {
+            self.stream.set_write_timeout(Some(remaining))?;
+        }
+        self.stream.flush()
+    }
+}
+
 impl CdpClient {
     pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
         Self::connect_with_timeout(web_socket_url, events, Duration::from_secs(5))
@@ -318,17 +383,27 @@ impl CdpClient {
         if timeout.is_zero() {
             anyhow::bail!("CDP connection deadline expired");
         }
-        let stream = TcpStream::connect_timeout(&addr, timeout)?;
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or_else(|| anyhow::anyhow!("CDP connection deadline overflow"))?;
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or_else(|| anyhow::anyhow!("CDP connection deadline expired"))?;
+        let stream = TcpStream::connect_timeout(&addr, remaining)?;
+        let stream = DeadlineTcpStream::new(stream, deadline);
         stream.set_nodelay(true)?;
-        stream.set_read_timeout(Some(timeout))?;
-        stream.set_write_timeout(Some(timeout))?;
         let request = web_socket_url.into_client_request()?;
-        let (ws, _) = client(request, stream)?;
+        let (mut ws, _) = client(request, stream)?;
+        ws.get_mut().clear_deadline();
         // The reader thread owns the socket and drains queued outbound
         // writes before each read poll. A message enqueued just after a
         // read starts can wait for this window, but writers never contend
         // on the socket itself.
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
+        anyhow::ensure!(
+            deadline.checked_duration_since(Instant::now()).is_some(),
+            "CDP connection deadline expired"
+        );
         ws.get_ref().set_write_timeout(Some(timeout))?;
         let (outbound_tx, outbound_rx) = channel();
         let event_queue = Arc::new(EventQueue::new());
@@ -352,7 +427,7 @@ impl CdpClient {
 
     fn spawn_reader(
         &self,
-        ws: WebSocket<TcpStream>,
+        ws: WebSocket<DeadlineTcpStream>,
         outbound: Receiver<Outbound>,
         event_output: SyncSender<CdpEvent>,
     ) -> anyhow::Result<()> {
@@ -727,7 +802,7 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
 
 fn reader_loop(
     weak: &Weak<Inner>,
-    mut ws: WebSocket<TcpStream>,
+    mut ws: WebSocket<DeadlineTcpStream>,
     outbound: &Receiver<Outbound>,
     event_output: &SyncSender<CdpEvent>,
 ) {
@@ -776,7 +851,7 @@ fn reader_loop(
 }
 
 fn drain_outbound(
-    ws: &mut WebSocket<TcpStream>,
+    ws: &mut WebSocket<DeadlineTcpStream>,
     outbound: &Receiver<Outbound>,
 ) -> anyhow::Result<()> {
     loop {

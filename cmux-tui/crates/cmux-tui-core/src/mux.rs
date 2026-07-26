@@ -35,6 +35,11 @@ use crate::{
 };
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
+#[cfg(test)]
+type ShutdownAttemptHook = Arc<dyn Fn(usize) + Send + Sync>;
+#[cfg(all(test, unix))]
+type TerminalAdoptionSurfaceFactory =
+    Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
@@ -147,7 +152,7 @@ struct ShutdownOwnerReconciler {
     wake: std::sync::Condvar,
     mux: std::sync::OnceLock<Weak<Mux>>,
     #[cfg(test)]
-    after_attempt: Mutex<Option<Arc<dyn Fn(usize) + Send + Sync>>>,
+    after_attempt: Mutex<Option<ShutdownAttemptHook>>,
 }
 
 impl ShutdownOwnerReconciler {
@@ -229,6 +234,17 @@ impl ShutdownOwnerReconciler {
                 }
                 if attempts >= SHUTDOWN_RECONCILE_MAX_ATTEMPTS {
                     let mut state = self.state.lock().unwrap();
+                    if state.pending {
+                        // The final sweep did not include work scheduled
+                        // while it was running. Give that new ownership batch
+                        // its own bounded retry budget.
+                        state.pending = false;
+                        state.degraded = false;
+                        attempts = 0;
+                        delay = SHUTDOWN_RECONCILE_INITIAL_DELAY;
+                        drop(state);
+                        continue;
+                    }
                     state.pending = false;
                     state.worker_started = false;
                     state.degraded = true;
@@ -879,6 +895,27 @@ impl Drop for SurfaceCreationGuard<'_> {
     }
 }
 
+struct SurfaceOwnerReservation<'a> {
+    mux: &'a Mux,
+    active: bool,
+}
+
+impl SurfaceOwnerReservation<'_> {
+    fn release(&mut self) {
+        if self.active {
+            let previous = self.mux.surface_owner_reservations.fetch_sub(1, Ordering::AcqRel);
+            debug_assert!(previous > 0, "surface owner reservation accounting underflowed");
+            self.active = false;
+        }
+    }
+}
+
+impl Drop for SurfaceOwnerReservation<'_> {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 #[derive(Default)]
 struct AsyncSurfaceCreationState {
     shutting_down: bool,
@@ -1136,6 +1173,7 @@ pub struct Mux {
     shutdown_coordinator: Mutex<()>,
     shutdown_owners: ShutdownOwnerLedger,
     shutdown_owner_reconciler: Arc<ShutdownOwnerReconciler>,
+    surface_owner_reservations: AtomicUsize,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -1166,8 +1204,7 @@ pub struct Mux {
     #[cfg(test)]
     terminal_adoption_after_attach: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(all(test, unix))]
-    terminal_adoption_surface_factory:
-        Mutex<Option<Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>>>,
+    terminal_adoption_surface_factory: Mutex<Option<TerminalAdoptionSurfaceFactory>>,
     #[cfg(test)]
     browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -1376,6 +1413,7 @@ impl Mux {
             shutdown_coordinator: Mutex::new(()),
             shutdown_owners: ShutdownOwnerLedger::default(),
             shutdown_owner_reconciler: Arc::new(ShutdownOwnerReconciler::default()),
+            surface_owner_reservations: AtomicUsize::new(0),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
@@ -1548,6 +1586,15 @@ impl Mux {
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
+            let _creation = self.begin_surface_creation()?;
+            let mut owner_reservation = match self.reserve_surface_owner() {
+                Ok(reservation) => reservation,
+                Err(_) => {
+                    handled_terminals.insert(terminal_id.clone());
+                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    continue;
+                }
+            };
             let id = self.next_id();
             // Bound startup head-of-line blocking per host. One handshake is
             // enough for healthy hosts; live or indeterminate failures
@@ -1589,7 +1636,12 @@ impl Mux {
                 }
             };
             if self
-                .finish_terminal_adoption(&terminal_id, &record.incarnation, surface.clone())
+                .finish_terminal_adoption(
+                    &terminal_id,
+                    &record.incarnation,
+                    surface.clone(),
+                    &mut owner_reservation,
+                )
                 .is_err()
             {
                 surface.kill();
@@ -1778,6 +1830,7 @@ impl Mux {
         terminal_id: &str,
         incarnation: &str,
         surface: Arc<Surface>,
+        owner_reservation: &mut SurfaceOwnerReservation<'_>,
     ) -> anyhow::Result<()> {
         let _creation = self.begin_surface_creation()?;
         if surface.is_dead() {
@@ -1822,7 +1875,9 @@ impl Mux {
             }
             anyhow::bail!("terminal workspace disappeared during adoption");
         };
-        if let Err(error) = insert_surface_checked(self, &mut state, surface) {
+        if let Err(error) =
+            insert_reserved_surface_checked(self, &mut state, surface, owner_reservation)
+        {
             drop(state);
             if let Ok((_, revision)) = commit_terminal_lifecycle(
                 &mut registry,
@@ -1966,6 +2021,16 @@ impl Mux {
                         );
                         break;
                     }
+                    let Ok(_creation) = mux.begin_surface_creation() else {
+                        break;
+                    };
+                    let mut owner_reservation = match mux.reserve_surface_owner() {
+                        Ok(reservation) => reservation,
+                        Err(_) => {
+                            delay = (delay * 2).min(Duration::from_secs(5));
+                            continue;
+                        }
+                    };
                     let id = mux.next_id();
                     #[cfg(test)]
                     let adopted = if let Some(factory) =
@@ -2001,6 +2066,7 @@ impl Mux {
                                 &terminal_id,
                                 &record.incarnation,
                                 surface.clone(),
+                                &mut owner_reservation,
                             )
                             .is_ok()
                         {
@@ -2085,6 +2151,25 @@ impl Mux {
 
     fn begin_surface_creation(&self) -> anyhow::Result<SurfaceCreationGuard<'_>> {
         self.surface_creations.begin()
+    }
+
+    fn reserve_surface_owner(&self) -> anyhow::Result<SurfaceOwnerReservation<'_>> {
+        // Every topology removal transfers ownership to the shutdown ledger
+        // before releasing this same state lock. Counting reservations here
+        // therefore closes the only interval in which a new runtime could be
+        // spawned without an owner slot.
+        let state = self.state.lock().unwrap();
+        let used = state
+            .surfaces
+            .len()
+            .saturating_add(self.shutdown_owners.len())
+            .saturating_add(self.surface_owner_reservations.load(Ordering::Acquire));
+        if used >= self.shutdown_owner_capacity() {
+            anyhow::bail!("surface_owner_capacity_exhausted");
+        }
+        self.surface_owner_reservations.fetch_add(1, Ordering::AcqRel);
+        drop(state);
+        Ok(SurfaceOwnerReservation { mux: self, active: true })
     }
 
     #[cfg(not(test))]
@@ -2899,6 +2984,7 @@ impl Mux {
         if options.command.is_empty() {
             anyhow::bail!("sidebar plugin command is empty");
         }
+        let mut owner_reservation = self.reserve_surface_owner()?;
         let id = self.next_id();
         let mut opts = self.surface_options.lock().unwrap().clone();
         opts.command = Some(options.command.clone());
@@ -2914,7 +3000,12 @@ impl Mux {
         };
         #[cfg(not(test))]
         let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
-        insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())?;
+        insert_reserved_surface_checked(
+            self,
+            &mut self.state.lock().unwrap(),
+            surface.clone(),
+            &mut owner_reservation,
+        )?;
         Ok(surface)
     }
 
@@ -8247,6 +8338,42 @@ fn insert_surface_checked(
     state: &mut State,
     surface: Arc<Surface>,
 ) -> anyhow::Result<()> {
+    validate_surface_insertion(state, &surface)?;
+    if state
+        .surfaces
+        .len()
+        .saturating_add(mux.shutdown_owners.len())
+        .saturating_add(mux.surface_owner_reservations.load(Ordering::Acquire))
+        >= mux.shutdown_owner_capacity()
+    {
+        anyhow::bail!("surface_owner_capacity_exhausted");
+    }
+    state.surfaces.insert(surface.id, surface);
+    Ok(())
+}
+
+fn insert_reserved_surface_checked(
+    mux: &Mux,
+    state: &mut State,
+    surface: Arc<Surface>,
+    reservation: &mut SurfaceOwnerReservation<'_>,
+) -> anyhow::Result<()> {
+    validate_surface_insertion(state, &surface)?;
+    if state
+        .surfaces
+        .len()
+        .saturating_add(mux.shutdown_owners.len())
+        .saturating_add(mux.surface_owner_reservations.load(Ordering::Acquire))
+        > mux.shutdown_owner_capacity()
+    {
+        anyhow::bail!("surface_owner_capacity_exhausted");
+    }
+    state.surfaces.insert(surface.id, surface);
+    reservation.release();
+    Ok(())
+}
+
+fn validate_surface_insertion(state: &State, surface: &Surface) -> anyhow::Result<()> {
     if state.surfaces.contains_key(&surface.id) {
         anyhow::bail!("duplicate_surface_id");
     }
@@ -8261,12 +8388,6 @@ fn insert_surface_checked(
     {
         anyhow::bail!("duplicate_terminal_id");
     }
-    if state.surfaces.len().saturating_add(mux.shutdown_owners.len())
-        >= mux.shutdown_owner_capacity()
-    {
-        anyhow::bail!("surface_owner_capacity_exhausted");
-    }
-    state.surfaces.insert(surface.id, surface);
     Ok(())
 }
 
@@ -10760,9 +10881,6 @@ mod tests {
         let injected = Arc::new(AtomicBool::new(false));
         *mux.shutdown_owner_reconciler.after_attempt.lock().unwrap() = Some(Arc::new({
             let mux = mux.clone();
-            let second = second.clone();
-            let first_failing = first_failing.clone();
-            let second_failing = second_failing.clone();
             let injected = injected.clone();
             move |attempt| {
                 if attempt != SHUTDOWN_RECONCILE_MAX_ATTEMPTS
@@ -10906,7 +11024,7 @@ mod tests {
             }
         }));
 
-        mux.schedule_terminal_adoption(options, record.clone(), record_path.clone());
+        mux.schedule_terminal_adoption(options, record, record_path);
         attached_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         mux.request_daemon_shutdown();
         release_tx.send(()).unwrap();
