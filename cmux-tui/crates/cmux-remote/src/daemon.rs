@@ -25,7 +25,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::UnixListener;
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
 
-use crate::connection::{ConnectionError, send_link_ready};
+use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
     AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, authorize_secure_link,
     verify_secure_link,
@@ -785,6 +785,7 @@ impl RemoteDaemon {
             }
             None => {
                 if accepted.generation != 0 {
+                    send_link_rejection(&accepted.link, LinkRejection::SessionUnavailable).await?;
                     return Err(DaemonError::Generation {
                         expected: 0,
                         actual: accepted.generation,

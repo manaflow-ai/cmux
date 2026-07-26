@@ -828,7 +828,16 @@ async fn authenticate_one(
         },
     )
     .await?;
-    let ready: LinkReady = receive_control(&secure).await?;
+    let ready = match receive_control::<LinkHandshakeResponse>(&secure).await? {
+        LinkHandshakeResponse::Ready(ready) => ready,
+        LinkHandshakeResponse::Rejected(LinkRejected {
+            rejected: LinkRejection::SessionUnavailable,
+        }) => {
+            return Err(ConnectionError::Protocol(
+                "daemon no longer has the requested logical session".into(),
+            ));
+        }
+    };
     if ready.session != config.session || ready.generation != context.generation {
         return Err(ConnectionError::Protocol(
             "daemon link-ready metadata does not match the requested session".into(),
@@ -844,6 +853,24 @@ pub(crate) struct LinkReady {
     daemon_resume: BTreeMap<Lane, u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum LinkHandshakeResponse {
+    Ready(LinkReady),
+    Rejected(LinkRejected),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LinkRejected {
+    rejected: LinkRejection,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum LinkRejection {
+    SessionUnavailable,
+}
+
 pub(crate) async fn send_link_ready(
     link: &dyn FrameLink,
     session: SessionId,
@@ -851,6 +878,16 @@ pub(crate) async fn send_link_ready(
     daemon_resume: BTreeMap<Lane, u64>,
 ) -> Result<(), ConnectionError> {
     let payload = serde_json::to_vec(&LinkReady { session, generation, daemon_resume })
+        .map_err(|error| ConnectionError::Protocol(error.to_string()))?;
+    link.send(Bytes::from(payload)).await?;
+    Ok(())
+}
+
+pub(crate) async fn send_link_rejection(
+    link: &dyn FrameLink,
+    rejection: LinkRejection,
+) -> Result<(), ConnectionError> {
+    let payload = serde_json::to_vec(&LinkRejected { rejected: rejection })
         .map_err(|error| ConnectionError::Protocol(error.to_string()))?;
     link.send(Bytes::from(payload)).await?;
     Ok(())
@@ -1123,7 +1160,7 @@ mod tests {
         let (client, daemon, _) = fault_pair();
         drop(daemon);
 
-        let error = receive_control::<LinkReady>(&client).await.unwrap_err();
+        let error = receive_control::<LinkHandshakeResponse>(&client).await.unwrap_err();
 
         assert!(
             matches!(error, ConnectionError::Link(LinkError::Closed)),
