@@ -2445,6 +2445,36 @@ mod tests {
         }
     }
 
+    fn runtime_rejecting_one_mouse_dispatch() -> (Arc<super::BrowserRuntime>, thread::JoinHandle<()>)
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let mouse = read_ws_json(&mut ws);
+            assert_eq!(mouse["method"], "Input.dispatchMouseEvent");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": mouse["id"],
+                    "error": {"message": "CDP call Input.dispatchMouseEvent timed out"}
+                }),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        (runtime, server)
+    }
+
     fn serve_json_version_until_stopped(
         listener: TcpListener,
         ready_tx: mpsc::Sender<()>,
@@ -3564,6 +3594,112 @@ mod tests {
         browser.store_frame(test_frame(2));
         assert_eq!(browser.latest_frame_seq(), Some(2));
         assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
+    }
+
+    #[test]
+    fn queued_frame_before_navigation_barrier_stays_non_authoritative() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let route = Arc::new(super::SurfaceRoute::new());
+        assert!(!route.deliver(cmux_tui_cdp::CdpEvent::ScreencastFrame(
+            cmux_tui_cdp::ScreencastFrame {
+                session_id: "session-test".to_string(),
+                data_b64: "queued-before-barrier".to_string(),
+                css_width: 80,
+                css_height: 48,
+                ack_id: 2,
+            },
+        )));
+
+        browser.invalidate_pointer_frame();
+        let queued = route.try_recv().expect("queued screencast frame");
+        let cmux_tui_cdp::CdpEvent::ScreencastFrame(frame) = queued else {
+            panic!("expected queued screencast frame");
+        };
+        browser.store_frame(BrowserFrame {
+            session_id: frame.session_id,
+            data_b64: frame.data_b64,
+            css_width: frame.css_width,
+            css_height: frame.css_height,
+            seq: 0,
+        });
+
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "a frame queued before invalidation must not reopen pointer admission"
+        );
+    }
+
+    #[test]
+    fn ambiguous_guarded_press_failure_retains_release_ownership() {
+        let (runtime, server) = runtime_rejecting_one_mouse_dispatch();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let mut active_pointer_presses = std::collections::HashMap::new();
+
+        let result = browser.mouse_event_blocking(
+            super::BrowserMouseDispatch {
+                event_type: "mousePressed",
+                x: 1.0,
+                y: 1.0,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: Some(1),
+            },
+            &mut active_pointer_presses,
+        );
+
+        assert!(result.is_err());
+        assert!(
+            active_pointer_presses.contains_key("left"),
+            "a timed-out press may have reached Chrome and still owns its balancing release"
+        );
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn ambiguous_guarded_release_failure_retains_release_ownership() {
+        let (runtime, server) = runtime_rejecting_one_mouse_dispatch();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let mut active_pointer_presses =
+            std::collections::HashMap::from([("left".to_string(), capture_generation)]);
+
+        let result = browser.mouse_event_blocking(
+            super::BrowserMouseDispatch {
+                event_type: "mouseReleased",
+                x: 1.0,
+                y: 1.0,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: Some(1),
+            },
+            &mut active_pointer_presses,
+        );
+
+        assert!(result.is_err());
+        assert!(
+            active_pointer_presses.contains_key("left"),
+            "a timed-out release must remain retryable"
+        );
+        runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]
