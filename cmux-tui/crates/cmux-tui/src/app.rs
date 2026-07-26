@@ -11179,6 +11179,23 @@ mod tests {
     }
 
     #[test]
+    fn host_keyboard_protocol_query_uses_bounded_startup_deadline() {
+        let mut output = Vec::new();
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+        let observed = std::cell::Cell::new(None);
+
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, |timeout| {
+            observed.set(Some(timeout));
+            Ok(None)
+        })
+        .unwrap();
+
+        assert_eq!(observed.get(), Some(super::HOST_KEYBOARD_QUERY_TIMEOUT));
+        assert!(super::HOST_KEYBOARD_QUERY_TIMEOUT <= std::time::Duration::from_millis(200));
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
     fn failed_keyboard_pop_keeps_cleanup_ownership_for_terminal_restore() {
         struct RejectPop(Vec<u8>);
 
