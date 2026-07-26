@@ -3942,7 +3942,7 @@ pub struct App {
     /// Whether the terminal pointer is currently the hand shape (over a
     /// clickable element); tracked to avoid re-emitting OSC 22.
     pointer_shape: bool,
-    last_browser_hover: Option<(SurfaceId, u16, u16)>,
+    last_browser_hover: Option<(SurfaceId, u16, u16, u64)>,
     /// Off-loop forwarder for browser input: CDP/socket round trips must
     /// never run on the event-loop thread (see `browser_input`).
     browser_input: BrowserInputDispatcher,
@@ -4918,8 +4918,23 @@ pub fn run_with_machine_updates(
     std::thread::Builder::new().name("input".into()).spawn({
         move || {
             let mut graphics_responses = GraphicsResponseFilter::new(graphics_fence_notifier);
-            'input: while let Ok(event) = crossterm::event::read() {
-                for event in graphics_responses.filter(event) {
+            'input: loop {
+                let events = if let Some(timeout) = graphics_responses.time_until_expiry() {
+                    match crossterm::event::poll(timeout) {
+                        Ok(true) => match crossterm::event::read() {
+                            Ok(event) => graphics_responses.filter(event),
+                            Err(_) => break 'input,
+                        },
+                        Ok(false) => graphics_responses.take_expired(),
+                        Err(_) => break 'input,
+                    }
+                } else {
+                    match crossterm::event::read() {
+                        Ok(event) => graphics_responses.filter(event),
+                        Err(_) => break 'input,
+                    }
+                };
+                for event in events {
                     if input_tx.send(AppEvent::Input(event)).is_err() {
                         break 'input;
                     }
@@ -6860,7 +6875,7 @@ impl App {
         if self.omnibar.as_ref().is_some_and(|state| state.surface == surface) {
             self.omnibar = None;
         }
-        if self.last_browser_hover.is_some_and(|(hovered, _, _)| hovered == surface) {
+        if self.last_browser_hover.is_some_and(|(hovered, _, _, _)| hovered == surface) {
             self.last_browser_hover = None;
         }
         self.browser_input.forget_surface(surface);
@@ -12488,20 +12503,20 @@ impl App {
                 });
                 if browser_hover_forward_allowed(status.flatten(), editing_same_pane) {
                     let cell = (x.saturating_sub(area.content.x), y.saturating_sub(area.content.y));
-                    let next = (area.surface, cell.0, cell.1);
-                    if self.last_browser_hover != Some(next)
-                        && let Some(frame_seq) =
-                            self.processed_browser_pointer_authority(area.surface)
+                    if let Some(frame_seq) = self.processed_browser_pointer_authority(area.surface)
                     {
-                        let _ = self.send_browser_mouse(
-                            area.surface,
-                            area.content,
-                            x,
-                            y,
-                            frame_seq,
-                            BrowserMouseDispatch::new("mouseMoved", Some("none"), None),
-                        );
-                        self.last_browser_hover = Some(next);
+                        let next = (area.surface, cell.0, cell.1, frame_seq);
+                        if self.last_browser_hover != Some(next) {
+                            let _ = self.send_browser_mouse(
+                                area.surface,
+                                area.content,
+                                x,
+                                y,
+                                frame_seq,
+                                BrowserMouseDispatch::new("mouseMoved", Some("none"), None),
+                            );
+                            self.last_browser_hover = Some(next);
+                        }
                     }
                 }
             }

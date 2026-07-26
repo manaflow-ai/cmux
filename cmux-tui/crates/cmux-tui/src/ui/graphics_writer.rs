@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -16,9 +17,12 @@ use super::graphics::{
 
 pub type StdoutLock = ReentrantMutex<()>;
 const PROCESSING_FENCE_TIMEOUT: Duration = Duration::from_secs(1);
+const PROCESSING_FENCE_SHUTDOWN_POLL: Duration = Duration::from_millis(25);
 const LATE_FENCE_RESPONSE_GRACE: Duration = Duration::from_secs(4);
+const INCOMPLETE_GRAPHICS_RESPONSE_GRACE: Duration = Duration::from_millis(200);
 const MAX_RETIRED_FENCES: usize = 4;
 const MAX_GRAPHICS_RESPONSE_EVENTS: usize = 128;
+const MAX_CONSECUTIVE_GRAPHICS_FENCE_TIMEOUTS: u8 = 2;
 
 struct GraphicsSubmission {
     id: u64,
@@ -140,15 +144,42 @@ impl GraphicsFenceWaiter {
         }
     }
 
+    #[cfg(test)]
     fn wait_for(&self, expected: u32) -> std::io::Result<()> {
-        let result = self.responses.recv_timeout(PROCESSING_FENCE_TIMEOUT).map_err(|error| {
-            std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("graphics processing fence timed out: {error}"),
-            )
-        });
+        self.wait_for_shutdown(expected, &AtomicBool::new(false))
+    }
+
+    fn wait_for_shutdown(&self, expected: u32, shutdown: &AtomicBool) -> std::io::Result<()> {
+        let deadline = Instant::now() + PROCESSING_FENCE_TIMEOUT;
+        let response = loop {
+            if shutdown.load(Ordering::Acquire) {
+                self.cancel(expected);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "graphics processing fence wait interrupted by shutdown",
+                ));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                self.cancel(expected);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "graphics processing fence timed out",
+                ));
+            }
+            match self.responses.recv_timeout(remaining.min(PROCESSING_FENCE_SHUTDOWN_POLL)) {
+                Ok(response) => break response,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    self.cancel(expected);
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "graphics processing fence channel disconnected",
+                    ));
+                }
+            }
+        };
         self.cancel(expected);
-        let response = result?;
         if response.id != expected {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -197,6 +228,7 @@ struct BufferedGraphicsResponse {
     candidates: Vec<u32>,
     events: Vec<Event>,
     payload: String,
+    inactive_since: Option<Instant>,
 }
 
 /// Crossterm exposes an APC reply as Alt+_ followed by ordinary key events and
@@ -212,11 +244,54 @@ impl GraphicsResponseFilter {
         Self { notifier, buffered: None }
     }
 
+    fn refresh_inactive_since(&mut self, now: Instant) {
+        let active = self
+            .buffered
+            .as_ref()
+            .is_some_and(|buffered| self.notifier.has_active_candidate(&buffered.candidates));
+        if let Some(buffered) = self.buffered.as_mut() {
+            if active {
+                buffered.inactive_since = None;
+            } else {
+                buffered.inactive_since.get_or_insert(now);
+            }
+        }
+    }
+
+    pub fn time_until_expiry(&mut self) -> Option<Duration> {
+        let now = Instant::now();
+        self.refresh_inactive_since(now);
+        self.buffered.as_ref().and_then(|buffered| {
+            buffered.inactive_since.map(|inactive_since| {
+                (inactive_since + INCOMPLETE_GRAPHICS_RESPONSE_GRACE).saturating_duration_since(now)
+            })
+        })
+    }
+
+    pub fn take_expired(&mut self) -> Vec<Event> {
+        let now = Instant::now();
+        self.refresh_inactive_since(now);
+        let expired = self.buffered.as_ref().is_some_and(|buffered| {
+            buffered.inactive_since.is_some_and(|inactive_since| {
+                now.saturating_duration_since(inactive_since) >= INCOMPLETE_GRAPHICS_RESPONSE_GRACE
+            })
+        });
+        if expired {
+            return self.buffered.take().unwrap().events;
+        }
+        Vec::new()
+    }
+
     pub fn filter(&mut self, event: Event) -> Vec<Event> {
+        let now = Instant::now();
+        self.refresh_inactive_since(now);
         if self.buffered.as_ref().is_some_and(|buffered| {
-            !self.notifier.has_active_candidate(&buffered.candidates)
-                && !buffered.payload.is_empty()
-                && !buffered.payload.starts_with('G')
+            buffered.inactive_since.is_some()
+                && ((!buffered.payload.is_empty() && !buffered.payload.starts_with('G'))
+                    || buffered.inactive_since.is_some_and(|inactive_since| {
+                        now.saturating_duration_since(inactive_since)
+                            >= INCOMPLETE_GRAPHICS_RESPONSE_GRACE
+                    }))
         }) {
             let mut replay = self.buffered.take().unwrap().events;
             replay.extend(self.filter(event));
@@ -229,6 +304,7 @@ impl GraphicsResponseFilter {
                     candidates,
                     events: vec![event],
                     payload: String::new(),
+                    inactive_since: None,
                 });
                 return Vec::new();
             }
@@ -245,6 +321,7 @@ impl GraphicsResponseFilter {
                     candidates,
                     events: vec![event],
                     payload: String::new(),
+                    inactive_since: None,
                 });
             }
             return replay;
@@ -312,7 +389,7 @@ fn parse_graphics_response(payload: &str) -> Option<GraphicsFenceResponse> {
 trait ProcessingFence: Send + 'static {
     fn prepare(&mut self, _id: u32) {}
     fn cancel(&mut self, _id: u32) {}
-    fn wait(&mut self, id: u32) -> std::io::Result<()>;
+    fn wait(&mut self, id: u32, shutdown: &AtomicBool) -> std::io::Result<()>;
 }
 
 impl ProcessingFence for GraphicsFenceWaiter {
@@ -324,8 +401,8 @@ impl ProcessingFence for GraphicsFenceWaiter {
         GraphicsFenceWaiter::cancel(self, id);
     }
 
-    fn wait(&mut self, id: u32) -> std::io::Result<()> {
-        self.wait_for(id)
+    fn wait(&mut self, id: u32, shutdown: &AtomicBool) -> std::io::Result<()> {
+        self.wait_for_shutdown(id, shutdown)
     }
 }
 
@@ -337,7 +414,13 @@ impl<F> ProcessingFence for ClosureProcessingFence<F>
 where
     F: FnMut() -> std::io::Result<()> + Send + 'static,
 {
-    fn wait(&mut self, _id: u32) -> std::io::Result<()> {
+    fn wait(&mut self, _id: u32, shutdown: &AtomicBool) -> std::io::Result<()> {
+        if shutdown.load(Ordering::Acquire) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "graphics processing fence wait interrupted by shutdown",
+            ));
+        }
         (self.0)()
     }
 }
@@ -348,6 +431,7 @@ pub struct GraphicsWriter {
     notify: Option<SyncSender<()>>,
     done: Option<Receiver<()>>,
     handle: Option<JoinHandle<()>>,
+    shutdown: Arc<AtomicBool>,
 }
 
 impl GraphicsWriter {
@@ -393,9 +477,11 @@ impl GraphicsWriter {
         let (done_tx, done_rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(None));
         let completion = Arc::new(Mutex::new(None));
+        let shutdown = Arc::new(AtomicBool::new(false));
         let handle = std::thread::Builder::new().name("mux-graphics-writer".into()).spawn({
             let slot = slot.clone();
             let completion = completion.clone();
+            let shutdown = shutdown.clone();
             move || {
                 writer_loop(WriterLoop {
                     slot,
@@ -406,10 +492,18 @@ impl GraphicsWriter {
                     processing_fence_waiter: processing_fence,
                     on_ready,
                     done_tx,
+                    shutdown,
                 });
             }
         })?;
-        Ok(Self { slot, completion, notify: Some(tx), done: Some(done_rx), handle: Some(handle) })
+        Ok(Self {
+            slot,
+            completion,
+            notify: Some(tx),
+            done: Some(done_rx),
+            handle: Some(handle),
+            shutdown,
+        })
     }
 
     pub fn submit(
@@ -418,6 +512,9 @@ impl GraphicsWriter {
         session_generation: u64,
         placements: Vec<GraphicPlacement>,
     ) -> bool {
+        if self.shutdown.load(Ordering::Acquire) {
+            return false;
+        }
         let Some(tx) = &self.notify else { return false };
         submit_snapshot(&self.slot, tx, GraphicsSubmission { id, session_generation, placements })
     }
@@ -427,6 +524,7 @@ impl GraphicsWriter {
     }
 
     pub fn shutdown(&mut self, timeout: Duration) {
+        self.shutdown.store(true, Ordering::Release);
         self.notify.take();
         let Some(handle) = self.handle.take() else { return };
         let Some(done) = self.done.take() else {
@@ -472,6 +570,7 @@ struct WriterLoop<W, P, F> {
     processing_fence_waiter: P,
     on_ready: F,
     done_tx: SyncSender<()>,
+    shutdown: Arc<AtomicBool>,
 }
 
 fn writer_loop<W, P, F>(worker: WriterLoop<W, P, F>)
@@ -489,11 +588,19 @@ where
         mut processing_fence_waiter,
         on_ready,
         done_tx,
+        shutdown,
     } = worker;
     let _done = DoneOnDrop(done_tx);
     let mut graphics = GraphicsState::default();
+    let mut consecutive_fence_timeouts = 0_u8;
     while rx.recv().is_ok() {
+        if shutdown.load(Ordering::Acquire) {
+            return;
+        }
         loop {
+            if shutdown.load(Ordering::Acquire) {
+                return;
+            }
             let next = slot.lock().unwrap().take();
             let Some(submission) = next else { break };
             let processed_graphics = submission
@@ -512,27 +619,41 @@ where
             processing_fence_waiter.prepare(fence_id);
             let output_result = {
                 let _guard = stdout_lock.lock();
-                let mut result = Ok(());
-                for batch in batches {
-                    if result.is_ok() {
-                        result = output.write_all(&batch);
+                if shutdown.load(Ordering::Acquire) {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "graphics output interrupted by shutdown",
+                    ))
+                } else {
+                    let mut result = Ok(());
+                    for batch in batches {
+                        if result.is_ok() {
+                            result = output.write_all(&batch);
+                        }
                     }
+                    if result.is_ok() {
+                        result = output.write_all(&processing_fence(fence_id));
+                    }
+                    if result.is_ok() {
+                        result = output.flush();
+                    }
+                    result
                 }
-                if result.is_ok() {
-                    result = output.write_all(&processing_fence(fence_id));
-                }
-                if result.is_ok() {
-                    result = output.flush();
-                }
-                result
             };
             if output_result.is_err() {
                 processing_fence_waiter.cancel(fence_id);
+                if shutdown.load(Ordering::Acquire) {
+                    return;
+                }
                 *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
                 on_ready();
                 return;
             }
-            let mut processed = processing_fence_waiter.wait(fence_id);
+            let mut processed = processing_fence_waiter.wait(fence_id, &shutdown);
+            if shutdown.load(Ordering::Acquire) {
+                processing_fence_waiter.cancel(fence_id);
+                return;
+            }
             if processed.as_ref().is_err_and(|error| error.kind() == std::io::ErrorKind::TimedOut) {
                 // The graphics bytes were written successfully. A second
                 // ordered query distinguishes a delayed response from a
@@ -540,22 +661,42 @@ where
                 processing_fence_waiter.prepare(fence_id);
                 let retry_output = {
                     let _guard = stdout_lock.lock();
-                    output.write_all(&processing_fence(fence_id)).and_then(|()| output.flush())
+                    if shutdown.load(Ordering::Acquire) {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::Interrupted,
+                            "graphics output interrupted by shutdown",
+                        ))
+                    } else {
+                        output.write_all(&processing_fence(fence_id)).and_then(|()| output.flush())
+                    }
                 };
                 if retry_output.is_err() {
                     processing_fence_waiter.cancel(fence_id);
+                    if shutdown.load(Ordering::Acquire) {
+                        return;
+                    }
                     *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
                     on_ready();
                     return;
                 }
-                processed = processing_fence_waiter.wait(fence_id);
+                processed = processing_fence_waiter.wait(fence_id, &shutdown);
+            }
+            if shutdown.load(Ordering::Acquire) {
+                processing_fence_waiter.cancel(fence_id);
+                return;
             }
             if let Err(error) = processed {
                 processing_fence_waiter.cancel(fence_id);
                 if error.kind() == std::io::ErrorKind::TimedOut {
-                    // Keep graphics enabled, but discard all unconfirmed
-                    // processing state so the app can redraw and retransmit.
+                    consecutive_fence_timeouts = consecutive_fence_timeouts.saturating_add(1);
                     graphics = GraphicsState::default();
+                    if consecutive_fence_timeouts >= MAX_CONSECUTIVE_GRAPHICS_FENCE_TIMEOUTS {
+                        *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
+                        on_ready();
+                        return;
+                    }
+                    // One bounded re-probe may retransmit the unconfirmed
+                    // image data. Persistent fence loss disables graphics.
                     *completion.lock().unwrap() = Some(GraphicsCompletion::TimedOut {
                         id: submission.id,
                         session_generation: submission.session_generation,
@@ -567,6 +708,7 @@ where
                 on_ready();
                 return;
             }
+            consecutive_fence_timeouts = 0;
             *completion.lock().unwrap() = Some(GraphicsCompletion::Processed(GraphicsProcessing {
                 id: submission.id,
                 session_generation: submission.session_generation,
@@ -876,7 +1018,7 @@ mod tests {
             lock,
             Vec::new(),
             move || {
-                if attempts.fetch_add(1, std::sync::atomic::Ordering::AcqRel) == 0 {
+                if attempts.fetch_add(1, Ordering::AcqRel) == 0 {
                     Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         "injected transient fence timeout",
