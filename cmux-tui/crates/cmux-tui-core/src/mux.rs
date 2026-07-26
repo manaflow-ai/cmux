@@ -10618,6 +10618,66 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_preserves_inactive_stack_selection() {
+        let mux = test_mux();
+        let applied = mux
+            .apply_layout(
+                None,
+                None,
+                &split_spec(
+                    SplitDir::Right,
+                    0.5,
+                    LayoutSpec::Stack { pane_count: 2, expanded_index: 0 },
+                    LayoutSpec::Stack { pane_count: 2, expanded_index: 0 },
+                ),
+                Some((80, 22)),
+            )
+            .unwrap();
+        let [left_first, left_second, right_first, _right_second] =
+            applied.panes.iter().map(|pane| pane.pane).collect::<Vec<_>>()[..]
+        else {
+            panic!("two two-pane stacks should create four panes");
+        };
+        {
+            let mut state = mux.state.lock().unwrap();
+            let screen = &mut state.workspaces[0].screens[0];
+            let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+            let Node::Split { id, a, b, .. } = root else {
+                panic!("test layout should have two stack branches");
+            };
+            screen.layout_columns = vec![
+                LayoutColumn { id: mux.next_id(), width: 1.0, root: *a, zellij_auto_layout: None },
+                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None },
+            ];
+            screen.sync_layout_column_projection();
+            Mux::rebuild_split_screen_index(&mut state);
+        }
+
+        assert!(mux.focus_pane(right_first));
+        assert!(mux.set_viewport_pane_width(right_first, 0.7));
+        assert!(mux.focus_pane(left_second));
+        assert!(mux.focus_pane(right_first));
+        assert!(matches!(
+            mux.undo_layout(right_first, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, right_first);
+            assert!(matches!(
+                &screen.layout_columns[0].root,
+                Node::Stack { expanded, .. } if *expanded == left_second
+            ));
+            assert!(!matches!(
+                &screen.layout_columns[0].root,
+                Node::Stack { expanded, .. } if *expanded == left_first
+            ));
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
     fn layout_undo_coalesces_every_target_in_one_resize_transaction() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
