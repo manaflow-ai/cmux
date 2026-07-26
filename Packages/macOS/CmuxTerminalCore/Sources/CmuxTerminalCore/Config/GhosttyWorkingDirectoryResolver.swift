@@ -8,8 +8,8 @@ public struct GhosttyWorkingDirectoryResolver: Sendable {
 
     /// Creates a resolver using the supplied environment paths.
     public init(
-        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
-        processWorkingDirectory: String = FileManager.default.currentDirectoryPath
+        homeDirectory: String,
+        processWorkingDirectory: String
     ) {
         self.homeDirectory = homeDirectory
         self.processWorkingDirectory = processWorkingDirectory

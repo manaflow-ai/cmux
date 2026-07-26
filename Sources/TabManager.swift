@@ -479,7 +479,10 @@ class TabManager: ObservableObject {
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
-            GhosttyWorkingDirectoryResolver().resolve(
+            GhosttyWorkingDirectoryResolver(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+                processWorkingDirectory: FileManager.default.currentDirectoryPath
+            ).resolve(
                 configuredValue: GhosttyConfig.load().workingDirectory
             )
         },
