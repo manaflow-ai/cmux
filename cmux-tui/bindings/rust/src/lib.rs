@@ -132,6 +132,63 @@ pub struct IdentifyDetails {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ClientSurfaceSize {
+    pub surface: u64,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+    pub size_participating: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientInfo {
+    pub client: u64,
+    pub transport: String,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+    pub connected_seconds: u64,
+    pub attached: Vec<u64>,
+    pub sizes: Vec<ClientSurfaceSize>,
+    pub is_self: bool,
+}
+
+#[derive(Deserialize)]
+struct ClientInfoWire {
+    client: u64,
+    transport: String,
+    name: Option<String>,
+    kind: Option<String>,
+    connected_seconds: u64,
+    attached: Vec<u64>,
+    sizes: Vec<ClientSurfaceSize>,
+    size_participating: Option<bool>,
+    #[serde(rename = "self")]
+    is_self: bool,
+}
+
+impl<'de> Deserialize<'de> for ClientInfo {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut wire = ClientInfoWire::deserialize(deserializer)?;
+        let fallback = wire.size_participating.unwrap_or(true);
+        for size in &mut wire.sizes {
+            size.size_participating.get_or_insert(fallback);
+        }
+        Ok(Self {
+            client: wire.client,
+            transport: wire.transport,
+            name: wire.name,
+            kind: wire.kind,
+            connected_seconds: wire.connected_seconds,
+            attached: wire.attached,
+            sizes: wire.sizes,
+            is_self: wire.is_self,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceResult {
     pub surface: u64,
 }
@@ -472,6 +529,34 @@ impl CmuxClient {
 
     pub fn list_workspaces(&mut self) -> Result<Tree> {
         self.request("list-workspaces", Map::new())
+    }
+
+    pub fn list_clients(&mut self) -> Result<Vec<ClientInfo>> {
+        self.request("list-clients", Map::new())
+    }
+
+    pub fn set_client_sizing(&mut self, surface: u64, client: u64, enabled: bool) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(enabled));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_only_client_size(&mut self, surface: u64, client: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(true));
+        params.insert("exclusive".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_all_client_sizes(&mut self, surface: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("enabled".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
     }
 
     pub fn send(&mut self, surface: u64, text: Option<&str>, bytes: Option<&str>) -> Result<()> {
@@ -1210,6 +1295,28 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn client_info_normalizes_protocol_nine_sizing_participation() {
+        let client: ClientInfo = serde_json::from_value(serde_json::json!({
+            "client": 7,
+            "transport": "ws",
+            "name": null,
+            "kind": "web",
+            "connected_seconds": 12,
+            "attached": [31, 32],
+            "sizes": [
+                {"surface": 31, "cols": 126, "rows": 38},
+                {"surface": 32, "cols": 100, "rows": 30, "size_participating": true},
+            ],
+            "size_participating": false,
+            "self": true,
+        }))
+        .unwrap();
+
+        assert_eq!(client.sizes[0].size_participating, Some(false));
+        assert_eq!(client.sizes[1].size_participating, Some(true));
     }
 
     #[test]

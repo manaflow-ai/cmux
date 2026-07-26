@@ -4,7 +4,7 @@
 
 The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, one row per directory/file, and a count or filter footer. A single click selects a file row. Crossterm's mouse events do not expose an existing double-click concept here, so clicks do not open or descend; use Enter or Right while the sidebar is focused. Toggle to the workspaces view with focused-sidebar `Tab` or the `toggle-sidebar-view` action.
 
-The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
+The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Its terminal-style scrollbar appears one column inside the resize divider only when workspace rows overflow. Wheel over the rail, click the scrollbar's invisible track, or drag its thumb to scroll the workspace list. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
 When configured, the machine rail appears to the left of the workspace or files rail with the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the shared text-input dialog for a `host` or `user@host`. A provider that advertises create capability also shows `+ New VM`; the built-in static Unix/SSH catalog does not advertise that capability. Drag the machine rail's right divider to resize that rail, or the second rail's right divider to resize the workspace/files rail. The two session-local width overrides are independent.
 
@@ -29,7 +29,7 @@ In the workspaces view, drag a workspace entry to reorder workspaces. The drop p
 
 The scrollbar is visible only when a PTY surface can scroll. With the default `scrollbar.position = "column"`, it uses a dedicated column just inside the right border. With `"border"`, it overlays the right border.
 
-The thumb is `▕` normally and `▐` while hovered or dragged. Clicking the thumb starts a drag without moving the viewport. Clicking the track outside the thumb jumps to that relative position, then starts a drag from the clicked anchor.
+Pane, workspace, and shortcut-modal scrollbars share one style. The thumb is `▕` normally and `▐` while hovered or dragged; no scrollbar is drawn when all rows fit. Clicking the thumb starts a drag without moving the viewport. Clicking the invisible track outside the thumb jumps to that relative position, then starts a drag from the clicked anchor.
 
 Wheel over a PTY pane focuses that pane first. When the inner app enables terminal mouse tracking, wheel events are forwarded at the pointer position using the app's requested mouse protocol. Otherwise, the normal screen scrolls by three rows and the alternate screen receives three up or down arrow keys.
 
@@ -37,11 +37,15 @@ Wheel over a PTY pane focuses that pane first. When the inner app enables termin
 
 Drag pane borders to resize the matching split. Dragging a corner adjusts both intersecting split axes. The ratio is clamped from 0.05 to 0.95. Outer edges that do not correspond to a split do not change layout.
 
-Drag a rail border to resize that rail for the current TUI session. The configured base widths come from `machine_sidebar.width` and `sidebar.width`, and each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
+Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. The configured base widths come from `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`; each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
 
 ## Context Menus
 
-Right-click a pane for rename tab, close tab, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, and ID copying. The menu separates current-tab, creation, browser, pane-layout, and ID actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu. Right-click a workspace row for rename, close, or ID copying. Right-click a screen in the status bar for rename or close.
+Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Pane and status-bar menus do not contain sidebar actions. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
+
+Right-click anywhere inside the sidebar, including its header, empty space, file rows, workspace rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include their rename, close, and copy-ID actions. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for only its screen actions.
+
+Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
 Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
