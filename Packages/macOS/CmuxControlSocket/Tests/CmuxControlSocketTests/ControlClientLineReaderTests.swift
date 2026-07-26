@@ -144,10 +144,10 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == "ok")
     }
 
-    @Test func dropsChunkThatIsNotValidUTF8() throws {
+    @Test func dropsLineThatIsNotValidUTF8() throws {
         let pair = try SocketPairFixture()
-        // The legacy loop coalesced an undecodable chunk to "", losing the
-        // whole chunk including its newline.
+        // Malformed input is discarded rather than surfaced as an empty
+        // command.
         pair.write([0xFF, 0xFE, 0x0A])
         pair.closeWriteEnd()
 
