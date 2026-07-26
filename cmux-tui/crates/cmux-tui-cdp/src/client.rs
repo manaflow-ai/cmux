@@ -1318,6 +1318,39 @@ mod tests {
     }
 
     #[test]
+    fn child_same_document_navigation_does_not_advance_main_frame_epoch() {
+        let (inner, _outbound_rx) = test_inner();
+        let frame_epoch = Arc::new(FrameEpoch::default());
+        inner.frame_epochs.lock().unwrap().insert("session-1".to_string(), frame_epoch.clone());
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.frameNavigated",
+                "sessionId": "session-1",
+                "params": {"frame": {"id": "main-frame", "url": "https://example.test"}}
+            })
+            .to_string(),
+        );
+        assert_eq!(frame_epoch.current(), 1);
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.navigatedWithinDocument",
+                "sessionId": "session-1",
+                "params": {"frameId": "child-frame", "url": "https://iframe.test/#next"}
+            })
+            .to_string(),
+        );
+
+        assert_eq!(
+            frame_epoch.current(),
+            1,
+            "an iframe navigation must not advance top-level pointer authority"
+        );
+    }
+
+    #[test]
     fn successful_response_advances_frame_barrier_before_waking_caller() {
         let (inner, _outbound_rx) = test_inner();
         let frame_epoch = Arc::new(FrameEpoch::default());

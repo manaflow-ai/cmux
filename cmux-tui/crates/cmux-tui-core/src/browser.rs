@@ -4008,6 +4008,49 @@ mod tests {
     }
 
     #[test]
+    fn response_level_navigation_failure_clears_frame_epoch_reservation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let navigate = read_ws_json(&mut ws);
+            assert_eq!(navigate["method"], "Page.navigate");
+            write_ws_json(
+                &mut ws,
+                json!({"id": navigate["id"], "result": {"errorText": "navigation rejected"}}),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+
+        assert!(browser.navigate_blocking("https://rejected.test").is_err());
+
+        assert_eq!(
+            browser.state.lock().unwrap().pending_frame_epoch,
+            None,
+            "a response-level failure must not poison the next navigation epoch"
+        );
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
     fn timed_out_navigation_keeps_pointer_admission_blocked() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
@@ -4320,6 +4363,29 @@ mod tests {
         assert!(!browser.resize_needed(11, 5));
         assert!(browser.resize_needed(12, 5));
         assert!(browser.resize_needed(11, 5));
+    }
+
+    #[test]
+    fn reconfigure_retry_reuses_unsettled_frame_epoch() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        browser.begin_frame_transition(false);
+        let first_epoch = browser.state.lock().unwrap().pending_frame_epoch.unwrap();
+        browser.fail_reconfigure(queued).expect("first failure recorded");
+        browser.state.lock().unwrap().reconfigure_failure.as_mut().unwrap().retry_at =
+            Some(Instant::now() - Duration::from_millis(1));
+        let retry = browser.reserve_reconfigure(11, 5).expect("retry accepted");
+
+        browser.begin_frame_transition(false);
+
+        assert_eq!(
+            browser.state.lock().unwrap().pending_frame_epoch,
+            Some(first_epoch),
+            "a retry must wait for the same single response barrier"
+        );
+        browser.fail_reconfigure(retry).expect("retry failure recorded");
     }
 
     #[test]
