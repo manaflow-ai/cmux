@@ -3883,6 +3883,53 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    func testReloadConfigSocketReplyWaitsForConfigurationCommit()
+        throws {
+#if DEBUG
+        let app = GhosttyApp.shared
+        let retainedPanels = (0..<16).map { _ in
+            TerminalPanel(
+                workspaceId: UUID(),
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        }
+        let startingGeneration =
+            app.terminalFontConfigurationGeneration
+        let replyReturned = expectation(
+            description: "reload_config reply returned"
+        )
+        let responseLock = NSLock()
+        nonisolated(unsafe) var response: String?
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let returnedResponse =
+                TerminalController.shared.handleSocketLine(
+                    "reload_config"
+                )
+            responseLock.lock()
+            response = returnedResponse
+            responseLock.unlock()
+            replyReturned.fulfill()
+        }
+
+        wait(for: [replyReturned], timeout: 5)
+        responseLock.lock()
+        let returnedResponse = response
+        responseLock.unlock()
+        XCTAssertEqual(returnedResponse, "OK Reloaded config")
+        XCTAssertGreaterThan(
+            app.terminalFontConfigurationGeneration,
+            startingGeneration,
+            "The socket must acknowledge success only after the replacement configuration commits"
+        )
+        withExtendedLifetime(retainedPanels) {}
+#else
+        throw XCTSkip(
+            "Configuration generation requires DEBUG"
+        )
+#endif
+    }
+
     func testConfigurationFontReconcilerLateWorkCannotExtendCapture() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
