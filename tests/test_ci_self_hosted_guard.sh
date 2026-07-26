@@ -896,6 +896,15 @@ EOF
     exit 1
   fi
 
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    CMUX_WEB_TEST_RUNNER_BUN_VERSION="1.3.13" \
+    /bin/bash "$fixture_runner" >/dev/null 2>&1; then
+    echo "FAIL: shared web test runner must enforce the patch-level Bun isolation boundary"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
   if ! awk '
     /^  web-typecheck:/ { in_job=1; next }
     in_job && /^  [[:alnum:]_-]+:/ { in_job=0 }
