@@ -321,6 +321,7 @@ enum PromptTrackState {
     Escape,
     Osc(PromptOsc),
     OscEscape(PromptOsc),
+    String,
     Csi {
         private: bool,
         at_start: bool,
@@ -386,6 +387,7 @@ impl PromptSemanticTracker {
                 PromptTrackState::Escape => match byte {
                     b']' => PromptTrackState::Osc(PromptOsc::default()),
                     b'[' => Self::csi(),
+                    b'P' | b'X' | b'^' | b'_' => PromptTrackState::String,
                     b'D' | b'E' => {
                         self.end_line();
                         PromptTrackState::Ground
@@ -423,6 +425,11 @@ impl PromptSemanticTracker {
                         PromptTrackState::Ground
                     }
                 }
+                PromptTrackState::String => match byte {
+                    0x18 | 0x1a => PromptTrackState::Ground,
+                    0x1b => PromptTrackState::Escape,
+                    _ => PromptTrackState::String,
+                },
                 PromptTrackState::Csi {
                     mut private,
                     mut at_start,
