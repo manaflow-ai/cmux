@@ -22,7 +22,8 @@ pub struct KeyboardInput {
     shifted_key: Option<char>,
     base_layout_key: Option<char>,
     associated_text: String,
-    consumed_alt: bool,
+    alt_generated_text: bool,
+    suppress_alt_shortcut: bool,
     enhanced: bool,
 }
 
@@ -33,7 +34,8 @@ impl From<KeyEvent> for KeyboardInput {
             shifted_key: None,
             base_layout_key: None,
             associated_text: String::new(),
-            consumed_alt: false,
+            alt_generated_text: false,
+            suppress_alt_shortcut: false,
             enhanced: false,
         }
     }
@@ -48,18 +50,24 @@ impl From<EnhancedKeyEvent> for KeyboardInput {
 impl KeyboardInput {
     pub fn from_enhanced(event: EnhancedKeyEvent) -> Self {
         // Kitty reports generated text per event, but no consumed-modifier
-        // mask. Text that differs from the active-layout text means Alt
-        // participated in text generation. Shift and Caps Lock jointly
-        // select the effective layout level for cased characters.
-        let consumed_alt = event.key_event.modifiers.contains(KeyModifiers::ALT)
-            && !event.text.is_empty()
-            && !text_matches_active_layout(&event);
+        // mask. Exact active-layout text proves that Alt remains available as
+        // a shortcut modifier. Other Alt+character events may be dead-key or
+        // composed-text input, so they fail closed for cmux shortcuts.
+        let alt_pressed = event.key_event.modifiers.contains(KeyModifiers::ALT);
+        let text_matches_layout = text_matches_active_layout(&event);
+        let alt_generated_text = alt_pressed && !event.text.is_empty() && !text_matches_layout;
+        let suppress_alt_shortcut = alt_pressed
+            && match event.key_event.code {
+                KeyCode::Char(_) => !text_matches_layout,
+                _ => !event.text.is_empty(),
+            };
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
             base_layout_key: event.base_layout_key,
             associated_text: event.text,
-            consumed_alt,
+            alt_generated_text,
+            suppress_alt_shortcut,
             enhanced: true,
         }
     }
@@ -79,7 +87,7 @@ impl KeyboardInput {
     /// no longer an active Alt shortcut.
     pub fn text_for_direct_input(&self) -> Option<&str> {
         let mut modifiers = self.key_event.modifiers & SHORTCUT_MODIFIERS;
-        if self.consumed_alt {
+        if self.alt_generated_text {
             modifiers.remove(KeyModifiers::ALT);
         }
         (modifiers.is_empty() && !self.associated_text.is_empty())
@@ -99,8 +107,8 @@ impl KeyboardInput {
         self.associated_text.len()
     }
 
-    pub fn has_consumed_alt(&self) -> bool {
-        self.consumed_alt
+    pub fn suppresses_alt_shortcut(&self) -> bool {
+        self.suppress_alt_shortcut
     }
 
     /// Active-layout logical identity first, then the PC-101 physical
@@ -117,14 +125,14 @@ impl KeyboardInput {
             logical.code = KeyCode::Char(shifted_key);
             logical.modifiers.remove(KeyModifiers::SHIFT);
         }
-        if self.consumed_alt {
+        if self.suppress_alt_shortcut {
             logical.modifiers.remove(KeyModifiers::ALT);
         }
 
         let fallback = self.base_layout_key.and_then(|base_layout_key| {
             let mut base = self.key_event;
             base.code = KeyCode::Char(base_layout_key);
-            if self.consumed_alt {
+            if self.suppress_alt_shortcut {
                 base.modifiers.remove(KeyModifiers::ALT);
             }
             (base != logical).then_some(base)
@@ -139,7 +147,7 @@ impl KeyboardInput {
                 self.shifted_key,
                 self.base_layout_key,
                 self.associated_text,
-                self.consumed_alt,
+                self.alt_generated_text,
             )
         } else {
             key_input_from(&self.key_event)
@@ -416,7 +424,7 @@ fn key_input_from_parts(
     shifted_key: Option<char>,
     base_layout_key: Option<char>,
     associated_text: String,
-    consumed_alt: bool,
+    alt_generated_text: bool,
 ) -> Option<KeyInput> {
     let mut input = key_input_from_event(event, false)?;
 
@@ -434,7 +442,7 @@ fn key_input_from_parts(
         if input.mods.contains(Mods::SHIFT) {
             input.consumed_mods = input.consumed_mods | Mods::SHIFT;
         }
-        if consumed_alt {
+        if alt_generated_text {
             input.consumed_mods = input.consumed_mods | Mods::ALT;
             input.macos_option_as_alt = false;
         }
@@ -628,7 +636,7 @@ mod tests {
             text: "\u{2211}".to_string(),
         });
 
-        assert!(input.has_consumed_alt());
+        assert!(input.suppresses_alt_shortcut());
     }
 
     #[test]
@@ -648,7 +656,10 @@ mod tests {
                 text: text.to_string(),
             });
 
-            assert!(!input.has_consumed_alt(), "{modifiers:?} treated Alt as text-producing");
+            assert!(
+                !input.suppresses_alt_shortcut(),
+                "{modifiers:?} treated Alt as text-producing"
+            );
             assert!(input.shortcut_keys().0.modifiers.contains(KeyModifiers::ALT));
         }
     }
@@ -667,7 +678,20 @@ mod tests {
             text: "\u{2020}".to_string(),
         });
 
-        assert!(input.has_consumed_alt());
+        assert!(input.suppresses_alt_shortcut());
+    }
+
+    #[test]
+    fn enhanced_non_character_alt_shortcut_without_text_remains_active() {
+        let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Left, KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: None,
+            text: String::new(),
+        });
+
+        assert!(!input.suppresses_alt_shortcut());
+        assert!(input.shortcut_keys().0.modifiers.contains(KeyModifiers::ALT));
     }
 
     #[test]

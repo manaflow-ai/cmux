@@ -6292,7 +6292,7 @@ impl App {
 
     fn input_can_update_pending_mutation(&self, input: &TerminalInput) -> bool {
         if let TerminalInput::Keyboard(input) = input
-            && !input.has_consumed_alt()
+            && !input.suppresses_alt_shortcut()
         {
             let (key, fallback) = input.shortcut_keys();
             if (binding_matches(&self.config.keys.prefix, &key, fallback.as_ref())
@@ -7136,7 +7136,7 @@ impl App {
             self.prefix_armed = false;
             return self.handle_prefixed(input, binding_key, binding_fallback);
         }
-        if !input.has_consumed_alt()
+        if !input.suppresses_alt_shortcut()
             && binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref())
         {
             self.prefix_armed = true;
@@ -7163,7 +7163,7 @@ impl App {
                 return self.handle_builtin_sidebar_key(&key);
             }
         }
-        if !input.has_consumed_alt()
+        if !input.suppresses_alt_shortcut()
             && let Some(action) = modeless_action_for_binding(
                 &self.config.keys,
                 &binding_key,
@@ -7847,7 +7847,7 @@ impl App {
         binding_key: KeyEvent,
         binding_fallback: Option<KeyEvent>,
     ) -> anyhow::Result<RenderAction> {
-        if input.has_consumed_alt() {
+        if input.suppresses_alt_shortcut() {
             if self.focus != FocusTarget::Pane {
                 self.focus = FocusTarget::Pane;
             }
@@ -11361,6 +11361,7 @@ mod tests {
         });
         let (key, fallback) = input.shortcut_keys();
 
+        assert!(input.suppresses_alt_shortcut());
         assert_eq!(
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
             None
