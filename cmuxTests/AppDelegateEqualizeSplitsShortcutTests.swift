@@ -2998,6 +2998,194 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testConfigurationRefreshWaitsForMultiTurnFontDrain() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+        }
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            arbiter: arbiter,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+        XCTAssertGreaterThan(coordinator.debugPendingRequestCount, 0)
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        var didRefreshConfiguration = false
+        arbiter.performWhenFontSizeWorkIsIdle {
+            didRefreshConfiguration = true
+        }
+        XCTAssertFalse(
+            didRefreshConfiguration,
+            "Surface config refresh must wait for a multi-turn request"
+        )
+
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertTrue(didRefreshConfiguration)
+    }
+
+    func testConfigurationRefreshWakesParkedFontMutation() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            arbiter: arbiter,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                applyAttemptCount += 1
+                guard applyAttemptCount > 2 else { return .failed }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+        XCTAssertEqual(applyAttemptCount, 2)
+
+        var didRefreshConfiguration = false
+        arbiter.performWhenFontSizeWorkIsIdle {
+            didRefreshConfiguration = true
+        }
+        XCTAssertFalse(didRefreshConfiguration)
+        XCTAssertGreaterThan(
+            scheduler.delays.count,
+            2,
+            "The config barrier must retry parked native work"
+        )
+        if scheduler.delays.count > 2 {
+            scheduler.fire(at: 2)
+        }
+        XCTAssertEqual(applyAttemptCount, 3)
+        XCTAssertTrue(didRefreshConfiguration)
+    }
+
+    func testFontMutationAfterConfigurationBarrierWaitsForRefresh() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let observedPanel = workspace.terminalPanel(
+                for: panelId
+              ) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        for _ in 0..<20 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+        }
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        var observedOrder: [String] = []
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            arbiter: arbiter,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                if candidate === observedPanel {
+                    if change == .relative([-1]) {
+                        observedOrder.append("decrease")
+                    } else if change == .relative([1]) {
+                        observedOrder.append("increase")
+                    }
+                }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+        XCTAssertGreaterThan(coordinator.debugPendingRequestCount, 0)
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        arbiter.performWhenFontSizeWorkIsIdle {
+            observedOrder.append("configRefresh")
+        }
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            ),
+            "Font input after the barrier must remain accepted"
+        )
+
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+        XCTAssertEqual(
+            observedOrder,
+            ["decrease", "configRefresh", "increase"]
+        )
+    }
+
     func testHibernatedFontFollowerPredictsFromConfiguredBaseline() {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: false)
