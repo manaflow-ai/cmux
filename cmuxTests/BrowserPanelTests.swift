@@ -3560,6 +3560,77 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testActiveViewportExternalWindowResizeInvalidatesHostedWebViewWithoutSynchronousRefresh() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: contentView.bounds.insetBy(dx: 40, dy: 24))
+        anchor.autoresizingMask = [.width, .height]
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let viewportModel = BrowserViewportModel()
+        let viewportHost = BrowserViewportHostView(frame: .zero)
+        webView.browserViewportModel = viewportModel
+        viewportModel.setViewport(try XCTUnwrap(BrowserViewport(width: 1_280, height: 720)))
+        viewportHost.installWebView(webView)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === viewportHost)
+        guard let slot = viewportHost.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected active browser viewport host in a portal slot")
+            return
+        }
+
+        let initialSlotSize = slot.frame.size
+        let initialSetNeedsDisplayCount = webView.setNeedsDisplayCount
+        let initialDisplayCount = webView.displayIfNeededCount
+        let initialEnterInWindowCount = webView.enterInWindowCount
+        let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
+
+        window.setContentSize(NSSize(width: 620, height: 420))
+        contentView.layoutSubtreeIfNeeded()
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        advanceAnimations()
+
+        XCTAssertGreaterThan(slot.frame.width, initialSlotSize.width)
+        XCTAssertGreaterThan(slot.frame.height, initialSlotSize.height)
+        XCTAssertGreaterThan(
+            webView.setNeedsDisplayCount,
+            initialSetNeedsDisplayCount,
+            "External resize should invalidate a browser nested in its active viewport host"
+        )
+        XCTAssertEqual(
+            webView.displayIfNeededCount,
+            initialDisplayCount,
+            "Active viewport resize must not synchronously flush WebKit display"
+        )
+        XCTAssertEqual(
+            webView.enterInWindowCount,
+            initialEnterInWindowCount,
+            "Active viewport resize should not re-enter the WebKit window"
+        )
+        XCTAssertEqual(
+            webView.endDeferringViewInWindowChangesCount,
+            initialEndDeferringCount,
+            "Active viewport resize should not end deferred WebKit window changes"
+        )
+    }
+
     func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 360),
