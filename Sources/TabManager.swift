@@ -392,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    private let defaultWorkspaceWorkingDirectoryProvider: () -> String
     let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
@@ -477,11 +478,17 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
+            GhosttyWorkingDirectoryResolver.resolve(
+                configuredValue: GhosttyConfig.load().workingDirectory
+            )
+        },
         workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore ?? WorkspaceDirectoryCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
@@ -1114,8 +1121,10 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = inheritWorkingDirectory
-                ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
+            let inheritanceEnabled = inheritWorkingDirectory
+                && settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+            let inheritedWorkingDirectory = inheritanceEnabled
+                ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
                 : nil
             let fontSizeLineage = inheritedTerminalFontSizeLineageForNewWorkspace(
                 workspace: sourceWorkspace
@@ -1123,7 +1132,7 @@ class TabManager: ObservableObject {
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
                 currentSelectedTabId: capturedSelectedTabId,
-                preferredWorkingDirectory: dir,
+                preferredWorkingDirectory: inheritedWorkingDirectory,
                 inheritedTerminalFontSizeLineage: fontSizeLineage
             )
             didCaptureWorkspaceCreationSnapshot()
@@ -1133,7 +1142,12 @@ class TabManager: ObservableObject {
             let nextTabCount = snapshot.tabs.count + 1
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
-            let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
+            let workingDirectory = WorkspaceCreationWorkingDirectoryPolicy.resolve(
+                explicitWorkingDirectory: explicitWorkingDirectory,
+                inheritedWorkingDirectory: snapshot.preferredWorkingDirectory,
+                inheritanceEnabled: inheritanceEnabled,
+                defaultWorkingDirectory: defaultWorkspaceWorkingDirectoryProvider()
+            )
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontSizeLineage: snapshot.inheritedTerminalFontSizeLineage
             )

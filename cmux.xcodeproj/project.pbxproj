@@ -2310,6 +2310,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5B38DFE53BE108F4DA2BDBB7 /* WorkspaceTodoSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5C9824B98FFC44A2C44F47 /* WorkspaceTodoSnapshotTests.swift */; };
 		39EF42EF23A2F751429718CE /* WorkspaceTodoState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */; };
 		6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
+		B95EC019F70D4F23BD3C8D1D /* WorkspaceWorkingDirectorySpawnUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81464EB0D515022903F26DD8 /* WorkspaceWorkingDirectorySpawnUITests.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
 /* End PBXBuildFile section */
 
@@ -4597,6 +4598,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		9C5C9824B98FFC44A2C44F47 /* WorkspaceTodoSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTodoSnapshotTests.swift; sourceTree = "<group>"; };
 		E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTodoState.swift; sourceTree = "<group>"; };
 		71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
+		81464EB0D515022903F26DD8 /* WorkspaceWorkingDirectorySpawnUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWorkingDirectorySpawnUITests.swift; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -4781,6 +4783,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */,
 				FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */,
 				7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */,
+				81464EB0D515022903F26DD8 /* WorkspaceWorkingDirectorySpawnUITests.swift */,
 				8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */,
 				7B5F1A2E9C0D4B6A8E217303 /* BrowserReliabilityRegressionUITests.swift */,
 				8478A0000000000000000001 /* BrowserRecoveryHTTPServer.swift */,
@@ -9133,6 +9136,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
 				E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,
 				F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */,
+				B95EC019F70D4F23BD3C8D1D /* WorkspaceWorkingDirectorySpawnUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

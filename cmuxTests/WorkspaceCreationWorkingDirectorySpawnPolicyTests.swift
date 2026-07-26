@@ -1,5 +1,4 @@
 import CmuxSettings
-import CmuxTerminalCore
 import Foundation
 import Testing
 
@@ -14,19 +13,6 @@ import Testing
 struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
     @Test("disabled inheritance passes Ghostty's home default to the first terminal")
     func disabledInheritancePassesGhosttyHomeDefaultToFirstTerminal() throws {
-#if DEBUG
-        let previousOverride = TerminalStartupAppearancePreviewOverride.installed
-        TerminalStartupAppearancePreviewOverride.installed = TerminalStartupAppearancePreviewOverride(
-            loadsRealUserConfig: false,
-            previewConfigContents: { _ in "working-directory = home" }
-        )
-        GhosttyConfig.invalidateLoadCache()
-        defer {
-            TerminalStartupAppearancePreviewOverride.installed = previousOverride
-            GhosttyConfig.invalidateLoadCache()
-        }
-#endif
-
         let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -35,16 +21,18 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
         settings.set(false, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
 
         let sourceDirectory = "/tmp/cmux-issue-8741-source-\(UUID().uuidString)"
+        let ghosttyDefaultDirectory = FileManager.default.homeDirectoryForCurrentUser.path
         let manager = TabManager(
             initialWorkingDirectory: sourceDirectory,
             autoWelcomeIfNeeded: false,
-            settings: settings
+            settings: settings,
+            defaultWorkspaceWorkingDirectoryProvider: { ghosttyDefaultDirectory }
         )
 
         let workspace = manager.addWorkspace(autoWelcomeIfNeeded: false)
         let requestedDirectory = try #require(workspace.focusedTerminalPanel?.requestedWorkingDirectory)
 
-        #expect(requestedDirectory == FileManager.default.homeDirectoryForCurrentUser.path)
+        #expect(requestedDirectory == ghosttyDefaultDirectory)
         #expect(requestedDirectory != sourceDirectory)
     }
 }
