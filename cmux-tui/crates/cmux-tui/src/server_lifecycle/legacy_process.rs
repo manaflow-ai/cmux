@@ -7,6 +7,11 @@ const PROCESS_TREE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 #[cfg(test)]
 const PROCESS_TREE_RETRY_TIMEOUT: Duration = Duration::from_secs(1);
 
+#[cfg(test)]
+thread_local! {
+    static RAW_PID_SIGNAL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn ensure_helper_active() -> io::Result<()> {
     if super::legacy_helper_cancelled() {
         return Err(io::Error::new(
@@ -49,6 +54,8 @@ impl ProcessIdentity {
         }
         // SAFETY: the PID was range-checked and its birth identity was
         // revalidated immediately before this signal.
+        #[cfg(test)]
+        RAW_PID_SIGNAL_COUNT.set(RAW_PID_SIGNAL_COUNT.get() + 1);
         if unsafe { libc::kill(self.pid, signal) } == 0 {
             return Ok(ExactSignalResult::Signaled);
         }
@@ -784,6 +791,29 @@ mod tests {
 
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    #[test]
+    fn process_identity_never_signals_through_a_reusable_pid() {
+        let mut child = Command::new("sleep")
+            .arg("60")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let process =
+            ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
+        RAW_PID_SIGNAL_COUNT.set(0);
+
+        assert_eq!(process.signal(libc::SIGCONT).unwrap(), ExactSignalResult::Signaled);
+        let raw_signals = RAW_PID_SIGNAL_COUNT.get();
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(
+            raw_signals, 0,
+            "legacy cleanup used a reusable PID instead of a stable process identity"
+        );
     }
 
     #[test]

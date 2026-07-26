@@ -1104,7 +1104,14 @@ mod tests {
             message.contains(&format!("{launcher} server stop --socket '/tmp/test socket'")),
             "{message}"
         );
-        assert!(message.contains(&format!("then run `{launcher}` again")), "{message}");
+        let replay_arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
+        assert!(!replay_arguments.is_empty(), "test runner must provide an argument");
+        let mut replay = launcher;
+        for argument in replay_arguments {
+            replay.push(' ');
+            replay.push_str(&shell_quote(Path::new(&argument)));
+        }
+        assert!(message.contains(&format!("then run `{replay}` again")), "{message}");
         assert!(message.contains("Stopping exits pane processes."));
     }
 
