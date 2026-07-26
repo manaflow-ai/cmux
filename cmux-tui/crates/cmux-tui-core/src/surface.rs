@@ -1710,15 +1710,26 @@ impl Surface {
     /// Run `f` with exclusive access to the terminal state.
     ///
     /// Browser-aware code should call [`Surface::kind`] first. This
-    /// method is kept for existing PTY call sites.
+    /// method is kept for existing PTY call sites. Access through this
+    /// method is not terminal-stream progress; the local and hosted PTY
+    /// readers signal progress only after applying actual output bytes.
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
         let pty = self.as_pty()?;
         let mut term = pty.term.lock().unwrap();
         let result = f(&mut term);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        Some(result)
+    }
+
+    #[cfg(test)]
+    fn apply_stream_output_for_test(&self, bytes: &[u8]) -> Option<()> {
+        let pty = self.as_pty()?;
+        let mut term = pty.term.lock().unwrap();
+        term.vt_write(bytes);
+        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
         drop(term);
         pty.stream_progress.notify();
-        Some(result)
+        Some(())
     }
 
     pub fn encode_mouse(
@@ -1780,9 +1791,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let result = f(&mut pty.term.lock().unwrap());
-        pty.stream_progress.notify();
-        Ok(result)
+        Ok(f(&mut pty.term.lock().unwrap()))
     }
 
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
@@ -3456,7 +3465,7 @@ mod tests {
             finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
             "clear-history acknowledged before the partial CSI reached a safe boundary"
         );
-        surface.with_terminal(|term| term.vt_write(b"m"));
+        surface.apply_stream_output_for_test(b"m").unwrap();
         finished_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("clear-history did not resume after the CSI completed")

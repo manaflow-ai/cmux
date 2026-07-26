@@ -2005,8 +2005,7 @@ impl Terminal {
         };
         if self.history_rows() > 0
             && preserve_from_y == 0
-            && (prompt_semantic == PromptSemantic::Unknown
-                || (cursor_is_at_prompt && prompt_start_y.is_none())
+            && ((cursor_is_at_prompt && prompt_start_y.is_none())
                 || (!cursor_is_at_prompt && self.active_row_wrap_continuation(0).unwrap_or(true)))
         {
             return ClearHistoryOutcome::Unchanged;
