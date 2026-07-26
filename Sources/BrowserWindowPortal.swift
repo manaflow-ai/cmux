@@ -1829,9 +1829,8 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private struct PendingHostedWebViewRefresh {
-        var generation: UInt64 = 0
-        var asyncWorkItem: DispatchWorkItem?
-        var delayedWorkItem: DispatchWorkItem?
+        let generation: UInt64
+        let workItem: DispatchWorkItem
     }
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
@@ -2007,17 +2006,6 @@ final class WindowBrowserPortal: NSObject {
         hostView.layoutSubtreeIfNeeded()
         synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
 
-        for entry in entriesByWebViewId.values {
-            guard let webView = entry.webView,
-                  let containerView = entry.containerView,
-                  !containerView.isHidden else { continue }
-            guard webView.cmuxBrowserViewportPresentationView.superview === containerView else { continue }
-            invalidateHostedWebViewGeometry(
-                webView,
-                in: containerView,
-                reason: "externalGeometry"
-            )
-        }
     }
 
     @discardableResult
@@ -2461,16 +2449,9 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.setNeedsDisplay(webKitSubview.bounds)
         }
 
-        containerView.layoutSubtreeIfNeeded()
         for webKitSubview in hostedWebKitSubviews {
-            if let scrollView = webKitSubview.enclosingScrollView {
-                scrollView.layoutSubtreeIfNeeded()
-                scrollView.contentView.layoutSubtreeIfNeeded()
-                scrollView.displayIfNeeded()
-            }
-            webKitSubview.layoutSubtreeIfNeeded()
             if reattachRenderingState {
-                webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+                webKitSubview.browserPortalForceRenderingStateRefresh(reason: "\(reason):\(phase)")
             }
             if webKitSubview === webView {
                 webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
@@ -2479,10 +2460,7 @@ final class WindowBrowserPortal: NSObject {
                     relativeTo: window
                 )
             }
-            webKitSubview.displayIfNeeded()
         }
-        containerView.displayIfNeeded()
-        (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
         cmuxDebugLog(
             "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
@@ -2493,20 +2471,9 @@ final class WindowBrowserPortal: NSObject {
 #endif
     }
 
-    private func cancelPendingHostedWebViewRefreshes(
-        for webViewId: ObjectIdentifier,
-        keepGeneration: Bool = false
-    ) {
-        guard var pending = pendingHostedWebViewRefreshes[webViewId] else { return }
-        pending.asyncWorkItem?.cancel()
-        pending.delayedWorkItem?.cancel()
-        if keepGeneration {
-            pending.asyncWorkItem = nil
-            pending.delayedWorkItem = nil
-            pendingHostedWebViewRefreshes[webViewId] = pending
-        } else {
-            pendingHostedWebViewRefreshes.removeValue(forKey: webViewId)
-        }
+    private func cancelPendingHostedWebViewRefreshes(for webViewId: ObjectIdentifier) {
+        guard let pending = pendingHostedWebViewRefreshes.removeValue(forKey: webViewId) else { return }
+        pending.workItem.cancel()
     }
 
     private func invalidateHostedWebViewGeometry(
@@ -2531,61 +2498,30 @@ final class WindowBrowserPortal: NSObject {
         guard !containerView.isHidden else { return }
         let webViewId = ObjectIdentifier(webView)
 
-        // Bind/reveal/fullscreen refreshes can stack up during a single layout churn.
-        // Keep only the latest follow-up passes so reattach work does not pile up on
-        // the main thread while browser panes are moving between hosts.
-        cancelPendingHostedWebViewRefreshes(for: webViewId, keepGeneration: true)
-        var pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
+        // Bind/reveal/fullscreen refreshes can stack up during one layout churn.
+        // Keep only the latest next-turn pass so WebKit reattach work is committed
+        // once, after AppKit has coalesced the current geometry changes.
+        cancelPendingHostedWebViewRefreshes(for: webViewId)
         nextHostedWebViewRefreshGeneration &+= 1
         let generation = nextHostedWebViewRefreshGeneration
-        pending.generation = generation
 
-        runHostedWebViewRefreshPass(
-            webView,
-            in: containerView,
-            reason: reason,
-            phase: "immediate",
-            reattachRenderingState: true
-        )
-
-        let asyncWorkItem = DispatchWorkItem { [weak self, weak webView, weak containerView] in
+        let workItem = DispatchWorkItem { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
+            self.pendingHostedWebViewRefreshes.removeValue(forKey: webViewId)
             self.runHostedWebViewRefreshPass(
                 webView,
                 in: containerView,
                 reason: reason,
-                phase: "async",
+                phase: "coalesced",
                 reattachRenderingState: true
             )
         }
-        pending.asyncWorkItem = asyncWorkItem
-
-        let delayedWorkItem = DispatchWorkItem { [weak self, weak webView, weak containerView] in
-            guard let self else { return }
-            defer {
-                if var current = self.pendingHostedWebViewRefreshes[webViewId],
-                   current.generation == generation {
-                    current.asyncWorkItem = nil
-                    current.delayedWorkItem = nil
-                    self.pendingHostedWebViewRefreshes[webViewId] = current
-                }
-            }
-            guard let webView, let containerView else { return }
-            guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            self.runHostedWebViewRefreshPass(
-                webView,
-                in: containerView,
-                reason: reason,
-                phase: "delayed",
-                reattachRenderingState: true
-            )
-        }
-        pending.delayedWorkItem = delayedWorkItem
-        pendingHostedWebViewRefreshes[webViewId] = pending
-
-        DispatchQueue.main.async(execute: asyncWorkItem)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: delayedWorkItem)
+        pendingHostedWebViewRefreshes[webViewId] = PendingHostedWebViewRefresh(
+            generation: generation,
+            workItem: workItem
+        )
+        DispatchQueue.main.async(execute: workItem)
     }
 
     private enum HostedWebViewPresentationUpdateKind {

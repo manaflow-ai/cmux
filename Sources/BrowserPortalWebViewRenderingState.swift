@@ -274,9 +274,6 @@ extension WKWebView {
 
         setFrameSize(nudgedSize)
         needsLayout = true
-        layoutSubtreeIfNeeded()
-        enclosingScrollView?.layoutSubtreeIfNeeded()
-        displayIfNeeded()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -293,9 +290,6 @@ extension WKWebView {
             }
             self.setFrameSize(originalSize)
             self.needsLayout = true
-            self.layoutSubtreeIfNeeded()
-            self.enclosingScrollView?.layoutSubtreeIfNeeded()
-            self.displayIfNeeded()
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.webview.firstSizedReveal.restore web=\(browserPortalRenderingStateDebugToken(self)) " +

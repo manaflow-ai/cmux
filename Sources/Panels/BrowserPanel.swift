@@ -5445,8 +5445,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
-        cancelHiddenWebViewDiscard()
+        guard !isClosingWebViewLifecycle else { return }
         isClosingWebViewLifecycle = true
+        hiddenWebViewDiscardManager.shutdown()
         automationNavigationCoordinator.invalidate()
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()
@@ -5475,6 +5476,20 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewDidRequestClose = nil
         detachWebViewObservers()
         faviconTask?.cancel(); faviconTask = nil
+        browserViewportHostRestorationTask?.cancel()
+        browserViewportHostRestorationTask = nil
+        browserViewportHostRestorationPending = false
+
+        let replacement = makeReplacementWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+        shouldRenderWebView = false
+        webViewInstanceID = UUID()
+        hasCommittedDocumentSinceWebViewReplacement = false
+        userStoppedLoadSinceWebViewReplacement = false
+        webView = replacement
+        viewportHostView.installWebView(replacement)
     }
 
     // MARK: - Popup window management
