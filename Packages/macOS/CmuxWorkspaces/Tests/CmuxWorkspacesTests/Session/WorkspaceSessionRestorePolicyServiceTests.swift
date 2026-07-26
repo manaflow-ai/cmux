@@ -22,7 +22,6 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         var requiresPromptApproval: Bool
         var autoResume: Bool?
         var startupInputPrefix = "input"
-        var startupCommandPrefix = "command"
 
         init(
             source: String? = "cli",
@@ -55,13 +54,6 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         ) -> String? {
             "\(startupInputPrefix):\(command):launcher=\(allowLauncherScript)"
         }
-
-        func startupCommandWithLauncherScript(
-            fileManager: FileManager,
-            temporaryDirectory: URL
-        ) -> String? {
-            "\(startupCommandPrefix):\(command)"
-        }
     }
 
     private struct FakeTerminalSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {
@@ -78,7 +70,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     }
 
     private func makeService(
-        applyStoredApproval: @escaping @Sendable (FakeBinding, URL, Data?) -> FakeBinding = { binding, _, _ in binding },
+        applyStoredApproval: @escaping @Sendable (FakeBinding, URL, Data?) -> FakeBinding? = { binding, _, _ in binding },
         shouldRunPromptedSurfaceResume: @escaping @Sendable (FakeBinding) -> Bool = { _ in false },
         isRunningUnderAutomatedTests: @escaping @Sendable () -> Bool = { false },
         truncateScrollback: @escaping @Sendable (String?) -> String? = { $0 },
@@ -125,6 +117,21 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(result == "input:echo ok:launcher=false")
         #expect(observation.url == approvalURL)
         #expect(observation.secret == Data("secret".utf8))
+    }
+
+    @Test("pending stored approval prevents launch")
+    func pendingStoredApprovalPreventsLaunch() {
+        let service = makeService(
+            applyStoredApproval: { _, _, _ in nil }
+        )
+
+        let result = service.surfaceResumeStartupInput(
+            FakeBinding(allowsAutomaticResume: true),
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json")
+        )
+
+        #expect(result == nil)
     }
 
     @Test("prompt approval uses the injected prompt decision")
@@ -198,17 +205,14 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             autoResumeAgentSessions: true,
             approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
         ))
-        guard case .command(let command) = launch else {
-            Issue.record("expected command launch")
-            return
-        }
+        let input = launch.initialInput
 
-        #expect(command.hasPrefix("command:cd /repo && "))
-        #expect(command.contains("'hermes' config set model.provider 'codex' >/dev/null"))
-        #expect(command.contains("'hermes' config set model.base_url 'https://codex.example.test' >/dev/null"))
-        #expect(command.contains("'hermes' config set model.api_mode 'responses' >/dev/null"))
-        #expect(command.contains("'hermes' config set model.default 'gpt-5' >/dev/null"))
-        #expect(command.contains("hermes --provider 'codex' run"))
+        #expect(input.hasPrefix("input:cd /repo && "))
+        #expect(input.contains("'hermes' config set model.provider 'codex' >/dev/null"))
+        #expect(input.contains("'hermes' config set model.base_url 'https://codex.example.test' >/dev/null"))
+        #expect(input.contains("'hermes' config set model.api_mode 'responses' >/dev/null"))
+        #expect(input.contains("'hermes' config set model.default 'gpt-5' >/dev/null"))
+        #expect(input.contains("hermes --provider 'codex' run"))
     }
 
     @Test("remote reconnect waits when restored terminals can authenticate")

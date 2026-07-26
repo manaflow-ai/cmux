@@ -115,7 +115,10 @@ public struct MobileSection: View {
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
             String(localized: "settings.mobile.pairDevice", defaultValue: "Pair a Device"),
-            subtitle: String(localized: "settings.mobile.pairDevice.subtitle", defaultValue: "Show a QR code to pair your iPhone or iPad with this Mac.")
+            subtitle: String(
+                localized: "settings.mobile.pairDevice.subtitle",
+                defaultValue: "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+            )
         ) {
             Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Pair…")) {
                 hostActions.openMobilePairingWindow()
