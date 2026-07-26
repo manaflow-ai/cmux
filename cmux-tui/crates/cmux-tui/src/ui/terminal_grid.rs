@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
-use ghostty_vt::{Cell as VtCell, ColorSpec, Rgb};
+use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, Rgb};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
@@ -103,12 +103,16 @@ fn draw_render_frame_with_catalog(
         let y = rect.y + row as u16;
         let source_x = usize::from(source_x);
         let available = cells.len().saturating_sub(source_x).min(live_cols);
+        let source_end = source_x.saturating_add(available);
         for col in 0..available {
             let source_col = source_x + col;
             let x = rect.x + col as u16;
             let selected = selected(source_col as u16, row as u16);
             let cell = &cells[source_col];
             apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(theme));
+            if partial_wide_cell(cells, source_x, source_end, source_col) {
+                buf[(x, y)].set_symbol(" ");
+            }
         }
         for col in available..live_cols {
             let x = rect.x + col as u16;
@@ -132,6 +136,27 @@ fn draw_render_frame_with_catalog(
                 && (cursor.y as usize) < live_rows
         })
         .map(|cursor| (rect.x + cursor.x - source_x, rect.y + cursor.y))
+}
+
+fn partial_wide_cell(
+    cells: &[VtCell],
+    source_start: usize,
+    source_end: usize,
+    source_col: usize,
+) -> bool {
+    match cells[source_col].width {
+        CellWidth::Wide => cells
+            .get(source_col.saturating_add(1))
+            .filter(|_| source_col.saturating_add(1) < source_end)
+            .is_none_or(|next| next.width != CellWidth::SpacerTail),
+        CellWidth::SpacerTail => {
+            source_col == source_start
+                || cells
+                    .get(source_col.saturating_sub(1))
+                    .is_none_or(|previous| previous.width != CellWidth::Wide)
+        }
+        CellWidth::Narrow | CellWidth::SpacerHead => false,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -467,6 +492,50 @@ mod tests {
             .unwrap();
 
         assert_eq!(row_text(output.backend().buffer(), 0, 0, 3), "def");
+    }
+
+    #[test]
+    fn cropped_grid_blanks_partial_wide_glyphs_at_both_edges() {
+        let mut terminal = Terminal::new(6, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("a界bc".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            scrollback_rows: 0,
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let draw_crop = |source_x| {
+            let mut output = RatatuiTerminal::new(TestBackend::new(2, 1)).unwrap();
+            output
+                .draw(|frame| {
+                    draw_render_frame_with_catalog(
+                        frame,
+                        HorizontalViewport {
+                            rect: Rect { x: 0, y: 0, width: 2, height: 1 },
+                            source_x,
+                        },
+                        &render,
+                        &Theme::default(),
+                        &ChromeTheme::dark(),
+                        crate::localization::catalog_for_locale("en_US.UTF-8"),
+                        |_, _| false,
+                    );
+                })
+                .unwrap();
+            output
+        };
+
+        let clipped_lead = draw_crop(0);
+        assert_eq!(row_text(clipped_lead.backend().buffer(), 0, 0, 2), "a ");
+
+        let complete_glyph = draw_crop(1);
+        assert_eq!(complete_glyph.backend().buffer()[(0, 0)].symbol(), "界");
+        assert_eq!(complete_glyph.backend().buffer()[(1, 0)].symbol(), " ");
+
+        let clipped_tail = draw_crop(2);
+        assert_eq!(row_text(clipped_tail.backend().buffer(), 0, 0, 2), " b");
     }
 
     fn row_text(buffer: &Buffer, y: u16, x: u16, width: u16) -> String {

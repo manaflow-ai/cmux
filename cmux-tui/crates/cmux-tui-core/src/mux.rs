@@ -16,9 +16,10 @@ use zeroize::Zeroize;
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+#[cfg(test)]
+use crate::layout::layout_screen_with_viewport;
 use crate::layout::{
-    MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, layout_screen,
-    layout_screen_with_viewport,
+    LayoutResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, layout_screen,
 };
 #[cfg(test)]
 use crate::model::ViewportColumn;
@@ -6596,6 +6597,50 @@ impl Mux {
         }
     }
 
+    fn pane_navigation_layout(screen: &Screen, pane: PaneId, dir: Direction) -> LayoutResult {
+        const NAVIGATION_COLUMN_WIDTH: u16 = 10_000;
+        let column_area = Rect { x: 0, y: 0, width: NAVIGATION_COLUMN_WIDTH, height: 10_000 };
+        if !screen.layout_columns_active() {
+            return layout_screen(&screen.root, column_area, Some(screen.active_pane));
+        }
+        let Some(current_index) =
+            screen.layout_columns.iter().position(|column| column.root.contains(pane))
+        else {
+            return layout_screen(&screen.root, column_area, Some(screen.active_pane));
+        };
+        let neighbor_index = match dir {
+            Direction::Up | Direction::Down => None,
+            Direction::Left => current_index.checked_sub(1),
+            Direction::Right => {
+                current_index.checked_add(1).filter(|index| *index < screen.layout_columns.len())
+            }
+        };
+        let Some(neighbor_index) = neighbor_index else {
+            return layout_screen(
+                &screen.layout_columns[current_index].root,
+                column_area,
+                Some(screen.active_pane),
+            );
+        };
+
+        let (left_index, right_index) = if neighbor_index < current_index {
+            (neighbor_index, current_index)
+        } else {
+            (current_index, neighbor_index)
+        };
+        let mut result = LayoutResult { virtual_width: 20_000, ..Default::default() };
+        for (index, x) in [(left_index, 0), (right_index, NAVIGATION_COLUMN_WIDTH)] {
+            let mut column = layout_screen(
+                &screen.layout_columns[index].root,
+                Rect { x, ..column_area },
+                Some(screen.active_pane),
+            );
+            result.panes.append(&mut column.panes);
+            result.stacked_headers.extend(column.stacked_headers);
+        }
+        result
+    }
+
     pub fn pane_neighbor(&self, pane: PaneId, dir: Direction) -> anyhow::Result<Option<PaneId>> {
         self.with_state(|state| {
             let Some((wi, si)) = state.screen_of(pane) else {
@@ -6603,18 +6648,7 @@ impl Mux {
             };
             let screen = &state.workspaces[wi].screens[si];
             let (dx, dy) = dir.delta();
-            let area = Rect { x: 0, y: 0, width: 10_000, height: 10_000 };
-            let layout = if screen.viewport_splits.is_empty() {
-                layout_screen(&screen.root, area, Some(screen.active_pane))
-            } else {
-                layout_screen_with_viewport(
-                    &screen.root,
-                    area,
-                    Some(screen.active_pane),
-                    screen.viewport_base_width.unwrap_or(1.0),
-                    &screen.viewport_splits,
-                )
-            };
+            let layout = Self::pane_navigation_layout(screen, pane, dir);
             Ok(layout.neighbor(pane, dx, dy))
         })
     }
@@ -6626,18 +6660,7 @@ impl Mux {
             };
             let screen = &state.workspaces[wi].screens[si];
             let (dx, dy) = dir.delta();
-            let area = Rect { x: 0, y: 0, width: 10_000, height: 10_000 };
-            let layout = if screen.viewport_splits.is_empty() {
-                layout_screen(&screen.root, area, Some(screen.active_pane))
-            } else {
-                layout_screen_with_viewport(
-                    &screen.root,
-                    area,
-                    Some(screen.active_pane),
-                    screen.viewport_base_width.unwrap_or(1.0),
-                    &screen.viewport_splits,
-                )
-            };
+            let layout = Self::pane_navigation_layout(screen, pane, dir);
             Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
                 state.panes.get(&candidate).map(|pane| pane.focused_at).unwrap_or_default()
             }))
@@ -9919,6 +9942,29 @@ mod tests {
         });
         assert_eq!(mux.pane_neighbor(second_pane, Direction::Right).unwrap(), Some(appended_pane));
         assert_eq!(mux.pane_neighbor(appended_pane, Direction::Left).unwrap(), Some(second_pane));
+    }
+
+    #[test]
+    fn viewport_neighbor_navigation_remains_adjacent_past_u16_layout_extent() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut panes = vec![first_pane];
+
+        for _ in 0..12 {
+            let previous = *panes.last().unwrap();
+            let surface =
+                mux.new_pane_right(previous, DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22))).unwrap();
+            panes.push(mux.with_state(|state| state.pane_of(surface.id).unwrap()));
+        }
+
+        for pair in panes.windows(2) {
+            let [left, right] = pair else { unreachable!() };
+            assert_eq!(mux.pane_neighbor(*left, Direction::Right).unwrap(), Some(*right));
+            assert_eq!(mux.pane_neighbor(*right, Direction::Left).unwrap(), Some(*left));
+            assert_eq!(mux.pane_focus_neighbor(*left, Direction::Right).unwrap(), Some(*right));
+            assert_eq!(mux.pane_focus_neighbor(*right, Direction::Left).unwrap(), Some(*left));
+        }
     }
 
     #[test]

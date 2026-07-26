@@ -3322,6 +3322,14 @@ struct PaneFocusHistory {
 
 const VIEWPORT_ANIMATION_DURATION: Duration = Duration::from_millis(180);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ViewportGeometry {
+    active_span: Option<(u16, u16)>,
+    viewport_x: u16,
+    viewport_width: u16,
+    virtual_width: u16,
+}
+
 #[derive(Debug)]
 struct ViewportMotion {
     current: f64,
@@ -3329,11 +3337,19 @@ struct ViewportMotion {
     target: f64,
     started_at: Instant,
     last_active_pane: Option<PaneId>,
+    last_geometry: Option<ViewportGeometry>,
 }
 
 impl ViewportMotion {
     fn new(now: Instant) -> Self {
-        Self { current: 0.0, start: 0.0, target: 0.0, started_at: now, last_active_pane: None }
+        Self {
+            current: 0.0,
+            start: 0.0,
+            target: 0.0,
+            started_at: now,
+            last_active_pane: None,
+            last_geometry: None,
+        }
     }
 
     fn update(&mut self, now: Instant) -> bool {
@@ -6340,22 +6356,27 @@ impl App {
         let maximum = virtual_width.saturating_sub(area.width);
         let animate = self.config.viewport.animation;
         let motion = self.viewport_states.entry(screen).or_insert_with(|| ViewportMotion::new(now));
-        let clamped = (motion.target.round() as u16).min(maximum);
-        motion.retarget(clamped, animate, now);
-        if motion.last_active_pane != Some(active_pane) {
-            let mut target = clamped;
-            if let Some(rect) = active_rect {
-                let left = rect.x.saturating_sub(area.x);
-                let right = left.saturating_add(rect.width);
-                if left < target {
-                    target = left;
-                } else if right > target.saturating_add(area.width) {
-                    target = right.saturating_sub(area.width);
-                }
+        let geometry = ViewportGeometry {
+            active_span: active_rect.map(|rect| (rect.x, rect.width)),
+            viewport_x: area.x,
+            viewport_width: area.width,
+            virtual_width,
+        };
+        let reveal_active =
+            motion.last_active_pane != Some(active_pane) || motion.last_geometry != Some(geometry);
+        let mut target = (motion.target.round() as u16).min(maximum);
+        if reveal_active && let Some(rect) = active_rect {
+            let left = rect.x.saturating_sub(area.x);
+            let right = left.saturating_add(rect.width);
+            if left < target {
+                target = left;
+            } else if right > target.saturating_add(area.width) {
+                target = right.saturating_sub(area.width);
             }
-            motion.retarget(target.min(maximum), animate, now);
-            motion.last_active_pane = Some(active_pane);
         }
+        motion.retarget(target.min(maximum), animate, now);
+        motion.last_active_pane = Some(active_pane);
+        motion.last_geometry = Some(geometry);
         motion.offset().min(maximum)
     }
 
@@ -13824,6 +13845,71 @@ mod tests {
         motion.retarget(10, false, now + VIEWPORT_ANIMATION_DURATION);
         assert_eq!(motion.offset(), 10);
         assert!(!motion.animating());
+    }
+
+    #[test]
+    fn viewport_geometry_changes_reveal_the_active_pane_without_canceling_manual_scroll() {
+        let mux = Mux::new("viewport-geometry-reveal-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.config.viewport.animation = false;
+        app.replace_tree(app.session.tree());
+        let screen = app.tree.active_screen().unwrap();
+        let screen_id = screen.id;
+        let active_pane = screen.active_pane;
+        let now = Instant::now();
+        let original_area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        let original_active = Rect { x: 80, y: 0, width: 53, height: 24 };
+
+        assert_eq!(
+            app.sync_viewport_motion(
+                screen_id,
+                active_pane,
+                Some(original_active),
+                original_area,
+                133,
+                now,
+            ),
+            53
+        );
+        assert!(app.set_viewport_target(0, false));
+        assert_eq!(
+            app.sync_viewport_motion(
+                screen_id,
+                active_pane,
+                Some(original_active),
+                original_area,
+                133,
+                now,
+            ),
+            0,
+            "unchanged geometry must preserve an intentional manual scroll"
+        );
+        assert_eq!(
+            app.sync_viewport_motion(
+                screen_id,
+                active_pane,
+                Some(Rect { y: 1, height: 20, ..original_active }),
+                Rect { y: 1, height: 20, ..original_area },
+                133,
+                now,
+            ),
+            0,
+            "vertical-only geometry changes must preserve manual horizontal scroll"
+        );
+
+        assert_eq!(
+            app.sync_viewport_motion(
+                screen_id,
+                active_pane,
+                Some(Rect { x: 120, y: 0, width: 80, height: 24 }),
+                Rect { x: 0, y: 0, width: 120, height: 24 },
+                200,
+                now,
+            ),
+            80,
+            "host resize must reveal the unchanged active pane in its new geometry"
+        );
     }
 
     #[test]
