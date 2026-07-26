@@ -60,23 +60,34 @@ pub(super) fn run(raw_args: &[String]) -> anyhow::Result<()> {
         print!("{}", messages.help);
         return Ok(());
     }
-    run_agent(args).map_err(|_| anyhow::Error::msg(messages.runtime_failed))
+    run_agent(args)
 }
 
 fn run_agent(args: Args) -> anyhow::Result<()> {
-    let reporter = StderrReporter::new()?;
-    let session = SessionName::new(args.session.clone())?;
+    let messages = &crate::localization::catalog().machine_agent;
+    let reporter =
+        StderrReporter::new().map_err(|_| anyhow::Error::msg(messages.runtime_failed))?;
+    let session = SessionName::new(args.session.clone())
+        .map_err(|_| anyhow::Error::msg(messages.invalid_session))?;
     let socket =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    let state = args.state.map_or_else(default_state_path, Ok)?;
-    let identity = identity::load_or_create(&state)?;
-    let _registration_lock = identity::acquire_registration_lock(&state, &identity, &session)?;
-    let cloud = Arc::new(SshCloudConnector::new(SshOptions {
-        host: args.cloud_host,
-        user: args.cloud_user,
-        port: args.cloud_port,
-        identity_file: args.cloud_identity,
-    })?);
+    let state = args
+        .state
+        .map_or_else(default_state_path, Ok)
+        .map_err(|_| anyhow::Error::msg(messages.identity_unavailable))?;
+    let identity = identity::load_or_create(&state)
+        .map_err(|_| anyhow::Error::msg(messages.identity_unavailable))?;
+    let _registration_lock = identity::acquire_registration_lock(&state, &identity, &session)
+        .map_err(|error| registration_lock_error(error, messages))?;
+    let cloud = Arc::new(
+        SshCloudConnector::new(SshOptions {
+            host: args.cloud_host,
+            user: args.cloud_user,
+            port: args.cloud_port,
+            identity_file: args.cloud_identity,
+        })
+        .map_err(|_| anyhow::Error::msg(messages.cloud_configuration_invalid))?,
+    );
     let local = Arc::new(SocketSessionConnector::new(socket));
     MachineAgent::new(
         identity,
@@ -88,6 +99,18 @@ fn run_agent(args: Args) -> anyhow::Result<()> {
         Arc::new(ProcessStop),
     )
     .run()
+    .map_err(|_| anyhow::Error::msg(messages.runtime_failed))
+}
+
+fn registration_lock_error(
+    error: anyhow::Error,
+    messages: &crate::localization::MachineAgentMessages,
+) -> anyhow::Error {
+    if error.is::<identity::RegistrationAlreadyRunning>() {
+        anyhow::Error::msg(messages.registration_already_running)
+    } else {
+        anyhow::Error::msg(messages.identity_unavailable)
+    }
 }
 
 fn parse_args(raw_args: &[String]) -> Result<Args, ArgsError> {
@@ -210,19 +233,20 @@ fn write_pairing_code(
 }
 
 impl Reporter for StderrReporter {
-    fn pairing_code(&self, code: &str) {
+    fn pairing_code(&self, code: &str) -> io::Result<()> {
         let messages = &crate::localization::catalog().machine_agent;
         let mut diagnostics = io::stderr().lock();
-        let written = self
+        let result = self
             .pairing_terminal
             .lock()
             .map_err(|_| io::Error::other("pairing terminal lock poisoned"))
             .and_then(|mut terminal| {
                 write_pairing_code(Some(&mut *terminal), &mut diagnostics, messages, code)
             });
-        if written.is_err() {
+        if result.is_err() {
             let _ = writeln!(diagnostics, "{}", messages.pairing_code_unavailable);
         }
+        result
     }
 
     fn registered(&self, session: &str) {
@@ -299,6 +323,27 @@ mod tests {
             assert!(!message.contains('\u{1b}'));
             assert!(!message.contains('\n'));
             assert!(message.contains(r"\u{1b}[31m\nspoof"));
+        }
+    }
+
+    #[test]
+    fn registration_lock_conflict_has_an_actionable_localized_error() {
+        for (locale, expected) in [
+            (
+                "en_US.UTF-8",
+                "A machine agent is already sharing this session; stop it before starting another",
+            ),
+            (
+                "ja_JP.UTF-8",
+                "このセッションは別の machine-agent が共有中です。停止してからもう一度開始してください",
+            ),
+        ] {
+            let messages = &crate::localization::catalog_for_locale(locale).machine_agent;
+            let error = registration_lock_error(
+                anyhow::Error::new(identity::RegistrationAlreadyRunning),
+                messages,
+            );
+            assert_eq!(error.to_string(), expected);
         }
     }
 
