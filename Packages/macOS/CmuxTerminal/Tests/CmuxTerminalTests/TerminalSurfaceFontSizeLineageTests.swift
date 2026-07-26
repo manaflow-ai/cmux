@@ -35,6 +35,34 @@ private func setFontBindingResult(_ result: Bool)
         )
     }
 
+    @Test func deferredConfigurationCreationDropsNonExplicitSeed() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(19, isExplicitOverride: false)
+        let surface = makeSurface(configTemplate: template)
+
+        surface
+            .prepareFontSizeForDeferredConfigurationRuntimeCreation()
+
+        #expect(
+            surface.runtimeCreationConfigTemplate().fontSizeLineage
+                == nil
+        )
+    }
+
+    @Test func deferredConfigurationCreationRetainsExplicitSeed() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(19, isExplicitOverride: true)
+        let surface = makeSurface(configTemplate: template)
+
+        surface
+            .prepareFontSizeForDeferredConfigurationRuntimeCreation()
+
+        #expect(
+            surface.runtimeCreationConfigTemplate().fontSizeLineage
+                == template.fontSizeLineage
+        )
+    }
+
     @Test func nonExplicitObservedLineageDoesNotSeedRuntimeRecreation() {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(19, isExplicitOverride: true)

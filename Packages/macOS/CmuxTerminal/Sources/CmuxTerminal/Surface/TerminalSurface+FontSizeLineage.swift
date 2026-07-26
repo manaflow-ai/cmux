@@ -898,6 +898,19 @@ extension TerminalSurface {
         onFontSizeLineageChanged?(lineage)
     }
 
+    /// Makes a runtime deferred across config replacement consume the newly
+    /// applied configured font. Explicit overrides retain their unscaled base;
+    /// a non-explicit inheritance seed is stale once the replacement config is
+    /// live and must not pin the old configured size.
+    @MainActor
+    func prepareFontSizeForDeferredConfigurationRuntimeCreation() {
+        guard lastKnownFontSizeLineage?
+                .isExplicitOverride == false else {
+            return
+        }
+        followsConfiguredFontSize = true
+    }
+
     /// Resolves the Swift-owned template used to create this surface's runtime.
     ///
     /// Initial non-explicit lineage seeds the first native runtime. After a

@@ -3338,6 +3338,63 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
+    func testConfigurationFontReconcilerLateWorkCannotExtendCapture() {
+        let scheduler =
+            ManualTerminalFontConfigurationReloadScheduler()
+        let reconciler =
+            TerminalFontConfigurationReloadReconciler(
+                maximumSurfaceVisitsPerDrain: 2,
+                schedule: scheduler.schedule(action:)
+            )
+        var nextCaptureIndex = 0
+        var lateWorkRuns = 0
+        var didApplyConfiguration = false
+
+        reconciler.reconcileIncrementally(
+            captureNextWork: {
+                guard nextCaptureIndex < 4 else { return nil }
+                nextCaptureIndex += 1
+                return .init(attempt: { true })
+            },
+            applyConfiguration: {
+                didApplyConfiguration = true
+            },
+            completion: {}
+        )
+
+        scheduler.fire(at: 0)
+        XCTAssertTrue(
+            reconciler.enqueuePostConfigurationWork(
+                .init(attempt: {
+                    lateWorkRuns += 1
+                    return true
+                })
+            )
+        )
+        scheduler.fire(at: 1)
+        XCTAssertTrue(
+            reconciler.enqueuePostConfigurationWork(
+                .init(attempt: {
+                    lateWorkRuns += 1
+                    return true
+                })
+            )
+        )
+        XCTAssertFalse(didApplyConfiguration)
+
+        scheduler.fire(at: 2)
+
+        XCTAssertEqual(nextCaptureIndex, 4)
+        XCTAssertTrue(didApplyConfiguration)
+        XCTAssertEqual(lateWorkRuns, 0)
+        XCTAssertFalse(
+            reconciler.enqueuePostConfigurationWork(
+                .init(attempt: { true })
+            ),
+            "New runtimes can use the applied config once capture ends"
+        )
+    }
+
     func testConfigurationFontReconcilerRetriesFailedWork() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()

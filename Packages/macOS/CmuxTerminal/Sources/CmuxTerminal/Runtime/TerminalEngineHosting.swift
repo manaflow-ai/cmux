@@ -22,4 +22,20 @@ public protocol TerminalEngineHosting: AnyObject {
 
     /// The executable user shell resolved before Ghostty config finalization.
     var resolvedUserShell: String? { get }
+
+    /// Defers native surface creation until an in-flight engine configuration
+    /// reload has applied its replacement config.
+    ///
+    /// - Returns: True when `action` was accepted for deferred execution.
+    func deferRuntimeSurfaceCreationForConfigurationReload(
+        _ action: @escaping @MainActor () -> Void
+    ) -> Bool
+}
+
+public extension TerminalEngineHosting {
+    func deferRuntimeSurfaceCreationForConfigurationReload(
+        _ action: @escaping @MainActor () -> Void
+    ) -> Bool {
+        false
+    }
 }

@@ -481,6 +481,63 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func deferRuntimeSurfaceCreationForConfigurationReload(
+        view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource
+    ) -> Bool {
+        if configurationReloadDeferredRuntimeSurfaceCreation {
+            configurationReloadDeferredRuntimeSurfaceCreationSource =
+                (
+                    configurationReloadDeferredRuntimeSurfaceCreationSource
+                    ?? source
+                ).promoted(with: source)
+            configurationReloadDeferredRuntimeSurfaceView = view
+            return true
+        }
+
+        configurationReloadDeferredRuntimeSurfaceCreation = true
+        configurationReloadDeferredRuntimeSurfaceCreationSource =
+            source
+        configurationReloadDeferredRuntimeSurfaceView = view
+        let accepted =
+            engine
+                .deferRuntimeSurfaceCreationForConfigurationReload {
+                    [weak self] in
+                    self?
+                        .resumeRuntimeSurfaceCreationAfterConfigurationReload()
+                }
+        guard accepted else {
+            configurationReloadDeferredRuntimeSurfaceCreation = false
+            configurationReloadDeferredRuntimeSurfaceCreationSource =
+                nil
+            configurationReloadDeferredRuntimeSurfaceView = nil
+            return false
+        }
+        return true
+    }
+
+    @MainActor
+    private func resumeRuntimeSurfaceCreationAfterConfigurationReload() {
+        let source =
+            configurationReloadDeferredRuntimeSurfaceCreationSource
+            ?? .normal
+        let view =
+            configurationReloadDeferredRuntimeSurfaceView
+            ?? attachedView
+            ?? surfaceView
+        configurationReloadDeferredRuntimeSurfaceCreation = false
+        configurationReloadDeferredRuntimeSurfaceCreationSource = nil
+        configurationReloadDeferredRuntimeSurfaceView = nil
+
+        guard allowsRuntimeSurfaceCreation(),
+              surface == nil else {
+            return
+        }
+        prepareFontSizeForDeferredConfigurationRuntimeCreation()
+        createSurface(for: view, source: source)
+    }
+
+    @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -492,6 +549,12 @@ extension TerminalSurface {
                 "createSurface SKIPPED surface=\(id.uuidString) tab=\(tabId.uuidString) lifecycle=\(portalLifecycleState.rawValue)"
             )
 #endif
+            return
+        }
+        if deferRuntimeSurfaceCreationForConfigurationReload(
+            view: view,
+            source: source
+        ) {
             return
         }
         let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)

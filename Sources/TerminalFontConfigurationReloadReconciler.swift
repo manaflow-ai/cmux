@@ -136,6 +136,21 @@ final class TerminalFontConfigurationReloadReconciler {
         phase != .idle
     }
 
+    /// Queues work that must run after the configuration captured by the
+    /// current transaction is applied.
+    ///
+    /// Capture itself keeps a fixed registry endpoint. Terminal runtimes
+    /// requested after that endpoint was taken use this queue instead, so
+    /// sustained terminal creation cannot postpone configuration application.
+    @discardableResult
+    func enqueuePostConfigurationWork(
+        _ work: ReconciliationWork
+    ) -> Bool {
+        guard phase == .capturing else { return false }
+        appendCapturedWork(work)
+        return true
+    }
+
     private func scheduleDrain() {
         guard !isDrainScheduled else { return }
         isDrainScheduled = true

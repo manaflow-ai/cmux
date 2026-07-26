@@ -262,6 +262,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
+    var configurationReloadDeferredRuntimeSurfaceCreation = false
+    var configurationReloadDeferredRuntimeSurfaceCreationSource:
+        RuntimeSurfaceCreationSource?
+    weak var configurationReloadDeferredRuntimeSurfaceView:
+        (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var headlessStartupWindow: NSWindow?

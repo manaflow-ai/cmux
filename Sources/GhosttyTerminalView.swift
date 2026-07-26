@@ -480,6 +480,19 @@ class GhosttyApp {
     private(set) var hasUserGhosttyCommand = false
     private(set) var resolvedUserShell: String?
 
+    @MainActor
+    func deferRuntimeSurfaceCreationForConfigurationReload(
+        _ action: @escaping @MainActor () -> Void
+    ) -> Bool {
+        terminalFontConfigurationReloadReconciler
+            .enqueuePostConfigurationWork(
+                .init(attempt: {
+                    action()
+                    return true
+                })
+            )
+    }
+
     static func retainTickNotifications() -> () -> Void {
         // The legacy release closure decremented on every call; a retention
         // releases exactly once, which only removes a latent double-release
