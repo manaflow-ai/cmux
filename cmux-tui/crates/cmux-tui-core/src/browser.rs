@@ -248,6 +248,8 @@ pub struct BrowserRuntime {
     stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
     closed: AtomicBool,
+    #[cfg(test)]
+    shutdown_reconnect_before_resolve: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -429,6 +431,8 @@ impl BrowserRuntime {
             stealth_user_agent,
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
+            #[cfg(test)]
+            shutdown_reconnect_before_resolve: Mutex::new(None),
         });
         start_router(Arc::downgrade(&runtime), event_rx)?;
         runtime.client.set_discover_targets(true)?;
@@ -570,6 +574,10 @@ impl BrowserRuntime {
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             return false;
         };
+        #[cfg(test)]
+        if let Some(hook) = self.shutdown_reconnect_before_resolve.lock().unwrap().clone() {
+            hook();
+        }
         let (event_tx, _event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
         let Ok(client) = CdpClient::connect_with_timeout(&self.web_socket_url, event_tx, remaining)
         else {
@@ -3178,6 +3186,48 @@ mod tests {
         assert!(terminated, "closed runtime made target cleanup permanently unretryable");
         assert!(reconnected, "shutdown did not reconnect to query the target");
         assert!(runtime_released, "closed external runtime remained permanently retained");
+    }
+
+    #[test]
+    fn server_shutdown_reconnect_does_not_resolve_endpoint_after_deadline_starts() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            ws.close(None).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        server.join().unwrap();
+        let closed_deadline = Instant::now() + Duration::from_secs(1);
+        while !runtime.is_closed() && Instant::now() < closed_deadline {
+            thread::yield_now();
+        }
+        assert!(runtime.is_closed(), "initial CDP transport did not close");
+        *runtime.shutdown_reconnect_before_resolve.lock().unwrap() =
+            Some(Arc::new(|| thread::sleep(Duration::from_millis(250))));
+        let started = Instant::now();
+
+        let terminated = runtime.close_surface_for_shutdown(
+            "target-1",
+            "session-1",
+            Instant::now() + Duration::from_millis(50),
+        );
+
+        assert!(!terminated);
+        assert!(
+            started.elapsed() < Duration::from_millis(150),
+            "hostname resolution escaped the shutdown deadline: {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

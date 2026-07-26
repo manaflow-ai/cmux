@@ -975,6 +975,89 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn modern_shutdown_does_not_expose_unlocalized_server_details() {
+        let path = PathBuf::from("/tmp").join(format!(
+            "cmux-tui-shutdown-localization-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let identify: Value = serde_json::from_str(&line).unwrap();
+            write_json_line(
+                &mut stream,
+                &json!({
+                    "id": identify["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "version": "test",
+                        "protocol": PROTOCOL_VERSION,
+                        "pid": std::process::id(),
+                        "capabilities": [SERVER_SHUTDOWN_CAPABILITY],
+                    },
+                }),
+            )
+            .unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            let shutdown: Value = serde_json::from_str(&line).unwrap();
+            write_json_line(
+                &mut stream,
+                &json!({
+                    "id": shutdown["id"],
+                    "ok": false,
+                    "error": "raw internal shutdown detail",
+                }),
+            )
+            .unwrap();
+        });
+
+        let error = ServerLifecycle::connect(path.clone()).unwrap().stop().unwrap_err();
+
+        server.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(error.to_string(), crate::localization::catalog().server.shutdown_failed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_helper_timeout_is_bounded_without_force_killing_the_helper() {
+        use std::io::BufRead as _;
+
+        let mut helper = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut ready = String::new();
+        BufReader::new(helper.stdout.take().unwrap()).read_line(&mut ready).unwrap();
+        assert_eq!(ready, "ready\n");
+        let started = Instant::now();
+
+        let error = wait_for_child_until(&mut helper, Instant::now() + Duration::from_millis(50))
+            .unwrap_err();
+        let elapsed = started.elapsed();
+        let still_running = helper.try_wait().unwrap().is_none();
+        let _ = helper.kill();
+        let _ = helper.wait();
+
+        assert_eq!(error.to_string(), crate::localization::catalog().server.legacy_cleanup_failed);
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "helper wait exceeded its bound: {elapsed:?}"
+        );
+        assert!(still_running, "parent force-killed the helper after its deadline");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn legacy_stop_terminates_only_the_identified_process() {
         let mut child =
             Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();

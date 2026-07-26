@@ -5267,6 +5267,16 @@ mod tests {
     }
 
     #[test]
+    fn identify_exposes_shutdown_cleanup_health() {
+        let mux = test_mux();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert_eq!(identity["shutdown_cleanup"]["pending"].as_u64(), Some(0));
+        assert_eq!(identity["shutdown_cleanup"]["retrying"].as_bool(), Some(false));
+        assert_eq!(identity["shutdown_cleanup"]["degraded"].as_bool(), Some(false));
+    }
+
+    #[test]
     fn local_shutdown_responds_before_requesting_mux_exit() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

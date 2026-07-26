@@ -1133,6 +1133,8 @@ pub struct Mux {
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    shutdown_owner_capacity: AtomicUsize,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -1366,6 +1368,8 @@ impl Mux {
             terminal_create_after_workspace_reservation: Mutex::new(None),
             #[cfg(test)]
             browser_bootstrap_before_runtime: Mutex::new(None),
+            #[cfg(test)]
+            shutdown_owner_capacity: AtomicUsize::new(usize::MAX),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -3542,6 +3546,11 @@ impl Mux {
     #[cfg(test)]
     fn set_terminal_move_before_projection(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.terminal_move_before_projection.lock().unwrap() = hook;
+    }
+
+    #[cfg(test)]
+    fn set_shutdown_owner_capacity_for_test(&self, capacity: usize) {
+        self.shutdown_owner_capacity.store(capacity, Ordering::Release);
     }
 
     #[cfg(all(test, unix))]
@@ -10589,6 +10598,46 @@ mod tests {
 
         assert!(mux.shutdown_owners.is_empty(), "retained owner had no normal-lifecycle retry");
         assert!(attempts.load(Ordering::Acquire) >= 2);
+    }
+
+    #[test]
+    fn retained_shutdown_owners_bound_future_surface_admission() {
+        let mux = test_mux();
+        mux.set_shutdown_owner_capacity_for_test(1);
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let owned = mux.surface(surface.id).unwrap();
+        owned.set_server_shutdown_failure_for_test(true);
+
+        assert!(mux.close_surface(surface.id).unwrap());
+        assert_eq!(mux.shutdown_owners.len(), 1);
+
+        let error = mux.new_workspace(None, Some((80, 24))).unwrap_err();
+        assert_eq!(error.to_string(), "surface_owner_capacity_exhausted");
+    }
+
+    #[test]
+    fn permanent_shutdown_owner_failure_stops_automatic_retry_sweeps() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let owned = mux.surface(surface.id).unwrap();
+        let (_failing, attempts) = owned.set_recovering_server_shutdown_for_test();
+
+        assert!(mux.close_surface(surface.id).unwrap());
+        let first_deadline = Instant::now() + Duration::from_secs(1);
+        while attempts.load(Ordering::Acquire) < 4 && Instant::now() < first_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let settled = attempts.load(Ordering::Acquire);
+        assert!(settled >= 4, "reconciler did not exercise its retry budget");
+
+        std::thread::sleep(Duration::from_millis(250));
+
+        assert_eq!(
+            attempts.load(Ordering::Acquire),
+            settled,
+            "permanent cleanup failure kept an unbounded retry sweep alive"
+        );
+        assert_eq!(mux.shutdown_owners.len(), 1);
     }
 
     #[test]
