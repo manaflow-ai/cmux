@@ -685,6 +685,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    expect(completed).toBe(true)\n"
                     "})\n"
                 ),
+                "timer-alias-class-method-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "class Fixture {\n"
+                    "    async verify(delay: DelayFn = fakeDelay) {\n"
+                    "        await delay(1)\n"
+                    "        expect(completed).toBe(true)\n"
+                    "    }\n"
+                    "}\n"
+                ),
+                "timer-alias-object-method-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "const fixture = {\n"
+                    "    async verify(delay) {\n"
+                    "        await delay(1)\n"
+                    "        expect(completed).toBe(true)\n"
+                    "    },\n"
+                    "}\n"
+                ),
                 "spaced-members.ts": (
                     "fixture. setTimeout(resolve, 1)\n"
                     "expect(completed).toBe(true)\n"
@@ -1689,6 +1707,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ),
                 "unindented-for-poll.sh": (
                     "for attempt in 1 2 3; do\n"
+                    'sleep "$POLL_INTERVAL"\n'
+                    "done\n"
+                    'assert "$ready"\n'
+                ),
+                "case-done-pattern-in-poll.sh": (
+                    "while ! ready; do\n"
+                    'case "$state" in\n'
+                    "done) break ;;\n"
+                    "esac\n"
                     'sleep "$POLL_INTERVAL"\n'
                     "done\n"
                     'assert "$ready"\n'
