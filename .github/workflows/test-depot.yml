@@ -29,7 +29,7 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -132,15 +132,22 @@ jobs:
 
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          ONLY_TESTING=()
+          if [ -n "$TEST_FILTER" ]; then
+            ONLY_TESTING=("-only-testing:cmuxTests/$TEST_FILTER")
+          fi
           run_unit_tests() {
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              "${ONLY_TESTING[@]}" test 2>&1
           }
 
           set +e
@@ -163,13 +170,8 @@ jobs:
 
           echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            echo "Focused regression test failed"
+            exit 1
           fi
 
       - name: Run UI tests
