@@ -55,6 +55,8 @@ static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
+const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+const SERVER_SHUTDOWN_WATCH_POLL: std::time::Duration = std::time::Duration::from_millis(25);
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -904,6 +906,82 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
+struct ServerProcessShutdownGuard {
+    socket_path: PathBuf,
+    completion: Option<std::sync::mpsc::Sender<()>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ServerProcessShutdownGuard {
+    fn start(mux: &Arc<Mux>, socket_path: PathBuf) -> io::Result<Self> {
+        let weak_mux = Arc::downgrade(mux);
+        let worker_socket_path = socket_path.clone();
+        let (completion, completed) = std::sync::mpsc::channel();
+        let worker = std::thread::Builder::new().name("cmux-server-exit-watchdog".into()).spawn(
+            move || {
+                loop {
+                    match completed.recv_timeout(SERVER_SHUTDOWN_WATCH_POLL) {
+                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    }
+                    let Some(mux) = weak_mux.upgrade() else {
+                        return;
+                    };
+                    if mux.shutdown_requested() {
+                        break;
+                    }
+                }
+
+                if matches!(
+                    completed.recv_timeout(server_shutdown_exit_grace()),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    // A successful shutdown request drains every surface and
+                    // attempts its confirmed response before setting
+                    // shutdown_requested. If the interactive driver cannot
+                    // return after that boundary, it owns no remaining work
+                    // that can justify retaining the process or control socket.
+                    cmux_tui_core::server::cleanup(&worker_socket_path);
+                    std::process::exit(0);
+                }
+            },
+        )?;
+        Ok(Self { socket_path, completion: Some(completion), worker: Some(worker) })
+    }
+
+    fn complete(mut self) {
+        self.finish();
+    }
+
+    fn finish(&mut self) {
+        cmux_tui_core::server::cleanup(&self.socket_path);
+        if let Some(completion) = self.completion.take() {
+            let _ = completion.send(());
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+impl Drop for ServerProcessShutdownGuard {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+fn server_shutdown_exit_grace() -> std::time::Duration {
+    #[cfg(debug_assertions)]
+    if let Some(milliseconds) = std::env::var("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|milliseconds| (1..=5_000).contains(milliseconds))
+    {
+        return std::time::Duration::from_millis(milliseconds);
+    }
+    SERVER_SHUTDOWN_EXIT_GRACE
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -1026,6 +1104,13 @@ fn run_server(
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
+    let server_process = match ServerProcessShutdownGuard::start(&mux, socket_path.clone()) {
+        Ok(server_process) => server_process,
+        Err(error) => {
+            cmux_tui_core::server::cleanup(&socket_path);
+            return Err(error.into());
+        }
+    };
 
     #[cfg(debug_assertions)]
     if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
@@ -1045,7 +1130,7 @@ fn run_server(
     };
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(&socket_path);
+    server_process.complete();
     result
 }
 
