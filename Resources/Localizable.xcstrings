@@ -72329,6 +72329,35 @@
         }
       }
     },
+    "debug.devBuildBanner.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls the red debug-build label below the sidebar footer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフッター下にある赤い開発ビルドラベルの表示を切り替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 하단 아래의 빨간색 개발 빌드 라벨 표시를 전환합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керує показом червоної позначки збірки для розробки під нижньою частиною бічної панелі."
+          }
+        }
+      }
+    },
     "debug.devBuildBanner.title": {
       "extractionState": "manual",
       "localizations": {
@@ -102556,6 +102585,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "既定値"
+          }
+        }
+      }
+    },
+    "featureFlags.source.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локально"
           }
         }
       }

@@ -77,7 +77,7 @@ enum SidebarFooterHelpIconDebugSettings {
     static let sizeKey = "debug.sidebarFooterHelpIcon.size"
     static let weightKey = "debug.sidebarFooterHelpIcon.weight"
     static let iconKey = "debug.sidebarFooterHelpIcon.symbol"
-    static let defaultSize = 13.5
+    static let defaultSize = 13.0
     static let defaultWeight = SidebarFooterHelpIconDebugWeight.regular
     static let defaultIcon = SidebarFooterHelpIconDebugChoice.circle
 }
