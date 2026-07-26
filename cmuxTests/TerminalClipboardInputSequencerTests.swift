@@ -11,6 +11,29 @@ import Testing
 @MainActor
 @Suite("Terminal clipboard input sequencing")
 struct TerminalClipboardInputSequencerTests {
+    @Test("reserved clipboard read queues input before main-actor admission")
+    func reservedClipboardReadQueuesInputBeforeAdmission() async {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8
+        )
+        var delivered: [String] = []
+
+        await Task.detached {
+            sequencer.reserveRequestAdmission()
+        }.value
+
+        #expect(sequencer.shouldDefer("suffix"))
+        #expect(delivered.isEmpty)
+
+        sequencer.beginReservedRequest(id: 1)
+        delivered.append("paste")
+        sequencer.completeRequest(id: 1, confirmed: false) {
+            delivered.append($0)
+        }
+
+        #expect(delivered == ["paste", "suffix"])
+    }
+
     @Test("blocked paste completes before queued suffix and return")
     func blockedPasteCompletesBeforeQueuedInput() async {
         let operation = ControlledPastePreparationOperation()
