@@ -35,6 +35,12 @@ The tests were committed before the implementation and cover:
 4. Preservation of the 4096 × 4096 automation viewport render limit.
 5. Ignoring a stale callback after browser-profile replacement.
 
+## CI evidence
+
+The focused `BrowserPanelTrackpadMagnificationTests` suite passed all five cases on macOS 15 in [compatibility run 30202672962](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30202672962). The complete compatibility job continued through the much larger application suite and reached its 60-minute job limit later in unrelated `GhosttySurfaceOverlayTests`; the macOS 14 matrix job started no steps.
+
+The repository's standard [CI run 30202484638](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30202484638) stopped in its workflow guard before macOS tests because the compared upstream history changed iOS SwiftPM dependencies without matching `Package.resolved` changes. That pre-existing policy failure is outside this browser-only diff.
+
 ## Tagged application smoke
 
 A tagged macOS application was built from implementation commit `b32f332070` by [workflow run 30202484640](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30202484640).
