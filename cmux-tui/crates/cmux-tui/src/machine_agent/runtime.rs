@@ -43,7 +43,7 @@ pub(super) trait WaitStrategy: Send + Sync {
 }
 
 pub(super) trait Reporter: Send + Sync {
-    fn pairing_code(&self, code: &str);
+    fn pairing_code(&self, code: &str) -> io::Result<()>;
     fn registered(&self, session: &str);
     fn retrying(&self, delay: Duration);
     fn migration_failed(&self);
@@ -172,9 +172,15 @@ impl MachineAgent {
                     Arc::clone(&recent_opens),
                 ) {
                     Ok(started) => {
+                        if let Err(error) = self.report_registration(&started.registered) {
+                            started.handle.close();
+                            for (_, worker) in workers {
+                                worker.close();
+                            }
+                            return Err(error.into());
+                        }
                         highest_generation = highest_generation.max(started.generation);
                         latest_worker = Some(started.worker_id);
-                        self.report_registration(&started.registered);
                         workers.insert(started.worker_id, started.handle);
                     }
                     Err(error) => {
@@ -314,11 +320,12 @@ impl MachineAgent {
         Ok(())
     }
 
-    fn report_registration(&self, registered: &Registered) {
+    fn report_registration(&self, registered: &Registered) -> io::Result<()> {
         if let Some(code) = &registered.pairing_code {
-            self.reporter.pairing_code(code.expose());
+            self.reporter.pairing_code(code.expose())?;
         }
         self.reporter.registered(self.session.as_str());
+        Ok(())
     }
 
     fn start_generation(
@@ -1385,8 +1392,9 @@ mod tests {
     }
 
     impl Reporter for TestReporter {
-        fn pairing_code(&self, code: &str) {
+        fn pairing_code(&self, code: &str) -> io::Result<()> {
             self.codes.lock().unwrap().push(code.to_string());
+            Ok(())
         }
 
         fn registered(&self, _: &str) {}
@@ -1402,6 +1410,27 @@ mod tests {
         fn diagnostic(&self, diagnostic: MachineAgentDiagnostic) {
             self.diagnostics.lock().unwrap().push(diagnostic);
         }
+    }
+
+    #[derive(Default)]
+    struct FailingPairingReporter {
+        registered: AtomicBool,
+    }
+
+    impl Reporter for FailingPairingReporter {
+        fn pairing_code(&self, _: &str) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "test terminal closed"))
+        }
+
+        fn registered(&self, _: &str) {
+            self.registered.store(true, Ordering::Release);
+        }
+
+        fn retrying(&self, _: Duration) {}
+
+        fn migration_failed(&self) {}
+
+        fn diagnostic(&self, _: MachineAgentDiagnostic) {}
     }
 
     #[derive(Default)]
@@ -1856,6 +1885,30 @@ mod tests {
         agent_thread.join().unwrap();
         assert!(attempts.attempts.load(Ordering::Relaxed) >= 2);
         assert_eq!(reporter.codes.lock().unwrap().as_slice(), ["ABCD-EFGH"]);
+    }
+
+    #[test]
+    fn pairing_code_write_failure_closes_generation_and_aborts_registration() {
+        let (cloud, mut servers) = QueueCloud::new();
+        let mut server = WirePeer::new(servers.remove(0));
+        let reporter = Arc::new(FailingPairingReporter::default());
+        let agent = MachineAgent::new(
+            identity(),
+            SessionName::new("agents").unwrap(),
+            cloud,
+            Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) }),
+            reporter.clone(),
+            Arc::new(TestWait),
+            AtomicStop::new(),
+        );
+        let agent_thread = thread::spawn(move || agent.run());
+
+        assert!(matches!(server.read().message, Message::Hello(_)));
+        server.write(registered(1, Some("ABCD-EFGH")));
+
+        let error = agent_thread.join().unwrap().unwrap_err();
+        assert_eq!(error.downcast_ref::<io::Error>().unwrap().kind(), io::ErrorKind::BrokenPipe);
+        assert!(!reporter.registered.load(Ordering::Acquire));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
@@ -16,6 +17,17 @@ pub(super) struct MachineIdentity {
     pub machine_id: OpaqueId,
     pub secret: MachineSecret,
 }
+
+#[derive(Debug)]
+pub(super) struct RegistrationAlreadyRunning;
+
+impl fmt::Display for RegistrationAlreadyRunning {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("machine-agent registration is already locked")
+    }
+}
+
+impl std::error::Error for RegistrationAlreadyRunning {}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -235,10 +247,7 @@ pub(super) fn acquire_registration_lock(
     if result != 0 {
         let error = io::Error::last_os_error();
         if error.kind() == io::ErrorKind::WouldBlock {
-            anyhow::bail!(
-                "a machine agent is already running for session {:?}; stop it before starting another",
-                session.as_str()
-            );
+            return Err(RegistrationAlreadyRunning.into());
         }
         return Err(error.into());
     }
@@ -387,8 +396,8 @@ mod tests {
         let identity = load_or_create(&state.path).unwrap();
         let session = SessionName::new("agents").unwrap();
         let first = acquire_registration_lock(&state.path, &identity, &session).unwrap();
-        let second = acquire_registration_lock(&state.path, &identity, &session);
-        assert!(second.err().unwrap().to_string().contains("already running"));
+        let error = acquire_registration_lock(&state.path, &identity, &session).err().unwrap();
+        assert!(error.downcast_ref::<RegistrationAlreadyRunning>().is_some());
         let other_session = SessionName::new("other").unwrap();
         let other = acquire_registration_lock(&state.path, &identity, &other_session).unwrap();
         drop(other);
