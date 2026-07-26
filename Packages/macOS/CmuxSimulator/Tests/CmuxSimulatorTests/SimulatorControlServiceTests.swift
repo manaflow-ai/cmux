@@ -523,6 +523,47 @@ struct SimulatorControlServiceTests {
         ).contains { $0.pathExtension == "json" })
     }
 
+    @Test("Directory URL hints cannot create a duplicate journal store")
+    func cameraJournalPathComparisonIgnoresDirectoryHints() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(
+            "camera-path-hints-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: directory) }
+        let legacyDirectory = URL(
+            fileURLWithPath: directory.path,
+            isDirectory: false
+        )
+        let deviceIdentifier = UUID().uuidString
+        let bundleIdentifier = "com.example.\(UUID().uuidString)"
+        let store = SimulatorCameraAuthorizationStore(
+            directory: directory,
+            legacyDirectory: legacyDirectory
+        )
+        try await store.save(
+            .denied,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            ownerProcessIdentity: SimulatorProcessIdentity(
+                pid: Int32.max,
+                startSeconds: 1,
+                startMicroseconds: 1
+            )
+        )
+
+        _ = try await store.records()
+
+        #expect(try await store.authorization(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ) == .denied)
+        #expect(try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).contains { $0.pathExtension == "json" })
+    }
+
     @Test("A corrupt durable duplicate blocks legacy recovery")
     func corruptDurableDuplicateBlocksLegacyRecovery() async throws {
         let fileManager = FileManager.default
