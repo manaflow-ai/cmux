@@ -298,6 +298,7 @@ fn legacy_server_process_helper() {
             | "kill-caller"
             | "cleanup-failure"
             | "applied-close-error"
+            | "applied-close-disconnect"
             | "persistent-close-error"
     ) {
         let descendant =
@@ -388,7 +389,7 @@ fn legacy_server_process_helper() {
     let mut reader = BufReader::new(stream.try_clone_box().unwrap());
     let mut request = String::new();
     let mut snapshot_index = 0;
-    loop {
+    'snapshots: loop {
         request.clear();
         if reader.read_line(&mut request).unwrap() == 0 {
             loop {
@@ -414,7 +415,11 @@ fn legacy_server_process_helper() {
         }
         assert!(matches!(
             scenario.as_str(),
-            "success" | "kill-caller" | "applied-close-error" | "persistent-close-error"
+            "success"
+                | "kill-caller"
+                | "applied-close-error"
+                | "applied-close-disconnect"
+                | "persistent-close-error"
         ));
         let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
             ("persistent-close-error", _) | (_, 0) => &[41],
@@ -449,6 +454,15 @@ fn legacy_server_process_helper() {
             let close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
             assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
             assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
+            if scenario == "applied-close-disconnect" {
+                drop(reader);
+                drop(stream);
+                stream = listener.accept().unwrap();
+                serve_identify(&mut stream);
+                reader = BufReader::new(stream.try_clone_box().unwrap());
+                snapshot_index += 1;
+                continue 'snapshots;
+            }
             let response =
                 if matches!(scenario.as_str(), "applied-close-error" | "persistent-close-error") {
                     serde_json::json!({
@@ -1203,6 +1217,33 @@ fn server_stop_reconciles_an_applied_legacy_close_that_returned_an_error() {
     let mut server = LegacyServerProcess::start(
         "legacy-server-applied-close-error",
         "applied-close-error",
+        None,
+    );
+    let descendant_pid = server.descendant_pid().unwrap();
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_reconnects_after_an_applied_legacy_close_drops_the_control_stream() {
+    let mut server = LegacyServerProcess::start(
+        "legacy-server-applied-close-disconnect",
+        "applied-close-disconnect",
         None,
     );
     let descendant_pid = server.descendant_pid().unwrap();
