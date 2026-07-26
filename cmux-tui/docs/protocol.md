@@ -42,7 +42,7 @@ common flows rather than duplicating the exhaustive command list.
 
 `viewport-column-resize-v1` adds `set-viewport-pane-width` and `viewport_base_width`. Widths remain frontend-relative, from 0.1 through 1.0. Clients must require this capability before sending the resize command. An older server still renders the fallback split ratios and rejects the unknown command without changing layout.
 
-`layout-undo-v1` adds server-owned structural layout history and `undo-layout`. A creation undo first returns `confirmation_required`, the pane ids it would close, and a layout revision. The client must show that consequence and resend the exact revision with `confirm_close:true`. A stale revision fails without closing a pane. Resize-only and other non-destructive entries undo in one request.
+`layout-undo-v1` adds server-owned structural layout history and `undo-layout`. A creation undo first returns `confirmation_required`, the pane ids it would close, and a unique confirmation revision bound to those panes' exact tab membership. The client must show that consequence and resend the exact revision with `confirm_close:true`. A stale revision or changed tab membership fails without closing a pane; request a new preview before retrying. Resize-only and other non-destructive entries undo in one request.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
@@ -63,6 +63,8 @@ Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. 
 ```json
 {"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}
 ```
+
+Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
 
 ## Events
 

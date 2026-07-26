@@ -42,12 +42,27 @@ pub(crate) enum LayoutMutationKey {
     Resize { client: u64, transaction: u64 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum ProjectedSplitRatioUpdate {
+    NotProjected,
+    Unchanged,
+    Applied,
+    Unrepresentable { width: f32 },
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutUndoEntry {
     pub before: ScreenLayoutSnapshot,
     pub after_revision: u64,
     pub created_panes: Vec<PaneId>,
     pub coalesce: Option<LayoutMutationKey>,
+    pub confirmation: Option<LayoutUndoConfirmation>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LayoutUndoConfirmation {
+    pub revision: u64,
+    pub pane_tabs: Vec<(PaneId, Vec<SurfaceId>)>,
 }
 
 const LAYOUT_UNDO_LIMIT: usize = 32;
@@ -590,6 +605,7 @@ impl Screen {
         {
             if let Some(entry) = self.layout_undo.back_mut() {
                 entry.after_revision = self.layout_revision;
+                entry.confirmation = None;
             }
             return;
         }
@@ -599,6 +615,7 @@ impl Screen {
             after_revision: self.layout_revision,
             created_panes,
             coalesce,
+            confirmation: None,
         });
         while self.layout_undo.len() > LAYOUT_UNDO_LIMIT {
             self.layout_undo.pop_front();
@@ -715,23 +732,29 @@ impl Screen {
         &mut self,
         split: SplitId,
         ratio: f32,
-    ) -> Option<bool> {
-        let index = self
+    ) -> ProjectedSplitRatioUpdate {
+        let Some(index) = self
             .layout_columns
             .iter()
             .position(|column| column.id == split)
-            .filter(|index| *index > 0)?;
+            .filter(|index| *index > 0)
+        else {
+            return ProjectedSplitRatioUpdate::NotProjected;
+        };
         let width_before =
             self.layout_columns[..index].iter().map(|column| column.width).sum::<f32>();
         let width = width_before * (1.0 - ratio) / ratio;
         if !width.is_finite()
             || !(crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
         {
-            return Some(false);
+            return ProjectedSplitRatioUpdate::Unrepresentable { width };
+        }
+        if self.layout_columns[index].width == width {
+            return ProjectedSplitRatioUpdate::Unchanged;
         }
         self.layout_columns[index].width = width;
         self.sync_layout_column_width_projection();
-        Some(true)
+        ProjectedSplitRatioUpdate::Applied
     }
 
     pub(crate) fn collapse_single_layout_column(&mut self) {

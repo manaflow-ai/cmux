@@ -15,7 +15,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::{ScrollbarState, ScrollbarStyle, thumb_geometry, truncate};
+use super::{ScrollbarState, ScrollbarStyle, copy_buffer_row_cropped, thumb_geometry, truncate};
 use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
@@ -271,20 +271,25 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         }
     };
 
-    // Render the logical bar at its full width, then copy only the viewport
-    // slice. A viewport can therefore cut through tab chips without
-    // relaying out the pane chrome around the clipped width.
-    let mut logical = Buffer::empty(RatatuiRect::new(0, 0, full_width, 1));
-    let buf = &mut logical;
+    // Unclipped panes render directly into the frame. Cropped panes retain
+    // their full logical geometry in a one-row scratch buffer, then use the
+    // shared wide-glyph-safe crop path.
+    let direct = area.viewport.is_none() && bar.width <= screen_right.saturating_sub(bar.x);
+    let mut logical = (!direct).then(|| Buffer::empty(RatatuiRect::new(0, 0, full_width, 1)));
+    let (origin_x, origin_y) = if direct { (bar.x, bar.y) } else { (0, 0) };
+    let buf = match logical.as_mut() {
+        Some(logical) => logical,
+        None => frame.buffer_mut(),
+    };
     let (x0, x1) = (0, full_width - 1);
     for x in x0..=x1 {
-        buf[(x, 0)].set_symbol("─").set_style(style);
+        buf[(origin_x + x, origin_y)].set_symbol("─").set_style(style);
     }
     if area.has_left_edge() {
-        buf[(x0, 0)].set_symbol("┌").set_style(style);
+        buf[(origin_x + x0, origin_y)].set_symbol("┌").set_style(style);
     }
     if area.has_right_edge() {
-        buf[(x1, 0)].set_symbol("┐").set_style(style);
+        buf[(origin_x + x1, origin_y)].set_symbol("┐").set_style(style);
     }
 
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
@@ -328,7 +333,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let max_x = x1; // exclusive
     if scroll > 0 {
         let rect = Rect { x, y: 0, width: arrow_w, height: 1 };
-        buf.set_stringn(x, 0, "‹", 1, ctrl_style(rect));
+        buf.set_stringn(origin_x + x, origin_y, "‹", 1, ctrl_style(rect));
         hits.push((rect, Hit::TabScroll { pane: pane_id, delta: -1 }));
         x += arrow_w;
     }
@@ -350,12 +355,12 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);
         }
-        buf.set_stringn(x, 0, label, w as usize, style);
+        buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
         if tab_cfg.solid_background && is_active {
-            buf[(x, 0)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+            buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
         }
         if drop_index == Some(i) && x < max_x {
-            buf[(x, 0)]
+            buf[(origin_x + x, origin_y)]
                 .set_symbol("▌")
                 .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
         }
@@ -363,26 +368,31 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         x += w;
     }
     if drop_index == Some(tabs.len()) && x < max_x {
-        buf[(x, 0)]
+        buf[(origin_x + x, origin_y)]
             .set_symbol("▌")
             .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
     }
     if overflow && x + arrow_w <= max_x {
         let rect = Rect { x, y: 0, width: arrow_w, height: 1 };
-        buf.set_stringn(x, 0, "›", 1, ctrl_style(rect));
+        buf.set_stringn(origin_x + x, origin_y, "›", 1, ctrl_style(rect));
         hits.push((rect, Hit::TabScroll { pane: pane_id, delta: 1 }));
         x += arrow_w;
     }
     if x + plus_w <= max_x {
         let rect = Rect { x, y: 0, width: plus_w, height: 1 };
-        buf.set_stringn(x, 0, " + ", plus_w as usize, ctrl_style(rect));
+        buf.set_stringn(origin_x + x, origin_y, " + ", plus_w as usize, ctrl_style(rect));
         hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
 
-    let visible_width = visible_bar.width.min(full_width.saturating_sub(source_x));
-    let frame_buf = frame.buffer_mut();
-    for dx in 0..visible_width {
-        frame_buf[(bar.x + dx, bar.y)] = logical[(source_x + dx, 0)].clone();
+    if let Some(logical) = logical.as_ref() {
+        let visible_width = visible_bar.width.min(full_width.saturating_sub(source_x));
+        copy_buffer_row_cropped(
+            logical,
+            0,
+            source_x,
+            frame.buffer_mut(),
+            Rect { width: visible_width, height: 1, ..bar },
+        );
     }
     app.hits.extend(hits.into_iter().filter_map(|(rect, hit)| {
         clip_tab_bar_rect(rect, visible_bar, source_x).map(|rect| (rect, hit))

@@ -31,6 +31,50 @@ pub(crate) use scrollbar::{
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
 
+/// Copy one logical buffer row into a visible destination slice.
+///
+/// Ratatui stores a wide glyph in its lead cell and leaves its following
+/// cell blank. Blanking a lead or tail cut by either crop boundary prevents
+/// the terminal renderer from overwriting an adjacent pane or wrapping.
+pub(crate) fn copy_buffer_row_cropped(
+    source: &Buffer,
+    source_row: u16,
+    source_x: u16,
+    target: &mut Buffer,
+    target_rect: Rect,
+) -> u16 {
+    let source_y = source.area.y.saturating_add(source_row);
+    let source_left = source.area.x.saturating_add(source_x);
+    let source_right = source.area.x.saturating_add(source.area.width);
+    let target_right = target.area.x.saturating_add(target.area.width);
+    let target_bottom = target.area.y.saturating_add(target.area.height);
+    if source_y >= source.area.y.saturating_add(source.area.height)
+        || source_left >= source_right
+        || target_rect.y < target.area.y
+        || target_rect.y >= target_bottom
+        || target_rect.x < target.area.x
+        || target_rect.x >= target_right
+    {
+        return 0;
+    }
+    let width = target_rect
+        .width
+        .min(source_right.saturating_sub(source_left))
+        .min(target_right.saturating_sub(target_rect.x));
+    let partial_left =
+        source_left > source.area.x && source[(source_left - 1, source_y)].symbol().width() > 1;
+    for dx in 0..width {
+        let source_cell = &source[(source_left + dx, source_y)];
+        let target_cell = &mut target[(target_rect.x + dx, target_rect.y)];
+        *target_cell = source_cell.clone();
+        let symbol_width = source_cell.symbol().width() as u16;
+        if (dx == 0 && partial_left) || symbol_width > width.saturating_sub(dx) {
+            target_cell.set_symbol(" ");
+        }
+    }
+    width
+}
+
 pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
     let area = frame.area();
@@ -328,8 +372,9 @@ pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
 mod tests {
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
+    use ratatui::style::Style;
 
-    use super::{middle_truncate, sanitize_render_buffer};
+    use super::{copy_buffer_row_cropped, middle_truncate, sanitize_render_buffer};
 
     #[test]
     fn middle_truncates_for_narrow_columns() {
@@ -351,5 +396,36 @@ mod tests {
         assert_eq!(buffer[(0, 0)].symbol(), " ");
         assert_eq!(buffer[(1, 0)].symbol(), " ");
         assert_eq!(buffer[(2, 0)].symbol(), "ok");
+    }
+
+    #[test]
+    fn cropped_buffer_rows_blank_partial_wide_glyphs_at_both_edges() {
+        let mut source = Buffer::empty(Rect::new(0, 0, 5, 1));
+        source.set_string(0, 0, "a界b", Style::default());
+        assert_eq!(source[(1, 0)].symbol(), "界");
+
+        let draw_crop = |source_x| {
+            let mut target = Buffer::empty(Rect::new(0, 0, 2, 1));
+            copy_buffer_row_cropped(
+                &source,
+                0,
+                source_x,
+                &mut target,
+                cmux_tui_core::Rect { x: 0, y: 0, width: 2, height: 1 },
+            );
+            target
+        };
+
+        let clipped_lead = draw_crop(0);
+        assert_eq!(clipped_lead[(0, 0)].symbol(), "a");
+        assert_eq!(clipped_lead[(1, 0)].symbol(), " ");
+
+        let complete = draw_crop(1);
+        assert_eq!(complete[(0, 0)].symbol(), "界");
+        assert_eq!(complete[(1, 0)].symbol(), " ");
+
+        let clipped_tail = draw_crop(2);
+        assert_eq!(clipped_tail[(0, 0)].symbol(), " ");
+        assert_eq!(clipped_tail[(1, 0)].symbol(), "b");
     }
 }

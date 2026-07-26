@@ -1274,7 +1274,7 @@ Example:
 
 Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
 
-If the entry created panes, the first request returns a confirmation preview without mutating state. The client must show `closes_panes`, then resend the exact returned `revision` with `confirm_close:true`. Any later structural change invalidates that revision. A rejected or stale confirmation closes nothing.
+If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation closes nothing.
 
 Params:
 
@@ -1299,6 +1299,7 @@ Errors:
 | `no layout change to undo` | The selected screen has no undo entry |
 | `confirmed layout undo requires the preview revision` | `confirm_close` is true without `revision` |
 | `layout revision conflict: expected <n>, current <n>` | The confirmation revision is stale or incorrect |
+| `tabs in pane <id> changed since the undo confirmation` | A pane's surface membership differs from the preview |
 | `layout changed before undo could commit` | The layout changed after validation and before commit |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -1407,6 +1408,7 @@ Errors:
 | --- | --- |
 | `bad dir "<value>" (want "right" or "down")` | `dir` is not allowed |
 | `unknown pane/split <id>` | Pane is unknown or no ancestor split has `dir` |
+| `split <id> ratio ... width must be between 0.1 and 1` | The projected viewport split cannot represent the clamped ratio |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1436,7 +1438,7 @@ Example:
 | status | implemented |
 | since | protocol 8 |
 
-Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged.
+Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged. A compatibility split representing a horizontal viewport column also preserves the column width invariant `0.1..1.0`.
 
 Params:
 
@@ -1453,7 +1455,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown split <id>` | No live split node has the id |
+| `split <id> ratio ... width must be between 0.1 and 1` | The live viewport split would require an unsupported column width; layout remains unchanged |
 | `bad request: ...` | Missing fields or wrong JSON type |
+
+Missing targets return `error_code:"layout-ratio-target-missing"`. Unsupported viewport widths return `error_code:"layout-ratio-out-of-range"`.
 
 CLI mapping:
 

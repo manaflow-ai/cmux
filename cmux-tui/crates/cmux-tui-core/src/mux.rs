@@ -23,7 +23,10 @@ use crate::layout::{
 };
 #[cfg(test)]
 use crate::model::ViewportColumn;
-use crate::model::{LayoutColumn, LayoutMutationKey, Node, Pane, Screen, State, Workspace};
+use crate::model::{
+    LayoutColumn, LayoutMutationKey, LayoutUndoConfirmation, Node, Pane, ProjectedSplitRatioUpdate,
+    Screen, State, Workspace,
+};
 use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
@@ -585,6 +588,40 @@ impl fmt::Display for LayoutUndoError {
 
 impl std::error::Error for LayoutUndoError {}
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayoutRatioError {
+    UnknownPaneSplit { pane: PaneId },
+    UnknownSplit { split: SplitId },
+    UnrepresentableViewportWidth { split: SplitId, ratio: f32, width: f32 },
+}
+
+impl LayoutRatioError {
+    pub const UNKNOWN_TARGET_CODE: &'static str = "layout-ratio-target-missing";
+    pub const OUT_OF_RANGE_CODE: &'static str = "layout-ratio-out-of-range";
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnknownPaneSplit { .. } | Self::UnknownSplit { .. } => Self::UNKNOWN_TARGET_CODE,
+            Self::UnrepresentableViewportWidth { .. } => Self::OUT_OF_RANGE_CODE,
+        }
+    }
+}
+
+impl fmt::Display for LayoutRatioError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownPaneSplit { pane } => write!(formatter, "unknown pane/split {pane}"),
+            Self::UnknownSplit { split } => write!(formatter, "unknown split {split}"),
+            Self::UnrepresentableViewportWidth { split, ratio, width } => write!(
+                formatter,
+                "split {split} ratio {ratio} implies viewport width {width}; width must be between {MIN_VIEWPORT_PANE_WIDTH} and {MAX_VIEWPORT_PANE_WIDTH}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LayoutRatioError {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidebarPluginOptions {
     pub command: Vec<String>,
@@ -843,6 +880,8 @@ pub struct Mux {
     terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -1067,6 +1106,8 @@ impl Mux {
             terminal_create_after_materialization_lock: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            viewport_split_after_spawn: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -5277,6 +5318,12 @@ impl Mux {
             }
             Err(error) => return Err(error),
         };
+        #[cfg(test)]
+        if viewport_width.is_some()
+            && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()
+        {
+            hook();
+        }
         let pane_id = self.next_id();
         let split_id = self.next_id();
         let base_column_id = viewport_width.map(|_| self.next_id());
@@ -5370,18 +5417,18 @@ impl Mux {
             }
         }
         if !done {
-            let cleanup = self.fail_hosted_terminal_attachment(
-                &surface,
-                "terminal-split-attach-failed",
-                "pane-disappeared-before-attach",
-            );
             if viewport_width.is_none() {
-                cleanup?;
+                self.fail_hosted_terminal_attachment(
+                    &surface,
+                    "terminal-split-attach-failed",
+                    "pane-disappeared-before-attach",
+                )?;
                 anyhow::bail!("pane {target} not found");
             }
-            if let Err(error) = cleanup {
-                eprintln!("cmux-tui: viewport pane attachment cleanup failed: {error:#}");
-            }
+            // Registry close failure must not leave an unbound Running
+            // terminal. The shared discard path restores every canonical
+            // terminal to its registry workspace when close cannot commit.
+            self.discard_spawned(vec![surface]);
             anyhow::bail!("pane creation failed");
         }
         self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
@@ -6400,9 +6447,20 @@ impl Mux {
 
     /// Set the deepest split ratio in `dir` on the path to `pane`.
     pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
+        self.set_ratio_checked(pane, dir, ratio).is_ok()
+    }
+
+    /// Set a pane-addressed split ratio while preserving rejection details.
+    pub fn set_ratio_checked(
+        &self,
+        pane: PaneId,
+        dir: SplitDir,
+        ratio: f32,
+    ) -> Result<(), LayoutRatioError> {
         enum RatioOutcome {
             Unchanged,
             Changed(ScreenId),
+            Failed(LayoutRatioError),
         }
 
         let ratio = clamp_split_ratio(ratio);
@@ -6419,8 +6477,20 @@ impl Mux {
                 let before = screen.layout_snapshot();
                 let changed = if screen.layout_columns_active() {
                     match screen.set_projected_viewport_split_ratio(split, ratio) {
-                        Some(changed) => changed,
-                        None => {
+                        ProjectedSplitRatioUpdate::Applied => true,
+                        ProjectedSplitRatioUpdate::Unchanged => {
+                            return Some(RatioOutcome::Unchanged);
+                        }
+                        ProjectedSplitRatioUpdate::Unrepresentable { width } => {
+                            return Some(RatioOutcome::Failed(
+                                LayoutRatioError::UnrepresentableViewportWidth {
+                                    split,
+                                    ratio,
+                                    width,
+                                },
+                            ));
+                        }
+                        ProjectedSplitRatioUpdate::NotProjected => {
                             let changed = screen.layout_columns.iter_mut().any(|column| {
                                 let changed = column.root.set_split_ratio(split, ratio);
                                 if changed {
@@ -6453,15 +6523,25 @@ impl Mux {
             Some(RatioOutcome::Changed(screen)) => {
                 self.emit(MuxEvent::TreeChanged);
                 self.emit(MuxEvent::LayoutChanged(screen));
-                true
+                Ok(())
             }
-            Some(RatioOutcome::Unchanged) => true,
-            None => false,
+            Some(RatioOutcome::Unchanged) => Ok(()),
+            Some(RatioOutcome::Failed(error)) => Err(error),
+            None => Err(LayoutRatioError::UnknownPaneSplit { pane }),
         }
     }
 
     /// Set one split ratio by its stable split-tree node id.
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> bool {
+        self.set_split_ratio_checked(split, ratio).is_ok()
+    }
+
+    /// Set one split ratio while preserving rejection details.
+    pub fn set_split_ratio_checked(
+        &self,
+        split: SplitId,
+        ratio: f32,
+    ) -> Result<(), LayoutRatioError> {
         self.set_split_ratio_inner(split, ratio, None)
     }
 
@@ -6473,6 +6553,17 @@ impl Mux {
         client: u64,
         transaction: u64,
     ) -> bool {
+        self.set_split_ratio_in_transaction_checked(split, ratio, client, transaction).is_ok()
+    }
+
+    /// Set one transactional split ratio while preserving rejection details.
+    pub fn set_split_ratio_in_transaction_checked(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        client: u64,
+        transaction: u64,
+    ) -> Result<(), LayoutRatioError> {
         self.set_split_ratio_inner(split, ratio, Some((client, transaction)))
     }
 
@@ -6481,14 +6572,14 @@ impl Mux {
         split: SplitId,
         ratio: f32,
         transaction: Option<(u64, u64)>,
-    ) -> bool {
+    ) -> Result<(), LayoutRatioError> {
         let ratio = clamp_split_ratio(ratio);
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index, owner)) =
                 state.split_screens.get(&split).copied()
             else {
-                return false;
+                return Err(LayoutRatioError::UnknownSplit { split });
             };
             if state
                 .workspaces
@@ -6497,20 +6588,27 @@ impl Mux {
                 .is_none_or(|screen| screen.id != owner)
             {
                 state.split_screens.remove(&split);
-                return false;
+                return Err(LayoutRatioError::UnknownSplit { split });
             }
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
             if screen.root.split_ratio(split) == Some(ratio) {
-                return true;
+                return Ok(());
             }
             let coalesce = transaction
                 .map(|(client, transaction)| LayoutMutationKey::Resize { client, transaction });
             let before = screen.layout_snapshot_for_coalescing_change(coalesce);
             let changed = if screen.layout_columns_active() {
                 match screen.set_projected_viewport_split_ratio(split, ratio) {
-                    Some(true) => true,
-                    Some(false) => return false,
-                    None => {
+                    ProjectedSplitRatioUpdate::Applied => true,
+                    ProjectedSplitRatioUpdate::Unchanged => return Ok(()),
+                    ProjectedSplitRatioUpdate::Unrepresentable { width } => {
+                        return Err(LayoutRatioError::UnrepresentableViewportWidth {
+                            split,
+                            ratio,
+                            width,
+                        });
+                    }
+                    ProjectedSplitRatioUpdate::NotProjected => {
                         let changed = screen.layout_columns.iter_mut().any(|column| {
                             let changed = column.root.set_split_ratio(split, ratio);
                             if changed {
@@ -6534,13 +6632,13 @@ impl Mux {
             };
             if !changed {
                 state.split_screens.remove(&split);
-                return false;
+                return Err(LayoutRatioError::UnknownSplit { split });
             }
             screen.record_prepared_layout_change(before, Vec::new(), coalesce);
             screen.id
         };
         self.emit(MuxEvent::LayoutChanged(changed_screen));
-        true
+        Ok(())
     }
 
     /// Set the width of the horizontal viewport column containing `pane`.
@@ -6783,21 +6881,25 @@ impl Mux {
         confirm_close: bool,
     ) -> anyhow::Result<LayoutUndoResult> {
         let (workspace, screen_id, preview) = {
-            let state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 anyhow::bail!("unknown pane {pane}");
             };
             let workspace = state.workspaces[workspace_index].id;
-            let screen = &state.workspaces[workspace_index].screens[screen_index];
-            let Some(entry) = screen.layout_undo.back().cloned() else {
-                return Err(LayoutUndoError::Unavailable.into());
+            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            let entry = {
+                let screen = &state.workspaces[workspace_index].screens[screen_index];
+                let Some(entry) = screen.layout_undo.back().cloned() else {
+                    return Err(LayoutUndoError::Unavailable.into());
+                };
+                if entry.after_revision != screen.layout_revision {
+                    return Err(LayoutUndoError::Stale(
+                        "layout changed since the last undoable action".to_string(),
+                    )
+                    .into());
+                }
+                entry
             };
-            if entry.after_revision != screen.layout_revision {
-                return Err(LayoutUndoError::Stale(
-                    "layout changed since the last undoable action".to_string(),
-                )
-                .into());
-            }
             if let Some(expected) = expected_revision
                 && expected != entry.after_revision
             {
@@ -6807,16 +6909,34 @@ impl Mux {
                 ))
                 .into());
             }
-            (workspace, screen.id, entry)
+            if !entry.created_panes.is_empty() && !confirm_close {
+                let mut pane_tabs = Vec::with_capacity(entry.created_panes.len());
+                for created in &entry.created_panes {
+                    let Some(created_pane) = state.panes.get(created) else {
+                        return Err(LayoutUndoError::Stale(format!(
+                            "created pane {created} disappeared before undo preview"
+                        ))
+                        .into());
+                    };
+                    pane_tabs.push((*created, created_pane.tabs.clone()));
+                }
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                let revision = screen.layout_revision.saturating_add(1);
+                screen.layout_revision = revision;
+                let latest = screen
+                    .layout_undo
+                    .back_mut()
+                    .expect("validated layout undo entry remains present");
+                latest.after_revision = revision;
+                latest.confirmation = Some(LayoutUndoConfirmation { revision, pane_tabs });
+                return Ok(LayoutUndoResult::ConfirmationRequired {
+                    screen: screen_id,
+                    revision,
+                    closes_panes: entry.created_panes,
+                });
+            }
+            (workspace, screen_id, entry)
         };
-
-        if !preview.created_panes.is_empty() && !confirm_close {
-            return Ok(LayoutUndoResult::ConfirmationRequired {
-                screen: screen_id,
-                revision: preview.after_revision,
-                closes_panes: preview.created_panes,
-            });
-        }
         if !preview.created_panes.is_empty() && expected_revision.is_none() {
             anyhow::bail!("confirmed layout undo requires the preview revision");
         }
@@ -6847,6 +6967,7 @@ impl Mux {
                 if let Some(previous) = screen.layout_undo.back_mut() {
                     previous.after_revision = revision;
                     previous.coalesce = None;
+                    previous.confirmation = None;
                 }
                 Self::rebuild_split_screen_index(&mut state);
                 revision
@@ -6916,14 +7037,40 @@ impl Mux {
             let selection_before = active_tree_selection(&state);
             let mut tabs = Vec::new();
             let mut deltas = Vec::new();
-            for created in &entry.created_panes {
+            let Some(confirmation) = entry
+                .confirmation
+                .as_ref()
+                .filter(|confirmation| confirmation.revision == entry.after_revision)
+            else {
+                return Err(
+                    LayoutUndoError::Stale("layout undo confirmation expired".to_string()).into()
+                );
+            };
+            if confirmation
+                .pane_tabs
+                .iter()
+                .map(|(pane, _)| *pane)
+                .ne(entry.created_panes.iter().copied())
+            {
+                return Err(LayoutUndoError::Stale(
+                    "layout undo confirmation no longer matches its created panes".to_string(),
+                )
+                .into());
+            }
+            for (created, confirmed_tabs) in &confirmation.pane_tabs {
                 let Some(pane) = state.panes.get(created) else {
                     return Err(LayoutUndoError::Stale(format!(
                         "created pane {created} disappeared before undo"
                     ))
                     .into());
                 };
-                tabs.extend(pane.tabs.iter().copied());
+                if &pane.tabs != confirmed_tabs {
+                    return Err(LayoutUndoError::Stale(format!(
+                        "tabs in pane {created} changed since the undo confirmation"
+                    ))
+                    .into());
+                }
+                tabs.extend(confirmed_tabs.iter().copied());
                 if let Some(delta) = close_pane_delta(&state, &notifications, *created) {
                     deltas.push(delta);
                 }
@@ -6956,6 +7103,7 @@ impl Mux {
             if let Some(previous) = screen.layout_undo.back_mut() {
                 previous.after_revision = revision;
                 previous.coalesce = None;
+                previous.confirmation = None;
             }
             Self::rebuild_split_screen_index(&mut state);
             let selection_resync = selection_before != active_tree_selection(&state);
@@ -9985,6 +10133,26 @@ mod tests {
     }
 
     #[test]
+    fn new_pane_right_discards_spawn_when_target_disappears_before_attachment() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let weak = Arc::downgrade(&mux);
+        *mux.viewport_split_after_spawn.lock().unwrap() = Some(Arc::new(move || {
+            weak.upgrade().unwrap().close_pane(first_pane).unwrap();
+        }));
+
+        let error = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap_err();
+
+        assert_eq!(error.to_string(), "pane creation failed");
+        mux.with_state(|state| {
+            assert!(state.surfaces.is_empty());
+            assert!(state.panes.is_empty());
+            assert!(state.workspaces[0].screens.is_empty());
+        });
+    }
+
+    #[test]
     fn viewport_columns_resize_independently() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
@@ -10049,14 +10217,18 @@ mod tests {
         });
 
         let events = mux.subscribe();
-        assert!(mux.set_split_ratio(split, 0.5));
+        assert!(mux.set_split_ratio_checked(split, 0.5).is_ok());
         assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(_)));
         let after_change = mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             (screen.layout_revision, screen.layout_undo.len())
         });
-        assert!(mux.set_split_ratio(split, 0.5));
-        assert!(!mux.set_split_ratio(split, 0.25));
+        assert!(mux.set_split_ratio_checked(split, 0.5).is_ok());
+        assert!(matches!(
+            mux.set_split_ratio_checked(split, 0.25),
+            Err(LayoutRatioError::UnrepresentableViewportWidth { split: rejected, .. })
+                if rejected == split
+        ));
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!((screen.layout_revision, screen.layout_undo.len()), after_change);
@@ -10086,7 +10258,7 @@ mod tests {
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
 
-        assert!(mux.set_ratio(first_pane, SplitDir::Right, 0.5));
+        assert!(mux.set_ratio_checked(first_pane, SplitDir::Right, 0.5).is_ok());
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             let Node::Split { id, ratio, .. } = &screen.root else {
@@ -10227,6 +10399,44 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_confirmation_fences_exact_created_pane_tab_membership() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        let LayoutUndoResult::ConfirmationRequired { revision, .. } =
+            mux.undo_layout(right_pane, None, false).unwrap()
+        else {
+            panic!("pane creation undo must require confirmation");
+        };
+        let late_tab = mux.new_tab(Some(right_pane), None, Some((38, 22))).unwrap();
+
+        let error = mux.undo_layout(right_pane, Some(revision), true).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<LayoutUndoError>(),
+            Some(LayoutUndoError::Stale(message))
+                if message.contains("tabs in pane") && message.contains("changed")
+        ));
+        assert!(mux.surface(right.id).is_some());
+        assert!(mux.surface(late_tab.id).is_some());
+
+        let LayoutUndoResult::ConfirmationRequired { revision: refreshed, .. } =
+            mux.undo_layout(right_pane, None, false).unwrap()
+        else {
+            panic!("a fresh preview must capture the new tab membership");
+        };
+        assert!(refreshed > revision);
+        assert!(matches!(
+            mux.undo_layout(right_pane, Some(refreshed), true).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        assert!(mux.surface(right.id).is_none());
+        assert!(mux.surface(late_tab.id).is_none());
+    }
+
+    #[test]
     fn layout_undo_coalesces_resize_and_fences_pane_closure() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
@@ -10309,7 +10519,7 @@ mod tests {
         });
 
         assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 9, 41));
-        assert!(mux.set_split_ratio_in_transaction(split, 0.7, 9, 41));
+        assert!(mux.set_split_ratio_in_transaction_checked(split, 0.7, 9, 41).is_ok());
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.layout_undo.len(), initial_undo_len + 1);
@@ -10475,6 +10685,57 @@ mod tests {
             };
             assert!((*ratio - (0.75 / 1.15)).abs() < 0.0001);
         });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discard_spawned_restores_unbound_running_terminal_when_registry_close_fails() {
+        const TERMINAL: &str = "00000000000040008000000000000012";
+        const INCARNATION: &str = "10000000000040008000000000000012";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001012".into()), None)
+            .unwrap();
+        let surface =
+            insert_running_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &workspace.key);
+        {
+            let mut state = mux.state.lock().unwrap();
+            let (removed, split_index_dirty) = remove_surface(&mux, &mut state, surface.id);
+            if split_index_dirty {
+                Mux::rebuild_split_screen_index(&mut state);
+            }
+            insert_surface_checked(
+                &mut state,
+                removed.expect("seeded terminal is removable from topology"),
+            )
+            .unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.pane_of(surface.id)), None);
+        let events = mux.subscribe();
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(true).unwrap();
+
+        mux.discard_spawned(vec![surface.clone()]);
+
+        let restored = mux
+            .with_state(|state| state.pane_of(surface.id))
+            .expect("failed close must project the terminal back into reachable topology");
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        assert!(events.try_iter().any(|event| {
+            matches!(event, MuxEvent::Status(message)
+                if message.contains("could not atomically close discarded terminals"))
+        }));
+
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(false).unwrap();
+        assert!(mux.close_pane(restored).unwrap());
     }
 
     #[cfg(unix)]
@@ -11225,7 +11486,7 @@ mod tests {
         let mux = test_mux();
         let (p1, p2, p3) = seed_split_ratio_tree(&mux);
 
-        assert!(mux.set_ratio(p1, SplitDir::Right, 0.8));
+        assert!(mux.set_ratio_checked(p1, SplitDir::Right, 0.8).is_ok());
         mux.with_state(|s| {
             let root = &s.workspaces[0].screens[0].root;
             let Node::Split { ratio: root_ratio, a, .. } = root else {
@@ -11238,7 +11499,7 @@ mod tests {
             assert_eq!(*inner_ratio, 0.8);
         });
 
-        assert!(mux.set_ratio(p2, SplitDir::Right, -1.0));
+        assert!(mux.set_ratio_checked(p2, SplitDir::Right, -1.0).is_ok());
         mux.with_state(|s| {
             let Node::Split { ratio, .. } = &s.workspaces[0].screens[0].root else {
                 panic!("root should be split");
@@ -11246,7 +11507,7 @@ mod tests {
             assert_eq!(*ratio, 0.05);
         });
 
-        assert!(mux.set_ratio(p3, SplitDir::Right, 2.0));
+        assert!(mux.set_ratio_checked(p3, SplitDir::Right, 2.0).is_ok());
         mux.with_state(|s| {
             let Node::Split { a, .. } = &s.workspaces[0].screens[0].root else {
                 panic!("root should be split");
@@ -11257,7 +11518,10 @@ mod tests {
             assert_eq!(*ratio, 0.95);
         });
 
-        assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
+        assert!(matches!(
+            mux.set_ratio_checked(9999, SplitDir::Right, 0.4),
+            Err(LayoutRatioError::UnknownPaneSplit { pane: 9999 })
+        ));
     }
 
     #[test]
@@ -11271,8 +11535,8 @@ mod tests {
         });
         let events = mux.subscribe();
 
-        assert!(mux.set_split_ratio(10, 0.5));
-        assert!(mux.set_ratio(p1, SplitDir::Right, 0.5));
+        assert!(mux.set_split_ratio_checked(10, 0.5).is_ok());
+        assert!(mux.set_ratio_checked(p1, SplitDir::Right, 0.5).is_ok());
 
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
@@ -11297,7 +11561,7 @@ mod tests {
         mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
         let events = mux.subscribe();
 
-        assert!(mux.set_split_ratio(10, 2.0));
+        assert!(mux.set_split_ratio_checked(10, 2.0).is_ok());
         mux.with_state(|s| {
             let Node::Split { id, ratio: root_ratio, a, .. } = &s.workspaces[0].screens[0].root
             else {
@@ -11314,7 +11578,10 @@ mod tests {
         });
         assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(1)));
         assert!(events.try_recv().is_err());
-        assert!(!mux.set_split_ratio(9999, 0.4));
+        assert!(matches!(
+            mux.set_split_ratio_checked(9999, 0.4),
+            Err(LayoutRatioError::UnknownSplit { split: 9999 })
+        ));
     }
 
     #[test]
@@ -11348,7 +11615,7 @@ mod tests {
             assert_eq!(state.split_screens.get(&nested).map(|location| location.2), Some(screen));
         });
         assert!(mux.swap_panes(p1, p3));
-        assert!(mux.set_split_ratio(original, 0.7));
+        assert!(mux.set_split_ratio_checked(original, 0.7).is_ok());
 
         mux.with_state(|s| {
             let Node::Split { id, ratio, .. } = &s.workspaces[0].screens[0].root else {

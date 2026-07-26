@@ -4,7 +4,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Modifier, Style};
 
-use super::truncate;
+use super::{copy_buffer_row_cropped, truncate};
 use crate::app::{App, OmnibarHit, PaneArea};
 
 const BACK_X: u16 = 1;
@@ -57,6 +57,15 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) -> Option<(u16, u
         .omnibar
         .as_ref()
         .is_some_and(|state| state.pane == area.pane && state.surface == area.surface);
+    if area.viewport.is_none() && rect.width <= screen_right.saturating_sub(rect.x) {
+        if editing {
+            return draw_editing(app, frame.buffer_mut(), rect).map(|cursor_x| (cursor_x, rect.y));
+        }
+        let hover_x = app.hover.and_then(|(x, y)| rect.contains(x, y).then_some(x));
+        draw_idle(app, frame.buffer_mut(), area, rect, &surface, hover_x);
+        return None;
+    }
+
     let logical_rect = Rect { x: 0, y: 0, width: full_width, height: 1 };
     let mut logical = Buffer::empty(RatatuiRect::new(0, 0, full_width, 1));
     let cursor = if editing {
@@ -73,10 +82,13 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) -> Option<(u16, u
         .width
         .min(full_width.saturating_sub(source_x))
         .min(screen_right.saturating_sub(rect.x));
-    let frame_buf = frame.buffer_mut();
-    for dx in 0..visible_width {
-        frame_buf[(rect.x + dx, rect.y)] = logical[(source_x + dx, 0)].clone();
-    }
+    copy_buffer_row_cropped(
+        &logical,
+        0,
+        source_x,
+        frame.buffer_mut(),
+        Rect { width: visible_width, height: 1, ..rect },
+    );
     cursor
         .filter(|cursor_x| {
             *cursor_x >= source_x && *cursor_x < source_x.saturating_add(visible_width)

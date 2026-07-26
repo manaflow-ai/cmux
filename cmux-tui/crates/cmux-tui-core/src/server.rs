@@ -48,10 +48,10 @@ use crate::platform::{self, transport};
 use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId,
-    RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
-    SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
-    WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
+    PairingDecision, PaneId, RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
+    SplitId, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors,
+    TreeDelta, TreeDeltaKind, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -1995,7 +1995,12 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
                     data: None,
                     error_code: error
                         .downcast_ref::<crate::LayoutUndoError>()
-                        .map(|error| error.code().to_string()),
+                        .map(|error| error.code().to_string())
+                        .or_else(|| {
+                            error
+                                .downcast_ref::<LayoutRatioError>()
+                                .map(|error| error.code().to_string())
+                        }),
                     error: Some(error.to_string()),
                 },
             }
@@ -3800,19 +3805,16 @@ fn handle_command(
         }
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
-            if !mux.set_ratio(pane, dir, ratio) {
-                anyhow::bail!("unknown pane/split {pane}");
-            }
+            mux.set_ratio_checked(pane, dir, ratio)?;
             Ok(json!({}))
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
-            let changed = transaction.map_or_else(
-                || mux.set_split_ratio(split, ratio),
-                |transaction| mux.set_split_ratio_in_transaction(split, ratio, client, transaction),
-            );
-            if !changed {
-                anyhow::bail!("unknown split {split}");
-            }
+            transaction.map_or_else(
+                || mux.set_split_ratio_checked(split, ratio),
+                |transaction| {
+                    mux.set_split_ratio_in_transaction_checked(split, ratio, client, transaction)
+                },
+            )?;
             Ok(json!({}))
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
@@ -5314,6 +5316,41 @@ mod tests {
             handle_command(&mux, 0, unknown.cmd, &test_writer()).unwrap_err().to_string(),
             "unknown split 999999"
         );
+    }
+
+    #[test]
+    fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
+        let split =
+            handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap()["workspaces"]
+                [0]["screens"][0]["layout"]["split"]
+                .as_u64()
+                .expect("viewport projection exposes a stable split");
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        handle_message(
+            &mux,
+            7,
+            &json!({
+                "id": 21,
+                "cmd": "set-split-ratio",
+                "split": split,
+                "ratio": 0.25
+            })
+            .to_string(),
+            &writer,
+        );
+
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 21);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], LayoutRatioError::OUT_OF_RANGE_CODE);
+        assert!(response["error"].as_str().unwrap().contains("width must be between"));
+        assert!(!response["error"].as_str().unwrap().contains("unknown split"));
     }
 
     #[test]

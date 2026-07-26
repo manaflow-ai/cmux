@@ -827,15 +827,19 @@ impl Session {
         transaction: Option<(u64, u64)>,
     ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                let changed = transaction.map_or_else(
-                    || mux.set_split_ratio(split, ratio),
+            Session::Local(mux) => transaction
+                .map_or_else(
+                    || mux.set_split_ratio_checked(split, ratio),
                     |(client, transaction)| {
-                        mux.set_split_ratio_in_transaction(split, ratio, client, transaction)
+                        mux.set_split_ratio_in_transaction_checked(
+                            split,
+                            ratio,
+                            client,
+                            transaction,
+                        )
                     },
-                );
-                changed.then_some(()).ok_or_else(|| anyhow::anyhow!("unknown split {split}"))
-            }
+                )
+                .map_err(Into::into),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-split-ratio",
