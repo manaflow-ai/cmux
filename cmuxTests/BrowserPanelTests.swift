@@ -4154,6 +4154,63 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, boundEndDeferringCount)
     }
 
+    func testRegistrySameAnchorRebindForcesOneSynchronousPresentationRefresh() async {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            window.orderOut(nil)
+            window.close()
+        }
+
+        BrowserWindowPortalRegistry.bind(
+            webView: webView,
+            to: anchor,
+            visibleInUI: true
+        )
+        await waitForNextMainTurn()
+        let enterInWindowCountBeforeRebind = webView.enterInWindowCount
+        let endDeferringCountBeforeRebind = webView.endDeferringViewInWindowChangesCount
+
+        BrowserWindowPortalRegistry.bind(
+            webView: webView,
+            to: anchor,
+            visibleInUI: true,
+            forcePresentationRefresh: true
+        )
+        let enterInWindowCountAfterRebind = webView.enterInWindowCount
+        let endDeferringCountAfterRebind = webView.endDeferringViewInWindowChangesCount
+
+        XCTAssertEqual(
+            enterInWindowCountAfterRebind - enterInWindowCountBeforeRebind,
+            1,
+            "Same-anchor host replacement should invoke one synchronous WebKit window-entry refresh"
+        )
+        XCTAssertEqual(
+            endDeferringCountAfterRebind - endDeferringCountBeforeRebind,
+            1,
+            "Same-anchor host replacement should invoke one synchronous deferred-window refresh"
+        )
+
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
+        XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
+    }
+
     func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() async {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
