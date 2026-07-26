@@ -3850,6 +3850,26 @@ mod tests {
     }
 
     #[test]
+    fn timed_out_navigation_keeps_pointer_admission_blocked() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let invalidation = browser.invalidate_pointer_frame();
+
+        let result: anyhow::Result<()> = browser.restore_pointer_frame_on_command_error(
+            invalidation,
+            Err(anyhow::anyhow!("CDP call Page.navigate timed out")),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "an ambiguously delivered navigation must remain fail-closed"
+        );
+    }
+
+    #[test]
     fn frames_stalled_requires_live_surface_over_threshold() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
