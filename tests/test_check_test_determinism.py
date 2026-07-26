@@ -72,6 +72,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "Thread.sleep(forTimeInterval: 0.01)\n"
                 "#expect(finished)\n"
             ),
+            "continuous-clock.swift": (
+                "try await ContinuousClock().sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
+            "suspending-clock.swift": (
+                "try await SuspendingClock().sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
+            "qualified-continuous-clock.swift": (
+                "try await Swift.ContinuousClock().sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -490,8 +502,6 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "try await fixture.clock.sleep(until: deadline)\n"
                     "#expect(await completed)\n"
                     "try await environment.timing.clock.sleep(until: deadline)\n"
-                    "#expect(await completed)\n"
-                    "try await ContinuousClock().sleep(until: deadline)\n"
                     "#expect(await completed)\n"
                     "try await SystemUpdateClock().sleep(until: deadline)\n"
                     "#expect(await completed)\n"
