@@ -16,7 +16,8 @@ extension TerminalController {
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
         seq: UInt64,
-        scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
+        scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
     ) -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
         let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
@@ -24,8 +25,10 @@ extension TerminalController {
             stateSeq: seq,
             renderEpoch: renderCapture.epoch,
             renderRevision: renderCapture.revision,
-            scrollbackLines: scrollbackLines
+            scrollbackLines: scrollbackLines,
+            anchor: anchor
         )?.frame else { return nil }
+        MobileTerminalRenderObserver.shared.adoptReplayBaseline(frame, surfaceID: surfaceID)
         return MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
     }
 

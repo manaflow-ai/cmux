@@ -15,7 +15,7 @@ struct NotificationFeedRow: View, Equatable {
         let presentation = NotificationFeedRowPresentation(item: item)
 
         Button {
-            actions.open(item)
+            open()
         } label: {
             NotificationFeedRowLabel(
                 title: item.title,
@@ -27,7 +27,7 @@ struct NotificationFeedRow: View, Equatable {
         .buttonStyle(.plain)
         .contextMenu(menuItems: {
             Button {
-                actions.open(item)
+                open()
             } label: {
                 Label(
                     L10n.string("mobile.notificationFeed.open", defaultValue: "Open"),
@@ -93,7 +93,7 @@ struct NotificationFeedRow: View, Equatable {
         ))
         .accessibilityActions {
             Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
-                actions.open(item)
+                open()
             }
             if !item.isRead {
                 Button(L10n.string("mobile.notificationFeed.markRead", defaultValue: "Mark as Read")) {
@@ -106,6 +106,10 @@ struct NotificationFeedRow: View, Equatable {
             }
         }
         .accessibilityIdentifier("MobileNotificationFeedRow-\(accessibilitySuffix)")
+    }
+
+    private func open() {
+        actions.open(item)
     }
 
     private var accessibilitySuffix: String {
