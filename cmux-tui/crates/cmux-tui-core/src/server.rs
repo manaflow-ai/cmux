@@ -117,6 +117,8 @@ enum Command {
         name: Option<String>,
         #[serde(default)]
         kind: Option<String>,
+        #[serde(default)]
+        capabilities: Option<Vec<String>>,
     },
     ListClients,
     /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
@@ -330,7 +332,8 @@ enum Command {
         button: Option<String>,
         #[serde(default, alias = "click_count")]
         click_count: Option<u32>,
-        frame_seq: u64,
+        #[serde(default)]
+        frame_seq: Option<u64>,
     },
     BrowserMouseGuarded {
         surface: SurfaceId,
@@ -353,7 +356,8 @@ enum Command {
         y_px: f64,
         #[serde(alias = "delta_y_px")]
         delta_y_px: f64,
-        frame_seq: u64,
+        #[serde(default)]
+        frame_seq: Option<u64>,
     },
     BrowserWheelGuarded {
         surface: SurfaceId,
@@ -1227,6 +1231,7 @@ struct ClientRecord {
     connected_at: Instant,
     name: Option<String>,
     kind: Option<String>,
+    capabilities: HashSet<String>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
     announced_attached: bool,
     writer: MessageWriter,
@@ -1257,6 +1262,7 @@ impl ClientRegistry {
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,
+                capabilities: HashSet::new(),
                 attached: BTreeMap::new(),
                 announced_attached: false,
                 writer,
@@ -1279,6 +1285,7 @@ impl ClientRegistry {
         client: u64,
         name: Option<String>,
         kind: Option<String>,
+        capabilities: Option<Vec<String>>,
         daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
@@ -1297,7 +1304,22 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = Some(clamp_client_label(kind));
         }
+        if let Some(capabilities) = capabilities {
+            record.capabilities = capabilities
+                .into_iter()
+                .filter(|capability| capability == GUARDED_BROWSER_POINTER_CAPABILITY)
+                .collect();
+        }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    fn supports_capability(&self, client: u64, capability: &str) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.capabilities.contains(capability))
     }
 
     pub(crate) fn begin_daemon_handoff(
@@ -2511,6 +2533,9 @@ fn handle_browser_mouse_command(
     mux: &Mux,
     command: BrowserMouseCommand<'_>,
 ) -> anyhow::Result<Value> {
+    let frame_seq = command
+        .frame_seq
+        .ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
     let surface = get_surface(mux, command.surface)?;
     require_browser(&surface)?;
     let event_type = match command.kind {
@@ -2525,7 +2550,7 @@ fn handle_browser_mouse_command(
         command.y_px,
         command.button,
         command.click_count,
-        command.frame_seq,
+        Some(frame_seq),
     )?;
     Ok(json!({}))
 }
@@ -2538,9 +2563,11 @@ fn handle_browser_wheel_command(
     delta_y_px: f64,
     frame_seq: Option<u64>,
 ) -> anyhow::Result<Value> {
+    let frame_seq =
+        frame_seq.ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
     let surface = get_surface(mux, surface)?;
     require_browser(&surface)?;
-    surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, frame_seq)?;
+    surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, Some(frame_seq))?;
     Ok(json!({}))
 }
 
@@ -3112,9 +3139,14 @@ fn handle_command(
             "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
         })),
-        Command::SetClientInfo { name, kind } => {
-            let (name, kind) =
-                mux.control_clients.set_info(client, name, kind, &mux.daemon_handoff_pending)?;
+        Command::SetClientInfo { name, kind, capabilities } => {
+            let (name, kind) = mux.control_clients.set_info(
+                client,
+                name,
+                kind,
+                capabilities,
+                &mux.daemon_handoff_pending,
+            )?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
@@ -3619,7 +3651,7 @@ fn handle_command(
                     y_px,
                     button: button.as_deref(),
                     click_count,
-                    frame_seq: Some(frame_seq),
+                    frame_seq,
                 },
             )
         }
@@ -3644,7 +3676,7 @@ fn handle_command(
             },
         ),
         Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
-            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, Some(frame_seq))
+            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, frame_seq)
         }
         Command::BrowserWheelGuarded { surface, x_px, y_px, delta_y_px, frame_seq } => {
             handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, Some(frame_seq))
@@ -4250,6 +4282,15 @@ fn handle_command(
                 _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
             };
             let surface = get_surface(mux, surface_id)?;
+            if surface.kind() == SurfaceKind::Browser
+                && !mux
+                    .control_clients
+                    .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+            {
+                anyhow::bail!(
+                    "browser attach requires client capability {GUARDED_BROWSER_POINTER_CAPABILITY}; upgrade or restart the cmux-tui client"
+                );
+            }
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
             let render_mode = match mode.as_deref().unwrap_or("bytes") {
@@ -5380,8 +5421,9 @@ mod tests {
             }
             let request =
                 serde_json::from_value::<Request>(request).expect("legacy schema must parse");
-            let error =
-                handle_command(&test_mux(), 0, request.cmd, &test_writer()).unwrap_err().to_string();
+            let error = handle_command(&test_mux(), 0, request.cmd, &test_writer())
+                .unwrap_err()
+                .to_string();
             assert!(
                 error.contains("requires a frame guard"),
                 "{cmd} must fail closed before surface lookup: {error}"
@@ -5396,8 +5438,7 @@ mod tests {
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
 
         assert!(
-            !mux.control_clients
-                .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+            !mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
         );
         assert!(handle_message(
             &mux,
@@ -5412,8 +5453,7 @@ mod tests {
             &writer,
         ));
         assert!(
-            mux.control_clients
-                .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+            mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
         );
     }
 
@@ -5662,6 +5702,7 @@ mod tests {
             Command::SetClientInfo {
                 name: Some("existing browser".to_string()),
                 kind: Some("native-browser".to_string()),
+                capabilities: None,
             },
             &owner_writer,
         )
@@ -5697,6 +5738,7 @@ mod tests {
             Command::SetClientInfo {
                 name: Some("late browser".to_string()),
                 kind: Some("native-browser".to_string()),
+                capabilities: None,
             },
             &late_writer,
         )
@@ -5749,6 +5791,7 @@ mod tests {
             Command::SetClientInfo {
                 name: Some("\u{1b}]0;evil\u{07}name".to_string()),
                 kind: Some("web".to_string()),
+                capabilities: None,
             },
             &writer,
         )
@@ -5759,14 +5802,18 @@ mod tests {
         handle_command(
             &mux,
             client,
-            Command::SetClientInfo { name: Some("n".repeat(80)), kind: None },
+            Command::SetClientInfo { name: Some("n".repeat(80)), kind: None, capabilities: None },
             &writer,
         )
         .unwrap();
         handle_command(
             &mux,
             client,
-            Command::SetClientInfo { name: None, kind: Some("tui".to_string()) },
+            Command::SetClientInfo {
+                name: None,
+                kind: Some("tui".to_string()),
+                capabilities: None,
+            },
             &writer,
         )
         .unwrap();

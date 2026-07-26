@@ -790,6 +790,9 @@ impl RemoteSession {
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
         }
+        if self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY) {
+            client_info["capabilities"] = json!([GUARDED_BROWSER_POINTER_CAPABILITY]);
+        }
         self.request(client_info)?;
         if subscribe {
             self.prime_local_subscription();

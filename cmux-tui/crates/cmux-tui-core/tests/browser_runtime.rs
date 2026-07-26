@@ -95,6 +95,26 @@ fn rpc(path: &std::path::Path, mut cmd: Value) -> Value {
     serde_json::from_str(&response).unwrap()
 }
 
+fn guarded_client(path: &std::path::Path, id: u64) -> BufReader<UnixStream> {
+    let mut stream = UnixStream::connect(path).unwrap();
+    let mut line = json!({
+        "id": id,
+        "cmd": "set-client-info",
+        "kind": "tui",
+        "capabilities": [server::GUARDED_BROWSER_POINTER_CAPABILITY],
+    })
+    .to_string()
+    .into_bytes();
+    line.push(b'\n');
+    stream.write_all(&line).unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut response = String::new();
+    reader.read_line(&mut response).unwrap();
+    let response: Value = serde_json::from_str(&response).unwrap();
+    assert_eq!(response["ok"], true, "guarded client registration failed: {response}");
+    reader
+}
+
 fn recv_method(rx: &mpsc::Receiver<Value>, method: &str) -> Value {
     recv_method_where(rx, method, |_| true)
 }
@@ -515,8 +535,19 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(other_tab["ok"], true, "new-tab failed: {other_tab}");
     let other_tab_surface = other_tab["data"]["surface"].as_u64().unwrap();
 
-    let mut attach = UnixStream::connect(&socket_path).unwrap();
-    attach
+    let unsupported_attach =
+        rpc(&socket_path, json!({"id": 199, "cmd": "attach-surface", "surface": surface}));
+    assert_eq!(unsupported_attach["ok"], false);
+    assert!(
+        unsupported_attach["error"]
+            .as_str()
+            .is_some_and(|error| error.contains(server::GUARDED_BROWSER_POINTER_CAPABILITY)),
+        "unguarded browser attach must fail with an actionable capability error: {unsupported_attach}"
+    );
+
+    let mut attach_reader = guarded_client(&socket_path, 200);
+    attach_reader
+        .get_mut()
         .write_all(
             json!({
                 "id": 2,
@@ -529,9 +560,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             .as_bytes(),
         )
         .unwrap();
-    attach.write_all(b"\n").unwrap();
-    attach.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
-    let mut attach_reader = BufReader::new(attach);
+    attach_reader.get_mut().write_all(b"\n").unwrap();
+    attach_reader.get_ref().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
     attach_resize_started_rx
         .recv_timeout(Duration::from_secs(10))
         .expect("sized attach reached browser reconfigure");
@@ -542,8 +572,9 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     };
     assert!(matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut));
 
-    let mut joined_attach = UnixStream::connect(&socket_path).unwrap();
-    joined_attach
+    let mut joined_reader = guarded_client(&socket_path, 201);
+    joined_reader
+        .get_mut()
         .write_all(
             json!({
                 "id": 3,
@@ -556,9 +587,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             .as_bytes(),
         )
         .unwrap();
-    joined_attach.write_all(b"\n").unwrap();
-    joined_attach.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
-    let mut joined_reader = BufReader::new(joined_attach);
+    joined_reader.get_mut().write_all(b"\n").unwrap();
+    joined_reader.get_ref().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
     let mut premature = String::new();
     let error = match joined_reader.read_line(&mut premature) {
         Err(error) => error,
@@ -582,8 +612,9 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(joined_state["rows"], 6);
     assert!(joined_state["frame"].is_null());
 
-    let mut larger_attach = UnixStream::connect(&socket_path).unwrap();
-    larger_attach
+    let mut larger_reader = guarded_client(&socket_path, 202);
+    larger_reader
+        .get_mut()
         .write_all(
             json!({
                 "id": 4,
@@ -596,8 +627,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             .as_bytes(),
         )
         .unwrap();
-    larger_attach.write_all(b"\n").unwrap();
-    let mut larger_reader = BufReader::new(larger_attach);
+    larger_reader.get_mut().write_all(b"\n").unwrap();
     let mut larger_line = String::new();
     larger_reader.read_line(&mut larger_line).unwrap();
     let larger_state: Value = serde_json::from_str(&larger_line).unwrap();
