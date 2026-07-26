@@ -917,9 +917,11 @@ Example:
 {"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1,"created_at_ms":1710000000000}
 ```
 
-## Proposed Subscribe Filters
+## Surface-Scoped Subscriptions and Proposed Filters
 
-Proposed protocol v10 extends `subscribe` with optional filters:
+Protocol v9 implements an optional numeric `surface` on `subscribe`. It filters unrelated high-volume surface and layout events before the bounded subscriber mailbox while retaining target topology and session lifecycle events.
+
+Proposed protocol v10 extends this with arbitrary event and multi-surface filters:
 
 Params:
 

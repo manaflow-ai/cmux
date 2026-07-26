@@ -17518,6 +17518,12 @@ private extension NSWindow {
             }
 #endif
             if !consumedByMenu {
+                if firstResponderGhosttyView.consumeUnavailableCopyMenuAction(event) {
+#if DEBUG
+                    cmuxDebugLog("  → mainMenu miss; consumed unavailable terminal Copy")
+#endif
+                    return true
+                }
                 // After a direct-to-menu miss, let Ghostty resolve the command key
                 // through its normal binding path so user key overrides still win.
                 let consumedByGhostty = firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event)
