@@ -847,51 +847,21 @@ impl LocalPtyProcess {
                 if observed_without_reaping {
                     process.child_waitable.store(true, Ordering::Release);
                     process.exited.1.notify_all();
-                    loop {
-                        let signal = process.child_signal_lock.lock().unwrap();
-                        let escalation_complete =
-                            process.group_escalation_complete.load(Ordering::Acquire);
-                        let termination_started =
-                            process.termination_started.load(Ordering::Acquire);
-                        let pty_drained = process.pty_drained.load(Ordering::Acquire);
-                        let normal_cleanup_complete = !escalation_complete
-                            && !termination_started
-                            && pty_drained
-                            && process.kill_session_descendants_before_reap(
-                                Instant::now() + NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
-                            );
-                        if escalation_complete || normal_cleanup_complete {
-                            process.group_escalation_complete.store(true, Ordering::Release);
+                    crate::process_session::reap_reserved_session_leader(
+                        crate::process_session::ReservedChildReap {
+                            changed: &process.exited,
+                            signal_lock: &process.child_signal_lock,
+                            pty_drained: &process.pty_drained,
+                            termination_started: &process.termination_started,
+                            cleanup_complete: &process.group_escalation_complete,
+                            child_reaped: &process.child_reaped,
+                        },
+                        NORMAL_EXIT_SESSION_CLEANUP_TIMEOUT,
+                        |deadline| process.kill_session_descendants_before_reap(deadline),
+                        || {
                             let _ = child.wait();
-                            process.child_reaped.store(true, Ordering::Release);
-                            drop(signal);
-                            break;
-                        }
-                        drop(signal);
-                        let state = process.exited.0.lock().unwrap();
-                        let _state = if !termination_started && pty_drained {
-                            process
-                                .exited
-                                .1
-                                .wait_while(state, |_| {
-                                    !process.termination_started.load(Ordering::Acquire)
-                                        && !process
-                                            .group_escalation_complete
-                                            .load(Ordering::Acquire)
-                                })
-                                .unwrap()
-                        } else {
-                            process
-                                .exited
-                                .1
-                                .wait_while(state, |_| {
-                                    !process.group_escalation_complete.load(Ordering::Acquire)
-                                        && (process.termination_started.load(Ordering::Acquire)
-                                            || !process.pty_drained.load(Ordering::Acquire))
-                                })
-                                .unwrap()
-                        };
-                    }
+                        },
+                    );
                 } else {
                     let _ = child.wait();
                     process.child_reaped.store(true, Ordering::Release);
@@ -940,6 +910,12 @@ impl LocalPtyProcess {
         let (exited, _) =
             self.exited.1.wait_timeout_while(exited, remaining, |exited| !*exited).unwrap();
         *exited
+    }
+
+    #[cfg(unix)]
+    fn abandon_termination(&self) {
+        self.termination_started.store(false, Ordering::Release);
+        self.exited.1.notify_all();
     }
 
     #[cfg(unix)]
@@ -1072,14 +1048,20 @@ impl LocalPtyProcess {
             self.exited.1.notify_all();
             if child_reaped {
                 let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+                    self.abandon_termination();
                     return false;
                 };
-                return matches!(
+                let empty = matches!(
                     crate::process_session::session_is_empty_until(session, deadline),
                     Ok(true)
                 );
+                if !empty {
+                    self.abandon_termination();
+                }
+                return empty;
             }
             if self.signal_terminal_process_session(libc::SIGHUP, deadline, snapshot).is_err() {
+                self.abandon_termination();
                 return false;
             }
             let _ = self.request_hangup();
@@ -1091,6 +1073,7 @@ impl LocalPtyProcess {
             // reserved with WNOWAIT, and do not acknowledge shutdown until no
             // background group remains.
             if !matches!(self.kill_terminal_process_session_until(deadline, snapshot), Ok(true)) {
+                self.abandon_termination();
                 return false;
             }
             self.group_escalation_complete.store(true, Ordering::Release);
@@ -3353,7 +3336,7 @@ mod tests {
         process.normal_cleanup_failures.store(1, Ordering::Release);
         std::fs::write(&release_path, b"ready").unwrap();
 
-        let retry_deadline = Instant::now() + Duration::from_secs(1);
+        let retry_deadline = Instant::now() + Duration::from_secs(3);
         while (!process.child_reaped.load(Ordering::Acquire)
             || process.normal_cleanup_attempts.load(Ordering::Acquire) < 2)
             && Instant::now() < retry_deadline

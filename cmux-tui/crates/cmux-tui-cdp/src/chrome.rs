@@ -329,18 +329,16 @@ fn poll_reap_request(request: &mut ReapRequest) -> bool {
         REAPER_POLL_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
         if FORCE_REAPER_WAIT_ERROR.load(Ordering::Acquire) {
             let _ = request.child.kill();
-            if let Some(profile_dir) = request.profile_dir.take() {
-                let _ = std::fs::remove_dir_all(profile_dir);
-            }
-            return true;
+            return false;
         }
         if FORCE_REAPER_PENDING.load(Ordering::Acquire) {
             return false;
         }
     }
     let _ = request.child.kill();
-    if let Ok(None) = request.child.try_wait() {
-        return false;
+    match request.child.try_wait() {
+        Ok(Some(_)) => {}
+        Ok(None) | Err(_) => return false,
     }
     if let Some(profile_dir) = request.profile_dir.take() {
         let _ = std::fs::remove_dir_all(profile_dir);

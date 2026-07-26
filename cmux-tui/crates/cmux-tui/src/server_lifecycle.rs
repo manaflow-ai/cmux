@@ -35,6 +35,7 @@ const LEGACY_STABLE_EMPTY_SCANS: usize = 2;
 #[cfg(unix)]
 const LEGACY_MAX_SCAN_ROUNDS: usize = 64;
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_LIFECYCLE_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SHUTDOWN_TRANSPORT_MARGIN: Duration = Duration::from_secs(5);
 const SHUTDOWN_RESPONSE_TIMEOUT: Duration =
     SERVER_SHUTDOWN_TIMEOUT.saturating_add(SHUTDOWN_TRANSPORT_MARGIN);
@@ -825,25 +826,20 @@ fn read_matching_response_until(
     accept_unidentified_error: bool,
     deadline: Instant,
 ) -> anyhow::Result<Value> {
-    let mut line = String::new();
+    let mut line = Vec::new();
     loop {
-        set_transport_deadline(reader.get_mut().as_ref(), deadline)?;
-        match reader.read_line(&mut line) {
-            Ok(0) => anyhow::bail!(crate::localization::catalog().server.response_closed),
-            Ok(_) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) && Instant::now() < deadline =>
-            {
-                continue;
+        match read_bounded_lifecycle_line_until(reader, &mut line, deadline) {
+            Ok(false) => anyhow::bail!(crate::localization::catalog().server.response_closed),
+            Ok(true) => {}
+            Err(LifecycleLineError::Invalid) => {
+                anyhow::bail!(crate::localization::catalog().server.response_invalid)
             }
-            Err(_) => anyhow::bail!(crate::localization::catalog().server.transport_failed),
+            Err(LifecycleLineError::Deadline | LifecycleLineError::Transport) => {
+                anyhow::bail!(crate::localization::catalog().server.transport_failed)
+            }
         }
-        let value: Value = serde_json::from_str(&line)
+        let value: Value = serde_json::from_slice(&line)
             .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.response_invalid))?;
-        line.clear();
         if value.get("event").is_some() {
             continue;
         }
@@ -854,6 +850,62 @@ fn read_matching_response_until(
                 && value.get("ok").and_then(Value::as_bool) == Some(false))
         {
             return Ok(value);
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LifecycleLineError {
+    Deadline,
+    Invalid,
+    Transport,
+}
+
+fn read_bounded_lifecycle_line_until(
+    reader: &mut TransportReader,
+    line: &mut Vec<u8>,
+    deadline: Instant,
+) -> Result<bool, LifecycleLineError> {
+    line.clear();
+    loop {
+        if Instant::now() >= deadline {
+            return Err(LifecycleLineError::Deadline);
+        }
+        set_transport_deadline(reader.get_mut().as_ref(), deadline).map_err(|_| {
+            if Instant::now() >= deadline {
+                LifecycleLineError::Deadline
+            } else {
+                LifecycleLineError::Transport
+            }
+        })?;
+        let available = match reader.fill_buf() {
+            Ok(available) => available,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if Instant::now() >= deadline {
+                    return Err(LifecycleLineError::Deadline);
+                }
+                continue;
+            }
+            Err(_) => return Err(LifecycleLineError::Transport),
+        };
+        if available.is_empty() {
+            return Ok(!line.is_empty());
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let payload_bytes = newline.unwrap_or(available.len());
+        if payload_bytes > MAX_LIFECYCLE_RESPONSE_BYTES.saturating_sub(line.len()) {
+            return Err(LifecycleLineError::Invalid);
+        }
+        line.extend_from_slice(&available[..payload_bytes]);
+        let consumed = payload_bytes + usize::from(newline.is_some());
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(true);
         }
     }
 }
@@ -921,34 +973,20 @@ fn wait_for_disconnect_until(
     path: &Path,
     deadline: Instant,
 ) -> anyhow::Result<()> {
-    let mut line = String::new();
+    let mut line = Vec::new();
     loop {
-        if set_transport_deadline(reader.get_mut().as_ref(), deadline).is_err() {
-            if connection_is_gone(path) {
-                return Ok(());
-            }
-            anyhow::bail!(crate::localization::catalog().server.shutdown_timed_out);
-        }
-        match reader.read_line(&mut line) {
-            Ok(0) => return Ok(()),
-            Ok(_) => line.clear(),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) && Instant::now() < deadline => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
+        match read_bounded_lifecycle_line_until(reader, &mut line, deadline) {
+            Ok(false) => return Ok(()),
+            Ok(true) => {}
+            Err(LifecycleLineError::Deadline) => {
                 if connection_is_gone(path) {
                     return Ok(());
                 }
                 anyhow::bail!(crate::localization::catalog().server.shutdown_timed_out);
             }
-            Err(_) => return shutdown_read_error(path),
+            Err(LifecycleLineError::Invalid | LifecycleLineError::Transport) => {
+                return shutdown_read_error(path);
+            }
         }
     }
 }

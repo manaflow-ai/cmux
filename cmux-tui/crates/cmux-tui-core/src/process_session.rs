@@ -7,10 +7,92 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 const SESSION_KILL_POLL: Duration = Duration::from_millis(5);
+const NATURAL_REAP_RETRY_INITIAL: Duration = Duration::from_millis(25);
+const NATURAL_REAP_RETRY_MAX: Duration = Duration::from_secs(1);
+
+/// Synchronization shared by a WNOWAIT child observer and explicit PTY
+/// shutdown. The session leader remains reserved until this state machine
+/// confirms that cleanup completed and performs the sole final reap.
+pub(crate) struct ReservedChildReap<'a> {
+    pub(crate) changed: &'a (Mutex<bool>, Condvar),
+    pub(crate) signal_lock: &'a Mutex<()>,
+    pub(crate) pty_drained: &'a AtomicBool,
+    pub(crate) termination_started: &'a AtomicBool,
+    pub(crate) cleanup_complete: &'a AtomicBool,
+    pub(crate) child_reaped: &'a AtomicBool,
+}
+
+/// Reap a waitable PTY session leader without holding its signal lock during
+/// process-table scans. A transient natural-cleanup failure is retried even
+/// when no other lifecycle event arrives.
+pub(crate) fn reap_reserved_session_leader(
+    sync: ReservedChildReap<'_>,
+    cleanup_timeout: Duration,
+    mut cleanup: impl FnMut(Instant) -> bool,
+    reap: impl FnOnce(),
+) {
+    let mut reap = Some(reap);
+    let mut retry_delay = NATURAL_REAP_RETRY_INITIAL;
+    loop {
+        let should_attempt_cleanup = {
+            let _signal = sync.signal_lock.lock().unwrap();
+            if sync.cleanup_complete.load(Ordering::Acquire) {
+                reap.take().expect("reserved child is reaped once")();
+                sync.child_reaped.store(true, Ordering::Release);
+                return;
+            }
+            !sync.termination_started.load(Ordering::Acquire)
+                && sync.pty_drained.load(Ordering::Acquire)
+        };
+
+        let cleanup_succeeded = should_attempt_cleanup && cleanup(Instant::now() + cleanup_timeout);
+        if should_attempt_cleanup {
+            let _signal = sync.signal_lock.lock().unwrap();
+            let cleanup_claimed = sync.cleanup_complete.load(Ordering::Acquire);
+            let termination_started = sync.termination_started.load(Ordering::Acquire);
+            if cleanup_claimed || (cleanup_succeeded && !termination_started) {
+                sync.cleanup_complete.store(true, Ordering::Release);
+                reap.take().expect("reserved child is reaped once")();
+                sync.child_reaped.store(true, Ordering::Release);
+                return;
+            }
+        }
+
+        let state = sync.changed.0.lock().unwrap();
+        let retry_natural_cleanup = should_attempt_cleanup
+            && !cleanup_succeeded
+            && !sync.termination_started.load(Ordering::Acquire)
+            && !sync.cleanup_complete.load(Ordering::Acquire);
+        if retry_natural_cleanup {
+            let (_state, _) = sync
+                .changed
+                .1
+                .wait_timeout_while(state, retry_delay, |_| {
+                    !sync.termination_started.load(Ordering::Acquire)
+                        && !sync.cleanup_complete.load(Ordering::Acquire)
+                        && sync.pty_drained.load(Ordering::Acquire)
+                })
+                .unwrap();
+            retry_delay = (retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+        } else {
+            let _state = sync
+                .changed
+                .1
+                .wait_while(state, |_| {
+                    !sync.cleanup_complete.load(Ordering::Acquire)
+                        && (sync.termination_started.load(Ordering::Acquire)
+                            || !sync.pty_drained.load(Ordering::Acquire))
+                })
+                .unwrap();
+            retry_delay = NATURAL_REAP_RETRY_INITIAL;
+        }
+    }
+}
 
 #[cfg(test)]
 thread_local! {
@@ -127,7 +209,7 @@ impl SessionProcessSnapshot {
         drop(state);
 
         #[cfg(test)]
-        self.scan_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.scan_count.fetch_add(1, Ordering::Relaxed);
         let scanned = scan_sessions(&self.sessions, Some(deadline));
         let mut state = self.state.lock().unwrap();
         state.refreshing = false;
@@ -149,7 +231,7 @@ impl SessionProcessSnapshot {
 
     #[cfg(test)]
     fn scan_count(&self) -> usize {
-        self.scan_count.load(std::sync::atomic::Ordering::Relaxed)
+        self.scan_count.load(Ordering::Relaxed)
     }
 }
 

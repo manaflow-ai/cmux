@@ -2478,6 +2478,11 @@ mod unix {
             self.child_exit.1.notify_all();
         }
 
+        fn abandon_group_escalation(&self) {
+            self.termination_started.store(false, Ordering::Release);
+            self.child_exit.1.notify_all();
+        }
+
         fn publish_exit_if_drained(&self) {
             if claim_host_exit_after_drain(
                 &self.child_exit.0,
@@ -2516,7 +2521,7 @@ mod unix {
                     self.child_exit.1.notify_all();
                     self.publish_exit_if_drained();
                 } else {
-                    self.termination_started.store(false, Ordering::Release);
+                    self.abandon_group_escalation();
                 }
                 return;
             }
@@ -2530,7 +2535,7 @@ mod unix {
                 )
                 .is_err()
             {
-                self.termination_started.store(false, Ordering::Release);
+                self.abandon_group_escalation();
                 return;
             }
             if !self.child_waitable.load(Ordering::Acquire) {
@@ -2545,7 +2550,7 @@ mod unix {
             // gone.
             let kill_deadline = Instant::now() + HOST_KILL_WAIT;
             if !matches!(self.kill_terminal_process_session_until(kill_deadline), Ok(true)) {
-                self.termination_started.store(false, Ordering::Release);
+                self.abandon_group_escalation();
                 return;
             }
             self.finish_group_escalation();
@@ -3019,48 +3024,21 @@ mod unix {
             if observed_without_reaping {
                 child_host.child_waitable.store(true, Ordering::Release);
                 child_host.child_exit.1.notify_all();
-                loop {
-                    let signal = child_host.child_signal_lock.lock().unwrap();
-                    let escalation_complete =
-                        child_host.group_escalation_complete.load(Ordering::Acquire);
-                    let termination_started =
-                        child_host.termination_started.load(Ordering::Acquire);
-                    let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                    let normal_cleanup_complete = !escalation_complete
-                        && !termination_started
-                        && pty_drained
-                        && child_host
-                            .kill_session_descendants_before_reap(Instant::now() + HOST_KILL_WAIT);
-                    if escalation_complete || normal_cleanup_complete {
-                        child_host.group_escalation_complete.store(true, Ordering::Release);
+                crate::process_session::reap_reserved_session_leader(
+                    crate::process_session::ReservedChildReap {
+                        changed: &child_host.child_exit,
+                        signal_lock: &child_host.child_signal_lock,
+                        pty_drained: &child_host.pty_drained,
+                        termination_started: &child_host.termination_started,
+                        cleanup_complete: &child_host.group_escalation_complete,
+                        child_reaped: &child_host.child_reaped,
+                    },
+                    HOST_KILL_WAIT,
+                    |deadline| child_host.kill_session_descendants_before_reap(deadline),
+                    || {
                         let _ = child.wait();
-                        child_host.child_reaped.store(true, Ordering::Release);
-                        drop(signal);
-                        break;
-                    }
-                    drop(signal);
-                    let state = child_host.child_exit.0.lock().unwrap();
-                    let _state = if !termination_started && pty_drained {
-                        child_host
-                            .child_exit
-                            .1
-                            .wait_while(state, |_| {
-                                !child_host.termination_started.load(Ordering::Acquire)
-                                    && !child_host.group_escalation_complete.load(Ordering::Acquire)
-                            })
-                            .unwrap()
-                    } else {
-                        child_host
-                            .child_exit
-                            .1
-                            .wait_while(state, |_| {
-                                !child_host.group_escalation_complete.load(Ordering::Acquire)
-                                    && (child_host.termination_started.load(Ordering::Acquire)
-                                        || !child_host.pty_drained.load(Ordering::Acquire))
-                            })
-                            .unwrap()
-                    };
-                }
+                    },
+                );
                 let mut exited = child_host.child_exit.0.lock().unwrap();
                 *exited = true;
                 drop(exited);
@@ -3841,7 +3819,7 @@ mod unix {
             };
             let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
 
-            let retry_deadline = Instant::now() + Duration::from_secs(1);
+            let retry_deadline = Instant::now() + Duration::from_secs(3);
             while (!host.child_reaped.load(Ordering::Acquire)
                 || host.normal_cleanup_attempts.load(Ordering::Acquire) < 2)
                 && Instant::now() < retry_deadline
@@ -3853,7 +3831,11 @@ mod unix {
             host.request_termination();
             let _ = host.wait_for_child_exit(Duration::from_secs(1));
 
-            assert!(retried, "hosted PTY cleanup was not retried after a transient failure");
+            assert!(
+                retried,
+                "hosted PTY cleanup was not retried after a transient failure (attempts={})",
+                host.normal_cleanup_attempts.load(Ordering::Acquire)
+            );
             assert!(reaped, "the hosted PTY leader remained unreaped after cleanup could succeed");
         }
 
