@@ -3242,6 +3242,64 @@ mod tests {
     }
 
     #[test]
+    fn targeted_actions_are_negotiated_before_the_initial_snapshot() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let mut targeted = snapshot(1, "Machine", protocol::MachineStatus::Running);
+        targeted.actions[0].target = protocol::ProviderActionTarget::SelectedWorkspace;
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let hello: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(hello.request, protocol::ProviderRequest::Hello(_)));
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(
+                    hello.id,
+                    protocol::HelloResult {
+                        provider_id: id("test-provider"),
+                        provider_name: "Test Provider".into(),
+                        negotiated_version: protocol::Version,
+                    },
+                )
+                .with_capabilities(["client-capability-negotiation-v1"]),
+            );
+
+            let negotiation: Value = read_frame(&mut reader);
+            assert_eq!(
+                negotiation.get("method").and_then(Value::as_str),
+                Some("negotiate_client_capabilities")
+            );
+            assert_eq!(
+                negotiation.pointer("/params/capabilities"),
+                Some(&json!(["provider-action-targets-v1"]))
+            );
+            write_frame(
+                &mut stream,
+                &json!({
+                    "protocol": "cmux.machine-provider",
+                    "version": 1,
+                    "id": negotiation["id"],
+                    "result": {
+                        "capabilities": ["provider-action-targets-v1"]
+                    }
+                }),
+            );
+
+            let request: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(request.request, protocol::ProviderRequest::Snapshot(_)));
+            write_frame(&mut stream, &protocol::ResponseEnvelope::success(request.id, targeted));
+        });
+
+        let runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        assert_eq!(
+            runtime.snapshot.actions[0].target,
+            protocol::ProviderActionTarget::SelectedWorkspace
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
     fn provider_connect_footer_requires_negotiated_support() {
         let mut snapshot = snapshot(1, "Machine", protocol::MachineStatus::Running);
         snapshot.capabilities.connect_external_machine = true;
