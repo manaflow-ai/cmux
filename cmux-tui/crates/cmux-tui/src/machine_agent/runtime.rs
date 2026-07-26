@@ -2389,6 +2389,7 @@ mod tests {
         let (cloud, mut servers) = QueueCloud::new();
         let mut old_server = WirePeer::new(servers.remove(0));
         let mut new_server = WirePeer::new(servers.remove(0));
+        let mut third_server = WirePeer::new(servers.remove(0));
         let (old_local_client, mut old_local_server) = UnixStream::pair().unwrap();
         let (new_local_client, mut new_local_server) = UnixStream::pair().unwrap();
         let local = Arc::new(QueueLocal {
@@ -2469,6 +2470,32 @@ mod tests {
         };
         assert_eq!(old_data.payload.as_bytes(), b"old");
         assert_eq!(new_data.payload.as_bytes(), b"new");
+
+        new_server.write(Message::ReconnectGeneration(ReconnectGeneration {
+            generation: 6,
+            token: MigrationToken::new("overlapping-migration-1234").unwrap(),
+        }));
+        third_server
+            .reader
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_millis(250)))
+            .unwrap();
+        assert!(
+            matches!(
+                protocol_io::read_frame(&mut third_server.reader),
+                Err(FrameReadError::Io(ref error))
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    )
+            ),
+            "a third generation started while the oldest generation was still draining"
+        );
+        assert!(matches!(
+            new_server.read().message,
+            Message::GenerationRejected(GenerationRejected { generation: 6, ref code })
+                if code.as_str() == "migration_in_progress"
+        ));
 
         old_local_server.shutdown(std::net::Shutdown::Write).unwrap();
         assert!(matches!(
