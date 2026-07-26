@@ -602,6 +602,30 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct SharedOutput(Arc<Mutex<Vec<u8>>>);
+
+    impl SharedOutput {
+        fn bytes(&self) -> Vec<u8> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    impl Write for SharedOutput {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn occurrences(haystack: &[u8], needle: &[u8]) -> usize {
+        haystack.windows(needle.len()).filter(|window| *window == needle).count()
+    }
+
     fn key(ch: char, modifiers: KeyModifiers) -> Event {
         Event::Key(KeyEvent::new(KeyCode::Char(ch), modifiers))
     }
@@ -680,6 +704,31 @@ mod tests {
             replayed.is_empty(),
             "a late terminal response for a canceled fence must not become user input"
         );
+    }
+
+    #[test]
+    fn incomplete_canceled_graphics_response_replays_after_deadline() {
+        let (waiter, notifier) = graphics_fence_channel();
+        let mut filter = GraphicsResponseFilter::new(notifier);
+        let id = processing_fence_id(14);
+        waiter.prepare(id);
+        let boundary = key('_', KeyModifiers::ALT);
+        let graphics_prefix = key('G', KeyModifiers::SHIFT);
+        assert!(filter.filter(boundary.clone()).is_empty());
+        assert!(filter.filter(graphics_prefix.clone()).is_empty());
+
+        waiter.cancel(id);
+        let buffered_key = key('i', KeyModifiers::NONE);
+        assert!(filter.filter(buffered_key.clone()).is_empty());
+        std::thread::sleep(Duration::from_millis(300));
+        let following = key('z', KeyModifiers::NONE);
+
+        assert_eq!(
+            filter.take_expired(),
+            vec![boundary, graphics_prefix, buffered_key],
+            "an unterminated late response must replay without waiting for more keyboard input"
+        );
+        assert_eq!(filter.filter(following.clone()), vec![following]);
     }
 
     #[test]
@@ -912,6 +961,85 @@ mod tests {
             "an exhausted fence timeout must request recovery without disabling graphics"
         );
         assert!(later_accepted, "the writer must remain available for a later re-probe");
+    }
+
+    #[test]
+    fn persistent_processing_timeouts_eventually_stop_writer() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            lock,
+            Vec::new(),
+            || {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "injected persistent fence timeout",
+                ))
+            },
+            move || {
+                ready_tx.send(()).unwrap();
+            },
+        )
+        .unwrap();
+        let placement = |seq| GraphicPlacement {
+            surface: 11,
+            rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+            seq,
+            pointer_frame_seq: Some(seq),
+            data_b64: "AAAA".to_string(),
+        };
+
+        assert!(writer.submit(13, 1, vec![placement(19)]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(writer.take_completion(), Some(GraphicsCompletion::TimedOut { .. })));
+        assert!(writer.submit(14, 1, vec![placement(20)]));
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let completion = writer.take_completion();
+        writer.shutdown(Duration::from_secs(1));
+
+        assert_eq!(
+            completion,
+            Some(GraphicsCompletion::Failed),
+            "persistent fence loss must disable graphics instead of retransmitting forever"
+        );
+    }
+
+    #[test]
+    fn shutdown_interrupts_unanswered_processing_fence_before_retry() {
+        let lock = Arc::new(StdoutLock::new(()));
+        let output = SharedOutput::default();
+        let (fence, _notifier) = graphics_fence_channel();
+        let mut writer =
+            GraphicsWriter::spawn_with_fence(lock, output.clone(), fence, || {}).unwrap();
+        let id = 15;
+        let query = processing_fence(processing_fence_id(id));
+        assert!(writer.submit(
+            id,
+            1,
+            vec![GraphicPlacement {
+                surface: 11,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 21,
+                pointer_frame_seq: Some(21),
+                data_b64: "AAAA".to_string(),
+            }]
+        ));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while occurrences(&output.bytes(), &query) == 0 {
+            assert!(Instant::now() < deadline, "writer never emitted its initial fence query");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        writer.shutdown(Duration::from_millis(200));
+        let stopped = writer.handle.as_ref().is_none_or(|handle| handle.is_finished());
+        std::thread::sleep(Duration::from_millis(1_100));
+        let query_count = occurrences(&output.bytes(), &query);
+
+        assert!(stopped, "shutdown must interrupt an unanswered fence within its wait budget");
+        assert_eq!(
+            query_count, 1,
+            "the graphics worker must not emit a retry query after terminal restoration"
+        );
     }
 
     #[test]

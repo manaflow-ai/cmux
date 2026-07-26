@@ -15814,6 +15814,19 @@ mod tests {
     }
 
     #[test]
+    fn browser_hover_deduplication_is_scoped_to_pointer_authority() {
+        let production = include_str!("app.rs")
+            .split("\n#[cfg(test)]\nmod tests {")
+            .next()
+            .expect("production app source");
+
+        assert!(
+            production.contains("let next = (area.surface, cell.0, cell.1, frame_seq);"),
+            "same-cell hover must be forwarded again when pointer authority changes"
+        );
+    }
+
+    #[test]
     fn pty_mouse_tracking_forwards_click_release_and_wheel_with_shift_override() {
         let mux = Mux::new(
             "mouse-passthrough-test",
