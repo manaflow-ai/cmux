@@ -19,6 +19,7 @@ public actor SimulatorControlService: SimulatorControlling {
     let routeSleep: @Sendable (Duration) async throws -> Void
     let locationOwnershipRegistry: SimulatorLocationOwnershipRegistry
     let cameraCleanupOwnershipStore: SimulatorCrossProcessOwnershipStore
+    let cameraCleanupCoordinator: SimulatorCameraCleanupCoordinator
     let cameraAuthorizationStore: SimulatorCameraAuthorizationStore
     let fractionalDateFormatter: ISO8601DateFormatter
     let internetDateFormatter: ISO8601DateFormatter
@@ -73,6 +74,7 @@ public actor SimulatorControlService: SimulatorControlling {
         self.now = now
         self.locationOwnershipRegistry = locationOwnershipScope.registry
         self.cameraCleanupOwnershipStore = cameraCleanupOwnershipScope.ownershipStore
+        self.cameraCleanupCoordinator = cameraCleanupOwnershipScope.coordinator
         self.cameraAuthorizationStore = cameraAuthorizationStore
         self.routeSleep = routeSleep
         let fractionalDateFormatter = ISO8601DateFormatter()

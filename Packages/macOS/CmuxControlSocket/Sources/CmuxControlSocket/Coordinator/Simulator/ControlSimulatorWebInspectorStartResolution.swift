@@ -2,7 +2,7 @@ public import Foundation
 
 /// The synchronous result of asking the app to start a Web Inspector operation.
 public enum ControlSimulatorWebInspectorStartResolution: Sendable {
-    /// The operation started and will resolve the supplied receipt within its contract timeout.
+    /// The operation started. The timeout applies after the receipt reports pane readiness.
     case started(
         surfaceID: UUID,
         timeoutSeconds: TimeInterval,

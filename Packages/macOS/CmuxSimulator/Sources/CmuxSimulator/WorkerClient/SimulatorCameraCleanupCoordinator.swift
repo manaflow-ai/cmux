@@ -127,12 +127,14 @@ actor SimulatorCameraCleanupCoordinator {
         var retriedRecoveryIdentifiers = Set<UUID>()
         var observedRevisions: [SimulatorCameraCleanupTarget: UInt64] = [:]
         while true {
+            guard !Task.isCancelled else { return false }
             let pending = revisionByTarget.compactMap { target, revision in
                 tailByTarget[target].map { (target, revision, $0) }
             }
             guard !pending.isEmpty else { return allCleanupCompleted }
             for (target, revision, task) in pending {
                 let result = await task.value
+                guard !Task.isCancelled else { return false }
                 guard revisionByTarget[target] == revision else { continue }
                 observedRevisions[target] = revision
                 switch result {
@@ -156,6 +158,34 @@ actor SimulatorCameraCleanupCoordinator {
             }
             if !hasNewCleanup { return allCleanupCompleted }
         }
+    }
+
+    /// Cancels every currently owned rollback and joins it for one bounded
+    /// grace period. A task that ignores cancellation remains retained for a
+    /// later retry, but cannot keep AppKit's terminate request unresolved.
+    func cancelPendingCleanupAndWait(
+        timeout: Duration,
+        sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
+    ) async -> Bool {
+        let pending = Array(tailByTarget.values)
+        guard !pending.isEmpty else { return true }
+        pending.forEach { $0.cancel() }
+        let join = Task<SimulatorCameraCleanupResult, Never> {
+            for task in pending {
+                _ = await task.value
+            }
+            return .completed
+        }
+        let outcome = await SimulatorCameraCleanupWaitState().wait(
+            for: join,
+            timeout: timeout,
+            sleeper: sleeper
+        )
+        join.cancel()
+        if case .completed = outcome {
+            return true
+        }
+        return false
     }
 
     private func schedule(

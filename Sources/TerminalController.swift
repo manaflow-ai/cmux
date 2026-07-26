@@ -142,6 +142,7 @@ class TerminalController {
     let simulatorLocationOwnershipScope: SimulatorLocationOwnershipScope
     /// App-owned camera cleanup scope injected into every Simulator pane.
     let simulatorCameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope
+    private var simulatorCameraAuthorizationRecoveryTask: Task<Void, Never>?
     /// Process-wide native SSH master owner and per-host reconnect coordinator.
     nonisolated let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
@@ -849,6 +850,22 @@ class TerminalController {
     func attachAuth(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.authCoordinator = coordinator
         self.browserSignInFlow = browserSignIn
+    }
+
+    func startSimulatorCameraAuthorizationRecovery() {
+        guard simulatorCameraAuthorizationRecoveryTask == nil else { return }
+        let ownershipScope = simulatorCameraCleanupOwnershipScope
+        simulatorCameraAuthorizationRecoveryTask = Task { @MainActor [weak self] in
+            let service = SimulatorControlService(
+                cameraCleanupOwnershipScope: ownershipScope
+            )
+            let succeeded = await service.recoverOrphanedCameraAuthorizations()
+            StartupBreadcrumbLog.append(
+                "simulator.cameraAuthorization.launchRecovery",
+                fields: ["succeeded": succeeded ? "1" : "0"]
+            )
+            self?.simulatorCameraAuthorizationRecoveryTask = nil
+        }
     }
 
     func start(

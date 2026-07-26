@@ -21,6 +21,8 @@ public struct SimulatorOperationDeadlines: Sendable {
     public let permissionResetAll: TimeInterval
     /// Additional time for a text command to start and attach its pane worker.
     public let textInputReadiness: TimeInterval
+    /// Maximum time for Web Inspector commands to start and hydrate a pane worker.
+    public let webInspectorReadiness: TimeInterval
     /// Additional time allowed for the CLI transport to receive a completed receipt.
     public let clientReceiptMargin: TimeInterval
 
@@ -35,6 +37,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         permissionMutation: TimeInterval = 70,
         permissionResetAll: TimeInterval = 190,
         textInputReadiness: TimeInterval? = nil,
+        webInspectorReadiness: TimeInterval? = nil,
         clientReceiptMargin: TimeInterval = 10
     ) {
         self.selectDevice = selectDevice
@@ -46,6 +49,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         self.permissionMutation = permissionMutation
         self.permissionResetAll = permissionResetAll
         self.textInputReadiness = textInputReadiness ?? selectDevice
+        self.webInspectorReadiness = webInspectorReadiness ?? selectDevice
         self.clientReceiptMargin = clientReceiptMargin
     }
 

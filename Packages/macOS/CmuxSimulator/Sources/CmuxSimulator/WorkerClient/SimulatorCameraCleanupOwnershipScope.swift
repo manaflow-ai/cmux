@@ -33,4 +33,11 @@ public struct SimulatorCameraCleanupOwnershipScope: Sendable {
     public func waitForPendingCleanup() async -> Bool {
         await coordinator.waitForPendingCleanup()
     }
+
+    /// Cancels every app-owned camera rollback and waits only for the supplied
+    /// grace period. The durable authorization record remains when a rollback
+    /// cannot unwind, so a later launch or quit can retry it safely.
+    public func cancelPendingCleanupAndWait(timeout: Duration) async -> Bool {
+        await coordinator.cancelPendingCleanupAndWait(timeout: timeout)
+    }
 }

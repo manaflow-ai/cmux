@@ -1,6 +1,56 @@
 import Foundation
 
 extension SimulatorControlService {
+    /// Restores camera authorization journals whose exact owner process no
+    /// longer exists. Recovery is serialized with camera injection, and the
+    /// record is re-read under the cross-process TCC/application locks so a
+    /// newly active worker can adopt it without being rolled back.
+    public func recoverOrphanedCameraAuthorizations() async -> Bool {
+        let records: [SimulatorCameraAuthorizationRecord]
+        do {
+            records = try cameraAuthorizationStore.records()
+        } catch {
+            return false
+        }
+        var tasks: [Task<SimulatorCameraCleanupResult, Never>] = []
+        for record in records where !record.isOwnedByRunningProcess {
+            let task = await cameraCleanupCoordinator.enqueue(
+                deviceIdentifier: record.deviceIdentifier,
+                bundleIdentifiers: [record.bundleIdentifier]
+            ) { [self] in
+                do {
+                    try await recoverCameraAuthorizationIfOrphaned(
+                        deviceIdentifier: record.deviceIdentifier,
+                        bundleIdentifier: record.bundleIdentifier
+                    )
+                    return .completed
+                } catch is CancellationError {
+                    return .failed(simulatorCameraCleanupCancellationFailure())
+                } catch let error as SimulatorControlError {
+                    return .failed(SimulatorFailure(
+                        code: error.code,
+                        message: error.message,
+                        isRecoverable: true
+                    ))
+                } catch {
+                    return .failed(SimulatorFailure(
+                        code: "simulator_camera_cleanup_failed",
+                        message: error.localizedDescription,
+                        isRecoverable: true
+                    ))
+                }
+            }
+            tasks.append(task)
+        }
+        var succeeded = true
+        for task in tasks {
+            if case .failed = await task.value {
+                succeeded = false
+            }
+        }
+        return succeeded
+    }
+
     /// Lists installed user and system applications.
     public func listApplications(deviceID: String) async throws -> [SimulatorInstalledApplication] {
         let arguments = ["simctl", "listapps", deviceID]
@@ -136,6 +186,39 @@ extension SimulatorControlService {
             ) else { return }
             _ = try await output(arguments: [
                 "simctl", "launch", "--terminate-running-process", deviceID, bundleIdentifier,
+            ])
+        }
+    }
+
+    private func recoverCameraAuthorizationIfOrphaned(
+        deviceIdentifier: String,
+        bundleIdentifier: String
+    ) async throws {
+        try await mutationGate.withLocks([
+            .tcc(deviceIdentifier: deviceIdentifier),
+            .application(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            ),
+        ]) {
+            guard let record = try cameraAuthorizationStore.record(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            ), !record.isOwnedByRunningProcess else { return }
+            _ = try? await output(arguments: [
+                "simctl", "terminate", deviceIdentifier, bundleIdentifier,
+            ])
+            guard let currentRecord = try cameraAuthorizationStore.record(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            ), !currentRecord.isOwnedByRunningProcess else { return }
+            try await restoreCameraAuthorizationIfRecorded(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+            _ = try await output(arguments: [
+                "simctl", "launch", "--terminate-running-process",
+                deviceIdentifier, bundleIdentifier,
             ])
         }
     }

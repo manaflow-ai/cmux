@@ -6,12 +6,18 @@ public import Foundation
 /// the mutable `completion` value, and completion accepts only the first result.
 public final class ControlSimulatorWebInspectorReceipt: @unchecked Sendable {
     private let condition = NSCondition()
+    private let readinessTimeout: TimeInterval?
     private let cancellationJoinTimeout: TimeInterval
     private var completion: ControlSimulatorWebInspectorCompletion?
     private var cancellation: (@Sendable () -> Void)?
+    private var operationIsReady = false
 
     /// Creates an unresolved receipt.
-    public init(cancellationJoinTimeout: TimeInterval = 5) {
+    public init(
+        readinessTimeout: TimeInterval? = nil,
+        cancellationJoinTimeout: TimeInterval = 5
+    ) {
+        self.readinessTimeout = readinessTimeout.map { max(0, $0) }
         self.cancellationJoinTimeout = max(0, cancellationJoinTimeout)
     }
 
@@ -33,11 +39,27 @@ public final class ControlSimulatorWebInspectorReceipt: @unchecked Sendable {
         self.cancellation = cancellation
     }
 
-    /// Waits until the receipt resolves or the timeout expires.
+    /// Starts the operation-specific deadline after pane readiness completes.
+    public func markOperationReady() {
+        condition.lock()
+        defer { condition.unlock() }
+        guard completion == nil else { return }
+        operationIsReady = true
+        condition.broadcast()
+    }
+
+    /// Waits through the optional readiness phase, then gives the actual Web
+    /// Inspector operation its full timeout.
     public func wait(timeout: TimeInterval) -> ControlSimulatorWebInspectorCompletion? {
         condition.lock()
+        if let readinessTimeout {
+            let readinessDeadline = Date().addingTimeInterval(readinessTimeout)
+            while completion == nil, !operationIsReady {
+                guard condition.wait(until: readinessDeadline) else { break }
+            }
+        }
         let deadline = Date().addingTimeInterval(max(0, timeout))
-        while completion == nil {
+        while completion == nil, readinessTimeout == nil || operationIsReady {
             guard condition.wait(until: deadline) else { break }
         }
         let result = completion

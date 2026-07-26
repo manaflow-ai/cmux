@@ -606,7 +606,9 @@ extension CMUXCLI {
         case "targets":
             try requireNoSimulatorSource(parsed, subcommand: subcommand)
             method = "simulator.web_inspector.targets"
-            responseTimeout = 25
+            responseTimeout = simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.webInspectorReadiness + 15
+            )
         case "attach":
             guard parsed.positionals.count == 1,
                   !parsed.positionals[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -616,14 +618,18 @@ extension CMUXCLI {
             }
             params["target_id"] = parsed.positionals[0]
             method = "simulator.web_inspector.attach"
-            responseTimeout = 25
+            responseTimeout = simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.webInspectorReadiness + 15
+            )
         case "send":
             params["json"] = try simulatorSourceValue(
                 parsed,
                 maximumBytes: Self.simulatorInspectorLimit
             )
             method = "simulator.web_inspector.send"
-            responseTimeout = simulatorOperationDeadlines.clientTimeout(for: 20)
+            responseTimeout = simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.webInspectorReadiness + 20
+            )
         case "highlight":
             guard parsed.positionals.count == 1,
                   !parsed.readsStandardInput,
@@ -640,11 +646,15 @@ extension CMUXCLI {
                 ))
             }
             method = "simulator.web_inspector.highlight"
-            responseTimeout = 25
+            responseTimeout = simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.webInspectorReadiness + 15
+            )
         case "release":
             try requireNoSimulatorSource(parsed, subcommand: subcommand)
             method = "simulator.web_inspector.release"
-            responseTimeout = 25
+            responseTimeout = simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.webInspectorReadiness + 15
+            )
         default:
             throw CLIError(message: String.localizedStringWithFormat(
                 String(

@@ -17,17 +17,17 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
     package func save(
         _ authorization: SimulatorPrivacyAuthorization,
         deviceIdentifier: String,
-        bundleIdentifier: String
+        bundleIdentifier: String,
+        ownerProcessIdentity: SimulatorProcessIdentity? = .parent
     ) throws {
-        guard [.notDetermined, .denied, .granted].contains(authorization) else {
+        guard [.notDetermined, .denied, .granted].contains(authorization),
+              let ownerProcessIdentity else {
             throw CocoaError(.fileWriteUnknown)
         }
-        if try self.authorization(
+        let existing = try record(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
-        ) != nil {
-            return
-        }
+        )
         let fileManager = FileManager()
         try fileManager.createDirectory(
             at: directory,
@@ -37,7 +37,8 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         let data = try JSONEncoder().encode(SimulatorCameraAuthorizationRecord(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
-            authorization: authorization
+            authorization: existing?.authorization ?? authorization,
+            ownerProcessIdentity: ownerProcessIdentity
         ))
         let url = fileURL(
             deviceIdentifier: deviceIdentifier,
@@ -54,6 +55,16 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         deviceIdentifier: String,
         bundleIdentifier: String
     ) throws -> SimulatorPrivacyAuthorization? {
+        try record(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )?.authorization
+    }
+
+    package func record(
+        deviceIdentifier: String,
+        bundleIdentifier: String
+    ) throws -> SimulatorCameraAuthorizationRecord? {
         let url = fileURL(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
@@ -63,13 +74,37 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
             SimulatorCameraAuthorizationRecord.self,
             from: Data(contentsOf: url)
         )
-        guard record.deviceIdentifier == deviceIdentifier,
-              record.bundleIdentifier == bundleIdentifier,
-              [.notDetermined, .denied, .granted].contains(record.authorization)
-        else {
-            throw CocoaError(.fileReadCorruptFile)
+        try validate(
+            record,
+            expectedDeviceIdentifier: deviceIdentifier,
+            expectedBundleIdentifier: bundleIdentifier,
+            sourceURL: url
+        )
+        return record
+    }
+
+    package func records() throws -> [SimulatorCameraAuthorizationRecord] {
+        let fileManager = FileManager()
+        guard fileManager.fileExists(atPath: directory.path) else { return [] }
+        return try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).compactMap { url in
+            guard url.pathExtension == "json",
+                  let record = try? JSONDecoder().decode(
+                      SimulatorCameraAuthorizationRecord.self,
+                      from: Data(contentsOf: url)
+                  ),
+                  (try? validate(
+                      record,
+                      expectedDeviceIdentifier: record.deviceIdentifier,
+                      expectedBundleIdentifier: record.bundleIdentifier,
+                      sourceURL: url
+                  )) != nil
+            else { return nil }
+            return record
         }
-        return record.authorization
     }
 
     package func remove(
@@ -95,6 +130,24 @@ public struct SimulatorCameraAuthorizationStore: Sendable {
         directory.appendingPathComponent(
             hash([deviceIdentifier, bundleIdentifier]) + ".json"
         )
+    }
+
+    private func validate(
+        _ record: SimulatorCameraAuthorizationRecord,
+        expectedDeviceIdentifier: String,
+        expectedBundleIdentifier: String,
+        sourceURL: URL
+    ) throws {
+        guard record.deviceIdentifier == expectedDeviceIdentifier,
+              record.bundleIdentifier == expectedBundleIdentifier,
+              [.notDetermined, .denied, .granted].contains(record.authorization),
+              sourceURL.standardizedFileURL == fileURL(
+                  deviceIdentifier: record.deviceIdentifier,
+                  bundleIdentifier: record.bundleIdentifier
+              ).standardizedFileURL
+        else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
     }
 
     private func hash(_ values: [String]) -> String {

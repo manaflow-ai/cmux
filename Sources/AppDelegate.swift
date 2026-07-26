@@ -1913,8 +1913,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }
+                guard !Task.isCancelled else { return }
                 for cleanupTask in simulatorCleanupTasks {
                     await cleanupTask.value
+                    guard !Task.isCancelled else { return }
                 }
                 let simulatorCleanupSucceeded = await TerminalController.shared
                     .simulatorCameraCleanupOwnershipScope
@@ -1931,8 +1933,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Simulator camera disable can legitimately consume its 120-second
             // worker deadline before durable simctl rollback begins. The
             // watchdog requests cancellation after that contract plus cleanup
-            // headroom, then still joins the bounded owned task before allowing
-            // AppKit teardown. It never bypasses externally visible rollback.
+            // headroom. It cancels the actual panel and rollback tasks, joins
+            // rollback only for a bounded grace period, then explicitly cancels
+            // this quit request. Durable records preserve any unfinished work.
             let cleanupDeadline: Duration = simulatorCleanupTasks.isEmpty
                 ? .milliseconds(3_500)
                 : .seconds(150)
@@ -1940,14 +1943,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             terminateCleanupWatchdogTask = Task { @MainActor in
                 try? await ContinuousClock().sleep(for: cleanupDeadline)
                 guard !Task.isCancelled else { return }
+                SimulatorPanel.cancelApplicationTerminationCleanup()
                 cleanupTask.cancel()
-                await cleanupTask.value
+                let cleanupJoined = await TerminalController.shared
+                    .simulatorCameraCleanupOwnershipScope
+                    .cancelPendingCleanupAndWait(timeout: .seconds(5))
+                StartupBreadcrumbLog.append(
+                    "appDelegate.shouldTerminate.cleanupDeadline",
+                    fields: ["rollbackJoined": cleanupJoined ? "1" : "0"]
+                )
+                self.cancelTerminationAfterSimulatorCleanupFailure()
             }
         }
         return true
     }
 
     private func cancelTerminationAfterSimulatorCleanupFailure() {
+        guard isAwaitingTerminateCleanup else { return }
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.simulatorCleanupFailed"
         )
@@ -2175,6 +2187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
+        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
+            TerminalController.shared.startSimulatorCameraAuthorizationRecovery()
+        }
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()

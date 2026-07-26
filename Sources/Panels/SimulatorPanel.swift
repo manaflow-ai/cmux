@@ -22,6 +22,12 @@ final class SimulatorPanel: Panel {
         return Array(pendingCleanupTasks.values)
     }
 
+    static func cancelApplicationTerminationCleanup() {
+        for task in pendingCleanupTasks.values {
+            task.cancel()
+        }
+    }
+
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .simulator
@@ -223,6 +229,7 @@ final class SimulatorPanel: Panel {
             await pendingShutdown?.value
             _ = await startupTask?.value
             await coordinator.close()
+            guard !Task.isCancelled else { return }
             let cleanupSucceeded = await TerminalController.shared
                 .simulatorCameraCleanupOwnershipScope
                 .waitForPendingCleanup()
