@@ -2227,6 +2227,220 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testFailedStationaryFontSizeActionRetriesBeforeRetiringRequest() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelID) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                applyAttemptCount += 1
+                guard applyAttemptCount > 1 else { return .failed }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        XCTAssertEqual(
+            applyAttemptCount,
+            2,
+            "A stationary mutation failure must remain pending for a later drain"
+        )
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19
+        )
+    }
+
+    func testFailedTransferRetriesAfterPanelLeavesCoordinatorOwnership() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace,
+              let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId,
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace,
+              let destinationPane =
+                destinationWorkspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected source and destination workspace panes")
+            return
+        }
+
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        panel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard sourceWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: panel,
+                sourceWorkspaceId: sourceWorkspace.id
+            ),
+            inPane: sourcePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a movable source terminal")
+            return
+        }
+
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: sourceManager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { change, candidate, configuredRuntimePoints in
+                guard candidate === panel else {
+                    return .alreadySatisfied
+                }
+                applyAttemptCount += 1
+                guard applyAttemptCount > 1 else { return .failed }
+                return cmuxApplyTerminalFontSizeChange(
+                    change,
+                    to: candidate,
+                    configuredRuntimePoints: configuredRuntimePoints
+                )
+            }
+        )
+        defer { coordinator.cancelAll() }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: sourceWorkspace.id,
+            deferFlush: true
+        )
+
+        guard let detached = sourceWorkspace.detachSurface(
+            panelId: panel.id
+        ),
+        destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected the terminal to leave coordinator ownership")
+            return
+        }
+#if DEBUG
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        XCTAssertEqual(
+            applyAttemptCount,
+            2,
+            "The source coordinator must retain a failed transfer until retry"
+        )
+        XCTAssertEqual(
+            panel.surface.fontSizeLineageSnapshot()?.basePoints,
+            19
+        )
+    }
+
+    func testSessionRestoreDuringActiveDrainReceivesOutstandingChange() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let pane = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected an initial workspace pane")
+            return
+        }
+        for suffix in 1...20 {
+            let panel = TerminalPanel(
+                id: UUID(
+                    uuidString: String(
+                        format: "00000000-0000-4000-8009-%012d",
+                        suffix
+                    )
+                )!,
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            panel.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            workspace.panels[panel.id] = panel
+        }
+
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:)
+        )
+        defer { coordinator.cancelAll() }
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        guard let restoredPanel = workspace.newTerminalSurface(
+            inPane: pane,
+            focus: false,
+            runtimeSpawnPolicy: .pacedSessionRestore,
+            terminalFontSizeCreationPolicy:
+                .sessionRestore(overrideBasePoints: 12)
+        ) else {
+            XCTFail("Expected a session-restored terminal")
+            return
+        }
+#if DEBUG
+        coordinator.debugDrainAll()
+#endif
+
+        XCTAssertEqual(
+            restoredPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+            11,
+            "A restored terminal created after discovery starts must join the active request"
+        )
+    }
+
     func testFailedTransferFontSizeActionBlocksLaterRequestAtNativeBound() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
