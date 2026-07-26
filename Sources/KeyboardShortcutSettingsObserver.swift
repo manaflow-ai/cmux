@@ -1,31 +1,49 @@
-import Combine
 import Foundation
+import Observation
 
-/// Publishes keyboard-shortcut revisions and owns the right-sidebar matcher snapshot.
+/// Observes keyboard-shortcut revisions and owns the right-sidebar matcher snapshot.
 @MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
+@Observable
+final class KeyboardShortcutSettingsObserver {
     static let shared = KeyboardShortcutSettingsObserver()
 
-    @Published private(set) var revision: UInt64 = 0
+    private(set) var revision: UInt64 = 0
     let rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher()
-    private var settingsCancellable: AnyCancellable?
-    private var recorderCancellable: AnyCancellable?
+    private let notificationCenter: NotificationCenter
+    @ObservationIgnored
+    private var settingsObserver: NSObjectProtocol?
+    @ObservationIgnored
+    private var recorderObserver: NSObjectProtocol?
 
     init(notificationCenter: NotificationCenter = .default) {
-        settingsCancellable = notificationCenter.publisher(
-            for: KeyboardShortcutSettings.didChangeNotification
-        ).sink { [weak self] _ in
+        self.notificationCenter = notificationCenter
+        settingsObserver = notificationCenter.addObserver(
+            forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
                 self?.revision &+= 1
                 self?.rightSidebarModeShortcutMatcher.reload()
             }
         }
-        recorderCancellable = notificationCenter.publisher(
-            for: KeyboardShortcutRecorderActivity.didChangeNotification
-        ).sink { [weak self] _ in
+        recorderObserver = notificationCenter.addObserver(
+            forName: KeyboardShortcutRecorderActivity.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
                 self?.revision &+= 1
             }
+        }
+    }
+
+    deinit {
+        if let settingsObserver {
+            notificationCenter.removeObserver(settingsObserver)
+        }
+        if let recorderObserver {
+            notificationCenter.removeObserver(recorderObserver)
         }
     }
 

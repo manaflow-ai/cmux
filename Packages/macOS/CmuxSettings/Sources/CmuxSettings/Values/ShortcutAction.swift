@@ -148,6 +148,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleBrowserDeveloperTools
     case showBrowserJavaScriptConsole
     case toggleBrowserFocusMode
+    /// Toggles design-mode editing for the focused browser.
     case toggleBrowserDesignMode
     case toggleReactGrab
     /// Scrolls the focused diff viewer down one step.

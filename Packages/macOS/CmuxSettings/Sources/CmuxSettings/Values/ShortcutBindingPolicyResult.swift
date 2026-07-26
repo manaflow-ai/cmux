@@ -23,7 +23,7 @@ public enum ShortcutBindingPolicyResult: Sendable, Equatable {
     case systemReservedShortcutNotAllowed
 }
 
-public extension ShortcutAction {
+extension ShortcutAction {
     /// Validates the representation-independent shape of a persisted shortcut.
     ///
     /// This policy intentionally excludes conflicts with other actions because
@@ -31,7 +31,7 @@ public extension ShortcutAction {
     ///
     /// - Parameter shortcut: The shortcut loaded or proposed by a persistence adapter.
     /// - Returns: The action-owned validity of the shortcut shape.
-    func shortcutBindingPolicyResult(
+    public func shortcutBindingPolicyResult(
         for shortcut: StoredShortcut
     ) -> ShortcutBindingPolicyResult {
         guard !shortcut.isUnbound else { return .accepted }
@@ -75,7 +75,7 @@ public extension ShortcutAction {
     ///   - conflictsWithReservedShortcut: Whether a normalized shortcut is reserved
     ///     by a higher-priority system-wide binding.
     /// - Returns: The executable shortcut, or `nil` when the action is unbound.
-    func effectivePersistedShortcut(
+    public func effectivePersistedShortcut(
         _ candidate: StoredShortcut?,
         conflictsWithReservedShortcut: (StoredShortcut) -> Bool = { _ in false }
     ) -> StoredShortcut? {
@@ -99,7 +99,7 @@ public extension ShortcutAction {
     ///   - conflictsWithReservedShortcut: Whether a normalized shortcut is reserved
     ///     by a higher-priority system-wide binding.
     /// - Returns: The executable shortcut, or `nil` when the action is unbound.
-    func effectivePersistedShortcut(
+    public func effectivePersistedShortcut(
         _ candidate: StoredShortcut?,
         normalizing: (StoredShortcut) -> StoredShortcut?,
         conflictsWithReservedShortcut: (StoredShortcut) -> Bool
