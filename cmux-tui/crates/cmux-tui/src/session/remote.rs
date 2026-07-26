@@ -533,13 +533,7 @@ impl RemoteSurface {
         let previous_status = browser.status.clone();
         browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
         browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
-        browser.status = match value.get("status").and_then(|v| v.as_str()) {
-            Some("failed") => BrowserStatus::Failed(
-                value.get("error").and_then(|v| v.as_str()).unwrap_or("browser failed").to_string(),
-            ),
-            Some("live") => BrowserStatus::Live,
-            _ => BrowserStatus::Starting,
-        };
+        browser.status = parse_browser_status(value).unwrap_or(BrowserStatus::Starting);
         browser.frames_stalled =
             value.get("frames_stalled").and_then(|v| v.as_bool()).unwrap_or(false);
         if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
@@ -549,17 +543,27 @@ impl RemoteSurface {
             browser.last_frame_at = Some(Instant::now());
             browser.frame = Some(frame);
         }
-        browser.pointer_frame_seq = value.get("pointer_frame_seq").and_then(Value::as_u64);
+        browser.pointer_frame_seq = matches!(browser.status, BrowserStatus::Live)
+            .then(|| value.get("pointer_frame_seq").and_then(Value::as_u64))
+            .flatten();
     }
 
     fn update_browser_frame(&self, value: &Value) {
         if let Some(frame) = parse_browser_frame(value) {
             let mut browser = self.browser.lock().unwrap();
-            browser.status = BrowserStatus::Live;
+            let previous_status = browser.status.clone();
+            let status = parse_browser_status(value);
+            if let Some(status) = status.clone() {
+                browser.status = status;
+            }
             browser.frames_stalled = false;
-            browser.live_since.get_or_insert_with(Instant::now);
+            if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
+                browser.live_since = Some(Instant::now());
+            }
             browser.last_frame_at = Some(Instant::now());
-            browser.pointer_frame_seq = Some(frame.frame.seq);
+            browser.pointer_frame_seq = matches!(status, Some(BrowserStatus::Live))
+                .then(|| value.get("pointer_frame_seq").and_then(Value::as_u64))
+                .flatten();
             browser.frame = Some(frame);
         }
     }
@@ -1724,6 +1728,17 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
     })
 }
 
+fn parse_browser_status(value: &Value) -> Option<BrowserStatus> {
+    match value.get("status")?.as_str()? {
+        "failed" => Some(BrowserStatus::Failed(
+            value.get("error").and_then(Value::as_str).unwrap_or("browser failed").to_string(),
+        )),
+        "live" => Some(BrowserStatus::Live),
+        "starting" => Some(BrowserStatus::Starting),
+        _ => Some(BrowserStatus::Starting),
+    }
+}
+
 #[cfg(test)]
 fn test_session_with_provider_context(
     provider_workspace_authority: Option<BearerToken>,
@@ -2527,6 +2542,11 @@ mod tests {
             "height": 40,
             "data": "Zmlyc3Q=",
         }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "a frame event without explicit authority metadata must fail closed"
+        );
         surface.update_browser_state(&json!({
             "url": "https://next.test",
             "title": "next",
@@ -2620,6 +2640,22 @@ mod tests {
             surface.browser.lock().unwrap().frame.as_ref().map(|frame| frame.frame.seq),
             Some(9),
             "the stale frame may remain cached for a later explicit recovery"
+        );
+
+        surface.update_browser_frame(&json!({
+            "seq": 10,
+            "width": 80,
+            "height": 40,
+            "data": "ZnJlc2g=",
+            "status": "live",
+            "error": null,
+            "pointer_frame_seq": 10,
+        }));
+        assert_eq!(surface.browser_status(), BrowserStatus::Live);
+        assert_eq!(
+            surface.browser_frame_seq(),
+            Some(10),
+            "explicit live frame metadata must restore pointer admission"
         );
     }
 

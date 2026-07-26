@@ -16,7 +16,6 @@ struct GraphicsSubmission {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PresentedGraphic {
-    pub session_generation: u64,
     pub surface: SurfaceId,
     pub rect: Rect,
     pub seq: u64,
@@ -25,7 +24,7 @@ pub struct PresentedGraphic {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphicsPresentation {
     pub id: u64,
-    pub frames: Vec<(SurfaceId, u64)>,
+    pub session_generation: u64,
     pub graphics: Vec<PresentedGraphic>,
 }
 
@@ -134,16 +133,10 @@ fn writer_loop(
         loop {
             let next = slot.lock().unwrap().take();
             let Some(submission) = next else { break };
-            let frames = submission
-                .placements
-                .iter()
-                .map(|placement| (placement.surface, placement.seq))
-                .collect();
             let presented_graphics = submission
                 .placements
                 .iter()
                 .map(|placement| PresentedGraphic {
-                    session_generation: submission.session_generation,
                     surface: placement.surface,
                     rect: placement.rect,
                     seq: placement.seq,
@@ -162,7 +155,7 @@ fn writer_loop(
             *completion.lock().unwrap() =
                 Some(GraphicsCompletion::Presented(GraphicsPresentation {
                     id: submission.id,
-                    frames,
+                    session_generation: submission.session_generation,
                     graphics: presented_graphics,
                 }));
             on_ready();
@@ -273,9 +266,8 @@ mod tests {
             writer.take_completion(),
             Some(GraphicsCompletion::Presented(GraphicsPresentation {
                 id: 7,
-                frames: vec![(11, 13)],
+                session_generation: 1,
                 graphics: vec![PresentedGraphic {
-                    session_generation: 1,
                     surface: 11,
                     rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                     seq: 13,

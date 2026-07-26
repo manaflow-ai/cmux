@@ -6522,11 +6522,24 @@ impl App {
 
     fn commit_graphics_presentation(&mut self, presentation: GraphicsPresentation) {
         let settles_latest = self.pending_graphics_submission == Some(presentation.id);
+        let belongs_to_current_session = presentation.session_generation == self.session_generation;
+        let current_browser_frames = (settles_latest && belongs_to_current_session).then(|| {
+            presentation
+                .graphics
+                .iter()
+                .filter(|graphic| {
+                    self.session
+                        .surface(graphic.surface)
+                        .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+                })
+                .map(|graphic| (graphic.surface, graphic.seq))
+                .collect::<Vec<_>>()
+        });
         self.last_graphics_snapshot = presentation
             .graphics
             .iter()
             .map(|graphic| GraphicIdentity {
-                session_generation: graphic.session_generation,
+                session_generation: presentation.session_generation,
                 surface: graphic.surface,
                 rect: graphic.rect,
                 seq: graphic.seq,
@@ -6537,13 +6550,15 @@ impl App {
             self.pending_graphics_snapshot = None;
             self.pending_graphics_affected_rects.clear();
         }
-        self.rendered_pane_content_generations
-            .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
-        for (surface, generation) in presentation.frames {
+        if let Some(current_browser_frames) = current_browser_frames {
             self.rendered_pane_content_generations
-                .insert(surface, PaneContentGeneration::Browser(generation));
+                .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
+            for (surface, generation) in current_browser_frames {
+                self.rendered_pane_content_generations
+                    .insert(surface, PaneContentGeneration::Browser(generation));
+            }
+            self.commit_rendered_pane_content_generations();
         }
-        self.commit_rendered_pane_content_generations();
         if settles_latest
             && self.pointer_route_phase == PointerRoutePhase::GraphicsPresentationPending
         {
@@ -14966,9 +14981,8 @@ mod tests {
 
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 2,
-            frames: vec![(11, 13)],
+            session_generation: intermediate.session_generation,
             graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
-                session_generation: intermediate.session_generation,
                 surface: intermediate.surface,
                 rect: intermediate.rect,
                 seq: intermediate.seq,
@@ -14983,7 +14997,7 @@ mod tests {
 
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 3,
-            frames: Vec::new(),
+            session_generation: app.session_generation,
             graphics: Vec::new(),
         });
         assert!(app.last_graphics_snapshot.is_empty());
@@ -14994,20 +15008,27 @@ mod tests {
     #[test]
     fn newer_browser_render_keeps_an_older_presentation_acknowledgment_stale() {
         let mux = Mux::new("graphics-presentation-order-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let surface_id = surface.id;
+        surface.kill();
+        let mut app = test_app(Session::Local(mux.clone()));
         app.pending_graphics_submission = Some(7);
         app.pointer_route_phase = PointerRoutePhase::GraphicsRenderPending;
 
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 7,
-            frames: vec![(11, 13)],
-            graphics: Vec::new(),
+            session_generation: app.session_generation,
+            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+                surface: surface_id,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 13,
+            }],
         });
 
         assert_eq!(app.pending_graphics_submission, None);
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::GraphicsRenderPending);
         assert_eq!(
-            app.rendered_pointer_frame.pane_content_generations.get(&11),
+            app.rendered_pointer_frame.pane_content_generations.get(&surface_id),
             Some(&PaneContentGeneration::Browser(13))
         );
 
@@ -15015,14 +15036,19 @@ mod tests {
         app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 8,
-            frames: vec![(11, 14)],
-            graphics: Vec::new(),
+            session_generation: app.session_generation,
+            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+                surface: surface_id,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 14,
+            }],
         });
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
         assert_eq!(
-            app.rendered_pointer_frame.pane_content_generations.get(&11),
+            app.rendered_pointer_frame.pane_content_generations.get(&surface_id),
             Some(&PaneContentGeneration::Browser(14))
         );
+        mux.close_surface(surface_id).unwrap();
     }
 
     #[test]
@@ -15086,9 +15112,8 @@ mod tests {
 
         app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
             id: 7,
-            frames: vec![(11, 13)],
+            session_generation: 1,
             graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
-                session_generation: 1,
                 surface: 11,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                 seq: 13,

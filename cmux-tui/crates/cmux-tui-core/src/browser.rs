@@ -59,7 +59,7 @@ struct BrowserFrameTap {
 #[derive(Debug, Default)]
 pub struct BrowserAttachUpdate {
     pub state: Option<BrowserAttachState>,
-    pub frame: Option<BrowserFrame>,
+    pub frame: Option<BrowserFrameUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +84,14 @@ impl BrowserStatus {
             BrowserStatus::Starting | BrowserStatus::Live => None,
         }
     }
+}
+
+/// Latest-wins image update paired with the state that governs pointer input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserFrameUpdate {
+    pub frame: BrowserFrame,
+    pub status: BrowserStatus,
+    pub pointer_frame_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1537,8 +1545,13 @@ impl BrowserSurface {
         let pointer_frame_seq = matches!(state.status, BrowserStatus::Live).then_some(frame.seq);
         Self::set_pointer_frame_locked(&mut state, pointer_frame_seq);
         state.latest_frame = Some(frame.clone());
+        let update = BrowserFrameUpdate {
+            frame,
+            status: state.status.clone(),
+            pointer_frame_seq: state.pointer_frame_seq,
+        };
         state.taps.retain(|tap| {
-            tap.slot.lock().unwrap().frame = Some(frame.clone());
+            tap.slot.lock().unwrap().frame = Some(update.clone());
             match tap.notify.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => true,
                 Err(TrySendError::Disconnected(())) => false,
@@ -1619,7 +1632,13 @@ impl BrowserSurface {
     fn mark_state_dirty_locked(state: &mut BrowserState) {
         let snapshot = browser_attach_state_locked(state, Instant::now(), false, false);
         state.taps.retain(|tap| {
-            tap.slot.lock().unwrap().state = Some(snapshot.clone());
+            let mut slot = tap.slot.lock().unwrap();
+            if let Some(frame) = slot.frame.as_mut() {
+                frame.status = snapshot.status.clone();
+                frame.pointer_frame_seq = snapshot.pointer_frame_seq;
+            }
+            slot.state = Some(snapshot.clone());
+            drop(slot);
             match tap.notify.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => true,
                 Err(TrySendError::Disconnected(())) => false,
@@ -1709,8 +1728,13 @@ impl BrowserSurface {
     }
 
     fn set_pending_attach_frame_locked(state: &mut BrowserState, frame: Option<BrowserFrame>) {
+        let update = frame.map(|frame| BrowserFrameUpdate {
+            frame,
+            status: state.status.clone(),
+            pointer_frame_seq: state.pointer_frame_seq,
+        });
         for tap in &state.taps {
-            tap.slot.lock().unwrap().frame = frame.clone();
+            tap.slot.lock().unwrap().frame = update.clone();
         }
     }
 
@@ -3996,16 +4020,36 @@ mod tests {
 
         stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
         let frame = stream.slot.lock().unwrap().frame.take().expect("latest frame");
-        assert_eq!(frame.seq, 3);
+        assert_eq!(frame.frame.seq, 3);
         assert!(stream.notify.try_recv().is_err());
 
         browser.store_frame(test_frame(4));
         stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
         let frame = stream.slot.lock().unwrap().frame.take().expect("next latest frame");
-        assert_eq!(frame.seq, 4);
+        assert_eq!(frame.frame.seq, 4);
 
         browser.kill();
         assert!(stream.notify.recv_timeout(Duration::from_secs(1)).is_err());
+    }
+
+    #[test]
+    fn pending_attach_frame_inherits_newer_authority_state() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let (_state, stream) = browser.attach_frames();
+        browser.store_frame(test_frame(1));
+        {
+            let mut state = browser.state.lock().unwrap();
+            state.status = BrowserStatus::Failed("navigation failed".to_string());
+            state.pointer_frame_seq = None;
+            super::BrowserSurface::mark_state_dirty_locked(&mut state);
+        }
+
+        stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
+        let update = std::mem::take(&mut *stream.slot.lock().unwrap());
+        let frame = update.frame.expect("pending frame");
+        assert_eq!(frame.status, BrowserStatus::Failed("navigation failed".to_string()));
+        assert_eq!(frame.pointer_frame_seq, None);
     }
 
     #[test]
@@ -4030,7 +4074,7 @@ mod tests {
         let restored = std::mem::take(&mut *stream.slot.lock().unwrap());
         assert!(restored.state.is_some(), "rollback state must restore pointer admission");
         assert_eq!(
-            restored.frame.map(|frame| frame.seq),
+            restored.frame.map(|frame| frame.frame.seq),
             Some(2),
             "rollback must resend the retained frame after discarding it at the barrier"
         );

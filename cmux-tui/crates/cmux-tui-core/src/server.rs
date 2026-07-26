@@ -42,6 +42,7 @@ use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
+use crate::browser::BrowserFrameUpdate;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
@@ -326,9 +327,34 @@ enum Command {
         button: Option<String>,
         #[serde(default, alias = "click_count")]
         click_count: Option<u32>,
+        #[serde(default)]
+        frame_seq: Option<u64>,
+    },
+    BrowserMouseGuarded {
+        surface: SurfaceId,
+        kind: String,
+        #[serde(alias = "x_px")]
+        x_px: f64,
+        #[serde(alias = "y_px")]
+        y_px: f64,
+        #[serde(default)]
+        button: Option<String>,
+        #[serde(default, alias = "click_count")]
+        click_count: Option<u32>,
         frame_seq: u64,
     },
     BrowserWheel {
+        surface: SurfaceId,
+        #[serde(alias = "x_px")]
+        x_px: f64,
+        #[serde(alias = "y_px")]
+        y_px: f64,
+        #[serde(alias = "delta_y_px")]
+        delta_y_px: f64,
+        #[serde(default)]
+        frame_seq: Option<u64>,
+    },
+    BrowserWheelGuarded {
         surface: SurfaceId,
         #[serde(alias = "x_px")]
         x_px: f64,
@@ -2421,6 +2447,53 @@ fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
     }
 }
 
+struct BrowserMouseCommand<'a> {
+    surface: SurfaceId,
+    kind: &'a str,
+    x_px: f64,
+    y_px: f64,
+    button: Option<&'a str>,
+    click_count: Option<u32>,
+    frame_seq: Option<u64>,
+}
+
+fn handle_browser_mouse_command(
+    mux: &Mux,
+    command: BrowserMouseCommand<'_>,
+) -> anyhow::Result<Value> {
+    let surface = get_surface(mux, command.surface)?;
+    require_browser(&surface)?;
+    let event_type = match command.kind {
+        "down" => "mousePressed",
+        "up" => "mouseReleased",
+        "move" => "mouseMoved",
+        other => anyhow::bail!("bad browser mouse kind {other:?}"),
+    };
+    surface.browser_mouse_event_for_frame(
+        event_type,
+        command.x_px,
+        command.y_px,
+        command.button,
+        command.click_count,
+        command.frame_seq,
+    )?;
+    Ok(json!({}))
+}
+
+fn handle_browser_wheel_command(
+    mux: &Mux,
+    surface: SurfaceId,
+    x_px: f64,
+    y_px: f64,
+    delta_y_px: f64,
+    frame_seq: Option<u64>,
+) -> anyhow::Result<Value> {
+    let surface = get_surface(mux, surface)?;
+    require_browser(&surface)?;
+    surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, frame_seq)?;
+    Ok(json!({}))
+}
+
 fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
     match level {
         "info" => Ok(NotificationLevel::Info),
@@ -2665,6 +2738,20 @@ fn browser_state_json(
         };
     }
     value
+}
+
+fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate) -> Value {
+    json!({
+        "event": "frame",
+        "surface": surface,
+        "seq": update.frame.seq,
+        "width": update.frame.css_width,
+        "height": update.frame.css_height,
+        "data": update.frame.data_b64,
+        "status": update.status.as_str(),
+        "error": update.status.error(),
+        "pointer_frame_seq": update.pointer_frame_seq,
+    })
 }
 
 fn spawn_attach_notification_stream(
@@ -3463,29 +3550,44 @@ fn handle_command(
             Ok(json!({"resizes": resizes, "failures": failures}))
         }
         Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
-            let event_type = match kind.as_str() {
-                "down" => "mousePressed",
-                "up" => "mouseReleased",
-                "move" => "mouseMoved",
-                other => anyhow::bail!("bad browser mouse kind {other:?}"),
-            };
-            surface.browser_mouse_event_for_frame(
-                event_type,
+            handle_browser_mouse_command(
+                mux,
+                BrowserMouseCommand {
+                    surface,
+                    kind: &kind,
+                    x_px,
+                    y_px,
+                    button: button.as_deref(),
+                    click_count,
+                    frame_seq,
+                },
+            )
+        }
+        Command::BrowserMouseGuarded {
+            surface,
+            kind,
+            x_px,
+            y_px,
+            button,
+            click_count,
+            frame_seq,
+        } => handle_browser_mouse_command(
+            mux,
+            BrowserMouseCommand {
+                surface,
+                kind: &kind,
                 x_px,
                 y_px,
-                button.as_deref(),
+                button: button.as_deref(),
                 click_count,
-                Some(frame_seq),
-            )?;
-            Ok(json!({}))
-        }
+                frame_seq: Some(frame_seq),
+            },
+        ),
         Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
-            surface.browser_wheel_for_frame(x_px, y_px, delta_y_px, Some(frame_seq))?;
-            Ok(json!({}))
+            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, frame_seq)
+        }
+        Command::BrowserWheelGuarded { surface, x_px, y_px, delta_y_px, frame_seq } => {
+            handle_browser_wheel_command(mux, surface, x_px, y_px, delta_y_px, Some(frame_seq))
         }
         Command::BrowserKey {
             surface,
@@ -4317,14 +4419,7 @@ fn handle_command(
                                 }
                             }
                             if let Some(frame) = update.frame {
-                                let value = json!({
-                                    "event": "frame",
-                                    "surface": surface_id,
-                                    "seq": frame.seq,
-                                    "width": frame.css_width,
-                                    "height": frame.css_height,
-                                    "data": frame.data_b64,
-                                });
+                                let value = browser_frame_json(surface_id, &frame);
                                 if let Err(error) = writer.send_stream(&value, &outbound_stream) {
                                     handle_attach_send_error(&lifecycle, &error);
                                     break;
@@ -4734,6 +4829,28 @@ mod tests {
             "a retained image can remain renderable while pointer admission is invalid"
         );
         assert_eq!(value["frame"]["seq"], 7);
+    }
+
+    #[test]
+    fn browser_frame_json_couples_authoritative_pointer_admission() {
+        let update = BrowserFrameUpdate {
+            frame: crate::BrowserFrame {
+                session_id: "session-test".to_string(),
+                data_b64: "AAAA".to_string(),
+                css_width: 80,
+                css_height: 48,
+                seq: 7,
+            },
+            status: crate::BrowserStatus::Failed("navigation failed".to_string()),
+            pointer_frame_seq: None,
+        };
+
+        let value = browser_frame_json(1, &update);
+
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["error"], "navigation failed");
+        assert_eq!(value.get("pointer_frame_seq"), Some(&Value::Null));
+        assert_eq!(value["seq"], 7);
     }
 
     #[test]

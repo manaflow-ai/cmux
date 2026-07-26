@@ -1511,7 +1511,7 @@ impl SurfaceHandle {
                 };
                 session
                     .request(json!({
-                        "cmd": "browser-mouse",
+                        "cmd": "browser-mouse-guarded",
                         "surface": surface.id,
                         "kind": kind,
                         "x_px": x,
@@ -1546,7 +1546,7 @@ impl SurfaceHandle {
                 })?;
                 session
                     .request(json!({
-                        "cmd": "browser-wheel",
+                        "cmd": "browser-wheel-guarded",
                         "surface": surface.id,
                         "x_px": x,
                         "y_px": y,

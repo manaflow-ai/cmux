@@ -59,6 +59,15 @@ def frame_size(data: str) -> int:
         return len(data)
 
 
+def pointer_frame_seq_from_event(value: dict) -> int | None:
+    if value.get("status") != "live":
+        return None
+    pointer_frame_seq = value.get("pointer_frame_seq")
+    if type(pointer_frame_seq) is not int or pointer_frame_seq < 0:
+        return None
+    return pointer_frame_seq
+
+
 class LineReader:
     """Buffered line reader over a timeout socket. readline() returns None on
     timeout instead of raising: socket.makefile() readers are permanently
@@ -131,13 +140,13 @@ def main() -> int:
                 got_response = True
             elif value.get("event") == "browser-state":
                 got_state = True
-                pointer_frame_seq = value.get("pointer_frame_seq")
+                pointer_frame_seq = pointer_frame_seq_from_event(value)
                 frame = value.get("frame")
                 if frame:
                     initial_seq = frame.get("seq")
             elif value.get("event") == "frame":
                 initial_seq = value.get("seq")
-                pointer_frame_seq = initial_seq
+                pointer_frame_seq = pointer_frame_seq_from_event(value)
         if not got_state:
             raise RuntimeError("attach did not return browser-state")
         if not got_response:
@@ -168,7 +177,7 @@ def main() -> int:
                 try:
                     rpc.request(
                         {
-                            "cmd": "browser-wheel",
+                            "cmd": "browser-wheel-guarded",
                             "surface": surface,
                             "x_px": 10,
                             "y_px": 10,
@@ -187,14 +196,14 @@ def main() -> int:
                 break
             value = json.loads(line)
             if value.get("event") == "browser-state":
-                pointer_frame_seq = value.get("pointer_frame_seq")
+                pointer_frame_seq = pointer_frame_seq_from_event(value)
                 continue
             if value.get("event") != "frame":
                 continue
             received = time.monotonic()
             seq = value.get("seq")
             last_seq = seq
-            pointer_frame_seq = seq
+            pointer_frame_seq = pointer_frame_seq_from_event(value)
             frame_times.append(received)
             sizes.append(frame_size(value.get("data", "")))
             dims = (value.get("width"), value.get("height"))

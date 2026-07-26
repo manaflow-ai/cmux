@@ -182,7 +182,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` browser attach state and required numeric guards on browser pointer commands. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` browser attach/frame state plus the additive `browser-mouse-guarded` and `browser-wheel-guarded` commands, whose numeric guard is required. Protocol-v9 `browser-mouse` and `browser-wheel` retain their optional guard for older clients. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
