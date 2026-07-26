@@ -571,15 +571,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Window coordinators receive it explicitly instead of using global state.
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeCoordinator.Arbiter()
-    private struct PendingGhosttyConfigSurfaceRefresh {
-        let source: String
-        let preferredColorScheme:
-            GhosttyConfig.ColorSchemePreference
-    }
-    private var pendingGhosttyConfigSurfaceRefresh:
-        PendingGhosttyConfigSurfaceRefresh?
-    private var isWaitingForFontSizeWorkBeforeGhosttyConfigSurfaceRefresh =
-        false
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -5672,46 +5663,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func refreshTerminalSurfacesAfterGhosttyConfigReload(
-        source: String,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference
-    ) {
-        pendingGhosttyConfigSurfaceRefresh =
-            PendingGhosttyConfigSurfaceRefresh(
-                source: source,
-                preferredColorScheme: preferredColorScheme
-            )
-        schedulePendingGhosttyConfigSurfaceRefresh()
-    }
-
-    private func schedulePendingGhosttyConfigSurfaceRefresh() {
-        guard pendingGhosttyConfigSurfaceRefresh != nil,
-              !isWaitingForFontSizeWorkBeforeGhosttyConfigSurfaceRefresh
-        else {
-            return
-        }
-        isWaitingForFontSizeWorkBeforeGhosttyConfigSurfaceRefresh = true
-        workspaceTerminalFontSizeArbiter
-            .performWhenFontSizeWorkIsIdle { [weak self] in
-                self?.performPendingGhosttyConfigSurfaceRefresh()
-            }
-    }
-
-    private func performPendingGhosttyConfigSurfaceRefresh() {
-        guard let refresh = pendingGhosttyConfigSurfaceRefresh else {
-            isWaitingForFontSizeWorkBeforeGhosttyConfigSurfaceRefresh =
-                false
-            return
-        }
-        pendingGhosttyConfigSurfaceRefresh = nil
-        performTerminalSurfaceRefreshAfterGhosttyConfigReload(
-            source: refresh.source,
-            preferredColorScheme: refresh.preferredColorScheme
-        )
-        isWaitingForFontSizeWorkBeforeGhosttyConfigSurfaceRefresh = false
-        schedulePendingGhosttyConfigSurfaceRefresh()
-    }
-
-    private func performTerminalSurfaceRefreshAfterGhosttyConfigReload(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {

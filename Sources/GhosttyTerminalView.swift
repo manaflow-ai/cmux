@@ -447,6 +447,28 @@ class GhosttyApp {
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
     private var reloadConfigurationDepth = 0
+    private struct PendingConfigurationReload {
+        var soft: Bool
+        var source: String
+        var reloadSettingsFromFile: Bool
+        var preferredColorScheme:
+            GhosttyConfig.ColorSchemePreference?
+
+        mutating func merge(_ newer: PendingConfigurationReload) {
+            soft = soft && newer.soft
+            source = newer.source
+            reloadSettingsFromFile =
+                reloadSettingsFromFile
+                || newer.reloadSettingsFromFile
+            preferredColorScheme = newer.preferredColorScheme
+        }
+    }
+    private var pendingConfigurationReload:
+        PendingConfigurationReload?
+    private var isWaitingForFontSizeWorkBeforeConfigurationReload =
+        false
+    private(set) var appliedGlobalFontMagnificationPercent =
+        GlobalFontMagnification.storedPercent
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private(set) var hasUserGhosttyCommand = false
@@ -1771,24 +1793,88 @@ class GhosttyApp {
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
+        let request = PendingConfigurationReload(
+            soft: soft,
+            source: source,
+            reloadSettingsFromFile: reloadSettingsFromFile,
+            preferredColorScheme: preferredColorScheme
+        )
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                enqueueConfigurationReload(request)
+            }
+        } else {
+            DispatchQueue.main.sync {
+                enqueueConfigurationReload(request)
+            }
+        }
+    }
+
+    @MainActor
+    private func enqueueConfigurationReload(
+        _ request: PendingConfigurationReload
+    ) {
         guard reloadConfigurationDepth == 0 else {
-            logThemeAction("reload skipped source=\(source) soft=\(soft) reason=reentrant")
+            logThemeAction(
+                "reload skipped source=\(request.source) soft=\(request.soft) reason=reentrant"
+            )
             return
         }
+        if var pendingConfigurationReload {
+            pendingConfigurationReload.merge(request)
+            self.pendingConfigurationReload =
+                pendingConfigurationReload
+        } else {
+            pendingConfigurationReload = request
+        }
+        schedulePendingConfigurationReload()
+    }
+
+    @MainActor
+    private func schedulePendingConfigurationReload() {
+        guard pendingConfigurationReload != nil,
+              !isWaitingForFontSizeWorkBeforeConfigurationReload else {
+            return
+        }
+        isWaitingForFontSizeWorkBeforeConfigurationReload = true
+        guard let arbiter =
+                AppDelegate.shared?.workspaceTerminalFontSizeArbiter else {
+            performPendingConfigurationReload()
+            return
+        }
+        arbiter.performWhenFontSizeWorkIsIdle { [weak self] in
+            self?.performPendingConfigurationReload()
+        }
+    }
+
+    @MainActor
+    private func performPendingConfigurationReload() {
+        guard let request = pendingConfigurationReload else {
+            isWaitingForFontSizeWorkBeforeConfigurationReload = false
+            return
+        }
+        pendingConfigurationReload = nil
+        performConfigurationReload(request)
+        isWaitingForFontSizeWorkBeforeConfigurationReload = false
+        schedulePendingConfigurationReload()
+    }
+
+    @MainActor
+    private func performConfigurationReload(
+        _ request: PendingConfigurationReload
+    ) {
+        let soft = request.soft
+        let source = request.source
+        let reloadSettingsFromFile = request.reloadSettingsFromFile
+        let preferredColorScheme = request.preferredColorScheme
         reloadConfigurationDepth += 1
         defer { reloadConfigurationDepth -= 1 }
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
-            }
-        } else {
-            DispatchQueue.main.sync {
-                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
-            }
-        }
+        let reloadMagnificationPercent =
+            GlobalFontMagnification.storedPercent
+        AppDelegate.shared?.reloadCmuxConfigStores(source: source)
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
@@ -1813,7 +1899,7 @@ class GhosttyApp {
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-            scheduleSurfaceRefreshAfterConfigurationReload(
+            refreshSurfacesAfterConfigurationReload(
                 source: source,
                 preferredColorScheme: effectiveReloadColorScheme
             )
@@ -1846,6 +1932,8 @@ class GhosttyApp {
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
         ghostty_app_update_config(app, newConfig)
+        appliedGlobalFontMagnificationPercent =
+            reloadMagnificationPercent
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
         }
@@ -1855,23 +1943,55 @@ class GhosttyApp {
         config = newConfig
         lastAppearanceColorScheme = reloadColorScheme
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-        scheduleSurfaceRefreshAfterConfigurationReload(
+        refreshSurfacesAfterConfigurationReload(
             source: source,
             preferredColorScheme: effectiveReloadColorScheme
         )
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
-    private func scheduleSurfaceRefreshAfterConfigurationReload(
+    @MainActor
+    private func refreshSurfacesAfterConfigurationReload(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
-        DispatchQueue.main.async {
-            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
-                source: source,
-                preferredColorScheme: preferredColorScheme
+        AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
+            source: source,
+            preferredColorScheme: preferredColorScheme
+        )
+    }
+
+    @MainActor
+    func terminalFontConfigurationSnapshot()
+        -> WorkspaceTerminalFontConfigurationSnapshot {
+        var configuredRuntimePoints: Float32 = 0
+        let key = "font-size"
+        if let config,
+           ghostty_config_get(
+                config,
+                &configuredRuntimePoints,
+                key,
+                UInt(key.lengthOfBytes(using: .utf8))
+           ),
+           configuredRuntimePoints.isFinite,
+           configuredRuntimePoints > 0 {
+            return WorkspaceTerminalFontConfigurationSnapshot(
+                configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent:
+                    appliedGlobalFontMagnificationPercent
             )
         }
+
+        return WorkspaceTerminalFontConfigurationSnapshot(
+            configuredRuntimePoints: Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent:
+                        appliedGlobalFontMagnificationPercent
+                ).fontSize
+            ),
+            magnificationPercent:
+                appliedGlobalFontMagnificationPercent
+        )
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {

@@ -3,6 +3,7 @@ import Bonsplit
 import Combine
 import CmuxAppKitSupportUI
 import CmuxCore
+import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore
@@ -420,6 +421,8 @@ final class DockSplitStore: BonsplitDelegate {
         token: UUID,
         change: WorkspaceTerminalFontSizeChange,
         configuredRuntimePoints: Float32,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent,
         fallbackLineage: TerminalFontSizeLineage?,
         fallbackLineageAlreadyIncludesChange: Bool
     ) -> TerminalFontSizeChangeInheritanceContext {
@@ -431,6 +434,7 @@ final class DockSplitStore: BonsplitDelegate {
             token: token,
             change: change,
             configuredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent,
             preferredSourcePanel: preferredSourcePanel,
             fallbackLineage: dockFallbackLineage ?? fallbackLineage,
             fallbackLineageAlreadyIncludesChange:
@@ -459,12 +463,17 @@ final class DockSplitStore: BonsplitDelegate {
 #endif
 
     func rememberTerminalFontSizeLineageForNewTerminals(
-        fallback: TerminalFontSizeLineage?
+        fallback: TerminalFontSizeLineage?,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent
     ) {
         let focusedTerminalPanel = focusedPanelId.flatMap {
             panels[$0] as? TerminalPanel
         }
-        let focusedLineage = focusedTerminalPanel?.surface.fontSizeLineageSnapshot()
+        let focusedLineage =
+            focusedTerminalPanel?.surface.fontSizeLineageSnapshot(
+                magnificationPercent: magnificationPercent
+            )
         if let lineage = focusedLineage ?? fallback ?? lastTerminalFontSizeLineage {
             rememberDurableTerminalFontSizeLineage(lineage)
         }
@@ -485,9 +494,13 @@ final class DockSplitStore: BonsplitDelegate {
         let sourceTerminalPanel = sourcePanelId.flatMap {
             panels[$0] as? TerminalPanel
         }
-        let sourceLineage = sourceTerminalPanel?.surface.fontSizeLineageSnapshot()
         let inheritanceContext =
             activeTerminalFontSizeChangeInheritanceContext
+        let sourceLineage =
+            sourceTerminalPanel?.surface.fontSizeLineageSnapshot(
+                magnificationPercent:
+                    inheritanceContext?.magnificationPercent
+            )
         guard let lineage =
                 inheritanceContext?
                     .inheritedLineage(from: sourceTerminalPanel)

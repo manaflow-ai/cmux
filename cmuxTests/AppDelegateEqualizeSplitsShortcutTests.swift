@@ -1686,14 +1686,14 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: sourceManager,
             arbiter: arbiter,
             schedule: sourceScheduler.schedule(delay:action:),
-            applyChange: { _, _, _ in .failed }
+            applyChange: { _, _, _, _ in .failed }
         )
         let destinationCoordinator =
             WorkspaceTerminalFontSizeCoordinator(
                 tabManager: destinationManager,
                 arbiter: arbiter,
                 schedule: destinationScheduler.schedule(delay:action:),
-                applyChange: { _, _, _ in .failed }
+                applyChange: { _, _, _, _ in .failed }
             )
         sourceCoordinator.attachWindowDock(sourceDock)
         destinationCoordinator.attachWindowDock(destinationDock)
@@ -1815,7 +1815,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             maximumOutstandingRequestCount: 4,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { _, candidate, _ in
+            applyChange: { _, candidate, _, _ in
                 guard candidate === dockPanel else {
                     return .alreadySatisfied
                 }
@@ -2345,14 +2345,19 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { change, panel, configuredRuntimePoints in
+            applyChange: {
+                change,
+                panel,
+                configuredRuntimePoints,
+                magnificationPercent in
                 if panel === enteringPanel {
                     enteringPanelApplyCount += 1
                 }
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: panel,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )
@@ -2434,14 +2439,19 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 guard candidate === panel else { return .applied }
                 applyAttemptCount += 1
                 guard applyAttemptCount > 1 else { return .failed }
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )
@@ -2492,7 +2502,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -2501,7 +2515,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )
@@ -2550,7 +2565,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -2558,7 +2577,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 let outcome = cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
                 return applyAttemptCount == 1 ? .failed : outcome
             }
@@ -2602,7 +2622,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         let coordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: manager,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { _, candidate, _ in
+            applyChange: { _, candidate, _, _ in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -2661,7 +2681,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         let coordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: manager,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { _, candidate, _ in
+            applyChange: { _, candidate, _, _ in
                 if failedPanel == nil {
                     failedPanel = candidate
                 }
@@ -2738,7 +2758,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         let coordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: manager,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { _, candidate, _ in
+            applyChange: { _, candidate, _, _ in
                 if candidate === dockPanel {
                     dockApplyAttemptCount += 1
                     return .failed
@@ -2839,7 +2859,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         let coordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: manager,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { _, candidate, _ in
+            applyChange: { _, candidate, _, _ in
                 if candidate === outerPanel {
                     successfulPanelIds.insert(candidate.id)
                     return .alreadySatisfied
@@ -2943,7 +2963,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             arbiter: arbiter,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { _, candidate, _ in
+            applyChange: { _, candidate, _, _ in
                 mutatedPanelIds.insert(candidate.id)
                 return .alreadySatisfied
             }
@@ -2954,7 +2974,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 arbiter: arbiter,
                 schedule: ManualWorkspaceFontSizeDrainScheduler()
                     .schedule(delay:action:),
-                applyChange: { _, candidate, _ in
+                applyChange: { _, candidate, _, _ in
                     mutatedPanelIds.insert(candidate.id)
                     return .alreadySatisfied
                 }
@@ -3063,7 +3083,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             arbiter: arbiter,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -3072,7 +3096,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )
@@ -3133,7 +3158,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             arbiter: arbiter,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 if candidate === observedPanel {
                     if change == .relative([-1]) {
                         observedOrder.append("decrease")
@@ -3144,7 +3173,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )
@@ -3204,7 +3234,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             arbiter: appDelegate.workspaceTerminalFontSizeArbiter,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -3213,7 +3247,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )
@@ -3277,7 +3312,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             arbiter: arbiter,
             schedule: scheduler.schedule(delay:action:),
-            applyChange: { _, candidate, _ in
+            applyChange: { _, candidate, _, _ in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -3493,7 +3528,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: sourceManager,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -3502,7 +3541,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )
@@ -3638,7 +3678,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             tabManager: manager,
             schedule: ManualWorkspaceFontSizeDrainScheduler()
                 .schedule(delay:action:),
-            applyChange: { change, candidate, configuredRuntimePoints in
+            applyChange: {
+                change,
+                candidate,
+                configuredRuntimePoints,
+                magnificationPercent in
                 guard candidate === panel else {
                     return .alreadySatisfied
                 }
@@ -3649,7 +3693,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return cmuxApplyTerminalFontSizeChange(
                     change,
                     to: candidate,
-                    configuredRuntimePoints: configuredRuntimePoints
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent
                 )
             }
         )

@@ -178,12 +178,15 @@ extension TerminalSurface {
     @MainActor
     public func adjustFontSizeOutcome(
         applying transform: TerminalFontSizeDeltaTransform,
-        fallbackRuntimePoints: Float32? = nil
+        fallbackRuntimePoints: Float32? = nil,
+        magnificationPercent: Int? = nil
     ) -> TerminalFontSizeMutationOutcome {
         guard !transform.isIdentity else { return .alreadySatisfied }
 
         let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.adjust")
-        let percent = globalFontMagnificationPercent()
+        let percent =
+            magnificationPercent
+            ?? globalFontMagnificationPercent()
         if runtimeSurface != nil,
            let mobileFitResult = adjustDurableMobileViewportFontSize(
                 applying: transform,
@@ -192,7 +195,8 @@ extension TerminalSurface {
             return mobileFitResult
         }
         guard let baseline = fontSizeAdjustmentBaseline(
-            fallbackRuntimePoints: fallbackRuntimePoints
+            fallbackRuntimePoints: fallbackRuntimePoints,
+            magnificationPercent: percent
         ) else {
             return .failed
         }
@@ -218,7 +222,9 @@ extension TerminalSurface {
                 return .failed
             }
             followsConfiguredFontSize = false
-            _ = fontSizeLineageSnapshot()
+            _ = fontSizeLineageSnapshot(
+                magnificationPercent: percent
+            )
             return .applied
         }
 
@@ -243,21 +249,25 @@ extension TerminalSurface {
     /// never-realized inherited value retain their own base.
     @MainActor
     public func fontSizeLineageForAdjustment(
-        fallbackRuntimePoints: Float32? = nil
+        fallbackRuntimePoints: Float32? = nil,
+        magnificationPercent: Int? = nil
     ) -> TerminalFontSizeLineage? {
         fontSizeAdjustmentBaseline(
-            fallbackRuntimePoints: fallbackRuntimePoints
+            fallbackRuntimePoints: fallbackRuntimePoints,
+            magnificationPercent:
+                magnificationPercent
+                ?? globalFontMagnificationPercent()
         )?.lineage
     }
 
     @MainActor
     private func fontSizeAdjustmentBaseline(
-        fallbackRuntimePoints: Float32?
+        fallbackRuntimePoints: Float32?,
+        magnificationPercent percent: Int
     ) -> (
         runtimePoints: Float32,
         lineage: TerminalFontSizeLineage
     )? {
-        let percent = globalFontMagnificationPercent()
         if let runtimeSurface = liveSurfaceForGhosttyAccess(
             reason: "fontSize.adjustBaseline"
         ),
@@ -329,7 +339,8 @@ extension TerminalSurface {
     /// an already-satisfied surface and a failed native action.
     @MainActor
     public func resetFontSizeOutcome(
-        toConfiguredRuntimePoints configuredRuntimePoints: Float32
+        toConfiguredRuntimePoints configuredRuntimePoints: Float32,
+        magnificationPercent: Int? = nil
     ) -> TerminalFontSizeMutationOutcome {
         guard configuredRuntimePoints.isFinite,
               configuredRuntimePoints > 0 else {
@@ -339,10 +350,13 @@ extension TerminalSurface {
         let targetRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
             configuredRuntimePoints
         )
+        let magnificationPercent =
+            magnificationPercent
+            ?? globalFontMagnificationPercent()
         let targetLineage = TerminalFontSizeLineage(
             basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
                 fromRuntimePoints: targetRuntimePoints,
-                percent: globalFontMagnificationPercent()
+                percent: magnificationPercent
             ),
             isExplicitOverride: false
         )
@@ -379,7 +393,9 @@ extension TerminalSurface {
             }
             followsConfiguredFontSize = true
             recordCurrentFontSizeLineage(targetLineage)
-            _ = fontSizeLineageSnapshot()
+            _ = fontSizeLineageSnapshot(
+                magnificationPercent: magnificationPercent
+            )
             return .applied
         }
 
@@ -488,7 +504,9 @@ extension TerminalSurface {
     ///
     /// - Returns: Current font-size lineage, or nil before a size is known.
     @MainActor
-    public func fontSizeLineageSnapshot() -> TerminalFontSizeLineage? {
+    public func fontSizeLineageSnapshot(
+        magnificationPercent: Int? = nil
+    ) -> TerminalFontSizeLineage? {
         guard let runtimeSurface = liveSurfaceForGhosttyAccess(
             reason: "fontSizeLineage.snapshot"
         ) else {
@@ -503,7 +521,9 @@ extension TerminalSurface {
         return recordObservedFontSizeLineage(
             runtimePoints: runtimePoints,
             isExplicitOverride: ghostty_surface_font_size_adjusted(runtimeSurface),
-            globalFontMagnificationPercent: globalFontMagnificationPercent()
+            globalFontMagnificationPercent:
+                magnificationPercent
+                ?? globalFontMagnificationPercent()
         )
     }
 

@@ -2,6 +2,12 @@ import Foundation
 import CmuxFoundation
 import CmuxTerminal
 import CmuxTerminalCore
+import OSLog
+
+struct WorkspaceTerminalFontConfigurationSnapshot: Equatable {
+    let configuredRuntimePoints: Float32
+    let magnificationPercent: Int
+}
 
 @MainActor
 private struct WorkspaceTerminalFontSizePanelDiscovery {
@@ -154,8 +160,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
         @MainActor (
             WorkspaceTerminalFontSizeChange,
             TerminalPanel,
-            Float32
+            Float32,
+            Int
         ) -> TerminalFontSizeMutationOutcome
+    typealias ConfigurationSnapshotProvider =
+        @MainActor () -> WorkspaceTerminalFontConfigurationSnapshot
 
     private static let repeatCoalescingInterval: TimeInterval = 0.05
     private static let mutationRetryBackoffInterval: TimeInterval = 0.05
@@ -165,6 +174,17 @@ final class WorkspaceTerminalFontSizeCoordinator {
         case backoff
         case awaitingSignal
     }
+
+    private enum CoordinatedMutationDisposition {
+        case succeeded
+        case retry
+        case skipCandidate
+    }
+
+    private static let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "WorkspaceTerminalFontSize"
+    )
 
     fileprivate final class WeakWorkspaceReference {
         weak var value: Workspace?
@@ -198,17 +218,24 @@ final class WorkspaceTerminalFontSizeCoordinator {
     /// batch. The Dock phase always precedes the workspace phases in the sealed
     /// ledger, so workspace fallbacks can derive from the bounded source probe.
     private final class EventBatchLineage {
+        let configuration:
+            WorkspaceTerminalFontConfigurationSnapshot
         var windowDockSourceLineage: TerminalFontSizeLineage?
         var windowDockSourceLineageSelection =
             TerminalFontSizeLineageSelection()
         var windowDockLineageSelection =
             TerminalFontSizeLineageSelection()
-        var configuredRuntimePoints: Float32?
-        var magnificationPercent: Int?
         var didParticipateWindowDock = false
         var remainingRequestTokens: Set<UUID> = []
         let windowDockTransferToken = UUID()
         let workspaceTransferToken = UUID()
+
+        init(
+            configuration:
+                WorkspaceTerminalFontConfigurationSnapshot
+        ) {
+            self.configuration = configuration
+        }
     }
 
     private enum RequestResourceKey: Hashable {
@@ -242,15 +269,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private final class TransferRequestRecord {
         let request: PendingRequest
         let configuredRuntimePoints: Float32
+        let magnificationPercent: Int
         weak var previous: TransferRequestRecord?
         var next: TransferRequestRecord?
 
         init(
             request: PendingRequest,
-            configuredRuntimePoints: Float32
+            configuredRuntimePoints: Float32,
+            magnificationPercent: Int
         ) {
             self.request = request
             self.configuredRuntimePoints = configuredRuntimePoints
+            self.magnificationPercent = magnificationPercent
         }
     }
 
@@ -429,7 +459,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             _ action: @escaping @MainActor () -> Void
         ) {
             fontSizeWorkIdleActions.append(action)
-            signalRetainedCoordinators()
+            settleRetainedCoordinatorsForIdleBarrier()
             promoteDeferredCoordinatorJoins()
             performFontSizeWorkIdleActionsIfPossible()
         }
@@ -736,6 +766,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
             }
         }
 
+        private func settleRetainedCoordinatorsForIdleBarrier() {
+            let coordinators = Array(retainedCoordinators.values)
+            for coordinator in coordinators {
+                coordinator.settleForFontSizeWorkIdleBarrier()
+            }
+        }
+
         private func popFontSizeWorkIdleAction()
             -> FontSizeWorkIdleAction? {
             guard hasPendingFontSizeWorkIdleActions else { return nil }
@@ -893,6 +930,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         var seenPanelIds: Set<UUID> = []
         var participatingLineage = TerminalFontSizeLineageSelection()
         let configuredRuntimePoints: Float32
+        let magnificationPercent: Int
 
         var token: UUID {
             request.token
@@ -923,10 +961,14 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private var mutationRetryDisposition:
         MutationRetryDisposition = .ready
     private var automaticMutationRetryAvailable = true
+    private var isSettlingForFontSizeWorkIdleBarrier = false
+    private var mutationFailureCountSinceIdleBarrier = 0
     private let arbiter: Arbiter
     private let maximumOutstandingRequestCount: Int
     private let schedule: DrainScheduler
     private let applyChange: ChangeApplier
+    private let configurationSnapshot:
+        ConfigurationSnapshotProvider
     private var cancelScheduledDrain: DrainCancellation?
 
     init(
@@ -958,14 +1000,21 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 timer.cancel()
             }
         },
+        configurationSnapshot: @escaping
+            ConfigurationSnapshotProvider = {
+                GhosttyApp.shared
+                    .terminalFontConfigurationSnapshot()
+            },
         applyChange: @escaping ChangeApplier = {
             change,
             terminalPanel,
-            configuredRuntimePoints in
+            configuredRuntimePoints,
+            magnificationPercent in
             cmuxApplyTerminalFontSizeChange(
                 change,
                 to: terminalPanel,
-                configuredRuntimePoints: configuredRuntimePoints
+                configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: magnificationPercent
             )
         }
     ) {
@@ -975,6 +1024,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         self.maximumOutstandingRequestCount =
             maximumOutstandingRequestCount
         self.schedule = schedule
+        self.configurationSnapshot = configurationSnapshot
         self.applyChange = applyChange
     }
 
@@ -993,6 +1043,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 change: inheritanceContext.change,
                 configuredRuntimePoints:
                     inheritanceContext.configuredRuntimePoints,
+                magnificationPercent:
+                    inheritanceContext.magnificationPercent,
                 fallbackLineage: inheritanceContext.fallbackLineage,
                 fallbackLineageAlreadyIncludesChange: true
             )
@@ -1231,6 +1283,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
               ) else {
             return
         }
+        isSettlingForFontSizeWorkIdleBarrier = false
+        mutationFailureCountSinceIdleBarrier = 0
         arbiter.release(self)
     }
 
@@ -1514,7 +1568,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             append(change, to: &batch.windowDockRequest)
             pendingEventBatch = batch
         } else {
-            let lineage = EventBatchLineage()
+            let lineage = EventBatchLineage(
+                configuration: configurationSnapshot()
+            )
             nextRequestSequence += 1
             let windowDockRequest = PendingRequest(
                 token: UUID(),
@@ -1602,22 +1658,17 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private func registerOutstanding(_ request: PendingRequest) {
-        let configuredRuntimePoints =
-            request.batchLineage.configuredRuntimePoints
-            ?? configuredRuntimePointsForTransfer(request)
-        if case .windowDock = request.target {
-            request.batchLineage.configuredRuntimePoints =
-                configuredRuntimePoints
-            request.batchLineage.magnificationPercent =
-                GlobalFontMagnification.storedPercent
-        }
+        let configuration = request.batchLineage.configuration
         let state =
             transferResourceStates[request.resourceKey]
             ?? TransferResourceState()
         state.appendRequest(
             TransferRequestRecord(
                 request: request,
-                configuredRuntimePoints: configuredRuntimePoints
+                configuredRuntimePoints:
+                    configuration.configuredRuntimePoints,
+                magnificationPercent:
+                    configuration.magnificationPercent
             )
         )
         transferResourceStates[request.resourceKey] = state
@@ -1631,21 +1682,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
     }
 
-    private func configuredRuntimePointsForTransfer(
-        _ request: PendingRequest
-    ) -> Float32 {
-        switch request.target {
-        case .workspace(_, let reference):
-            return reference.value?
-                .configuredTerminalRuntimeFontSize()
-                ?? currentConfiguredTerminalRuntimeFontSize()
-        case .windowDock(_, let seedReference):
-            return seedReference?.value?
-                .configuredTerminalRuntimeFontSize()
-                ?? currentConfiguredTerminalRuntimeFontSize()
-        }
-    }
-
     private func popPendingRequest() -> PendingRequest? {
         if sealedRequests.isEmpty {
             sealPendingEventBatch()
@@ -1655,6 +1691,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private func activate(_ request: PendingRequest) -> Bool {
         let token = request.token
+        let configuration = request.batchLineage.configuration
+        let configuredRuntimePoints =
+            configuration.configuredRuntimePoints
+        let magnificationPercent =
+            configuration.magnificationPercent
         switch request.target {
         case .workspace(let workspaceId, let workspaceReference):
             guard let workspace = attachedWorkspace(
@@ -1663,9 +1704,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
             ) else {
                 return false
             }
-            let configuredRuntimePoints =
-                request.batchLineage.configuredRuntimePoints
-                ?? workspace.configuredTerminalRuntimeFontSize()
             let fallbackLineage =
                 request.batchLineage.didParticipateWindowDock
                 ? request.windowDockPrefixChange.map {
@@ -1676,8 +1714,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                         configuredRuntimePoints:
                             configuredRuntimePoints,
                         magnificationPercent:
-                            request.batchLineage.magnificationPercent
-                            ?? GlobalFontMagnification.storedPercent
+                            magnificationPercent
                     )
                 }
                 : nil
@@ -1686,6 +1723,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     token: token,
                     change: request.change,
                     configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent,
                     fallbackLineage: fallbackLineage,
                     fallbackLineageAlreadyIncludesChange:
                         fallbackLineage != nil
@@ -1696,7 +1734,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 discovery: WorkspaceTerminalFontSizePanelDiscovery(
                     workspace: workspace
                 ),
-                configuredRuntimePoints: configuredRuntimePoints
+                configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: magnificationPercent
             )
             return true
 
@@ -1708,34 +1747,29 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     reference: $0
                 )
             }
-            let configuredRuntimePoints =
-                seedWorkspace?.configuredTerminalRuntimeFontSize()
-                ?? currentConfiguredTerminalRuntimeFontSize()
-            request.batchLineage.configuredRuntimePoints =
-                configuredRuntimePoints
-            request.batchLineage.magnificationPercent =
-                GlobalFontMagnification.storedPercent
             let previousLineage = dockSlot.pendingLineage
             let fallbackInheritanceContext =
                 TerminalFontSizeChangeInheritanceContext(
-                token: token,
-                change: request.change,
-                configuredRuntimePoints: configuredRuntimePoints,
-                preferredSourcePanel: previousLineage == nil
-                    ? seedWorkspace?
-                        .lastRememberedTerminalPanelForConfigInheritance()
-                    : nil,
-                fallbackLineage:
-                    previousLineage
-                    ?? seedWorkspace?
-                        .lastRememberedTerminalFontSizeLineageForConfigInheritance()
-            )
+                    token: token,
+                    change: request.change,
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent,
+                    preferredSourcePanel: previousLineage == nil
+                        ? seedWorkspace?
+                            .lastRememberedTerminalPanelForConfigInheritance()
+                        : nil,
+                    fallbackLineage:
+                        previousLineage
+                        ?? seedWorkspace?
+                            .lastRememberedTerminalFontSizeLineageForConfigInheritance()
+                )
             let requestWindowDock = resolvedWindowDock(for: request)
             let inheritanceContext =
                 requestWindowDock?.beginTerminalFontSizeChangeInheritance(
                     token: token,
                     change: request.change,
                     configuredRuntimePoints: configuredRuntimePoints,
+                    magnificationPercent: magnificationPercent,
                     fallbackLineage:
                         fallbackInheritanceContext.fallbackLineage,
                     fallbackLineageAlreadyIncludesChange: true
@@ -1748,19 +1782,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 discovery: WorkspaceTerminalFontSizePanelDiscovery(
                     windowDock: requestWindowDock
                 ),
-                configuredRuntimePoints: configuredRuntimePoints
+                configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: magnificationPercent
             )
             return true
         }
-    }
-
-    private func currentConfiguredTerminalRuntimeFontSize() -> Float32 {
-        Float32(
-            GhosttyConfig.load(
-                globalFontMagnificationPercent:
-                    GlobalFontMagnification.storedPercent
-            ).fontSize
-        )
     }
 
     private func resolvedWindowDock(
@@ -2078,7 +2104,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             ? nil
             : terminalPanel.surface.fontSizeLineageForAdjustment(
                 fallbackRuntimePoints:
-                    requestRecord.configuredRuntimePoints
+                    requestRecord.configuredRuntimePoints,
+                magnificationPercent:
+                    requestRecord.magnificationPercent
             )
         let panelHasLiveSurface =
             terminalPanel.surface.hasLiveSurface
@@ -2096,7 +2124,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
             outcome = applyChange(
                 request.change,
                 terminalPanel,
-                requestRecord.configuredRuntimePoints
+                requestRecord.configuredRuntimePoints,
+                requestRecord.magnificationPercent
             )
         } else {
             outcome = .alreadySatisfied
@@ -2107,11 +2136,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
             sourceLineage: sourceLineage,
             request: request,
             configuredRuntimePoints:
-                requestRecord.configuredRuntimePoints
+                requestRecord.configuredRuntimePoints,
+            magnificationPercent:
+                requestRecord.magnificationPercent
         )
         guard outcome.didSucceed else {
-            recordMutationFailure()
-            return false
+            guard recordMutationFailure() else { return false }
+            Self.logger.error(
+                "Skipping transferred terminal after repeated native font-size failure"
+            )
+            advanceTransferObligation(
+                obligation,
+                past: requestRecord
+            )
+            return true
         }
         recordMutationSuccess()
         if case .windowDock = request.target {
@@ -2126,19 +2164,33 @@ final class WorkspaceTerminalFontSizeCoordinator {
             }
             request.batchLineage
                 .windowDockLineageSelection
-                .consider(terminalPanel)
+                .consider(
+                    terminalPanel,
+                    magnificationPercent:
+                        requestRecord.magnificationPercent
+                )
         }
         recordTransferredChange(
             on: terminalPanel,
             for: request
         )
 
+        advanceTransferObligation(
+            obligation,
+            past: requestRecord
+        )
+        return true
+    }
+
+    private func advanceTransferObligation(
+        _ obligation: TransferObligation,
+        past requestRecord: TransferRequestRecord
+    ) {
         let reachedEnd = requestRecord === obligation.throughRequest
         obligation.nextRequest = requestRecord.next
         if reachedEnd {
             removeTransferObligation(obligation)
         }
-        return true
     }
 
     private func drainTransferObligationsImmediately() {
@@ -2228,19 +2280,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
         terminalPanel: TerminalPanel,
         sourceLineage: TerminalFontSizeLineage?,
         request: PendingRequest,
-        configuredRuntimePoints: Float32
+        configuredRuntimePoints: Float32,
+        magnificationPercent: Int
     ) -> TerminalFontSizeMutationOutcome {
         guard outcome == .failed else { return outcome }
         let expectedLineage =
             request.change.resultingInheritanceLineage(
                 from: sourceLineage,
                 configuredRuntimePoints: configuredRuntimePoints,
-                magnificationPercent:
-                    request.batchLineage.magnificationPercent
-                    ?? GlobalFontMagnification.storedPercent
+                magnificationPercent: magnificationPercent
             )
         guard let observedLineage =
-                terminalPanel.surface.fontSizeLineageSnapshot(),
+                terminalPanel.surface.fontSizeLineageSnapshot(
+                    magnificationPercent: magnificationPercent
+                ),
               observedLineage.isExplicitOverride
                 == expectedLineage.isExplicitOverride,
               abs(
@@ -2349,7 +2402,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private func apply(
         _ candidate: WorkspaceTerminalFontSizePanelDiscovery.Candidate,
         to activeRequest: inout ActiveRequest
-    ) -> TerminalFontSizeMutationOutcome {
+    ) -> CoordinatedMutationDisposition {
         let terminalPanel = candidate.panel
         let alreadyIncludesChange = surfaceIncludesChange(
             on: terminalPanel,
@@ -2360,14 +2413,17 @@ final class WorkspaceTerminalFontSizeCoordinator {
             ? nil
             : terminalPanel.surface.fontSizeLineageForAdjustment(
                 fallbackRuntimePoints:
-                    activeRequest.configuredRuntimePoints
+                    activeRequest.configuredRuntimePoints,
+                magnificationPercent:
+                    activeRequest.magnificationPercent
             )
         var outcome: TerminalFontSizeMutationOutcome
         if !alreadyIncludesChange {
             outcome = applyChange(
                 activeRequest.request.change,
                 terminalPanel,
-                activeRequest.configuredRuntimePoints
+                activeRequest.configuredRuntimePoints,
+                activeRequest.magnificationPercent
             )
         } else {
             outcome = .alreadySatisfied
@@ -2378,11 +2434,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
             sourceLineage: sourceLineage,
             request: activeRequest.request,
             configuredRuntimePoints:
-                activeRequest.configuredRuntimePoints
+                activeRequest.configuredRuntimePoints,
+            magnificationPercent:
+                activeRequest.magnificationPercent
         )
         guard outcome.didSucceed else {
-            recordMutationFailure()
-            return outcome
+            guard recordMutationFailure() else {
+                return .retry
+            }
+            Self.logger.error(
+                "Skipping terminal after repeated native font-size failure while config waits"
+            )
+            return .skipCandidate
         }
         recordMutationSuccess()
         recordAppliedChange(
@@ -2390,7 +2453,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             for: activeRequest.request
         )
 
-        activeRequest.participatingLineage.consider(terminalPanel)
+        activeRequest.participatingLineage.consider(
+            terminalPanel,
+            magnificationPercent:
+                activeRequest.magnificationPercent
+        )
         if case .windowDock = candidate.origin {
             activeRequest.request.batchLineage
                 .didParticipateWindowDock = true
@@ -2404,25 +2471,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
             }
             activeRequest.request.batchLineage
                 .windowDockLineageSelection
-                .consider(terminalPanel)
+                .consider(
+                    terminalPanel,
+                    magnificationPercent:
+                        activeRequest.magnificationPercent
+                )
         }
-        return outcome
+        return .succeeded
     }
 
     private func finish(_ activeRequest: ActiveRequest) {
         defer {
-            retire(activeRequest.request)
-            if case .workspace(_, let workspaceReference) =
-                    activeRequest.request.target {
-                releaseWorkspaceClaimIfIdle(
-                    workspaceReference.value
-                )
-            } else if case .windowDock =
-                        activeRequest.request.target {
-                releaseWindowDockClaimIfIdle(
-                    windowDockSlot(for: activeRequest.request)
-                )
-            }
+            retireAndReleaseClaim(for: activeRequest.request)
         }
         switch activeRequest.request.target {
         case .workspace(let workspaceId, let workspaceReference):
@@ -2441,7 +2501,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 participatingLineage:
                     activeRequest.participatingLineage.lineage,
                 configuredRuntimePoints:
-                    activeRequest.configuredRuntimePoints
+                    activeRequest.configuredRuntimePoints,
+                magnificationPercent:
+                    activeRequest.magnificationPercent
             )
             workspace.endTerminalFontSizeChangeInheritance(
                 token: activeRequest.token
@@ -2468,7 +2530,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             if let requestWindowDock {
                 requestWindowDock
                     .rememberTerminalFontSizeLineageForNewTerminals(
-                        fallback: finalLineage
+                        fallback: finalLineage,
+                        magnificationPercent:
+                            activeRequest.magnificationPercent
                     )
                 dockSlot.pendingLineage = nil
             } else {
@@ -2477,6 +2541,22 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     ? finalLineage
                     : nil
             }
+        }
+    }
+
+    private func retireAndReleaseClaim(
+        for request: PendingRequest
+    ) {
+        retire(request)
+        if case .workspace(_, let workspaceReference) =
+                request.target {
+            releaseWorkspaceClaimIfIdle(
+                workspaceReference.value
+            )
+        } else if case .windowDock = request.target {
+            releaseWindowDockClaimIfIdle(
+                windowDockSlot(for: request)
+            )
         }
     }
 
@@ -2503,6 +2583,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
         automaticMutationRetryAvailable = true
     }
 
+    private func settleForFontSizeWorkIdleBarrier() {
+        isSettlingForFontSizeWorkIdleBarrier = true
+        mutationFailureCountSinceIdleBarrier = 0
+        signalMutationRetry()
+    }
+
     /// A new user request or terminal ownership transition is evidence that
     /// the failed native path may be viable again.
     private func signalMutationRetry(
@@ -2520,17 +2606,28 @@ final class WorkspaceTerminalFontSizeCoordinator {
     }
 
     private func recordMutationSuccess() {
+        mutationFailureCountSinceIdleBarrier = 0
         resetMutationRetryState()
     }
 
-    private func recordMutationFailure() {
+    @discardableResult
+    private func recordMutationFailure() -> Bool {
         invalidateScheduledDrain()
+        if isSettlingForFontSizeWorkIdleBarrier {
+            mutationFailureCountSinceIdleBarrier += 1
+            if mutationFailureCountSinceIdleBarrier >= 2 {
+                mutationFailureCountSinceIdleBarrier = 0
+                resetMutationRetryState()
+                return true
+            }
+        }
         if automaticMutationRetryAvailable {
             automaticMutationRetryAvailable = false
             mutationRetryDisposition = .backoff
         } else {
             mutationRetryDisposition = .awaitingSignal
         }
+        return false
     }
 
     private func scheduleOutstandingContinuation(
@@ -2676,16 +2773,20 @@ final class WorkspaceTerminalFontSizeCoordinator {
                     break drainLoop
                 }
                 current.pendingCandidate = nil
-                let outcome = apply(
+                let disposition = apply(
                     pendingCandidate,
                     to: &current
                 )
-                if !outcome.didSucceed {
+                switch disposition {
+                case .retry:
                     current.pendingCandidate = pendingCandidate
                     activeRequest = current
                     break drainLoop
+                case .skipCandidate:
+                    activeRequest = current
+                case .succeeded:
+                    activeRequest = current
                 }
-                activeRequest = current
                 continue
             }
 
@@ -2729,13 +2830,16 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 break drainLoop
             }
 
-            let outcome = apply(candidate, to: &current)
-            if !outcome.didSucceed {
+            switch apply(candidate, to: &current) {
+            case .retry:
                 current.pendingCandidate = candidate
                 activeRequest = current
                 break drainLoop
+            case .skipCandidate:
+                activeRequest = current
+            case .succeeded:
+                activeRequest = current
             }
-            activeRequest = current
         }
 
         if scheduleContinuation,

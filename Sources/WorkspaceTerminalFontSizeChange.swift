@@ -131,25 +131,30 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
 func cmuxApplyTerminalFontSizeChange(
     _ change: WorkspaceTerminalFontSizeChange,
     to terminalPanel: TerminalPanel,
-    configuredRuntimePoints: Float32
+    configuredRuntimePoints: Float32,
+    magnificationPercent: Int =
+        GlobalFontMagnification.storedPercent
 ) -> TerminalFontSizeMutationOutcome {
     switch change {
     case .relative(let transform):
         return terminalPanel.surface.adjustFontSizeOutcome(
             applying: transform,
-            fallbackRuntimePoints: configuredRuntimePoints
+            fallbackRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent
         )
     case .resetThen(let transform):
         let resetOutcome = terminalPanel.surface.resetFontSizeOutcome(
-            toConfiguredRuntimePoints: configuredRuntimePoints
+            toConfiguredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent
         )
         guard resetOutcome.didSucceed else { return .failed }
         guard !transform.isIdentity else { return resetOutcome }
         let adjustmentOutcome =
             terminalPanel.surface.adjustFontSizeOutcome(
-            applying: transform,
-            fallbackRuntimePoints: configuredRuntimePoints
-        )
+                applying: transform,
+                fallbackRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: magnificationPercent
+            )
         guard adjustmentOutcome.didSucceed else { return .failed }
         return resetOutcome.didChange || adjustmentOutcome.didChange
             ? .applied
@@ -170,6 +175,8 @@ struct TerminalFontSizeChangeInheritanceContext {
         token: UUID,
         change: WorkspaceTerminalFontSizeChange,
         configuredRuntimePoints: Float32,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent,
         preferredSourcePanel: TerminalPanel?,
         fallbackLineage: TerminalFontSizeLineage?,
         fallbackLineageAlreadyIncludesChange: Bool = false
@@ -177,12 +184,13 @@ struct TerminalFontSizeChangeInheritanceContext {
         self.token = token
         self.change = change
         self.configuredRuntimePoints = configuredRuntimePoints
-        let magnificationPercent = GlobalFontMagnification.storedPercent
-        self.magnificationPercent = magnificationPercent
+        self.magnificationPercent =
+            GlobalFontMagnification.clamp(magnificationPercent)
 
         let preferredSourceLineage =
             preferredSourcePanel?.surface.fontSizeLineageForAdjustment(
-                fallbackRuntimePoints: configuredRuntimePoints
+                fallbackRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: self.magnificationPercent
             )
         initialLineageProbeCount = preferredSourcePanel == nil ? 0 : 1
         if preferredSourceLineage == nil,
@@ -193,7 +201,7 @@ struct TerminalFontSizeChangeInheritanceContext {
             self.fallbackLineage = change.resultingInheritanceLineage(
                 from: preferredSourceLineage ?? fallbackLineage,
                 configuredRuntimePoints: configuredRuntimePoints,
-                magnificationPercent: magnificationPercent
+                magnificationPercent: self.magnificationPercent
             )
         }
     }
@@ -204,7 +212,8 @@ struct TerminalFontSizeChangeInheritanceContext {
         guard let sourceTerminalPanel else { return fallbackLineage }
         let sourceLineage =
             sourceTerminalPanel.surface.fontSizeLineageForAdjustment(
-                fallbackRuntimePoints: configuredRuntimePoints
+                fallbackRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: magnificationPercent
             )
         if sourceTerminalPanel.surface.hasAppliedFontSizeChange(token: token) {
             return sourceLineage ?? fallbackLineage
@@ -225,10 +234,16 @@ struct TerminalFontSizeLineageSelection {
     private(set) var lineage: TerminalFontSizeLineage?
 
     @MainActor
-    mutating func consider(_ terminalPanel: TerminalPanel) {
+    mutating func consider(
+        _ terminalPanel: TerminalPanel,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent
+    ) {
         consider(
             panelId: terminalPanel.id,
-            lineage: terminalPanel.surface.fontSizeLineageSnapshot()
+            lineage: terminalPanel.surface.fontSizeLineageSnapshot(
+                magnificationPercent: magnificationPercent
+            )
         )
     }
 
@@ -301,24 +316,35 @@ extension Workspace {
         let terminalPanels = terminalPanelsForFontSizeChange(
             additionalTerminalPanels: additionalTerminalPanels
         )
-        let configuredRuntimePoints = configuredTerminalRuntimeFontSize()
+        let configuration =
+            GhosttyApp.shared.terminalFontConfigurationSnapshot()
+        let configuredRuntimePoints =
+            configuration.configuredRuntimePoints
         var changedCount = 0
         var participatingLineage = TerminalFontSizeLineageSelection()
         for terminalPanel in terminalPanels {
             if applyTerminalFontSizeChange(
                 change,
                 to: terminalPanel,
-                configuredRuntimePoints: configuredRuntimePoints
+                configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent:
+                    configuration.magnificationPercent
             ) {
                 changedCount += 1
             }
-            participatingLineage.consider(terminalPanel)
+            participatingLineage.consider(
+                terminalPanel,
+                magnificationPercent:
+                    configuration.magnificationPercent
+            )
         }
 
         completeTerminalFontSizeChange(
             change,
             participatingLineage: participatingLineage.lineage,
-            configuredRuntimePoints: configuredRuntimePoints
+            configuredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent:
+                configuration.magnificationPercent
         )
         return changedCount
     }
@@ -341,17 +367,16 @@ extension Workspace {
     }
 
     func configuredTerminalRuntimeFontSize() -> Float32 {
-        Float32(
-            GhosttyConfig.load(
-                globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
-            ).fontSize
-        )
+        GhosttyApp.shared.terminalFontConfigurationSnapshot()
+            .configuredRuntimePoints
     }
 
     func beginTerminalFontSizeChangeInheritance(
         token: UUID,
         change: WorkspaceTerminalFontSizeChange,
         configuredRuntimePoints: Float32,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent,
         fallbackLineage: TerminalFontSizeLineage? = nil,
         fallbackLineageAlreadyIncludesChange: Bool = false
     ) -> TerminalFontSizeChangeInheritanceContext {
@@ -361,6 +386,7 @@ extension Workspace {
             token: token,
             change: change,
             configuredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent,
             preferredSourcePanel: preferredSourcePanel,
             fallbackLineage:
                 fallbackLineage
@@ -376,6 +402,7 @@ extension Workspace {
             token: token,
             change: change,
             configuredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent,
             fallbackLineage: context.fallbackLineage,
             fallbackLineageAlreadyIncludesChange: true
         )
@@ -394,26 +421,33 @@ extension Workspace {
     func applyTerminalFontSizeChange(
         _ change: WorkspaceTerminalFontSizeChange,
         to terminalPanel: TerminalPanel,
-        configuredRuntimePoints: Float32
+        configuredRuntimePoints: Float32,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent
     ) -> Bool {
         cmuxApplyTerminalFontSizeChange(
             change,
             to: terminalPanel,
-            configuredRuntimePoints: configuredRuntimePoints
+            configuredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent
         ).didChange
     }
 
     func completeTerminalFontSizeChange(
         _ change: WorkspaceTerminalFontSizeChange,
         participatingLineage: TerminalFontSizeLineage?,
-        configuredRuntimePoints: Float32
+        configuredRuntimePoints: Float32,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent
     ) {
         refreshTerminalFontSizeInheritanceSource(
-            participatingLineage: participatingLineage
+            participatingLineage: participatingLineage,
+            magnificationPercent: magnificationPercent
         )
         if case .resetThen(let transform) = change {
             let resetLineage = configuredTerminalFontSizeLineage(
                 configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: magnificationPercent,
                 applying: transform
             )
             if resetLineage.isExplicitOverride {
@@ -429,12 +463,15 @@ extension Workspace {
             clearTerminalFontSizeLineageForConfigInheritance()
         }
         _dockSplit?.rememberTerminalFontSizeLineageForNewTerminals(
-            fallback: lastRememberedTerminalFontSizeLineageForConfigInheritance()
+            fallback:
+                lastRememberedTerminalFontSizeLineageForConfigInheritance(),
+            magnificationPercent: magnificationPercent
         )
     }
 
     private func configuredTerminalFontSizeLineage(
         configuredRuntimePoints: Float32,
+        magnificationPercent: Int,
         applying transform: TerminalFontSizeDeltaTransform =
             TerminalFontSizeDeltaTransform()
     ) -> TerminalFontSizeLineage {
@@ -448,19 +485,23 @@ extension Workspace {
         return TerminalFontSizeLineage(
             basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
                 fromRuntimePoints: finalRuntimePoints,
-                percent: GlobalFontMagnification.storedPercent
+                percent: magnificationPercent
             ),
             isExplicitOverride: finalRuntimePoints != configuredRuntimePoints
         )
     }
 
     private func refreshTerminalFontSizeInheritanceSource(
-        participatingLineage: TerminalFontSizeLineage?
+        participatingLineage: TerminalFontSizeLineage?,
+        magnificationPercent: Int
     ) {
         if let mainTerminalPanel =
             lastRememberedTerminalPanelForConfigInheritance()
                 ?? terminalPanelForConfigInheritance() {
-            rememberTerminalConfigInheritanceSource(mainTerminalPanel)
+            rememberTerminalConfigInheritanceSource(
+                mainTerminalPanel,
+                magnificationPercent: magnificationPercent
+            )
             return
         }
         if let participatingLineage {

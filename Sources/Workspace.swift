@@ -2223,6 +2223,8 @@ final class Workspace: Identifiable, ObservableObject {
                 change: inheritanceContext.change,
                 configuredRuntimePoints:
                     inheritanceContext.configuredRuntimePoints,
+                magnificationPercent:
+                    inheritanceContext.magnificationPercent,
                 fallbackLineage: inheritanceContext.fallbackLineage,
                 fallbackLineageAlreadyIncludesChange: true
             )
@@ -6610,11 +6612,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Panel Operations
 
-    func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
+    func rememberTerminalConfigInheritanceSource(
+        _ terminalPanel: TerminalPanel,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent
+    ) {
         guard let mountedPanel = panels[terminalPanel.id] as? TerminalPanel,
               mountedPanel === terminalPanel else { return }
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        lastTerminalConfigInheritanceFontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot()
+        lastTerminalConfigInheritanceFontSizeLineage =
+            terminalPanel.surface.fontSizeLineageSnapshot(
+                magnificationPercent: magnificationPercent
+            )
     }
 
     func rememberTerminalFontSizeLineageForConfigInheritance(_ lineage: TerminalFontSizeLineage) {
@@ -6863,9 +6872,13 @@ final class Workspace: Identifiable, ObservableObject {
             // ghostty_surface_inherited_config or cmuxCurrentSurfaceFontSizePoints
             // is still reading through the pointer.
             let surface = terminalPanel.surface
-            let sourceFontSizeLineage = surface.fontSizeLineageSnapshot()
             let inheritanceContext =
                 activeTerminalFontSizeChangeInheritanceContext
+            let sourceFontSizeLineage =
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent:
+                        inheritanceContext?.magnificationPercent
+                )
             let inheritedFontSizeLineage =
                 inheritanceContext?
                     .inheritedLineage(from: terminalPanel)
@@ -6957,7 +6970,10 @@ final class Workspace: Identifiable, ObservableObject {
         let inheritanceContext =
             activeTerminalFontSizeChangeInheritanceContext
         let sourceLineage =
-            sourcePanel?.surface.fontSizeLineageSnapshot()
+            sourcePanel?.surface.fontSizeLineageSnapshot(
+                magnificationPercent:
+                    inheritanceContext?.magnificationPercent
+            )
         guard let fontSizeLineage =
                 inheritanceContext?.inheritedLineage(from: sourcePanel)
                 ?? sourceLineage
