@@ -98,7 +98,9 @@ pub struct RailPalette {
     pub base: Style,
     pub dim: Style,
     pub active: Style,
+    pub header: Style,
     pub border: Style,
+    pub border_symbol: &'static str,
     pub rail: Color,
 }
 
@@ -118,11 +120,18 @@ impl RailPalette {
                 .bg(selected_bg)
                 .fg(chrome.sidebar_selected_fg)
                 .add_modifier(Modifier::BOLD),
-            border: base.fg(if focused {
-                app.config.theme.border_active
+            header: if focused {
+                Style::default()
+                    .bg(chrome.status_active_bg)
+                    .fg(app.config.theme.border_active)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                chrome.sidebar_border
-            }),
+                base.fg(chrome.sidebar_dim_fg)
+            },
+            border: base
+                .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
+                .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() }),
+            border_symbol: if focused { "┃" } else { "│" },
             rail: app.config.theme.sidebar_rail,
         }
     }
@@ -138,7 +147,7 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
         for x in area.x..border_x {
             buf[(x, y)].set_symbol(" ").set_style(palette.base);
         }
-        buf[(border_x, y)].set_symbol("│").set_style(palette.border);
+        buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
     }
 }
 
@@ -147,7 +156,11 @@ pub fn header(frame: &mut Frame, area: Rect, label: &str, palette: RailPalette) 
     if width == 0 || area.height == 0 {
         return;
     }
-    frame.buffer_mut().set_stringn(area.x, area.y, format!(" {label}"), width, palette.dim);
+    let buf = frame.buffer_mut();
+    for x in area.x..area.x + area.width.saturating_sub(1) {
+        buf[(x, area.y)].set_symbol(" ").set_style(palette.header);
+    }
+    buf.set_stringn(area.x, area.y, format!(" {label}"), width, palette.header);
 }
 
 pub struct Entry<'a> {
