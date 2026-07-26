@@ -5,12 +5,12 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
-// Thread exhaustion must not turn browser shutdown into an unbounded caller
-// wait. Retain exact Child ownership here and retry it with the next reaper.
-static REAPER_BACKLOG: OnceLock<Mutex<Vec<ReapRequest>>> = OnceLock::new();
+static CHROME_REAPER: OnceLock<Mutex<Option<ChromeReaper>>> = OnceLock::new();
+const REAPER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[cfg(test)]
 thread_local! {
@@ -40,6 +40,7 @@ pub struct Chrome {
     profile_dir: PathBuf,
     profile_ephemeral: bool,
     web_socket_url: String,
+    reaper: ChromeReaperHandle,
 }
 
 impl Chrome {
@@ -56,6 +57,10 @@ impl Chrome {
     }
 
     pub fn launch_with(options: &ChromeLaunchOptions) -> anyhow::Result<Self> {
+        // Browser shutdown must never depend on creating a new thread. Refuse
+        // to launch the child until the process-wide reaper owns a worker.
+        let reaper = chrome_reaper_handle()
+            .map_err(|error| anyhow::anyhow!("failed to start Chrome reaper: {error}"))?;
         let (profile_dir, profile_ephemeral) = profile_dir_for(options)?;
         std::fs::create_dir_all(&profile_dir)?;
         let mut command = Command::new(&options.binary);
@@ -100,7 +105,11 @@ impl Chrome {
                         let _ = std::fs::remove_dir_all(&profile_dir);
                     }
                 } else {
-                    reap_child_detached(child, profile_ephemeral.then(|| profile_dir.clone()));
+                    reap_child_detached(
+                        &reaper,
+                        child,
+                        profile_ephemeral.then(|| profile_dir.clone()),
+                    );
                 }
                 anyhow::bail!(
                     "Chrome did not publish a DevTools endpoint within 10s (binary: {})",
@@ -114,6 +123,7 @@ impl Chrome {
             profile_dir,
             profile_ephemeral,
             web_socket_url,
+            reaper,
         })
     }
 
@@ -147,7 +157,11 @@ impl Drop for Chrome {
         }
         let child = self.child.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
         if let Some(child) = child {
-            reap_child_detached(child, self.profile_ephemeral.then(|| self.profile_dir.clone()));
+            reap_child_detached(
+                &self.reaper,
+                child,
+                self.profile_ephemeral.then(|| self.profile_dir.clone()),
+            );
         } else if self.profile_ephemeral {
             let _ = std::fs::remove_dir_all(&self.profile_dir);
         }
@@ -159,59 +173,87 @@ struct ReapRequest {
     profile_dir: Option<PathBuf>,
 }
 
-fn reap_child_detached(child: Child, profile_dir: Option<PathBuf>) {
-    let mut requests = {
-        let mut backlog = REAPER_BACKLOG.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
-        let mut requests = std::mem::take(&mut *backlog);
-        requests.push(ReapRequest { child, profile_dir });
-        requests
-    };
-    let mut pending = requests.drain(..);
-    while let Some(request) = pending.next() {
-        if let Err(request) = spawn_reap_child(request) {
-            let mut backlog = REAPER_BACKLOG.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
-            backlog.push(request);
-            backlog.extend(pending);
-            break;
-        }
+#[derive(Clone)]
+struct ChromeReaperHandle {
+    sender: mpsc::Sender<ReapRequest>,
+}
+
+struct ChromeReaper {
+    handle: ChromeReaperHandle,
+    _worker: JoinHandle<()>,
+}
+
+impl ChromeReaper {
+    fn start() -> std::io::Result<Self> {
+        let (sender, receiver) = mpsc::channel();
+        let handle = ChromeReaperHandle { sender };
+        let worker = spawn_reaper_worker(receiver)?;
+        Ok(Self { handle, _worker: worker })
     }
 }
 
-fn spawn_reap_child(request: ReapRequest) -> Result<(), ReapRequest> {
-    let request = std::sync::Arc::new(Mutex::new(Some(request)));
-    let worker_request = request.clone();
+fn spawn_reaper_worker(receiver: mpsc::Receiver<ReapRequest>) -> std::io::Result<JoinHandle<()>> {
     #[cfg(test)]
     let force_spawn_failure = FORCE_REAPER_SPAWN_FAILURE.get();
     #[cfg(not(test))]
     let force_spawn_failure = false;
-    let spawned = if force_spawn_failure {
-        Err(std::io::Error::other("forced Chrome reaper spawn failure"))
-    } else {
-        std::thread::Builder::new().name("cmux-tui-cdp-chrome-reaper".into()).spawn(move || {
-            if let Some(request) = worker_request.lock().unwrap().take() {
-                reap_child(request);
-            }
-        })
-    };
-    if spawned.is_err() {
-        return Err(request
-            .lock()
-            .unwrap()
-            .take()
-            .expect("reaper request remains after spawn error"));
+    if force_spawn_failure {
+        return Err(std::io::Error::other("forced Chrome reaper spawn failure"));
     }
-    Ok(())
+    std::thread::Builder::new()
+        .name("cmux-tui-cdp-chrome-reaper".into())
+        .spawn(move || run_reaper(receiver))
 }
 
-fn reap_child(mut request: ReapRequest) {
+fn chrome_reaper_handle() -> std::io::Result<ChromeReaperHandle> {
+    let mut slot = CHROME_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    if slot.is_none() {
+        *slot = Some(ChromeReaper::start()?);
+    }
+    Ok(slot.as_ref().expect("Chrome reaper initialized").handle.clone())
+}
+
+fn reap_child_detached(reaper: &ChromeReaperHandle, child: Child, profile_dir: Option<PathBuf>) {
+    reaper
+        .sender
+        .send(ReapRequest { child, profile_dir })
+        .expect("Chrome reaper worker remains alive while its service is registered");
+}
+
+fn run_reaper(receiver: mpsc::Receiver<ReapRequest>) {
+    let mut pending = Vec::new();
+    loop {
+        let received = if pending.is_empty() {
+            receiver.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+        } else {
+            receiver.recv_timeout(REAPER_POLL_INTERVAL)
+        };
+        match received {
+            Ok(request) => pending.push(request),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) if pending.is_empty() => return,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                std::thread::sleep(REAPER_POLL_INTERVAL);
+            }
+        }
+        while let Ok(request) = receiver.try_recv() {
+            pending.push(request);
+        }
+        pending.retain_mut(|request| !poll_reap_request(request));
+    }
+}
+
+fn poll_reap_request(request: &mut ReapRequest) -> bool {
     #[cfg(test)]
     REAP_CHILD_CALLED_ON_THREAD.set(true);
     let _ = request.child.kill();
-    if request.child.wait().is_ok()
-        && let Some(profile_dir) = request.profile_dir
-    {
+    if !matches!(request.child.try_wait(), Ok(Some(_))) {
+        return false;
+    }
+    if let Some(profile_dir) = request.profile_dir.take() {
         let _ = std::fs::remove_dir_all(profile_dir);
     }
+    true
 }
 
 fn kill_child_until(child: &mut Child, deadline: Instant) -> bool {
@@ -383,6 +425,7 @@ mod tests {
             profile_dir,
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
+            reaper: chrome_reaper_handle().unwrap(),
         };
 
         assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
@@ -410,6 +453,7 @@ mod tests {
             profile_dir: make_profile_dir().unwrap(),
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
+            reaper: chrome_reaper_handle().unwrap(),
         };
 
         FORCE_KILL_TIMEOUT.set(true);
@@ -445,11 +489,13 @@ mod tests {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
+        let reaper = chrome_reaper_handle().unwrap();
         let chrome = Chrome {
             child: Mutex::new(Some(child)),
             profile_dir: make_profile_dir().unwrap(),
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
+            reaper: reaper.clone(),
         };
 
         REAP_CHILD_CALLED_ON_THREAD.set(false);
@@ -461,7 +507,7 @@ mod tests {
         let reaped_inline = REAP_CHILD_CALLED_ON_THREAD.get();
 
         let cleanup = Command::new("true").spawn().unwrap();
-        reap_child_detached(cleanup, None);
+        reap_child_detached(&reaper, cleanup, None);
 
         assert!(!reaped_inline, "reaper spawn failure fell back to an unbounded caller wait");
     }
@@ -474,8 +520,9 @@ mod tests {
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
         }
 
+        let reaper = chrome_reaper_handle().unwrap();
         let warmup = Command::new("true").spawn().unwrap();
-        reap_child_detached(warmup, None);
+        reap_child_detached(&reaper, warmup, None);
 
         let child = Command::new("sleep")
             .arg("60")
@@ -488,7 +535,7 @@ mod tests {
         let profile_dir = make_profile_dir().unwrap();
 
         FORCE_REAPER_SPAWN_FAILURE.set(true);
-        reap_child_detached(child, Some(profile_dir.clone()));
+        reap_child_detached(&reaper, child, Some(profile_dir.clone()));
         FORCE_REAPER_SPAWN_FAILURE.set(false);
 
         let deadline = Instant::now() + Duration::from_secs(1);
