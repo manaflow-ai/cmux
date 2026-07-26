@@ -1074,6 +1074,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_parse_csi_u_preserves_empty_option_character_provenance() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[110;3u").unwrap(),
+            Some(InternalEvent::Event(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT),
+                shifted_key: None,
+                base_layout_key: None,
+                text: String::new(),
+            }))),
+        );
+    }
+
     #[cfg(feature = "bracketed-paste")]
     #[test]
     fn test_parse_csi_bracketed_paste() {
