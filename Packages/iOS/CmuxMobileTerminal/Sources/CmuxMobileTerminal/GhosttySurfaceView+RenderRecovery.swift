@@ -239,7 +239,7 @@ extension GhosttySurfaceView {
         outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
         scrollToBottomInFlight = false
         bridge = GhosttySurfaceBridge()
-        bridge.attach(to: self)
+        bridge.attach(to: self, rendererHostView: rendererHostView)
 
         initializeSurface()
         if replay == .delegateWhenNoCaller && !completedFailedOperation {

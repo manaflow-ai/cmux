@@ -78,6 +78,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
     var bridge = GhosttySurfaceBridge()
+    /// Minimal UIKit object whose layer hosts Ghostty's IOSurfaceLayer.
+    /// A detached bridge may retain this view while a queued free drains, but
+    /// never retains the complete terminal view hierarchy or session state.
+    let rendererHostView = UIView()
+    var rendererHostLayer: CALayer { rendererHostView.layer }
     private let prefersSnapshotFallbackRendering = false
     /// Enables both terminal artifact taps and the coalesced visible-frame count.
     public var artifactFilesEnabled: Bool {
@@ -640,7 +645,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.terminalTheme = terminalTheme.validatedOrDefault()
         self.terminalConfigTheme = (terminalConfigTheme ?? terminalTheme).validatedOrDefault()
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
-        bridge.attach(to: self)
+        rendererHostView.frame = bounds
+        rendererHostView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        rendererHostView.backgroundColor = .clear
+        rendererHostView.isOpaque = false
+        rendererHostView.isUserInteractionEnabled = false
+        addSubview(rendererHostView)
+        bridge.attach(to: self, rendererHostView: rendererHostView)
         // The local view background (the area behind/around the rendered cells,
         // and the letterbox fill) is sourced from the synced theme rather than a
         // hardcoded color, so a fresh mount already shows the Mac's background and
@@ -1883,6 +1894,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
+        rendererHostView.frame = bounds
         let snapshot = viewportSnapshot()
         layoutRenderedTerminalForCurrentViewport(using: snapshot)
         layoutScrollMechanicsView()
@@ -2512,7 +2524,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pendingFreesAtEnqueue = pendingSurfaceFreeCount
         watchdog.start(generation: generation) { pendingFreesAtEnqueue }
         let finish: @MainActor @Sendable () -> Void = { [bridge, watchdog, completion] in
-            bridge.releaseSurfaceViewAfterFree()
+            bridge.releaseRendererHostAfterFree()
             watchdog.cancel(generation: generation)
             completion?()
         }
@@ -2635,7 +2647,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let nowHeartbeat = now
         if nowHeartbeat - lastHeartbeatTime >= 2.0 {
             lastHeartbeatTime = nowHeartbeat
-            let renderLayer = (layer.sublayers ?? []).first(where: { isGhosttyRendererLayer($0) })
+            let renderLayer = (rendererHostLayer.sublayers ?? []).first(where: {
+                isGhosttyRendererLayer($0)
+            })
             let renderSize = renderLayer?.bounds.size ?? .zero
             let sinceOutputMs = lastOutputAppliedTime > 0
                 ? Int((nowHeartbeat - lastOutputAppliedTime) * 1000)
@@ -3376,9 +3390,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // sublayer consistent.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        var geometryChanged = layer.contentsScale != scale
+        var geometryChanged = rendererHostLayer.contentsScale != scale
         layer.contentsScale = scale
-        for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+        rendererHostLayer.contentsScale = scale
+        for sublayer in rendererHostLayer.sublayers ?? []
+            where isGhosttyRendererLayer(sublayer) {
             if sublayer.frame != renderRect {
                 geometryChanged = true
                 sublayer.frame = renderRect
@@ -3462,7 +3478,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func logLayerTree(reason: String) {
-        let hostLayer = layer
+        let hostLayer = rendererHostLayer
         let hostSummary = "\(type(of: hostLayer)) bounds=\(hostLayer.bounds.integral.debugDescription) frame=\(hostLayer.frame.integral.debugDescription) contentsScale=\(hostLayer.contentsScale)"
         let childSummaries = (hostLayer.sublayers ?? []).prefix(4).enumerated().map { index, sublayer in
             "\(index):\(type(of: sublayer)) bounds=\(sublayer.bounds.integral.debugDescription) frame=\(sublayer.frame.integral.debugDescription) hidden=\(sublayer.isHidden) contents=\(sublayer.contents != nil) scale=\(sublayer.contentsScale)"
@@ -3476,7 +3492,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceConfig.userdata = bridgePointer
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_IOS
         surfaceConfig.platform = ghostty_platform_u(
-            ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(self).toOpaque())
+            ios: ghostty_platform_ios_s(
+                uiview: Unmanaged.passUnretained(rendererHostView).toOpaque()
+            )
         )
         surfaceConfig.scale_factor = preferredScreenScale
         surfaceConfig.font_size = liveFontSize
@@ -3492,7 +3510,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
-            bridge.releaseSurfaceViewAfterFree()
+            bridge.releaseRendererHostAfterFree()
             return nil
         }
         guard ghostty_surface_set_render_presented_callback(
@@ -3503,7 +3521,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)
-            bridge.releaseSurfaceViewAfterFree()
+            bridge.releaseRendererHostAfterFree()
             return nil
         }
         return createdSurface
@@ -3557,7 +3575,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
 
         let rendererHasContents = !prefersSnapshotFallbackRendering &&
-            (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
+            (rendererHostLayer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
         if rendererHasContents {
             snapshotFallbackView.isHidden = true
             return

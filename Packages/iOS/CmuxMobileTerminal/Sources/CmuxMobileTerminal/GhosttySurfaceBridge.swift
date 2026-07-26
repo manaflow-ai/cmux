@@ -5,16 +5,18 @@ import UIKit
 /// Bridges libghostty C callbacks (which run on the IO read thread or
 /// other Ghostty-internal threads) onto the main actor where the
 /// `GhosttySurfaceView` lives. A lock protects callback delivery and the
-/// strong owner reference that keeps libghostty's borrowed platform pointers
-/// valid through synchronous surface destruction.
+/// minimal renderer host that keeps libghostty's borrowed UIView pointer valid
+/// through synchronous surface destruction.
+// Safety: `lock` guards every mutable field, and callbacks dereference UIKit
+// objects only after hopping to MainActor.
 final class GhosttySurfaceBridge: @unchecked Sendable {
-    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding callback delivery and surface ownership on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
+    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding callback delivery and the renderer host on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
-    // Deliberately strong because libghostty stores a borrowed bridge pointer
-    // and a raw UIView pointer. `detach()` disables callback delivery without
-    // releasing the view. The queued free releases it only after synchronous
-    // Ghostty teardown has stopped every callback and renderer reference.
-    private var _surfaceView: GhosttySurfaceView?
+    // Callback delivery never owns the terminal view. libghostty stores a raw
+    // pointer only to the small renderer host UIView, so that host alone stays
+    // alive if a queued free stalls after the terminal has been dismantled.
+    private weak var _surfaceView: GhosttySurfaceView?
+    private var _rendererHostView: UIView?
     private var deliversCallbacks = false
 
     var surfaceView: GhosttySurfaceView? {
@@ -23,9 +25,10 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         return deliversCallbacks ? _surfaceView : nil
     }
 
-    func attach(to surfaceView: GhosttySurfaceView) {
+    func attach(to surfaceView: GhosttySurfaceView, rendererHostView: UIView) {
         lock.lock()
         _surfaceView = surfaceView
+        _rendererHostView = rendererHostView
         deliversCallbacks = true
         lock.unlock()
     }
@@ -33,13 +36,15 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     func detach() {
         lock.lock()
         deliversCallbacks = false
+        _surfaceView = nil
         lock.unlock()
     }
 
-    func releaseSurfaceViewAfterFree() {
+    func releaseRendererHostAfterFree() {
         lock.lock()
         deliversCallbacks = false
         _surfaceView = nil
+        _rendererHostView = nil
         lock.unlock()
     }
 

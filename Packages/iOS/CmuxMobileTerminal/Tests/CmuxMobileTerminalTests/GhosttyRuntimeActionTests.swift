@@ -99,12 +99,10 @@ struct GhosttyRuntimeActionTests {
         _ = try #require(view?.surface)
         let bridge = try #require(view?.bridge)
 
-        weak let releasedView = view
         bridge.detach()
+        #expect(isKnownUniquelyReferenced(&view))
+        view?.prepareForDismantle()
         view = nil
-
-        #expect(releasedView == nil)
-        releasedView?.prepareForDismantle()
         withExtendedLifetime(bridge) {}
     }
 }
