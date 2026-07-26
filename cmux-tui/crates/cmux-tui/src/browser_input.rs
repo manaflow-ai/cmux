@@ -94,17 +94,6 @@ struct SequencedBrowserInputEvent {
     sequence: u64,
     event: BrowserInputEvent,
     lifetime: Arc<AtomicBool>,
-    _release_permit: Option<MouseReleasePermit>,
-}
-
-struct MouseReleasePermit {
-    in_flight: Arc<AtomicBool>,
-}
-
-impl Drop for MouseReleasePermit {
-    fn drop(&mut self) {
-        self.in_flight.store(false, Ordering::Release);
-    }
 }
 
 #[derive(Default)]
@@ -187,7 +176,6 @@ impl BrowserInputKind {
 pub struct BrowserInputDispatcher {
     tx: SyncSender<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
-    release_in_flight: Arc<AtomicBool>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
     reliable_mouse_release: Arc<Mutex<Option<SequencedBrowserInputEvent>>>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
@@ -213,7 +201,6 @@ impl BrowserInputDispatcher {
     ) -> anyhow::Result<Self> {
         let (tx, rx) = sync_channel(QUEUE_CAPACITY);
         let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
-        let release_in_flight = Arc::new(AtomicBool::new(false));
         let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
         let reliable_mouse_release = Arc::new(Mutex::new(None));
         let failed_resizes = Arc::new(Mutex::new(HashMap::new()));
@@ -238,7 +225,6 @@ impl BrowserInputDispatcher {
         Ok(BrowserInputDispatcher {
             tx,
             order,
-            release_in_flight,
             latest_resizes,
             reliable_mouse_release,
             failed_resizes,
@@ -253,7 +239,6 @@ impl BrowserInputDispatcher {
             BrowserInputDispatcher {
                 tx,
                 order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-                release_in_flight: Arc::new(AtomicBool::new(false)),
                 latest_resizes: Arc::new(Mutex::new(HashMap::new())),
                 reliable_mouse_release: Arc::new(Mutex::new(None)),
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
@@ -283,27 +268,12 @@ impl BrowserInputDispatcher {
             .or_insert_with(|| Arc::new(AtomicBool::new(false)))
             .clone();
         let mut order = self.order.lock().unwrap();
-        if event.kind.is_mouse_press() && self.release_in_flight.load(Ordering::Acquire) {
-            return false;
-        }
-        if is_mouse_release
-            && self
-                .release_in_flight
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
-        {
+        if event.kind.is_mouse_press() && self.reliable_mouse_release.lock().unwrap().is_some() {
             return false;
         }
         let sequence = order.next_sequence;
         order.next_sequence = order.next_sequence.saturating_add(1);
-        let release_permit = is_mouse_release
-            .then(|| MouseReleasePermit { in_flight: self.release_in_flight.clone() });
-        let event = SequencedBrowserInputEvent {
-            sequence,
-            event,
-            lifetime,
-            _release_permit: release_permit,
-        };
+        let event = SequencedBrowserInputEvent { sequence, event, lifetime };
         match self.tx.try_send(event) {
             Ok(()) if !is_resize => {
                 order.barrier_epoch = order.barrier_epoch.saturating_add(1);
@@ -656,12 +626,7 @@ mod tests {
     }
 
     fn sequenced(sequence: u64, event: BrowserInputEvent) -> SequencedBrowserInputEvent {
-        SequencedBrowserInputEvent {
-            sequence,
-            event,
-            lifetime: Arc::new(AtomicBool::new(false)),
-            _release_permit: None,
-        }
+        SequencedBrowserInputEvent { sequence, event, lifetime: Arc::new(AtomicBool::new(false)) }
     }
 
     fn reload_event(surface: SurfaceId) -> BrowserInputEvent {
@@ -853,7 +818,6 @@ mod tests {
         let dispatcher = BrowserInputDispatcher {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            release_in_flight: Arc::new(AtomicBool::new(false)),
             latest_resizes: latest_resizes.clone(),
             reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
@@ -888,7 +852,6 @@ mod tests {
         let dispatcher = BrowserInputDispatcher {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            release_in_flight: Arc::new(AtomicBool::new(false)),
             latest_resizes: latest_resizes.clone(),
             reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
@@ -989,7 +952,6 @@ mod tests {
         let dispatcher = BrowserInputDispatcher {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            release_in_flight: Arc::new(AtomicBool::new(false)),
             latest_resizes: latest_resizes.clone(),
             reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
@@ -1054,7 +1016,6 @@ mod tests {
         let dispatcher = BrowserInputDispatcher {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
-            release_in_flight: Arc::new(AtomicBool::new(false)),
             latest_resizes: latest_resizes.clone(),
             reliable_mouse_release: Arc::new(Mutex::new(None)),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),

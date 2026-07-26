@@ -1210,7 +1210,12 @@ fn publish_session_default_colors(
     colors: cmux_tui_core::DefaultColors,
     surface_only: Option<cmux_tui_core::SurfaceId>,
 ) -> anyhow::Result<()> {
-    let _ = surface_only;
+    // A scoped attach receives the target terminal's resolved colors through
+    // vt-state. Publishing this client's host colors would recolor sibling
+    // surfaces and change the session defaults for future terminals.
+    if surface_only.is_some() {
+        return Ok(());
+    }
     session.set_default_colors(colors)
 }
 

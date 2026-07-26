@@ -1617,6 +1617,19 @@ impl BrowserSurface {
         }
     }
 
+    // A browser must observe every release for a press it accepted. Wait for
+    // bounded queue capacity on the dedicated input/control worker instead of
+    // falsely acknowledging a dropped release. This also gives remote request
+    // handlers an enqueue acknowledgement before they answer the attach client.
+    fn enqueue_reliable_mouse_release(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        self.command_sender()?
+            .send(command)
+            .map_err(|_| anyhow::anyhow!("browser command worker is closed"))
+    }
+
     // Bounded, in-order delivery for discrete control actions
     // (back/forward/reload/activate). These stay in FIFO order so a `Back` can
     // never be swallowed by a later `Forward` (unlike the latest-wins nav slot),
@@ -1724,13 +1737,18 @@ impl BrowserSurface {
         button: Option<&str>,
         click_count: Option<u32>,
     ) -> anyhow::Result<()> {
-        self.enqueue_bounded(BrowserCommand::Mouse {
+        let command = BrowserCommand::Mouse {
             event_type: event_type.to_string(),
             x,
             y,
             button: button.map(ToOwned::to_owned),
             click_count,
-        })
+        };
+        if event_type == "mouseReleased" {
+            self.enqueue_reliable_mouse_release(command)
+        } else {
+            self.enqueue_bounded(command)
+        }
     }
 
     fn mouse_event_blocking(
