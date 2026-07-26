@@ -2589,6 +2589,45 @@ impl MasterPty for TestMasterPty {
     }
 }
 
+#[cfg(all(test, unix))]
+struct FdMasterPty {
+    file: std::fs::File,
+    size: Mutex<PtySize>,
+}
+
+#[cfg(all(test, unix))]
+impl MasterPty for FdMasterPty {
+    fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        *self.size.lock().unwrap() = size;
+        Ok(())
+    }
+
+    fn get_size(&self) -> anyhow::Result<PtySize> {
+        Ok(*self.size.lock().unwrap())
+    }
+
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+        Ok(Box::new(std::io::empty()))
+    }
+
+    fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+        Ok(Box::new(std::io::sink()))
+    }
+
+    fn process_group_leader(&self) -> Option<libc::pid_t> {
+        None
+    }
+
+    fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        use std::os::fd::AsRawFd;
+        Some(self.file.as_raw_fd())
+    }
+
+    fn tty_name(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
 #[cfg(test)]
 #[derive(Debug)]
 struct TestChildKiller;
@@ -3801,6 +3840,89 @@ mod tests {
             .unwrap();
 
         assert_eq!(&*written.lock().unwrap(), b"\x1b[107;9u");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_history_fallback_write_has_a_deadline_when_pty_input_is_full() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+
+        let mux = Mux::new_for_test("clear-history-full-input", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
+
+        let mut pipe_fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(pipe_fds.as_mut_ptr()) }, 0);
+        let read_end = unsafe { std::fs::File::from_raw_fd(pipe_fds[0]) };
+        let write_end = unsafe { std::fs::File::from_raw_fd(pipe_fds[1]) };
+        let master_fd = unsafe { libc::dup(write_end.as_raw_fd()) };
+        assert!(master_fd >= 0);
+        let master_file = unsafe { std::fs::File::from_raw_fd(master_fd) };
+
+        let write_fd = write_end.as_raw_fd();
+        let original_flags = unsafe { libc::fcntl(write_fd, libc::F_GETFL) };
+        assert!(original_flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) },
+            0
+        );
+        let fill = [b'x'; 4096];
+        loop {
+            let written = unsafe { libc::write(write_fd, fill.as_ptr().cast(), fill.len()) };
+            if written > 0 {
+                continue;
+            }
+            let error = std::io::Error::last_os_error();
+            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+            break;
+        }
+        assert_eq!(unsafe { libc::fcntl(write_fd, libc::F_SETFL, original_flags) }, 0);
+
+        {
+            let pty = surface.as_pty().unwrap();
+            let mut runtime = pty.runtime.lock().unwrap();
+            let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
+                panic!("test surface unexpectedly uses a terminal host");
+            };
+            *writer = Box::new(write_end);
+            *master = Box::new(FdMasterPty {
+                file: master_file,
+                size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
+            });
+        }
+
+        let input = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_K,
+            mods: ghostty_vt::Mods::SUPER,
+            unshifted_codepoint: 'k' as u32,
+            action: Some(ghostty_vt::KeyAction::Press),
+            ..Default::default()
+        };
+        let clear_surface = surface.clone();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = finished_tx
+                .send(clear_surface.clear_history_or_encode_key_classified(Some(&input)));
+        });
+
+        let timely = finished_rx.recv_timeout(Duration::from_millis(600));
+        let completed_before_drain = timely.is_ok();
+        if !completed_before_drain {
+            let mut drain = [0; 4096];
+            assert!(
+                unsafe { libc::read(read_end.as_raw_fd(), drain.as_mut_ptr().cast(), drain.len()) }
+                    > 0
+            );
+        }
+        let result = timely.or_else(|_| finished_rx.recv_timeout(Duration::from_secs(1))).unwrap();
+
+        assert!(completed_before_drain, "fallback write exceeded its deadline");
+        assert!(result.is_err(), "a full PTY input queue unexpectedly accepted the fallback key");
+        assert!(
+            result.as_ref().is_err_and(|failure| failure.error().to_string().contains("timeout")),
+            "fallback write did not return a stable timeout failure"
+        );
     }
 
     #[test]

@@ -716,6 +716,18 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_character_alt_without_text_is_not_an_authoritative_shortcut() {
+        let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: String::new(),
+        });
+
+        assert!(input.suppresses_alt_shortcut());
+    }
+
+    #[test]
     fn option_generated_text_keeps_associated_text_in_kitty_mode() {
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),

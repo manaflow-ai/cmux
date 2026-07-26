@@ -5896,6 +5896,100 @@ mod tests {
     }
 
     #[test]
+    fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+        let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(admission.clone()));
+        let writer = test_writer();
+
+        let mut clear = Some(Request {
+            id: Some(json!(1)),
+            cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
+        let mut wait = Some(Request {
+            id: Some(json!(2)),
+            cmd: Command::WaitFor {
+                surface: surface.id,
+                pattern: "never-matches".to_string(),
+                timeout_ms: 500,
+            },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
+
+        std::thread::sleep(Duration::from_millis(350));
+        let active_clear_workers = admission.state.lock().unwrap().workers;
+        let drained = scheduler.close_and_wait(Duration::from_secs(1));
+        mux.close_surface(surface.id).unwrap();
+
+        assert_eq!(
+            active_clear_workers, 0,
+            "a queued wait-for retained the completed clear-history worker permit"
+        );
+        assert!(drained);
+    }
+
+    #[test]
+    fn connection_close_cancels_a_wait_queued_after_clear_history() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|term| {
+            term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
+        });
+        let scheduler = Arc::new(ConnectionSurfaceScheduler::new(Arc::new(
+            ServerSurfaceOperationAdmission::default(),
+        )));
+        let writer = test_writer();
+
+        let mut clear = Some(Request {
+            id: Some(json!(1)),
+            cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
+        let mut wait = Some(Request {
+            id: Some(json!(2)),
+            cmd: Command::WaitFor {
+                surface: surface.id,
+                pattern: "release-wait".to_string(),
+                timeout_ms: 1_000,
+            },
+        });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
+
+        std::thread::sleep(Duration::from_millis(350));
+        let drained = scheduler.close_and_wait(Duration::from_millis(500));
+        if !drained {
+            let _ = scheduler.close_and_wait(Duration::from_secs(1));
+        }
+        mux.close_surface(surface.id).unwrap();
+
+        assert!(drained, "connection shutdown did not cancel an active wait-for request");
+    }
+
+    #[test]
+    fn independent_muxes_do_not_share_surface_operation_admission() {
+        let _first_mux = test_mux();
+        let _second_mux = test_mux();
+        let first = ConnectionSurfaceScheduler::default();
+        let second = ConnectionSurfaceScheduler::default();
+        let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
+            .map(|_| first.admission.try_reserve_worker_and_bytes(0).unwrap())
+            .collect::<Vec<_>>();
+
+        let isolated = second.admission.try_reserve_worker_and_bytes(0);
+        drop(permits);
+
+        assert!(
+            isolated.is_ok(),
+            "one mux exhausted the hidden process-global admission budget of another mux"
+        );
+    }
+
+    #[test]
     fn surface_worker_limit_is_process_wide_across_connections() {
         assert!(
             active_clear_lanes_across_connections(17, 0) <= 16,
@@ -7950,7 +8044,11 @@ mod tests {
     }
 
     #[test]
-    fn protocol_key_text_limit_fits_a_websocket_clear_history_request() {
+    fn protocol_key_text_limit_is_bounded_for_one_key_event() {
+        assert!(
+            PROTOCOL_KEY_TEXT_MAX_BYTES <= 4 * 1024,
+            "one key event may retain an unbounded fallback payload"
+        );
         let input = KeyInput {
             key: sys::GHOSTTY_KEY_K,
             mods: Mods::SUPER,

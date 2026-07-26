@@ -12622,7 +12622,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_alt_character_without_associated_text_matches_modeless_bindings() {
+    fn empty_text_alt_character_does_not_match_modeless_bindings() {
         let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
@@ -12631,15 +12631,15 @@ mod tests {
         });
         let (key, fallback) = input.shortcut_keys();
 
-        assert!(!input.suppresses_alt_shortcut());
+        assert!(input.suppresses_alt_shortcut());
         assert_eq!(
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
-            Some(Action::FocusDown)
+            None
         );
     }
 
     #[test]
-    fn explicit_alt_character_without_layout_metadata_matches_modeless_bindings() {
+    fn empty_text_alt_character_without_layout_metadata_does_not_match_modeless_bindings() {
         let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
@@ -12648,10 +12648,10 @@ mod tests {
         });
         let (key, fallback) = input.shortcut_keys();
 
-        assert!(!input.suppresses_alt_shortcut());
+        assert!(input.suppresses_alt_shortcut());
         assert_eq!(
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
-            Some(Action::FocusDown)
+            None
         );
     }
 
