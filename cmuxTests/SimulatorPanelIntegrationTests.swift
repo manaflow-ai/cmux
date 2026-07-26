@@ -221,6 +221,38 @@ struct SimulatorPanelIntegrationTests {
         #expect(await completion.isCompleted)
     }
 
+    @Test("Application termination retains cleanup after a closed panel deallocates")
+    func applicationTerminationRetainsOrphanedClose() async {
+        let client = SimulatorFeatureFlagPaneClient(blockStop: true)
+        weak var releasedPanel: SimulatorPanel?
+        do {
+            let panel = SimulatorPanel(client: client)
+            releasedPanel = panel
+            panel.close()
+        }
+        for _ in 0..<100 {
+            if await client.stopCount != 0 { break }
+            await Task.yield()
+        }
+
+        #expect(await client.stopCount == 1)
+        #expect(releasedPanel == nil)
+        let cleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
+        let completion = SimulatorCloseCompletionProbe()
+        let terminationWait = Task {
+            for cleanupTask in cleanupTasks {
+                await cleanupTask.value
+            }
+            await completion.markCompleted()
+        }
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!(await completion.isCompleted))
+
+        await client.releaseStop()
+        await terminationWait.value
+        #expect(await completion.isCompleted)
+    }
+
     @Test("External file drops target Simulator import instead of file previews")
     func externalFileDropRouting() async throws {
         let flags = CmuxFeatureFlags.shared
