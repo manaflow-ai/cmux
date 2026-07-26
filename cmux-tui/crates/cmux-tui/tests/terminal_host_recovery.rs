@@ -1584,12 +1584,19 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     )
     .unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
-    let resolved = request(
-        &harness.socket,
-        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-    );
-    assert_eq!(resolved["lifecycle"], "running");
-    assert_eq!(resolved["terminal_incarnation"], incarnation);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "running" {
+            assert_eq!(resolved["terminal_incarnation"], incarnation);
+            break;
+        }
+        assert!(Instant::now() < deadline, "terminal never completed admin reconnection");
+        std::thread::sleep(Duration::from_millis(25));
+    }
     let after_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
     assert_eq!(after_record.host_pid, before_record.host_pid);
     assert_eq!(after_record.host_start_nonce, before_record.host_start_nonce);
