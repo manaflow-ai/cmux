@@ -209,11 +209,11 @@ _SWIFT_CLOCK_TYPE_PATTERN = (
     r"(?:Swift\s*\.\s*)?(?:ContinuousClock|SuspendingClock)"
 )
 _SWIFT_CLOCK_TYPED_LET = (
-    rf"\blet\s+(?P<typed_name>{_SWIFT_IDENTIFIER_PATTERN})"
+    rf"\b(?:let|var)\s+(?P<typed_name>{_SWIFT_IDENTIFIER_PATTERN})"
     rf"\s*:\s*{_SWIFT_CLOCK_TYPE_PATTERN}\b"
 )
 _SWIFT_CLOCK_INFERRED_LET = (
-    rf"\blet\s+(?P<inferred_name>{_SWIFT_IDENTIFIER_PATTERN})"
+    rf"\b(?:let|var)\s+(?P<inferred_name>{_SWIFT_IDENTIFIER_PATTERN})"
     rf"\s*=\s*{_SWIFT_CLOCK_TYPE_PATTERN}\s*\(\s*\)"
 )
 _SWIFT_SIMPLE_BINDING = (
@@ -883,7 +883,56 @@ def _swift_real_sleep_positions(
     return positions
 
 
+_JAVASCRIPT_IDENTIFIER_PATTERN = r"[$A-Za-z_][$A-Za-z0-9_]*"
+_JAVASCRIPT_TIMER_IMPORT = re.compile(
+    r"""(?msx)
+    ^[ \t]*import\s*\{
+    (?P<imports>.*?)
+    \}\s*from\s*
+    (?P<quote>["'])
+    (?P<module>(?:node:)?timers/promises)
+    (?P=quote)
+    """
+)
+
+
+def _javascript_timer_aliases(
+    raw_text: str,
+    masked_text: str,
+) -> set[str]:
+    """Return unshadowed promise-timer aliases from trusted ESM imports."""
+    aliases: set[str] = set()
+    for timer_import in _JAVASCRIPT_TIMER_IMPORT.finditer(raw_text):
+        if not masked_text.startswith("import", timer_import.start()):
+            continue
+        for specifier in timer_import.group("imports").split(","):
+            imported = re.fullmatch(
+                rf"\s*setTimeout(?:\s+as\s+"
+                rf"(?P<alias>{_JAVASCRIPT_IDENTIFIER_PATTERN}))?\s*",
+                specifier,
+            )
+            if imported is not None:
+                aliases.add(imported.group("alias") or "setTimeout")
+
+    result: set[str] = set()
+    for alias in aliases:
+        escaped = re.escape(alias)
+        shadow_patterns = (
+            rf"\b(?:let|const|var|function|class)\s+{escaped}\b",
+            rf"(?<![.$\w]){escaped}\s*=(?!=|>)",
+            rf"\bfunction\b[^()]*\([^)]*\b{escaped}\b[^)]*\)",
+            rf"\([^)]*\b{escaped}\b[^)]*\)\s*=>",
+            rf"(?<![.$\w]){escaped}\s*=>",
+            rf"\bcatch\s*\(\s*{escaped}\b",
+        )
+        if any(re.search(pattern, masked_text) for pattern in shadow_patterns):
+            continue
+        result.add(alias)
+    return result
+
+
 def _javascript_real_sleep_positions(
+    raw_text: str,
     masked_lines: list[str],
 ) -> dict[int, set[int]]:
     """Return line/column sites for trusted JavaScript sleeps."""
@@ -904,6 +953,18 @@ def _javascript_real_sleep_positions(
         line = text.count("\n", 0, sleep_offset)
         line_start = text.rfind("\n", 0, sleep_offset) + 1
         positions.setdefault(line, set()).add(sleep_offset - line_start)
+
+    for alias in _javascript_timer_aliases(raw_text, text):
+        call_pattern = re.compile(
+            rf"(?<![.$\w])(?P<alias>{re.escape(alias)})\s*\("
+        )
+        for call in call_pattern.finditer(text):
+            sleep_offset = call.start("alias")
+            line = text.count("\n", 0, sleep_offset)
+            line_start = text.rfind("\n", 0, sleep_offset) + 1
+            positions.setdefault(line, set()).add(
+                sleep_offset - line_start
+            )
     return positions
 
 
@@ -4239,7 +4300,10 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         known_sleep_positions = _swift_real_sleep_positions(masked_lines)
         known_sleep_lines = set(known_sleep_positions)
     elif suffix in _JS_SUFFIXES and has_sleep_candidate:
-        known_sleep_positions = _javascript_real_sleep_positions(masked_lines)
+        known_sleep_positions = _javascript_real_sleep_positions(
+            text,
+            masked_lines,
+        )
         known_sleep_lines = set(known_sleep_positions)
     elif suffix == ".sh" and has_sleep_candidate:
         known_sleep_positions = _shell_real_sleep_positions(
