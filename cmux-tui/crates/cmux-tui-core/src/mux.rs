@@ -10654,6 +10654,36 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_separates_in_process_and_control_resize_owners_with_same_ids() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        // These model independent in-process and control-client entrypoints
+        // that happen to allocate the same numeric owner and transaction ids.
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 1, 1));
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 1, 1));
+
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.6);
+        });
+
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.5);
+        });
+    }
+
+    #[test]
     fn layout_undo_separates_a_new_resize_from_pre_undo_history() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
