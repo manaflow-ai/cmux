@@ -826,7 +826,7 @@ mod unix {
             };
             if let Err(error) = write_result {
                 self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                return Err(ClearHistoryFailure::known_not_delivered(error.into()));
+                return Err(ClearHistoryFailure::ambiguous(error.into()));
             }
             match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
                 Ok(payload) => Ok(payload),
