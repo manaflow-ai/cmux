@@ -770,7 +770,7 @@ Params:
 | `key` | `TerminalKey` | required | One of the symbolic values below |
 | `mods` | `TerminalModifiers` | required | Exact active modifier state |
 | `consumed_mods` | `TerminalModifiers` | required | Must be a subset of `mods` |
-| `utf8` | `string` | required | At most 1 MiB of UTF-8 and contains no control characters; this leaves room for worst-case JSON escaping inside the 4 MiB WebSocket frame limit |
+| `utf8` | `string` | required | At most 4 KiB of UTF-8 and contains no control characters |
 | `unshifted_codepoint` | `string \| null` | default null | Exactly one Unicode scalar when present |
 | `base_layout_codepoint` | `string \| null` | default null | Explicit PC-101 base-layout identity; exactly one Unicode scalar when present |
 | `action` | `"press" \| "release" \| "repeat" \| null` | default null | Key action when known |

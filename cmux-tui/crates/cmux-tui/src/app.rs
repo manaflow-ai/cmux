@@ -8797,9 +8797,6 @@ impl App {
             self.forward_key(input);
             return Ok(RenderAction::Draw);
         }
-        if action == Action::ClearHistory {
-            return Ok(self.run_clear_history_shortcut(input));
-        }
         self.run_action(action)
     }
 

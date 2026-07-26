@@ -1170,6 +1170,7 @@ struct ConnectionSurfaceScheduler {
     admission: Arc<ServerSurfaceOperationAdmission>,
     cancelled: AtomicBool,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
+    connection_permit: Mutex<Option<ConnectionPermit>>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -1180,12 +1181,28 @@ impl Default for ConnectionSurfaceScheduler {
 
 impl ConnectionSurfaceScheduler {
     fn new(admission: Arc<ServerSurfaceOperationAdmission>) -> Self {
+        Self::new_inner(admission, None)
+    }
+
+    #[cfg(test)]
+    fn new_with_connection_permit(
+        admission: Arc<ServerSurfaceOperationAdmission>,
+        permit: ConnectionPermit,
+    ) -> Self {
+        Self::new_inner(admission, Some(permit))
+    }
+
+    fn new_inner(
+        admission: Arc<ServerSurfaceOperationAdmission>,
+        connection_permit: Option<ConnectionPermit>,
+    ) -> Self {
         Self {
             state: Mutex::new(ConnectionSurfaceState::default()),
             changed: Condvar::new(),
             admission,
             cancelled: AtomicBool::new(false),
             dispatcher: Mutex::new(None),
+            connection_permit: Mutex::new(connection_permit),
         }
     }
 }
@@ -1384,6 +1401,7 @@ impl ConnectionSurfaceScheduler {
         drop(state);
 
         if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
+            self.finish_dispatcher();
             self.close();
             return Some(send_request_error(
                 &writer,
@@ -1454,9 +1472,12 @@ impl ConnectionSurfaceScheduler {
     }
 
     fn finish_dispatcher(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.dispatcher_done = true;
-        self.changed.notify_all();
+        {
+            let mut state = self.state.lock().unwrap();
+            state.dispatcher_done = true;
+            self.changed.notify_all();
+        }
+        self.connection_permit.lock().unwrap().take();
     }
 
     fn close(&self) {
@@ -1465,23 +1486,21 @@ impl ConnectionSurfaceScheduler {
         state.closed = true;
         state.requests.clear();
         state.queued_bytes = 0;
-        if !state.dispatcher_started {
+        let dispatcher_never_started = !state.dispatcher_started;
+        if dispatcher_never_started {
             state.dispatcher_done = true;
         }
         self.changed.notify_all();
+        drop(state);
+        if dispatcher_never_started {
+            self.connection_permit.lock().unwrap().take();
+        }
     }
 
     fn close_and_wait(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
-        self.cancelled.store(true, Ordering::Release);
+        self.close();
         let mut state = self.state.lock().unwrap();
-        state.closed = true;
-        state.requests.clear();
-        state.queued_bytes = 0;
-        if !state.dispatcher_started {
-            state.dispatcher_done = true;
-        }
-        self.changed.notify_all();
         while (!state.dispatcher_done || !state.active_clear_surfaces.is_empty())
             && Instant::now() < deadline
         {
@@ -1605,9 +1624,14 @@ struct RegularOutbound {
     stream: OutboundStream,
 }
 
-struct ConnectionPermit(Arc<AtomicU64>);
+#[derive(Clone)]
+struct ConnectionPermit {
+    _lease: Arc<ConnectionPermitLease>,
+}
 
-impl Drop for ConnectionPermit {
+struct ConnectionPermitLease(Arc<AtomicU64>);
+
+impl Drop for ConnectionPermitLease {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
@@ -1619,7 +1643,7 @@ fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
             (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
         })
         .ok()
-        .map(|_| ConnectionPermit(active.clone()))
+        .map(|_| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(active.clone())) })
 }
 
 impl BoundedOutbound {
@@ -2361,8 +2385,7 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
             let Some(permit) = claim_connection(&active_connections) else { continue };
             let mux = mux.clone();
             let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
-                let _permit = permit;
-                handle_connection(mux, stream);
+                handle_connection_with_permit(mux, stream, Some(permit));
             });
         }
     })?;
@@ -2460,8 +2483,13 @@ pub fn serve_websocket(
             if std::thread::Builder::new()
                 .name("mux-ws-conn".into())
                 .spawn(move || {
-                    let _permit = permit;
-                    handle_websocket_connection(mux, stream, peer, token.as_deref());
+                    handle_websocket_connection_with_permit(
+                        mux,
+                        stream,
+                        peer,
+                        token.as_deref(),
+                        Some(permit),
+                    );
                     connections.lock().unwrap().remove(&id);
                 })
                 .is_err()
@@ -2488,7 +2516,16 @@ fn sanitize_window_title(title: &str) -> String {
         .collect()
 }
 
+#[cfg(test)]
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
+    handle_connection_with_permit(mux, stream, None);
+}
+
+fn handle_connection_with_permit(
+    mux: Arc<Mux>,
+    stream: Box<dyn transport::Stream>,
+    connection_permit: Option<ConnectionPermit>,
+) {
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
@@ -2518,8 +2555,10 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
         return;
     };
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let surface_scheduler =
-        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        connection_permit.clone(),
+    ));
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(mut line) = line else { break };
@@ -2536,13 +2575,25 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
+    drop(connection_permit);
 }
 
+#[cfg(test)]
 fn handle_websocket_connection(
     mux: Arc<Mux>,
     stream: TcpStream,
     peer: SocketAddr,
     token: Option<&str>,
+) {
+    handle_websocket_connection_with_permit(mux, stream, peer, token, None);
+}
+
+fn handle_websocket_connection_with_permit(
+    mux: Arc<Mux>,
+    stream: TcpStream,
+    peer: SocketAddr,
+    token: Option<&str>,
+    connection_permit: Option<ConnectionPermit>,
 ) {
     let stream = SynchronizedTcpStream::new(stream);
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
@@ -2598,8 +2649,10 @@ fn handle_websocket_connection(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    let surface_scheduler =
-        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        connection_permit.clone(),
+    ));
 
     loop {
         if !writer.is_open() {
@@ -2629,6 +2682,7 @@ fn handle_websocket_connection(
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     let _ = websocket.close(None);
+    drop(connection_permit);
 }
 
 fn authenticate_websocket(
