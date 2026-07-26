@@ -164,9 +164,15 @@ bool ghostty_surface_binding_action(
             cmux_test_font_adjusted = false;
         } else if (strncmp(buffer, "increase_font_size:", 19) == 0) {
             cmux_test_font_runtime_points += strtof(buffer + 19, NULL);
+            if (cmux_test_font_runtime_points > 255) {
+                cmux_test_font_runtime_points = 255;
+            }
             cmux_test_font_adjusted = true;
         } else if (strncmp(buffer, "decrease_font_size:", 19) == 0) {
             cmux_test_font_runtime_points -= strtof(buffer + 19, NULL);
+            if (cmux_test_font_runtime_points < 1) {
+                cmux_test_font_runtime_points = 1;
+            }
             cmux_test_font_adjusted = true;
         }
     }
