@@ -3555,9 +3555,11 @@ final class WindowBrowserPortal: NSObject {
             reasons: refreshReasons
         )
         let shouldReapplyHostedInspectorPostRefresh =
-            presentationUpdateKind == .refresh && requiresRenderingStateReattach
+            presentationUpdateKind == .refresh &&
+            (requiresRenderingStateReattach || forcePresentationRefresh)
         if !shouldHide, containerOwnsPresentationView, presentationUpdateKind != .none {
             if presentationUpdateKind == .refresh &&
+                !forcePresentationRefresh &&
                 hostedInspectorAdjustedDuringSync &&
                 !recoveredFromTransientGeometry &&
                 !requiresRenderingStateReattach {
