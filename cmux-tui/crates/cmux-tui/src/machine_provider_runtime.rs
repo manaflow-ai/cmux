@@ -2014,6 +2014,7 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
 #[cfg(test)]
 mod tests {
     use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::fs::DirBuilderExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc;
@@ -2052,6 +2053,36 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_file(&self.path);
         }
+    }
+
+    struct TestStateRoot {
+        path: PathBuf,
+    }
+
+    impl TestStateRoot {
+        fn create(label: &str) -> Self {
+            let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("cmux-provider-state-{label}-{}-{id}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            let mut builder = std::fs::DirBuilder::new();
+            builder.mode(0o700).create(&path).unwrap();
+            Self { path }
+        }
+    }
+
+    impl Drop for TestStateRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn connect_after_runtime_start(
+        socket_path: &Path,
+        state_root: &Path,
+    ) -> ProviderMachineRuntime {
+        let _ = state_root;
+        ProviderMachineRuntime::connect(socket_path, token()).unwrap()
     }
 
     fn id(value: &str) -> protocol::OpaqueId {
@@ -5242,6 +5273,46 @@ mod tests {
         assert_eq!(first, runtime.notice_consumer_id);
         finish.send(()).unwrap();
         drop(runtime);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn runtime_restart_reuses_the_state_root_notice_identity() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let first_root = TestStateRoot::create("first");
+        let second_root = TestStateRoot::create("second");
+        let (consumers, consumer_ids) = mpsc::channel();
+        let (release, release_connection) = mpsc::channel();
+        let server = thread::spawn(move || {
+            for revision in [1, 2, 3] {
+                let catalog = snapshot(revision, "Machine", protocol::MachineStatus::Running);
+                let (stream, reader, consumer_id) =
+                    serve_initial_durable_snapshot(&listener, catalog, None);
+                consumers.send(consumer_id).unwrap();
+                release_connection.recv().unwrap();
+                drop(reader);
+                drop(stream);
+            }
+        });
+
+        let first = connect_after_runtime_start(&socket.path, &first_root.path);
+        let first_id = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(first);
+        release.send(()).unwrap();
+
+        let restarted = connect_after_runtime_start(&socket.path, &first_root.path);
+        let restarted_id = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(restarted);
+        release.send(()).unwrap();
+
+        let separate = connect_after_runtime_start(&socket.path, &second_root.path);
+        let separate_id = consumer_ids.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(separate);
+        release.send(()).unwrap();
+
+        assert_eq!(restarted_id, first_id);
+        assert_ne!(separate_id, first_id);
         server.join().unwrap();
     }
 
