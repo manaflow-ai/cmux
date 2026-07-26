@@ -59,7 +59,7 @@ private func rendererReleaseWasOccluded() -> Bool
 
         surface.paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         surface.surfaceView.frame = surface.paneHost.bounds
-        surface.rendererPresentationAttachmentDidBecomeReady()
+        surface.rendererPresentationReadinessDidChange()
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false, true])
@@ -71,9 +71,9 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: false)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -82,13 +82,13 @@ private func rendererReleaseWasOccluded() -> Bool
 
         #expect(rendererRealizedCalls() == [false])
 
-        surface.setRendererPortalVisible(true, attachmentReady: false)
+        surface.setRendererPortalVisible(true, presentationReady: false)
 
         #expect(surface.isRendererPortalVisible)
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
 
-        surface.ensureRendererPresented(attachmentReady: true)
+        surface.ensureRendererPresented(presentationReady: true)
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false, true])
@@ -100,9 +100,9 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -112,13 +112,13 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(!surface.isRendererRealized)
         #expect(rendererRealizedCalls() == [false])
 
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(surface.isRendererPortalVisible)
         #expect(surface.isRendererRealized)
         #expect(rendererRealizedCalls() == [false, true])
 
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(rendererRealizedCalls() == [false, true])
     }
@@ -129,9 +129,9 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -148,9 +148,9 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -162,7 +162,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls().isEmpty)
 
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(rendererRealizedCalls().isEmpty)
     }
@@ -173,23 +173,23 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
             resetRendererRealizedTracking()
         }
 
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
 
         #expect(surface.releaseRenderer())
         #expect(!surface.isRendererRealized)
         #expect(rendererRealizedCalls() == [false])
 
-        surface.setRendererPortalVisible(true, attachmentReady: true)
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false, true])
@@ -204,9 +204,9 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -215,7 +215,7 @@ private func rendererReleaseWasOccluded() -> Bool
 
         beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
@@ -224,7 +224,7 @@ private func rendererReleaseWasOccluded() -> Bool
         setRendererRealizedResult(true)
         scheduler.onSchedule = { surfaceID in
             #expect(surfaceID == surface.id)
-            surface.retryRendererPresentationAfterActivity(attachmentReady: true)
+            surface.retryRendererPresentationAfterActivity(presentationReady: true)
         }
         terminalRendererEventCallback(
             callbackContext.toOpaque(),
@@ -253,9 +253,9 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -266,9 +266,9 @@ private func rendererReleaseWasOccluded() -> Bool
         setRendererRealizedResult(false)
         scheduler.onSchedule = { surfaceID in
             #expect(surfaceID == surface.id)
-            surface.retryRendererPresentationAfterActivity(attachmentReady: true)
+            surface.retryRendererPresentationAfterActivity(presentationReady: true)
         }
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
         terminalRendererEventCallback(
             callbackContext.toOpaque(),
             GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
@@ -297,9 +297,9 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -308,10 +308,10 @@ private func rendererReleaseWasOccluded() -> Bool
 
         beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
-        surface.setRendererPortalVisible(true, attachmentReady: true)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         callbackContext.takeUnretainedValue().rendererMailboxDidDrain()
-        surface.retryRendererPresentationAfterActivity(attachmentReady: true)
+        surface.retryRendererPresentationAfterActivity(presentationReady: true)
 
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [true])
@@ -326,9 +326,9 @@ private func rendererReleaseWasOccluded() -> Bool
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(false, attachmentReady: true)
+        surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(attachmentReady: true)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -341,10 +341,10 @@ private func rendererReleaseWasOccluded() -> Bool
         scheduler.onSchedule = { surfaceID in
             #expect(surfaceID == surface.id)
             queuedRepair = {
-                surface.retryRendererPresentationAfterActivity(attachmentReady: true)
+                surface.retryRendererPresentationAfterActivity(presentationReady: true)
             }
         }
-        surface.setRendererPortalVisible(true, attachmentReady: true)
+        surface.setRendererPortalVisible(true, presentationReady: true)
         terminalRendererEventCallback(
             callbackContext.toOpaque(),
             GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END
