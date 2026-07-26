@@ -136,10 +136,6 @@ extension BrowserPanel {
         webView.translatesAutoresizingMaskIntoConstraints = true
         webView.autoresizingMask = [.width, .height]
         webView.cmuxBrowserViewportHostView?.apply(nativeLayout, updateWebView: false)
-        BrowserWindowPortalRegistry.refresh(
-            webView: webView,
-            reason: "attachedInspectorResetAutomationViewport"
-        )
         return true
     }
 
