@@ -61,6 +61,15 @@ struct ApplicationSurfaceTests {
         ) == CGPoint(x: 1_050, y: 550))
     }
 
+    @Test func capturePixelSizeTracksSourceAspectRatioAndCapsResolution() {
+        #expect(ApplicationCaptureView.capturePixelSize(
+            for: CGSize(width: 800, height: 600)
+        ) == CGSize(width: 1_600, height: 1_200))
+        #expect(ApplicationCaptureView.capturePixelSize(
+            for: CGSize(width: 4_000, height: 1_000)
+        ) == CGSize(width: 4_096, height: 1_024))
+    }
+
     @Test func applicationNamedKeysAcceptTerminalSeparators() {
         let plus = ApplicationCaptureView.parseNamedKey("ctrl+c")
         let dash = ApplicationCaptureView.parseNamedKey("ctrl-c")

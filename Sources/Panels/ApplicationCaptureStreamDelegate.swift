@@ -20,6 +20,12 @@ final class ApplicationCaptureStreamDelegate: NSObject, SCStreamDelegate, @unche
         }
     }
 
+    func finishExpectedStop(_ stream: SCStream) {
+        _ = lock.withLock {
+            expectedStops.remove(ObjectIdentifier(stream))
+        }
+    }
+
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         let wasExpected = lock.withLock {
             expectedStops.remove(ObjectIdentifier(stream)) != nil

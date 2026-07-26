@@ -64,9 +64,12 @@ final class ApplicationCaptureView: NSView {
     }
     private var captureTask: Task<Void, Never>?
     private var teardownTask: Task<Void, Never>?
+    private var configurationUpdateTask: Task<Void, Never>?
+    private var configurationUpdateToken: UUID?
     private var startupToken: UUID?
     private var stream: SCStream?
     private var sourceFrame: CGRect = .zero
+    private var configuredCapturePixelSize: CGSize = .zero
     private var captureDesired = false
     private var targetUnavailable = false
     private var pendingScrollX = 0.0
@@ -167,7 +170,11 @@ final class ApplicationCaptureView: NSView {
     func stopCapture() {
         captureDesired = false
         captureTask?.cancel()
+        configurationUpdateTask?.cancel()
+        configurationUpdateTask = nil
+        configurationUpdateToken = nil
         sourceFrame = .zero
+        configuredCapturePixelSize = .zero
         pendingScrollX = 0
         pendingScrollY = 0
 
@@ -183,6 +190,7 @@ final class ApplicationCaptureView: NSView {
         let previousTeardown = teardownTask
         teardownTask = Task {
             await previousTeardown?.value
+            defer { streamDelegate.finishExpectedStop(activeStream) }
             do {
                 try await activeStream.stopCapture()
             } catch {
@@ -216,22 +224,8 @@ final class ApplicationCaptureView: NSView {
 
             sourceFrame = sourceWindow.frame
             let filter = SCContentFilter(desktopIndependentWindow: sourceWindow)
-            let configuration = SCStreamConfiguration()
             let sourceSize = sourceWindow.frame.size
-            let captureScale = min(
-                2,
-                4_096 / max(sourceSize.width, 1),
-                2_304 / max(sourceSize.height, 1)
-            )
-            configuration.width = max(Int(sourceSize.width * captureScale), 1)
-            configuration.height = max(Int(sourceSize.height * captureScale), 1)
-            configuration.minimumFrameInterval = CMTime(
-                value: 1,
-                timescale: CMTimeScale(targetFrameRate)
-            )
-            configuration.queueDepth = 3
-            configuration.showsCursor = true
-            configuration.pixelFormat = kCVPixelFormatType_32BGRA
+            let configuration = streamConfiguration(for: sourceSize)
 
             let newStream = SCStream(
                 filter: filter,
@@ -245,12 +239,14 @@ final class ApplicationCaptureView: NSView {
                 sampleHandlerQueue: streamOutput.sampleQueue
             )
             stream = newStream
+            configuredCapturePixelSize = Self.capturePixelSize(for: sourceSize)
             try await newStream.startCapture()
             guard captureDesired, startupToken == token, !Task.isCancelled else {
                 if stream === newStream {
                     stream = nil
                 }
                 streamDelegate.expectStop(newStream)
+                defer { streamDelegate.finishExpectedStop(newStream) }
                 do {
                     try await newStream.stopCapture()
                 } catch {
@@ -262,6 +258,7 @@ final class ApplicationCaptureView: NSView {
         } catch {
             if let attemptedStream, stream === attemptedStream {
                 stream = nil
+                configuredCapturePixelSize = .zero
             }
             if captureDesired, startupToken == token, !Task.isCancelled {
                 onStateChanged(.failed)
@@ -443,6 +440,64 @@ final class ApplicationCaptureView: NSView {
         )
     }
 
+    static func capturePixelSize(for sourceSize: CGSize) -> CGSize {
+        let captureScale = min(
+            2,
+            4_096 / max(sourceSize.width, 1),
+            2_304 / max(sourceSize.height, 1)
+        )
+        return CGSize(
+            width: CGFloat(max(Int(sourceSize.width * captureScale), 1)),
+            height: CGFloat(max(Int(sourceSize.height * captureScale), 1))
+        )
+    }
+
+    private func streamConfiguration(for sourceSize: CGSize) -> SCStreamConfiguration {
+        let pixelSize = Self.capturePixelSize(for: sourceSize)
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int(pixelSize.width)
+        configuration.height = Int(pixelSize.height)
+        configuration.minimumFrameInterval = CMTime(
+            value: 1,
+            timescale: CMTimeScale(targetFrameRate)
+        )
+        configuration.queueDepth = 3
+        configuration.showsCursor = true
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        return configuration
+    }
+
+    private func updateStreamConfigurationIfNeeded(
+        for sourceSize: CGSize,
+        activeStream: SCStream
+    ) -> Bool {
+        let requestedPixelSize = Self.capturePixelSize(for: sourceSize)
+        guard requestedPixelSize != configuredCapturePixelSize else { return true }
+        guard configurationUpdateTask == nil else { return false }
+
+        let configuration = streamConfiguration(for: sourceSize)
+        let token = UUID()
+        configurationUpdateToken = token
+        configurationUpdateTask = Task { [weak self, weak activeStream] in
+            guard let self else { return }
+            defer {
+                if self.configurationUpdateToken == token {
+                    self.configurationUpdateToken = nil
+                    self.configurationUpdateTask = nil
+                }
+            }
+            guard let activeStream else { return }
+            do {
+                try await activeStream.updateConfiguration(configuration)
+                guard self.stream === activeStream else { return }
+                self.configuredCapturePixelSize = requestedPixelSize
+            } catch {
+                Self.logger.error("ScreenCaptureKit updateConfiguration failed")
+            }
+        }
+        return false
+    }
+
     private func validatedSourceFrame() -> CGRect? {
         guard captureDesired, stream != nil, sourceFrame.width > 0, sourceFrame.height > 0 else {
             return nil
@@ -466,6 +521,13 @@ final class ApplicationCaptureView: NSView {
             return nil
         }
         sourceFrame = frame
+        guard let activeStream = stream,
+              updateStreamConfigurationIfNeeded(
+                for: frame.size,
+                activeStream: activeStream
+              ) else {
+            return nil
+        }
         return frame
     }
 
@@ -493,7 +555,11 @@ final class ApplicationCaptureView: NSView {
         stream = nil
         captureDesired = false
         captureTask?.cancel()
+        configurationUpdateTask?.cancel()
+        configurationUpdateTask = nil
+        configurationUpdateToken = nil
         sourceFrame = .zero
+        configuredCapturePixelSize = .zero
         pendingScrollX = 0
         pendingScrollY = 0
         displayLayer.flushAndRemoveImage()

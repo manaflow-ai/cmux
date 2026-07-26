@@ -2,13 +2,10 @@ import AVFoundation
 import CoreMedia
 import ScreenCaptureKit
 
-/// ScreenCaptureKit calls this output on `sampleQueue`. The display layer is
-/// immutable after initialization and is touched only from that serial queue.
+/// ScreenCaptureKit calls this output on the main queue so every display-layer
+/// access is serialized with the owning `ApplicationCaptureView`.
 final class ApplicationCaptureStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
-    let sampleQueue = DispatchQueue(
-        label: "com.cmux.application-capture.frames",
-        qos: .userInteractive
-    )
+    let sampleQueue = DispatchQueue.main
     private let displayLayer: AVSampleBufferDisplayLayer
 
     init(displayLayer: AVSampleBufferDisplayLayer) {
