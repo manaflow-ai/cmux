@@ -2004,13 +2004,25 @@ mod tests {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = accept(stream).unwrap();
-            for expected in ["Page.stopScreencast", "Page.startScreencast"] {
+            for expected in [
+                "Page.stopScreencast",
+                "Page.createIsolatedWorld",
+                "Runtime.evaluate",
+                "Page.startScreencast",
+            ] {
                 let request = ws.read().unwrap();
                 let Message::Text(request) = request else { panic!("expected text request") };
                 let request: Value = serde_json::from_str(&request).unwrap();
                 assert_eq!(request["method"], expected);
+                let result = match expected {
+                    "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
+                    "Runtime.evaluate" => {
+                        json!({"result": {"type": "number", "value": 10_000.0}})
+                    }
+                    _ => json!({}),
+                };
                 ws.send(Message::Text(
-                    json!({"id": request["id"], "result": {}}).to_string().into(),
+                    json!({"id": request["id"], "result": result}).to_string().into(),
                 ))
                 .unwrap();
             }
@@ -2024,7 +2036,7 @@ mod tests {
                         "metadata": {
                             "deviceWidth": 80,
                             "deviceHeight": 24,
-                            "timestamp": 1.0
+                            "timestamp": 10.0
                         }
                     }
                 })
@@ -2041,6 +2053,8 @@ mod tests {
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         client.register_frame_epoch("session-1", Arc::new(FrameEpoch::default()));
+        client.inner.frame_epochs.lock().unwrap().get_mut("session-1").unwrap().main_frame_id =
+            Some("main-frame".to_string());
 
         client.stop_screencast("session-1").unwrap();
         client.start_screencast_with_frame_barrier("session-1", 80, 24).unwrap();

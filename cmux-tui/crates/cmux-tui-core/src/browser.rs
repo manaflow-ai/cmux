@@ -4880,6 +4880,10 @@ mod tests {
         assert!(browser.may_need_screencast_capture(frame_epoch, navigation_epoch));
         assert!(browser.accept_screencast_capture(frame_epoch, navigation_epoch, test_frame(2),));
         assert_eq!(browser.latest_frame_seq(), Some(2));
+        assert!(
+            !browser.may_need_screencast_capture(frame_epoch, navigation_epoch),
+            "one verified replacement must suppress repeated captures for the same frame epoch"
+        );
     }
 
     #[test]
