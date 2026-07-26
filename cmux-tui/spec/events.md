@@ -295,6 +295,9 @@ object{event:"workspace-renamed",workspace:Id,entity:Workspace,workspace_revisio
 object{event:"workspace-moved",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
 ```
 
+For all four workspace delta events, `origin` and `mutation_id` are either both
+present or both absent.
+
 ### frontend-projection-changed
 
 | Field | Value |
@@ -907,12 +910,12 @@ object{
   surface?:Id,
   fg:ColorHex|null,
   bg:ColorHex|null,
-  cursor:ColorHex|null,
+  cursor?:ColorHex|null,
   selection_bg:ColorHex|null,
   selection_fg:ColorHex|null,
   palette?:object{[index:string]:ColorHex},
-  cursor_style:"block"|"underline"|"bar"|null,
-  cursor_blink:boolean|null
+  cursor_style?:"block"|"underline"|"bar"|null,
+  cursor_blink?:boolean|null
 }
 ```
 

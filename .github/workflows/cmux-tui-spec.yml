@@ -1,6 +1,12 @@
 name: cmux-tui spec inventory
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "cmux-tui/**"
+      - ".github/workflows/cmux-tui-spec.yml"
   pull_request:
     paths:
       - "cmux-tui/**"

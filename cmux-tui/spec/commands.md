@@ -174,6 +174,10 @@ additive fields:
 | `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
 | `expected_revision` | `uint64` | optional | Compare-and-swap guard for the owning workspace or terminal registry |
 
+`expected_revision` is the canonical wire field. Terminal commands also accept
+`expected_terminal_revision` as a compatibility alias, and both names select
+the same guard.
+
 The server durably records `(origin, mutation_id)`, the logical request
 fingerprint, original result, and committed revision. Duplicate lookup occurs
 before generation/revision guards and before resolving a live workspace. A
@@ -1069,11 +1073,12 @@ Params:
 | `terminal_id` | `string` | default null | Optional caller-reserved stable terminal id; presence selects durable mutation |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and terminal revision/generation guards |
 
-The durable mutation branch runs only when `terminal_id` or `mutation_id` is
-present. Without either, `origin` and revision/generation guards are ignored
-and the server follows the legacy create path. `cols` and `rows` must be
-supplied together. Terminal identity and registry result fields are
-protocol-v9 additions to the protocol-v7 command.
+The decoder first rejects requests containing exactly one of `origin` and
+`mutation_id`. The durable mutation branch then runs only when `terminal_id` or
+the paired mutation identity is present. Without either, revision and
+generation guards are ignored and the server follows the legacy create path.
+`cols` and `rows` must be supplied together. Terminal identity and registry
+result fields are protocol-v9 additions to the protocol-v7 command.
 
 Result:
 
@@ -1482,7 +1487,7 @@ Params:
 | `cursor` | `ColorHex` | default null | Cursor color |
 | `selection_bg` | `ColorHex` | default null | Selection background |
 | `selection_fg` | `ColorHex` | default null | Selection foreground |
-| `cursor_style` | `"block"|"underline"|"bar"` | default null | Cursor shape |
+| `cursor_style` | `"block"\|"underline"\|"bar"` | default null | Cursor shape |
 | `cursor_blink` | `boolean` | default null | Cursor blink |
 | `palette` | `object{[index:string]:ColorHex}` | default null | Complete authored palette replacement; decimal indexes 0 through 255 |
 | `complete` | `boolean` | default false | Reset absent optional values instead of preserving current values |
@@ -1511,6 +1516,9 @@ CLI mapping:
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |
+
+The CLI intentionally exposes only `fg` and `bg`. Cursor, selection, palette,
+and `complete` fields require the raw socket or an SDK.
 
 Example:
 

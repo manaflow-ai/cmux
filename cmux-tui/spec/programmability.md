@@ -41,7 +41,7 @@ The implemented v9 inventory is complete as a description of current wire behavi
 | --- | --- | --- |
 | Stream lifecycle | Repeated `subscribe` and `attach-surface` registrations share a connection and have no public identity | Client-generated `stream_id`, echoed events, and idempotent `cancel-stream` |
 | Event recovery | Snapshot plus coarse invalidation; overflow loses the cursor | `generation`, sequence, cursor resume, replay gap, event filters, and heartbeat |
-| Mutating retries | Workspace and durable-terminal mutations have partial mutation ledgers | One operation identity and receipt format for every side effect |
+| Mutating retries | Workspace and durable-terminal mutations have partial mutation ledgers; some legacy acknowledgements do not prove a commit | One operation identity and receipt format for every side effect; success must identify committed, changed, or no-op state |
 | Errors | Response `error` is one string | `{code,message,details,retryable}` with stable codes |
 | TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result` |
 | PTY keyboard | `send-key` emits semantic keyboard input for PTYs | Preserve this route and add negotiated key capability discovery |
@@ -54,15 +54,16 @@ The implemented v9 inventory is complete as a description of current wire behavi
 | Browser basics | Create, input, navigate, back, forward, reload, activate, state, and frames are implemented | Typed methods in every frontend SDK |
 | Browser lifecycle | Browser success is asynchronous and CDP failures arrive later | Correlated operation ids, target/crash/dialog/download events, viewport revision, and optional raw CDP profile |
 | Client identity | `list-clients` exposes transient connection ids | `hello` or `whoami` with client instance, authenticated principal, rights, credential expiry, and protocol selection |
-| Pairing | Trusted Unix clients approve requests; request ids are JSON numbers | JavaScript-safe string ids, Origin-aware challenges, and typed SDK callbacks |
-| Agents | One in-memory record per surface, polling only | Caller context, durable agent ids, multiple agents, revision/history, leases, and transition events |
+| Pairing | Trusted Unix clients approve requests; request ids are JSON numbers | Origin allowlist, Origin-aware challenges, JavaScript-safe string ids, and typed SDK callbacks |
+| Agents | One in-memory record per surface, polling only | Authenticated producer context, durable agent ids, multiple agents, revision/history, leases, and transition events |
 | Notifications | Creation and one unread marker per inactive surface | Durable records, list/get/read/unread/dismiss/clear/open commands, counts, and lifecycle events |
 | Hooks and feeds | Hook config is proposed but rejected by the current strict config parser | Versioned manifests, bounded execution records, feed operations, loop prevention, and events |
 | Config | Local JSON contains many unversioned leaves | Versioned JSON Schema, ownership, hot/restart metadata, `get-config`, `validate-config`, `patch-config`, and `config-changed` |
 | Plugins | Trusted executable sidebar plugin is implemented | Manifest v1, contribution points, permissions, trust decisions, transactional install/update/remove, and typed management |
 | File sidebar | Native TUI reads the host filesystem directly | Classify as local-only, or add a separately permissioned list/stat/read/watch filesystem capability |
-| Machines | Dynamic provider v1 is separate and implemented | Generate its SDK from its own schema; do not fold provider credentials into the mux SDK |
-| Session startup | CLI performs connect-or-start and relay discovery outside the wire protocol | Document socket resolution, session validation, ownership, auto-start, and relay authority in transport conformance |
+| Machines | Dynamic provider v1 is separate and implemented; workspace mirror authority is one shared mux bearer | Replace the shared bearer with a provider-authenticated channel or scoped frontend/operation capabilities; generate its SDK from its own schema |
+| Session startup | CLI performs connect-or-start and relay discovery outside the wire protocol | Document socket resolution, ownership, and auto-start; enforce server-side session validation |
+| Transport authority and bounds | Child PTYs inherit full-session sockets, relay receives Unix authority, and JSON-lines readers lack common limits | Scoped child capabilities, a restricted relay profile, and one enforced message-size contract across transports |
 | Keyboard and menu routing | `Action` and `MenuAction` are local enums with config and UI dispatch | Machine-readable action schemas, active keymap query, collision diagnostics, and the frontend action adapter |
 | Host terminal integration | OSC colors, clipboard, pointer shape, graphics, and cell-pixel probing are local side channels | Negotiated host capabilities with ownership, fallback, size, and delivery-result contracts |
 | Localization | Native English/Japanese catalogs own part of the chrome | Stable message keys, locale precedence, catalog completeness checks, and frontend-local rendering rules |

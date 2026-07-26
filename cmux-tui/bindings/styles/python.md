@@ -16,7 +16,7 @@ Requirements:
 - Provide `CmuxClient.request(cmd, **params) -> dict` as the raw JSON response entry point.
 - Implement `subscribe()` as an iterator over event objects.
 - Implement `attach_surface(surface)` as an iterator over attach event objects.
-- Support protocol-v9 byte, render, and browser attach streams, including `resized` replay handling, while preserving the protocol-v5 byte fallback.
+- Support byte attach streams from protocol 5, including the protocol-v5 fallback shape; render attach streams from protocol 7; and browser attach streams from protocol 9. Handle `resized` replay only where that event is available.
 - Include typed methods for every command in `spec/inventory.json` that belongs to the selected profile, including `read_scrollback`, `wait_for`, `run`, `send_key`, `copy`, `ids`, `notify`, `list_agents`, and `report_agent`.
 - Keep proposed vNext primitives out of the active protocol client until their protocol version lands.
 

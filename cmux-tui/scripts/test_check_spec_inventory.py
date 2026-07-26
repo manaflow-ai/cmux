@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 
 
@@ -43,6 +45,41 @@ enum Command {
                 )
             finally:
                 CHECKER.TUI = original_tui
+
+
+class SchemaValidationTests(unittest.TestCase):
+    SCHEMA = {
+        "type": "object",
+        "required": ["names"],
+        "properties": {
+            "names": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": True,
+                "items": {
+                    "type": "string",
+                    "minLength": 2,
+                    "pattern": "^[a-z]+$",
+                },
+            }
+        },
+        "additionalProperties": False,
+    }
+
+    def test_nested_schema_subset_accepts_valid_values(self) -> None:
+        CHECKER.validate_schema({"names": ["alpha", "beta"]}, self.SCHEMA)
+
+    def test_nested_schema_subset_preserves_error_path(self) -> None:
+        errors = io.StringIO()
+        with redirect_stderr(errors), self.assertRaises(SystemExit):
+            CHECKER.validate_schema({"names": ["alpha", "AA"]}, self.SCHEMA)
+        self.assertIn("$.names[1] does not match", errors.getvalue())
+
+    def test_nested_schema_subset_rejects_unknown_properties(self) -> None:
+        errors = io.StringIO()
+        with redirect_stderr(errors), self.assertRaises(SystemExit):
+            CHECKER.validate_schema({"names": ["alpha"], "extra": True}, self.SCHEMA)
+        self.assertIn("$ has unknown property 'extra'", errors.getvalue())
 
 
 if __name__ == "__main__":

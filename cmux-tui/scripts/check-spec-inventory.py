@@ -26,13 +26,14 @@ def unique(values: list[str], label: str) -> set[str]:
     return set(values)
 
 
-def validate_schema(value: object, schema: dict[str, object], path: str = "$") -> None:
-    """Validate the JSON Schema subset used by inventory.schema.json."""
+def validate_schema_literals(value: object, schema: dict[str, object], path: str) -> None:
     if "const" in schema and value != schema["const"]:
         fail(f"{path} must equal {schema['const']!r}")
     if "enum" in schema and value not in schema["enum"]:
         fail(f"{path} must be one of {schema['enum']!r}")
 
+
+def validate_schema_type(value: object, schema: dict[str, object], path: str) -> None:
     expected_type = schema.get("type")
     type_matches = {
         "object": isinstance(value, dict),
@@ -43,45 +44,63 @@ def validate_schema(value: object, schema: dict[str, object], path: str = "$") -
     if expected_type in type_matches and not type_matches[expected_type]:
         fail(f"{path} must be a JSON {expected_type}")
 
+
+def validate_schema_string(value: str, schema: dict[str, object], path: str) -> None:
+    if len(value) < int(schema.get("minLength", 0)):
+        fail(f"{path} is shorter than minLength")
+    pattern = schema.get("pattern")
+    if pattern and not re.search(str(pattern), value):
+        fail(f"{path} does not match {pattern!r}")
+
+
+def validate_schema_integer(value: int, schema: dict[str, object], path: str) -> None:
+    minimum = schema.get("minimum")
+    if minimum is not None and value < int(minimum):
+        fail(f"{path} is smaller than {minimum}")
+
+
+def validate_schema_array(value: list, schema: dict[str, object], path: str) -> None:
+    if len(value) < int(schema.get("minItems", 0)):
+        fail(f"{path} has too few items")
+    if schema.get("uniqueItems"):
+        encoded = [json.dumps(item, sort_keys=True, separators=(",", ":")) for item in value]
+        if len(encoded) != len(set(encoded)):
+            fail(f"{path} contains duplicate items")
+    item_schema = schema.get("items")
+    if isinstance(item_schema, dict):
+        for index, item in enumerate(value):
+            validate_schema(item, item_schema, f"{path}[{index}]")
+
+
+def validate_schema_object(value: dict, schema: dict[str, object], path: str) -> None:
+    required = schema.get("required", [])
+    for key in required:
+        if key not in value:
+            fail(f"{path} is missing required property {key!r}")
+    properties = schema.get("properties", {})
+    additional = schema.get("additionalProperties", True)
+    for key, item in value.items():
+        child_path = f"{path}.{key}"
+        if key in properties:
+            validate_schema(item, properties[key], child_path)
+        elif additional is False:
+            fail(f"{path} has unknown property {key!r}")
+        elif isinstance(additional, dict):
+            validate_schema(item, additional, child_path)
+
+
+def validate_schema(value: object, schema: dict[str, object], path: str = "$") -> None:
+    """Validate the JSON Schema subset used by inventory.schema.json."""
+    validate_schema_literals(value, schema, path)
+    validate_schema_type(value, schema, path)
     if isinstance(value, str):
-        if len(value) < int(schema.get("minLength", 0)):
-            fail(f"{path} is shorter than minLength")
-        pattern = schema.get("pattern")
-        if pattern and not re.search(str(pattern), value):
-            fail(f"{path} does not match {pattern!r}")
-
-    if isinstance(value, int) and not isinstance(value, bool):
-        minimum = schema.get("minimum")
-        if minimum is not None and value < int(minimum):
-            fail(f"{path} is smaller than {minimum}")
-
-    if isinstance(value, list):
-        if len(value) < int(schema.get("minItems", 0)):
-            fail(f"{path} has too few items")
-        if schema.get("uniqueItems"):
-            encoded = [json.dumps(item, sort_keys=True, separators=(",", ":")) for item in value]
-            if len(encoded) != len(set(encoded)):
-                fail(f"{path} contains duplicate items")
-        item_schema = schema.get("items")
-        if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                validate_schema(item, item_schema, f"{path}[{index}]")
-
-    if isinstance(value, dict):
-        required = schema.get("required", [])
-        for key in required:
-            if key not in value:
-                fail(f"{path} is missing required property {key!r}")
-        properties = schema.get("properties", {})
-        additional = schema.get("additionalProperties", True)
-        for key, item in value.items():
-            child_path = f"{path}.{key}"
-            if key in properties:
-                validate_schema(item, properties[key], child_path)
-            elif additional is False:
-                fail(f"{path} has unknown property {key!r}")
-            elif isinstance(additional, dict):
-                validate_schema(item, additional, child_path)
+        validate_schema_string(value, schema, path)
+    elif isinstance(value, int) and not isinstance(value, bool):
+        validate_schema_integer(value, schema, path)
+    elif isinstance(value, list):
+        validate_schema_array(value, schema, path)
+    elif isinstance(value, dict):
+        validate_schema_object(value, schema, path)
 
 
 def rust_enum_body(source: str, name: str) -> str:
@@ -102,6 +121,16 @@ def rust_enum_body(source: str, name: str) -> str:
     return ""
 
 
+def rust_enum_variants(source: str, name: str) -> set[str]:
+    body = rust_enum_body(source, name)
+    return set(
+        re.findall(
+            r"(?m)^    ([A-Z][A-Za-z0-9]*)[ \t]*(?=,|\(|\{|(?://.*)?$)",
+            body,
+        )
+    )
+
+
 def camel_to_kebab(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "-", name).lower()
 
@@ -112,8 +141,7 @@ def camel_to_snake(name: str) -> str:
 
 def command_names() -> set[str]:
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
-    body = rust_enum_body(source, "Command")
-    variants = re.findall(r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*(?:,|\(|\{)", body)
+    variants = rust_enum_variants(source, "Command")
     return {camel_to_kebab(variant) for variant in variants}
 
 
@@ -145,14 +173,12 @@ def event_names() -> set[str]:
 
 def action_variants() -> set[str]:
     source = (TUI / "crates/cmux-tui/src/config.rs").read_text()
-    body = rust_enum_body(source, "Action")
-    return set(re.findall(r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*(?:,|\(|\{)", body))
+    return rust_enum_variants(source, "Action")
 
 
 def menu_action_variants() -> set[str]:
     source = (TUI / "crates/cmux-tui/src/app.rs").read_text()
-    body = rust_enum_body(source, "MenuAction")
-    return set(re.findall(r"(?m)^    ([A-Z][A-Za-z0-9]*)\s*(?:,|\(|\{)", body))
+    return rust_enum_variants(source, "MenuAction")
 
 
 def mux_protocol_version() -> int:
@@ -253,18 +279,25 @@ def compare(actual: set[str], expected: set[str], label: str) -> None:
         fail(f"{label} drift, {'; '.join(details)}")
 
 
-def main() -> None:
+def load_inventory() -> tuple[dict, dict]:
     inventory = json.loads((SPEC / "inventory.json").read_text())
     schema = json.loads((SPEC / "inventory.schema.json").read_text())
     validate_schema(inventory, schema)
+    return inventory, schema
+
+
+def validate_inventory_header(inventory: dict, schema: dict) -> None:
     if inventory.get("schema_version") != schema["properties"]["schema_version"]["const"]:
         fail("inventory schema_version does not match its schema")
-    if inventory["mux_protocol"] != mux_protocol_version():
+    runtime_mux_version = mux_protocol_version()
+    if inventory["mux_protocol"] != runtime_mux_version:
         fail(
             "mux protocol drift, "
-            f"runtime is {mux_protocol_version()} and inventory is {inventory['mux_protocol']}"
+            f"runtime is {runtime_mux_version} and inventory is {inventory['mux_protocol']}"
         )
 
+
+def validate_commands(inventory: dict) -> set[str]:
     profiles = inventory["profiles"]
     expected_profiles = {"control", "frontend", "local-admin", "provider-authority"}
     if set(profiles) != expected_profiles:
@@ -288,7 +321,10 @@ def main() -> None:
     )
     if bad_command_status:
         fail(f"implemented commands with a stale status: {', '.join(bad_command_status)}")
+    return inventory_commands
 
+
+def validate_events(inventory: dict) -> set[str]:
     events = inventory["events"]
     inventory_events = unique([event["name"] for event in events], "event")
     compare(event_names(), inventory_events, "event")
@@ -322,7 +358,10 @@ def main() -> None:
     )
     if bad_event_status:
         fail(f"events with a stale emission status: {', '.join(bad_event_status)}")
+    return inventory_events
 
+
+def validate_tui_actions(inventory: dict) -> list[dict]:
     actions = inventory["tui_actions"]
     inventory_actions = unique([action["variant"] for action in actions], "TUI action")
     compare(action_variants(), inventory_actions, "TUI action")
@@ -332,7 +371,10 @@ def main() -> None:
             fail(f"bad TUI action classification for {action['variant']}")
         if not action["route"].strip():
             fail(f"TUI action {action['variant']} has no programmability route")
+    return actions
 
+
+def validate_menu_actions(inventory: dict) -> list[dict]:
     menu_actions = inventory["menu_actions"]
     inventory_menu_actions = unique(
         [action["variant"] for action in menu_actions], "menu action"
@@ -344,7 +386,10 @@ def main() -> None:
             fail(f"bad menu action classification for {action['variant']}")
         if not action["route"].strip():
             fail(f"menu action {action['variant']} has no programmability route")
+    return menu_actions
 
+
+def validate_feature_families(inventory: dict, schema: dict) -> list[dict]:
     families = inventory["feature_families"]
     family_ids = unique([family["id"] for family in families], "feature family")
     schema_family_ids = set(
@@ -366,7 +411,10 @@ def main() -> None:
             or not family["route"].strip()
         ):
             fail(f"feature family {family['id']} has no valid status and route")
+    return families
 
+
+def validate_secondary_protocols(inventory: dict) -> tuple[list[str], list[str]]:
     secondary = inventory["secondary_protocols"]
     runtime_secondary = secondary_protocols()
     expected_host = secondary["terminal_host_v1"]["messages"]
@@ -404,6 +452,16 @@ def main() -> None:
     )
     if undocumented_provider:
         fail(f"machine-provider requests without prose: {', '.join(undocumented_provider)}")
+    undocumented_provider_events = sorted(
+        name
+        for name in secondary["machine_provider_v1"]["events"]
+        if f"`{name}`" not in provider_doc
+    )
+    if undocumented_provider_events:
+        fail(
+            "machine-provider events without prose: "
+            + ", ".join(undocumented_provider_events)
+        )
     management_doc = (SPEC / "provider-management.md").read_text()
     undocumented_management = sorted(
         name
@@ -415,20 +473,35 @@ def main() -> None:
             "provider-management operations without examples: "
             + ", ".join(undocumented_management)
         )
+    return expected_host, secondary["machine_provider_v1"]["requests"]
 
+
+def validate_protocol_domains(inventory: dict) -> None:
     for domain in inventory["protocol_domains"]:
         if not (SPEC / domain["spec"]).is_file():
             fail(f"protocol domain {domain['id']} points to missing {domain['spec']}")
+
+
+def main() -> None:
+    inventory, schema = load_inventory()
+    validate_inventory_header(inventory, schema)
+    inventory_commands = validate_commands(inventory)
+    inventory_events = validate_events(inventory)
+    actions = validate_tui_actions(inventory)
+    menu_actions = validate_menu_actions(inventory)
+    families = validate_feature_families(inventory, schema)
+    expected_host, provider_requests = validate_secondary_protocols(inventory)
+    validate_protocol_domains(inventory)
 
     print(
         "spec inventory ok: "
         f"{len(inventory_commands)} commands, "
         f"{len(inventory_events)} events, "
-        f"{len(inventory_actions)} TUI actions, "
-        f"{len(inventory_menu_actions)} menu actions, "
+        f"{len(actions)} TUI actions, "
+        f"{len(menu_actions)} menu actions, "
         f"{len(families)} feature families, "
         f"{len(expected_host)} terminal-host messages, "
-        f"{len(secondary['machine_provider_v1']['requests'])} machine-provider requests"
+        f"{len(provider_requests)} machine-provider requests"
     )
 
 
