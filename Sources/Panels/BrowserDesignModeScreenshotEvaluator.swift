@@ -38,6 +38,7 @@ final class BrowserDesignModeScreenshotEvaluator {
     private var captureTasks: [UUID: Task<Void, Never>] = [:]
     private var cleanupContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    private var callbackGateReleaseTasks: [UUID: Task<Void, Never>] = [:]
     private var operationIDsByWebView: [ObjectIdentifier: UUID] = [:]
     private var webViewIDsByOperation: [UUID: ObjectIdentifier] = [:]
 
@@ -309,7 +310,12 @@ final class BrowserDesignModeScreenshotEvaluator {
     ) async {
         guard cancellation.captureTask != nil else {
             // Callback-based WebKit capture has no cancellable task to await.
-            // Keep its web-view gate until the callback eventually arrives.
+            // Quarantine the web view briefly so an in-flight callback cannot
+            // overlap an immediate retry, but recover if WebKit drops it.
+            scheduleCallbackGateRelease(
+                cancellation.operationID,
+                timeout: cleanupTimeout
+            )
             cancellation.continuation.resume(throwing: error)
             return
         }
@@ -347,6 +353,31 @@ final class BrowserDesignModeScreenshotEvaluator {
         }
     }
 
+    private func scheduleCallbackGateRelease(
+        _ operationID: UUID,
+        timeout: TimeInterval
+    ) {
+        guard webViewIDsByOperation[operationID] != nil else { return }
+        callbackGateReleaseTasks.removeValue(forKey: operationID)?.cancel()
+        callbackGateReleaseTasks[operationID] = Task { @MainActor [weak self] in
+            // This bounds quarantine for callback APIs that provide no
+            // cancellation handle and may never invoke their completion.
+            do {
+                try await ContinuousClock().sleep(
+                    for: .seconds(max(0, timeout))
+                )
+            } catch {
+                return
+            }
+            self?.callbackGateReleaseDidExpire(operationID)
+        }
+    }
+
+    private func callbackGateReleaseDidExpire(_ operationID: UUID) {
+        callbackGateReleaseTasks.removeValue(forKey: operationID)
+        releaseWebViewGate(operationID)
+    }
+
     private func captureTaskDidExit(_ operationID: UUID) {
         captureTasks.removeValue(forKey: operationID)
         finishCleanupWait(operationID, cleanupCompleted: true)
@@ -365,6 +396,7 @@ final class BrowserDesignModeScreenshotEvaluator {
     }
 
     private func releaseWebViewGate(_ operationID: UUID) {
+        callbackGateReleaseTasks.removeValue(forKey: operationID)?.cancel()
         guard let webViewID = webViewIDsByOperation.removeValue(
             forKey: operationID
         ) else { return }
