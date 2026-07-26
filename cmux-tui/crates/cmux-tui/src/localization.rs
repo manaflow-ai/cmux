@@ -66,8 +66,13 @@ pub(crate) struct ServerMessages {
     #[cfg(unix)]
     pub legacy_signal_failed: &'static str,
     pub shutdown_failed: &'static str,
+    pub shutdown_cleanup_incomplete: &'static str,
     pub shutdown_unsupported: &'static str,
     pub shutdown_timed_out: &'static str,
+    pub cleanup_label: &'static str,
+    pub cleanup_pending_label: &'static str,
+    pub cleanup_retrying: &'static str,
+    pub cleanup_degraded: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -295,8 +300,13 @@ static ENGLISH: Catalog = Catalog {
         #[cfg(unix)]
         legacy_signal_failed: "The verified older server process could not be stopped.",
         shutdown_failed: "the server could not stop cleanly",
+        shutdown_cleanup_incomplete: "the server could not finish pane cleanup before the shutdown deadline",
         shutdown_unsupported: "this server cannot be stopped by this client",
         shutdown_timed_out: "the server did not stop within 10 seconds",
+        cleanup_label: "cleanup",
+        cleanup_pending_label: "pending panes",
+        cleanup_retrying: "retrying",
+        cleanup_degraded: "run server stop again",
     },
     menu: MenuMessages {
         maximize_pane: "Maximize pane",
@@ -446,8 +456,13 @@ static JAPANESE: Catalog = Catalog {
         #[cfg(unix)]
         legacy_signal_failed: "検証済みの古いサーバープロセスを停止できませんでした。",
         shutdown_failed: "サーバーを正常に停止できませんでした",
+        shutdown_cleanup_incomplete: "シャットダウン期限までにペインのクリーンアップを完了できませんでした",
         shutdown_unsupported: "このクライアントからこのサーバーを停止できません",
         shutdown_timed_out: "10 秒以内にサーバーが停止しませんでした",
+        cleanup_label: "クリーンアップ",
+        cleanup_pending_label: "保留中のペイン",
+        cleanup_retrying: "再試行中",
+        cleanup_degraded: "server stop をもう一度実行してください",
     },
     menu: MenuMessages {
         maximize_pane: "ペインを最大化",

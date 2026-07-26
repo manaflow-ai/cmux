@@ -242,7 +242,6 @@ struct BrowserWorkerErrorState {
 
 pub struct BrowserRuntime {
     client: CdpClient,
-    web_socket_url: String,
     chrome: Option<Chrome>,
     source: BrowserSource,
     stealth_user_agent: Option<String>,
@@ -425,7 +424,6 @@ impl BrowserRuntime {
         };
         let runtime = Arc::new(BrowserRuntime {
             client,
-            web_socket_url: web_socket_url.to_string(),
             chrome,
             source,
             stealth_user_agent,
@@ -574,13 +572,8 @@ impl BrowserRuntime {
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             return false;
         };
-        #[cfg(test)]
-        if let Some(hook) = self.shutdown_reconnect_before_resolve.lock().unwrap().clone() {
-            hook();
-        }
         let (event_tx, _event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
-        let Ok(client) = CdpClient::connect_with_timeout(&self.web_socket_url, event_tx, remaining)
-        else {
+        let Ok(client) = self.client.reconnect_with_timeout(event_tx, remaining) else {
             return false;
         };
         matches!(

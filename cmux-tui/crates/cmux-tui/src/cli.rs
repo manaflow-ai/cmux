@@ -739,6 +739,11 @@ fn print_server_status(json_output: bool, probe: &crate::server_lifecycle::Serve
             "server": {
                 "version": server.release.version,
                 "protocol": server.release.protocol,
+                "shutdown_cleanup": {
+                    "pending": server.shutdown_cleanup.pending,
+                    "retrying": server.shutdown_cleanup.retrying,
+                    "degraded": server.shutdown_cleanup.degraded,
+                },
             },
             "client": {
                 "version": client.version,
@@ -780,6 +785,20 @@ fn print_server_status(json_output: bool, probe: &crate::server_lifecycle::Serve
                 .collect::<Vec<_>>()
                 .join(messages.reason_separator);
             println!("{}: {}", messages.reason_label, reasons);
+        }
+        if server.shutdown_cleanup.pending != 0 {
+            let state = if server.shutdown_cleanup.degraded {
+                messages.cleanup_degraded
+            } else {
+                messages.cleanup_retrying
+            };
+            println!(
+                "{}: {} ({}: {})",
+                messages.cleanup_label,
+                state,
+                messages.cleanup_pending_label,
+                server.shutdown_cleanup.pending,
+            );
         }
         0
     }

@@ -58,6 +58,7 @@ use crate::{
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const SERVER_SHUTDOWN_CAPABILITY: &str = "server-shutdown-v1";
+pub const SERVER_SHUTDOWN_INCOMPLETE_ERROR: &str = "shutdown_cleanup_incomplete";
 /// Maximum wall-clock time the server spends draining a shutdown request.
 /// Clients add their own transport margin to this server-owned bound.
 pub const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -3109,6 +3110,7 @@ fn handle_command(
         Command::Identify => {
             let release = ReleaseIdentity::current(PROTOCOL_VERSION);
             let (registry_id, generation) = mux.registry_identity();
+            let shutdown_cleanup = mux.shutdown_cleanup_health();
             Ok(json!({
                 "app": "cmux-tui",
                 "version": release.version,
@@ -3123,6 +3125,11 @@ fn handle_command(
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
+                "shutdown_cleanup": {
+                    "pending": shutdown_cleanup.pending,
+                    "retrying": shutdown_cleanup.retrying,
+                    "degraded": shutdown_cleanup.degraded,
+                },
             }))
         }
         Command::Ping => {
@@ -3139,7 +3146,8 @@ fn handle_command(
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("shutdown is only available over the local session socket");
             }
-            mux.close_all_surfaces_for_shutdown()?;
+            mux.close_all_surfaces_for_shutdown()
+                .map_err(|_| anyhow::anyhow!(SERVER_SHUTDOWN_INCOMPLETE_ERROR))?;
             Ok(json!({}))
         }
         Command::ShutdownDaemon { pid, generation } => {
@@ -5396,6 +5404,19 @@ mod tests {
 
         assert!(error.to_string().contains("local session socket"));
         assert!(!mux.shutdown_requested());
+    }
+
+    #[test]
+    fn local_shutdown_returns_a_stable_cleanup_error_code() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        surface.set_server_shutdown_failure_for_test(true);
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
+
+        assert_eq!(error.to_string(), SERVER_SHUTDOWN_INCOMPLETE_ERROR);
     }
 
     #[test]

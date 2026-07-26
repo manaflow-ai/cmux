@@ -46,6 +46,11 @@ const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
 const SHUTDOWN_FANOUT_WORKERS: usize = 32;
 const SHUTDOWN_RECONCILE_INITIAL_DELAY: Duration = Duration::from_millis(25);
 const SHUTDOWN_RECONCILE_MAX_DELAY: Duration = Duration::from_secs(1);
+const SHUTDOWN_OWNER_CAPACITY: usize = 4_096;
+#[cfg(not(test))]
+const SHUTDOWN_RECONCILE_MAX_ATTEMPTS: usize = 8;
+#[cfg(test)]
+const SHUTDOWN_RECONCILE_MAX_ATTEMPTS: usize = 3;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ShutdownOwnerKey {
@@ -133,6 +138,7 @@ struct ShutdownOwnerReconcilerState {
     pending: bool,
     stopping: bool,
     worker_started: bool,
+    degraded: bool,
 }
 
 #[derive(Default)]
@@ -158,6 +164,7 @@ impl ShutdownOwnerReconciler {
             return;
         }
         state.pending = true;
+        state.degraded = false;
         if state.worker_started {
             self.wake.notify_one();
             return;
@@ -175,7 +182,9 @@ impl ShutdownOwnerReconciler {
         {
             // Ownership remains in the ledger for full shutdown. A later
             // retirement will retry worker creation if process pressure eases.
-            self.state.lock().unwrap().worker_started = false;
+            let mut state = self.state.lock().unwrap();
+            state.worker_started = false;
+            state.degraded = true;
         }
     }
 
@@ -198,6 +207,7 @@ impl ShutdownOwnerReconciler {
             state.pending = false;
             drop(state);
 
+            let mut attempts = 0;
             loop {
                 let Some(mux) = mux.upgrade() else { return };
                 let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
@@ -209,6 +219,14 @@ impl ShutdownOwnerReconciler {
                 if !pending {
                     delay = SHUTDOWN_RECONCILE_INITIAL_DELAY;
                     break;
+                }
+                attempts += 1;
+                if attempts >= SHUTDOWN_RECONCILE_MAX_ATTEMPTS {
+                    let mut state = self.state.lock().unwrap();
+                    state.pending = false;
+                    state.worker_started = false;
+                    state.degraded = true;
+                    return;
                 }
 
                 let state = self.state.lock().unwrap();
@@ -743,6 +761,13 @@ pub struct SidebarPluginStatus {
     pub retry_after: Option<Duration>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ShutdownCleanupHealth {
+    pub(crate) pending: usize,
+    pub(crate) retrying: bool,
+    pub(crate) degraded: bool,
+}
+
 #[derive(Debug, Default)]
 struct SidebarPluginRuntime {
     options: Option<SidebarPluginOptions>,
@@ -754,6 +779,7 @@ struct SidebarPluginRuntime {
 
 enum BrowserSurfaceAttach {
     MissingPane,
+    Rejected,
     Attached(Option<TreeDelta>),
 }
 
@@ -1672,7 +1698,7 @@ impl Mux {
                 }),
             )?;
             if existing.is_none() {
-                insert_surface_checked(&mut state, placeholder.clone())?;
+                insert_surface_checked(self, &mut state, placeholder.clone())?;
             }
             match self.project_terminal_to_workspace_in_state(
                 &mut state,
@@ -1781,7 +1807,7 @@ impl Mux {
             }
             anyhow::bail!("terminal workspace disappeared during adoption");
         };
-        if let Err(error) = insert_surface_checked(&mut state, surface) {
+        if let Err(error) = insert_surface_checked(self, &mut state, surface) {
             drop(state);
             if let Ok((_, revision)) = commit_terminal_lifecycle(
                 &mut registry,
@@ -2022,6 +2048,16 @@ impl Mux {
 
     fn begin_surface_creation(&self) -> anyhow::Result<SurfaceCreationGuard<'_>> {
         self.surface_creations.begin()
+    }
+
+    #[cfg(not(test))]
+    fn shutdown_owner_capacity(&self) -> usize {
+        SHUTDOWN_OWNER_CAPACITY
+    }
+
+    #[cfg(test)]
+    fn shutdown_owner_capacity(&self) -> usize {
+        self.shutdown_owner_capacity.load(Ordering::Acquire).min(SHUTDOWN_OWNER_CAPACITY)
     }
 
     fn next_active_at(&self) -> u64 {
@@ -2769,7 +2805,7 @@ impl Mux {
                 };
                 self.emit_terminal_registry_changed(&registry, ready_revision);
                 if let Err(error) =
-                    insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())
+                    insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())
                 {
                     if let Ok((_, revision)) = commit_terminal_lifecycle(
                         &mut registry,
@@ -2808,7 +2844,8 @@ impl Mux {
                 return Err(error);
             }
         };
-        if let Err(error) = insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())
+        if let Err(error) =
+            insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())
         {
             self.pending_workspace_surfaces.lock().unwrap().remove(&id);
             surface.kill();
@@ -2840,7 +2877,7 @@ impl Mux {
         };
         #[cfg(not(test))]
         let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
-        insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
+        insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())?;
         Ok(surface)
     }
 
@@ -2849,7 +2886,7 @@ impl Mux {
         url: String,
         size: Option<(u16, u16)>,
         pending_workspace: Option<WorkspaceId>,
-    ) -> Arc<Surface> {
+    ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
         if let Some(workspace) = pending_workspace {
             self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
@@ -2859,9 +2896,15 @@ impl Mux {
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         let surface =
             browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
-        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+        if let Err(error) =
+            insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())
+        {
+            self.pending_workspace_surfaces.lock().unwrap().remove(&id);
+            surface.kill();
+            return Err(error);
+        }
         self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
-        surface
+        Ok(surface)
     }
 
     fn resolve_client_size(
@@ -3594,7 +3637,7 @@ impl Mux {
             },
         )?;
         let mut state = self.state.lock().unwrap();
-        insert_surface_checked(&mut state, surface.clone())?;
+        insert_surface_checked(self, &mut state, surface.clone())?;
         let (placement, changed) =
             self.project_terminal_to_workspace_in_state(&mut state, terminal_id, workspace_key)?;
         anyhow::ensure!(changed, "seeded terminal did not change topology");
@@ -4159,6 +4202,16 @@ impl Mux {
 
     pub fn shutdown_requested(&self) -> bool {
         self.shutdown_requested.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn shutdown_cleanup_health(&self) -> ShutdownCleanupHealth {
+        let pending = self.shutdown_owners.len();
+        let state = self.shutdown_owner_reconciler.state.lock().unwrap();
+        ShutdownCleanupHealth {
+            pending,
+            retrying: pending != 0 && state.worker_started && !state.degraded,
+            degraded: pending != 0 && (state.degraded || !state.worker_started),
+        }
     }
 
     /// Permanently fence new surface creation, tombstone every durable
@@ -5472,7 +5525,7 @@ impl Mux {
                 return self.create_browser_surface_in_workspace(workspace, url, size);
             }
             let workspace_key = Self::new_workspace_key()?;
-            let surface = self.spawn_browser_surface(url, size, None);
+            let surface = self.spawn_browser_surface(url, size, None)?;
             let (pane_id, pane) = self.make_pane(surface.id);
             let screen_id = self.next_id();
             let ws_id = self.next_id();
@@ -5603,7 +5656,7 @@ impl Mux {
             return Ok(surface);
         };
 
-        let surface = self.spawn_browser_surface(url, size, None);
+        let surface = self.spawn_browser_surface(url, size, None)?;
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
         let attached = {
@@ -5662,7 +5715,7 @@ impl Mux {
         if self.state.lock().unwrap().workspace_by_id(workspace).is_none() {
             anyhow::bail!("unknown workspace {workspace}");
         }
-        let surface = self.spawn_browser_surface(url, size, Some(workspace));
+        let surface = self.spawn_browser_surface(url, size, Some(workspace))?;
         let pending_surface = self.pending_workspace_surface(surface.id);
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
@@ -5779,7 +5832,7 @@ impl Mux {
             browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
         let active_at = self.next_active_at();
         match self.attach_browser_surface_to_pane_or_kill(pane_id, &surface, active_at) {
-            BrowserSurfaceAttach::MissingPane => return false,
+            BrowserSurfaceAttach::MissingPane | BrowserSurfaceAttach::Rejected => return false,
             BrowserSurfaceAttach::Attached(Some(delta)) => self.emit_tree_delta(delta, true),
             BrowserSurfaceAttach::Attached(None) => self.emit(MuxEvent::TreeChanged),
         }
@@ -5800,39 +5853,40 @@ impl Mux {
         let notifications = self.surface_notifications();
         let attached = {
             let mut state = self.state.lock().unwrap();
-            match state.panes.get_mut(&pane_id) {
-                Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
-                    pane.active_at = active_at;
-                    state.surfaces.insert(surface.id, surface.clone());
-                    let delta = (|| {
-                        let (wi, si) = state.screen_of(pane_id)?;
-                        let pane = state.panes.get(&pane_id)?;
-                        let index = pane.tabs.iter().position(|id| *id == surface.id)?;
-                        let entity = crate::server::tree_entity_json(
-                            &state,
-                            &notifications,
-                            TreeDeltaKind::TabAdded,
-                            surface.id,
-                        )?;
-                        Some(TreeDelta {
-                            kind: TreeDeltaKind::TabAdded,
-                            workspace: state.workspaces[wi].id,
-                            screen: Some(state.workspaces[wi].screens[si].id),
-                            pane: Some(pane_id),
-                            surface: Some(surface.id),
-                            index: Some(index),
-                            entity,
-                            workspace_revision: None,
-                        })
-                    })();
-                    BrowserSurfaceAttach::Attached(delta)
-                }
-                None => BrowserSurfaceAttach::MissingPane,
+            if !state.panes.contains_key(&pane_id) {
+                BrowserSurfaceAttach::MissingPane
+            } else if insert_surface_checked(self, &mut state, surface.clone()).is_err() {
+                BrowserSurfaceAttach::Rejected
+            } else {
+                let pane = state.panes.get_mut(&pane_id).expect("pane existence was checked");
+                pane.tabs.push(surface.id);
+                pane.active_tab = pane.tabs.len() - 1;
+                pane.active_at = active_at;
+                let delta = (|| {
+                    let (wi, si) = state.screen_of(pane_id)?;
+                    let pane = state.panes.get(&pane_id)?;
+                    let index = pane.tabs.iter().position(|id| *id == surface.id)?;
+                    let entity = crate::server::tree_entity_json(
+                        &state,
+                        &notifications,
+                        TreeDeltaKind::TabAdded,
+                        surface.id,
+                    )?;
+                    Some(TreeDelta {
+                        kind: TreeDeltaKind::TabAdded,
+                        workspace: state.workspaces[wi].id,
+                        screen: Some(state.workspaces[wi].screens[si].id),
+                        pane: Some(pane_id),
+                        surface: Some(surface.id),
+                        index: Some(index),
+                        entity,
+                        workspace_revision: None,
+                    })
+                })();
+                BrowserSurfaceAttach::Attached(delta)
             }
         };
-        if matches!(attached, BrowserSurfaceAttach::MissingPane) {
+        if matches!(attached, BrowserSurfaceAttach::MissingPane | BrowserSurfaceAttach::Rejected) {
             surface.kill();
         }
         attached
@@ -8151,7 +8205,11 @@ fn bounded_shutdown_fanout<T: Sync>(
     next.load(Ordering::Relaxed).min(items.len())
 }
 
-fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
+fn insert_surface_checked(
+    mux: &Mux,
+    state: &mut State,
+    surface: Arc<Surface>,
+) -> anyhow::Result<()> {
     if state.surfaces.contains_key(&surface.id) {
         anyhow::bail!("duplicate_surface_id");
     }
@@ -8165,6 +8223,11 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
         .is_some()
     {
         anyhow::bail!("duplicate_terminal_id");
+    }
+    if state.surfaces.len().saturating_add(mux.shutdown_owners.len())
+        >= mux.shutdown_owner_capacity()
+    {
+        anyhow::bail!("surface_owner_capacity_exhausted");
     }
     state.surfaces.insert(surface.id, surface);
     Ok(())
@@ -8711,7 +8774,7 @@ mod tests {
         .unwrap();
         let _registry = mux.workspace_registry.lock().unwrap();
         let mut state = mux.state.lock().unwrap();
-        insert_surface_checked(&mut state, surface.clone()).unwrap();
+        insert_surface_checked(mux, &mut state, surface.clone()).unwrap();
         let (placement, changed) = mux
             .project_terminal_to_workspace_in_state(&mut state, terminal_id, workspace_key)
             .unwrap();
@@ -10638,6 +10701,10 @@ mod tests {
             "permanent cleanup failure kept an unbounded retry sweep alive"
         );
         assert_eq!(mux.shutdown_owners.len(), 1);
+        assert_eq!(
+            mux.shutdown_cleanup_health(),
+            ShutdownCleanupHealth { pending: 1, retrying: false, degraded: true }
+        );
     }
 
     #[test]
@@ -10701,7 +10768,7 @@ mod tests {
             "target-1",
             "session-1",
         );
-        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface.clone()).unwrap();
 
         let removed =
             take_surface_for_retirement(&mux, &mut mux.state.lock().unwrap(), surface.id).unwrap();
@@ -12059,7 +12126,7 @@ mod tests {
             TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
         )
         .unwrap();
-        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface.clone()).unwrap();
         let (placement, canonical_workspace, changed) =
             mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
         assert!(changed);

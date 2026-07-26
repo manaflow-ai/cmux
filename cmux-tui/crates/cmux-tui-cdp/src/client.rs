@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
 use std::sync::{Arc, Mutex, Weak};
@@ -102,6 +102,8 @@ struct Inner {
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
+    web_socket_url: Arc<str>,
+    peer_addr: SocketAddr,
     #[cfg(test)]
     reader_stopped: Arc<AtomicBool>,
 }
@@ -291,6 +293,31 @@ impl CdpClient {
         let addr = addrs.next().ok_or_else(|| {
             anyhow::anyhow!("no socket address for {}:{}", endpoint.host, endpoint.port)
         })?;
+        Self::connect_to_addr_with_timeout(web_socket_url, addr, events, timeout)
+    }
+
+    pub fn reconnect_with_timeout(
+        &self,
+        events: SyncSender<CdpEvent>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        Self::connect_to_addr_with_timeout(
+            &self.inner.web_socket_url,
+            self.inner.peer_addr,
+            events,
+            timeout,
+        )
+    }
+
+    fn connect_to_addr_with_timeout(
+        web_socket_url: &str,
+        addr: SocketAddr,
+        events: SyncSender<CdpEvent>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        if timeout.is_zero() {
+            anyhow::bail!("CDP connection deadline expired");
+        }
         let stream = TcpStream::connect_timeout(&addr, timeout)?;
         stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(timeout))?;
@@ -313,6 +340,8 @@ impl CdpClient {
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
+                web_socket_url: Arc::from(web_socket_url),
+                peer_addr: addr,
                 #[cfg(test)]
                 reader_stopped: Arc::new(AtomicBool::new(false)),
             }),
@@ -1188,6 +1217,8 @@ mod tests {
             next_id: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             timeout: Duration::from_secs(1),
+            web_socket_url: Arc::from("ws://127.0.0.1:1/devtools/browser/test"),
+            peer_addr: "127.0.0.1:1".parse().unwrap(),
             reader_stopped: Arc::new(AtomicBool::new(false)),
         });
         handle_text(

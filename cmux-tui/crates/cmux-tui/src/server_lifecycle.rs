@@ -4,12 +4,15 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::{Command, Stdio};
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::release::ReleaseIdentity;
 use cmux_tui_core::server::{
-    PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY, SERVER_SHUTDOWN_TIMEOUT,
+    PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY, SERVER_SHUTDOWN_INCOMPLETE_ERROR,
+    SERVER_SHUTDOWN_TIMEOUT,
 };
 use serde_json::{Value, json};
 
@@ -41,10 +44,40 @@ const LEGACY_SHUTDOWN_TIMEOUT: Duration = SHUTDOWN_RESPONSE_TIMEOUT;
 const LEGACY_HELPER_WAIT_MARGIN: Duration = Duration::from_millis(250);
 #[cfg(unix)]
 const LEGACY_HELPER_POLL_INTERVAL: Duration = Duration::from_millis(10);
+#[cfg(unix)]
+const LEGACY_HELPER_CANCEL_MARGIN: Duration = Duration::from_millis(100);
 const LAUNCHER_COMMAND_ENV: &str = "CMUX_TUI_LAUNCHER_COMMAND";
 const MAX_LAUNCHER_COMMAND_BYTES: usize = 4096;
 
 type TransportReader = BufReader<Box<dyn transport::Stream>>;
+
+#[cfg(unix)]
+static LEGACY_HELPER_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn handle_legacy_helper_signal(_: libc::c_int) {
+    LEGACY_HELPER_CANCELLED.store(true, Ordering::Release);
+}
+
+#[cfg(unix)]
+fn install_legacy_helper_signal_handler() {
+    unsafe {
+        libc::signal(libc::SIGTERM, handle_legacy_helper_signal as *const () as libc::sighandler_t);
+    }
+}
+
+#[cfg(unix)]
+fn legacy_helper_cancelled() -> bool {
+    LEGACY_HELPER_CANCELLED.load(Ordering::Acquire)
+}
+
+#[cfg(unix)]
+fn ensure_legacy_helper_active() -> anyhow::Result<()> {
+    if legacy_helper_cancelled() {
+        anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+    }
+    Ok(())
+}
 
 #[cfg(unix)]
 #[derive(Debug)]
@@ -110,6 +143,14 @@ pub(crate) struct ServerIdentity {
     pub release: ReleaseIdentity,
     pub pid: u32,
     capabilities: HashSet<String>,
+    pub(crate) shutdown_cleanup: ShutdownCleanupStatus,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ShutdownCleanupStatus {
+    pub(crate) pending: u64,
+    pub(crate) retrying: bool,
+    pub(crate) degraded: bool,
 }
 
 impl ServerIdentity {
@@ -130,7 +171,27 @@ impl ServerIdentity {
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect();
-        Ok(Self { release: ReleaseIdentity::from_protocol_data(data), pid, capabilities })
+        let cleanup = data.get("shutdown_cleanup");
+        let shutdown_cleanup = ShutdownCleanupStatus {
+            pending: cleanup
+                .and_then(|cleanup| cleanup.get("pending"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            retrying: cleanup
+                .and_then(|cleanup| cleanup.get("retrying"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            degraded: cleanup
+                .and_then(|cleanup| cleanup.get("degraded"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        };
+        Ok(Self {
+            release: ReleaseIdentity::from_protocol_data(data),
+            pid,
+            capabilities,
+            shutdown_cleanup,
+        })
     }
 
     pub(crate) fn supports(&self, capability: &str) -> bool {
@@ -292,10 +353,7 @@ impl ServerLifecycle {
         if response.get("ok").and_then(Value::as_bool) == Some(true) {
             return wait_for_disconnect(&mut self.reader, &self.path);
         }
-        if let Some(error) = response.get("error").and_then(Value::as_str) {
-            anyhow::bail!("{}: {error}", crate::localization::catalog().server.shutdown_failed);
-        }
-        anyhow::bail!(crate::localization::catalog().server.shutdown_failed)
+        anyhow::bail!(localized_shutdown_error(response.get("error").and_then(Value::as_str)))
     }
 
     #[cfg(unix)]
@@ -321,6 +379,7 @@ impl ServerLifecycle {
         let mut consecutive_empty_scans = 0;
         let mut owners = Vec::<CapturedProcessSession>::new();
         for _ in 0..LEGACY_MAX_SCAN_ROUNDS {
+            ensure_legacy_helper_active()?;
             if Instant::now() >= deadline {
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
@@ -393,6 +452,7 @@ impl ServerLifecycle {
         let surfaces = legacy_surfaces(data)?;
 
         for surface in &surfaces {
+            ensure_legacy_helper_active()?;
             if surface.kind != "pty" {
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
@@ -453,6 +513,14 @@ impl ServerLifecycle {
     }
 }
 
+fn localized_shutdown_error(error: Option<&str>) -> &'static str {
+    let messages = &crate::localization::catalog().server;
+    match error {
+        Some(SERVER_SHUTDOWN_INCOMPLETE_ERROR) => messages.shutdown_cleanup_incomplete,
+        Some(_) | None => messages.shutdown_failed,
+    }
+}
+
 #[cfg(unix)]
 fn take_legacy_request_id(next_request_id: &mut u64) -> anyhow::Result<u64> {
     let request_id = *next_request_id;
@@ -510,8 +578,29 @@ fn wait_for_child_until(
             return Ok(status);
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            let pid = libc::pid_t::try_from(child.id()).ok();
+            if let Some(pid) = pid {
+                // The helper installs a cooperative handler so Rust cleanup
+                // can thaw any exact process identities currently fenced.
+                let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+            }
+            let cancel_deadline = Instant::now() + LEGACY_HELPER_CANCEL_MARGIN;
+            while Instant::now() < cancel_deadline {
+                if child
+                    .try_wait()
+                    .map_err(|_| {
+                        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                    })?
+                    .is_some()
+                {
+                    break;
+                }
+                std::thread::sleep(
+                    cancel_deadline
+                        .saturating_duration_since(Instant::now())
+                        .min(LEGACY_HELPER_POLL_INTERVAL),
+                );
+            }
             anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
         }
         std::thread::sleep(
@@ -522,6 +611,7 @@ fn wait_for_child_until(
 
 #[cfg(unix)]
 pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
+    install_legacy_helper_signal_handler();
     let [path, expected_pid, expected_started_at, timeout_ms] = args else {
         anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported);
     };
@@ -541,6 +631,7 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
             anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported)
         })?;
     let deadline = Instant::now() + timeout;
+    ensure_legacy_helper_active()?;
     let expected = ProcessIdentity::from_parts(expected_pid, expected_started_at);
     let mut lifecycle = ServerLifecycle::connect_until(PathBuf::from(path), deadline)?;
     if lifecycle.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
@@ -552,14 +643,17 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     }
     let captured = capture_legacy_process_tree(actual, deadline)?;
 
+    ensure_legacy_helper_active()?;
     let owners = lifecycle.close_legacy_surfaces_until_stable(actual, deadline).map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
     for owner in owners {
+        ensure_legacy_helper_active()?;
         owner.terminate_until(deadline).map_err(|_| {
             anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
         })?;
     }
+    ensure_legacy_helper_active()?;
     terminate_captured_legacy_process_tree(captured, deadline)?;
     wait_for_disconnect_until(&mut lifecycle.reader, &lifecycle.path, deadline)
 }
@@ -892,6 +986,7 @@ mod tests {
             },
             pid: 42,
             capabilities: HashSet::new(),
+            shutdown_cleanup: ShutdownCleanupStatus::default(),
         };
 
         let message = incompatible_server_message(&identity, Path::new("/tmp/test socket"));
@@ -1022,6 +1117,14 @@ mod tests {
         server.join().unwrap();
         std::fs::remove_file(path).unwrap();
         assert_eq!(error.to_string(), crate::localization::catalog().server.shutdown_failed);
+    }
+
+    #[test]
+    fn modern_shutdown_localizes_stable_cleanup_error_code() {
+        assert_eq!(
+            localized_shutdown_error(Some(SERVER_SHUTDOWN_INCOMPLETE_ERROR)),
+            crate::localization::catalog().server.shutdown_cleanup_incomplete
+        );
     }
 
     #[cfg(unix)]

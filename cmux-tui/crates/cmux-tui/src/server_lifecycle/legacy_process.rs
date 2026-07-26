@@ -7,6 +7,16 @@ const PROCESS_TREE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 #[cfg(test)]
 const PROCESS_TREE_RETRY_TIMEOUT: Duration = Duration::from_secs(1);
 
+fn ensure_helper_active() -> io::Result<()> {
+    if super::legacy_helper_cancelled() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "legacy cleanup helper was cancelled",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ProcessIdentity {
     pid: libc::pid_t,
@@ -111,6 +121,7 @@ fn retry_process_tree_termination(
     mut attempt: impl FnMut(Instant) -> io::Result<()>,
 ) -> io::Result<()> {
     loop {
+        ensure_helper_active()?;
         let error = match attempt(deadline) {
             Ok(()) => return Ok(()),
             Err(error) => error,
@@ -149,6 +160,7 @@ fn freeze_process_tree(
     deadline: Instant,
 ) -> io::Result<FrozenProcessTree> {
     loop {
+        ensure_helper_active()?;
         let error = match FrozenProcessTree::freeze(process, deadline) {
             Ok(tree) => return Ok(tree),
             Err(error) => error,
@@ -227,6 +239,7 @@ pub(super) fn capture_process_session(
         return Ok(None);
     }
     let captured = (|| {
+        ensure_helper_active()?;
         if ProcessIdentity::capture(pid)? != Some(process) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -277,6 +290,7 @@ struct CapturedSession {
 impl CapturedSession {
     fn kill_until_empty(&self, deadline: Instant) -> io::Result<bool> {
         loop {
+            ensure_helper_active()?;
             let error = match SessionProbe::acquire(self) {
                 Ok(Some(mut probe)) => {
                     match cmux_tui_core::process_session::kill_until_only_reserved(
@@ -323,6 +337,7 @@ struct SessionProbe {
 impl SessionProbe {
     fn acquire(session: &CapturedSession) -> io::Result<Option<Self>> {
         for process in &session.members {
+            ensure_helper_active()?;
             if ProcessIdentity::capture(process.pid)? != Some(*process) {
                 continue;
             }
@@ -358,6 +373,7 @@ struct FrozenProcessTree {
 
 impl FrozenProcessTree {
     fn freeze(root: ProcessIdentity, deadline: Instant) -> io::Result<Self> {
+        ensure_helper_active()?;
         let mut tree = Self { root, descendants: Vec::new(), armed: true };
         if root.signal(libc::SIGSTOP)? == ExactSignalResult::Gone {
             return Err(io::Error::new(
@@ -376,6 +392,7 @@ impl FrozenProcessTree {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid helper process id"))?;
         let mut known = HashSet::from([root.pid, helper_pid]);
         for _ in 0..PROCESS_TREE_MAX_ROUNDS {
+            ensure_helper_active()?;
             if Instant::now() >= deadline {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
@@ -386,7 +403,9 @@ impl FrozenProcessTree {
                 std::iter::once(root).chain(tree.descendants.iter().copied()).collect::<Vec<_>>();
             let mut added = false;
             for parent in parents {
+                ensure_helper_active()?;
                 for pid in direct_child_pids(parent.pid)? {
+                    ensure_helper_active()?;
                     if known.contains(&pid) {
                         continue;
                     }
