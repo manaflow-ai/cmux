@@ -491,12 +491,12 @@ class GhosttyApp {
         let requestSurfaceView = callbackContext.surfaceView
         requestSurfaceView?.reserveClipboardReadAdmission()
 
-        DispatchQueue.main.async { [weak requestSurfaceView] in
+        Task { @MainActor [weak requestSurfaceView] in
             requestSurfaceView?.beginReservedClipboardRead(
                 clipboardRequestID
             )
             func completeClipboardRequest(with text: String) {
-                let finish = {
+                Task { @MainActor in
                     defer {
                         requestSurfaceView?.completeClipboardRead(
                             clipboardRequestID,
@@ -507,22 +507,17 @@ class GhosttyApp {
                     // Remote tmux mirror panes need tmux to bracket the paste
                     // because the local manual-I/O surface cannot know the
                     // remote pane's bracketed-paste mode.
-                    let handledByMirror = !text.isEmpty && MainActor.assumeIsolated {
+                    let handledByMirror = !text.isEmpty && (
                         AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
                             surfaceId: callbackContext.surfaceId,
                             text: text
                         ) ?? false
-                    }
+                    )
                     let completionText = handledByMirror ? "" : text
                     completionText.withCString { ptr in
                         ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
                     }
                     callbackContext.terminalSurface?.noteClipboardReadCompleted()
-                }
-                if Thread.isMainThread {
-                    finish()
-                } else {
-                    DispatchQueue.main.async(execute: finish)
                 }
             }
 
