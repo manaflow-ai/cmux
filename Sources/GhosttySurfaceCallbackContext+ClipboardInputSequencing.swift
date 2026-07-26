@@ -2,6 +2,19 @@ import CmuxTerminal
 import CmuxTerminalCore
 
 extension GhosttySurfaceCallbackContext {
+    /// Copies callback-scoped values before handing confirmation to the UI actor.
+    func scheduleClipboardReadConfirmation(
+        _ text: String,
+        stateAddress: UInt
+    ) {
+        Task { @MainActor in
+            confirmClipboardRead(
+                text,
+                stateAddress: stateAddress
+            )
+        }
+    }
+
     @MainActor
     func confirmClipboardRead(
         _ text: String,

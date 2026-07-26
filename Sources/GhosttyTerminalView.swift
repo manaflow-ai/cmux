@@ -879,14 +879,10 @@ class GhosttyApp {
             guard let content,
                   let callbackContext = GhosttyApp.callbackContext(from: userdata)
             else { return }
-            // Ghostty invokes confirmation synchronously from cmux's
-            // main-actor clipboard completion above.
-            MainActor.assumeIsolated {
-                callbackContext.confirmClipboardRead(
-                    String(cString: content),
-                    stateAddress: UInt(bitPattern: state)
-                )
-            }
+            callbackContext.scheduleClipboardReadConfirmation(
+                String(cString: content),
+                stateAddress: UInt(bitPattern: state)
+            )
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             // Write clipboard
