@@ -4852,6 +4852,72 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_change_burst_does_not_disconnect_or_starve_durable_notice() {
+        let socket = TestProviderSocket::bind();
+        let listener = socket.listener();
+        let (refresh_started, wait_for_refresh) = mpsc::channel();
+        let (release_refresh, refresh_release) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
+            let (mut stream, mut reader, _) =
+                serve_initial_durable_snapshot(&listener, catalog, None);
+            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+            refresh_started.send(()).unwrap();
+
+            let last_revision = PROVIDER_REFRESH_QUEUE_CAPACITY as u64 + 2;
+            for revision in 2..=last_revision {
+                write_frame(
+                    &mut stream,
+                    &protocol::EventEnvelope::new(protocol::ProviderEvent::SnapshotChanged(
+                        protocol::SnapshotChangedEvent { revision },
+                    )),
+                );
+            }
+            write_frame(
+                &mut stream,
+                &protocol::EventEnvelope::with_delivery(
+                    protocol::ProviderEvent::Notice(protocol::ProviderNotice {
+                        level: protocol::NoticeLevel::Warning,
+                        message: "Usage reached 80%".into(),
+                    }),
+                    protocol::NoticeDelivery { notice_id: id("usage-80"), sequence: 1 },
+                ),
+            );
+
+            refresh_release.recv().unwrap();
+            let refreshed =
+                snapshot(last_revision, "Machine", protocol::MachineStatus::Running);
+            write_frame(
+                &mut stream,
+                &protocol::ResponseEnvelope::success(refresh.id, refreshed.clone()),
+            );
+            serve_machine_lifecycle_snapshot(&mut stream, &mut reader, &refreshed);
+        });
+
+        let runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+        let updates = runtime.subscribe_ui_updates().unwrap();
+        let (receiver, stop, worker) = updates.into_parts();
+        wait_for_refresh.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let received = receiver.recv_timeout(Duration::from_secs(2));
+        release_refresh.send(()).unwrap();
+        stop.store(true, Ordering::Release);
+        drop(receiver);
+        worker.join().unwrap();
+        drop(runtime);
+        server.join().unwrap();
+
+        let MachineUpdate::DurableNotice(notice) = received.expect(
+            "redundant snapshot invalidations must coalesce instead of disconnecting the provider",
+        ) else {
+            panic!("snapshot invalidation burst disconnected before the durable notice");
+        };
+        assert_eq!(notice.delivery.notice_id, "usage-80");
+        assert_eq!(notice.delivery.sequence, 1);
+    }
+
+    #[test]
     fn initial_durable_replay_suppresses_the_legacy_snapshot_notice() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
