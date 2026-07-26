@@ -16,6 +16,8 @@ typedef struct {
 } GhosttyRuntimeTestConfig;
 
 static bool cmux_test_needs_confirm_quit = false;
+static bool cmux_test_process_exited = false;
+static void* cmux_test_process_exited_target = NULL;
 static uint64_t cmux_test_foreground_pid = 0;
 static const char* cmux_test_tty_name = NULL;
 static void* cmux_test_renderer_realized_target = NULL;
@@ -29,6 +31,11 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
+}
+
+void cmux_test_ghostty_runtime_stubs_reset_process_exited(void) {
+    cmux_test_process_exited = false;
+    cmux_test_process_exited_target = NULL;
 }
 
 void cmux_test_ghostty_renderer_realized_begin(void* surface) {
@@ -51,6 +58,11 @@ void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_
     cmux_test_needs_confirm_quit = needs_confirm;
     cmux_test_foreground_pid = foreground_pid;
     cmux_test_tty_name = tty_name;
+}
+
+void cmux_test_ghostty_runtime_stubs_set_process_exited(void* surface, bool process_exited) {
+    cmux_test_process_exited_target = surface;
+    cmux_test_process_exited = process_exited;
 }
 
 uint32_t cmux_test_ghostty_renderer_realized_call_count(void) {
@@ -156,8 +168,7 @@ bool ghostty_surface_needs_confirm_quit(void *surface) {
 }
 void ghostty_surface_new(void) {}
 bool ghostty_surface_process_exited(void *surface) {
-    (void)surface;
-    return false;
+    return surface == cmux_test_process_exited_target && cmux_test_process_exited;
 }
 void ghostty_surface_process_output(void) {}
 void ghostty_surface_quicklook_font(void) {}
@@ -167,6 +178,24 @@ void ghostty_surface_refresh(void) {}
 void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_render_grid_json_v2(void) {}
 void ghostty_surface_render_grid_json_with_theme(void) {}
+ghostty_string_s ghostty_surface_render_grid_json_v2(
+    void *surface,
+    const char *surface_id,
+    uintptr_t surface_id_len,
+    uint64_t state_seq,
+    uintptr_t scrollback_lines,
+    bool include_theme,
+    bool screen_anchor
+) {
+    (void)surface;
+    (void)surface_id;
+    (void)surface_id_len;
+    (void)state_seq;
+    (void)scrollback_lines;
+    (void)include_theme;
+    (void)screen_anchor;
+    return (ghostty_string_s){0};
+}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}

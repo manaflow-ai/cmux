@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxWorkspaces
 import Testing
 @testable import cmux_DEV

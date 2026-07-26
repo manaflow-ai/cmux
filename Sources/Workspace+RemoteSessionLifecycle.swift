@@ -179,7 +179,7 @@ extension Workspace {
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
         guard isManagedCloudVMWorkspace,
-              isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {
+              isRemoteTerminalSurfaceOrDisconnectPlaceholder(surfaceId) else {
             return false
         }
         return reconnectRemoteConnection(surfaceId: surfaceId)
