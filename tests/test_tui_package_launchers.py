@@ -166,6 +166,7 @@ def test_pypi_launcher_preserves_uvx_invocation(tmp_path: Path) -> None:
 
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(installed)
+    environment["CMUX_TUI_LAUNCHER_COMMAND"] = "uvx cmux==0.9.0"
     launched = run(
         [
             sys.executable,

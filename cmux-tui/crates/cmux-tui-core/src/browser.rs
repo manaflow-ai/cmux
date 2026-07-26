@@ -2885,6 +2885,57 @@ mod tests {
     }
 
     #[test]
+    fn server_shutdown_retains_a_target_when_close_reports_false() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            let query = read_ws_json(&mut ws);
+            assert_eq!(query["method"], "Target.getTargets");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": query["id"],
+                    "result": {"targetInfos": [{"targetId": "target-1"}]}
+                }),
+            );
+            let close = read_ws_json(&mut ws);
+            assert_eq!(close["method"], "Target.closeTarget");
+            write_ws_json(&mut ws, json!({"id": close["id"], "result": {"success": false}}));
+            let confirmation = read_ws_json(&mut ws);
+            assert_eq!(confirmation["method"], "Target.getTargets");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": confirmation["id"],
+                    "result": {"targetInfos": [{"targetId": "target-1"}]}
+                }),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+
+        let terminated = runtime.close_surface_for_shutdown(
+            "target-1",
+            "session-1",
+            Instant::now() + Duration::from_secs(1),
+        );
+
+        runtime.shutdown();
+        server.join().unwrap();
+        assert!(!terminated, "Target.closeTarget success=false discarded the target owner");
+    }
+
+    #[test]
     fn server_shutdown_retries_an_unconfirmed_external_target() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

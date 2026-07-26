@@ -9,6 +9,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 
+#[cfg(test)]
+thread_local! {
+    static FORCE_KILL_TIMEOUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 #[derive(Debug, Clone)]
 pub struct ChromeLaunchOptions {
     pub binary: PathBuf,
@@ -135,6 +140,10 @@ impl Drop for Chrome {
 
 fn kill_child_until(child: &mut Child, deadline: Instant) -> bool {
     let _ = child.kill();
+    #[cfg(test)]
+    if FORCE_KILL_TIMEOUT.get() {
+        return false;
+    }
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return true,
@@ -302,5 +311,51 @@ mod tests {
 
         assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
         assert!(chrome.child.lock().unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn drop_transfers_an_unconfirmed_child_to_a_reaper() {
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        }
+
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+        let chrome = Chrome {
+            child: Mutex::new(Some(child)),
+            profile_dir: make_profile_dir().unwrap(),
+            profile_ephemeral: true,
+            web_socket_url: "ws://127.0.0.1/unused".to_string(),
+        };
+
+        FORCE_KILL_TIMEOUT.set(true);
+        drop(chrome);
+        FORCE_KILL_TIMEOUT.set(false);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let reaped = loop {
+            if unsafe { kill(pid, 0) } != 0 {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if !reaped {
+            let mut status = 0;
+            unsafe {
+                waitpid(pid, &mut status, 0);
+            }
+        }
+
+        assert!(reaped, "dropping Chrome discarded an unconfirmed child without reaping it");
     }
 }

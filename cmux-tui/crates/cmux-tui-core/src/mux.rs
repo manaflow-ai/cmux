@@ -10093,6 +10093,32 @@ mod tests {
     }
 
     #[test]
+    fn server_shutdown_cannot_pass_an_in_flight_surface_retirement() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface_id = surface.id;
+        let owned = mux.surface(surface.id).unwrap();
+        owned.set_server_shutdown_delay_for_test(Duration::from_millis(150));
+        let close = std::thread::spawn({
+            let mux = mux.clone();
+            move || mux.close_surface(surface_id).unwrap()
+        });
+        let removal_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.surface(surface_id).is_some() && Instant::now() < removal_deadline {
+            std::thread::yield_now();
+        }
+        assert!(mux.surface(surface_id).is_none(), "ordinary close did not remove its surface");
+
+        let shutdown = mux.close_all_surfaces_for_shutdown();
+
+        assert!(close.join().unwrap());
+        owned.set_server_shutdown_failure_for_test(false);
+        assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        let error = shutdown.expect_err("server shutdown passed an untracked retirement owner");
+        assert!(error.to_string().contains("could not terminate 1 surface process"));
+    }
+
+    #[test]
     fn ordinary_surface_close_does_not_retain_terminal_render_state() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();

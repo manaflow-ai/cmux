@@ -699,19 +699,52 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn shutdown_read_error_accepts_a_socket_that_stopped_listening() {
+    fn modern_shutdown_requires_a_success_response_before_disconnect() {
         let path = PathBuf::from("/tmp").join(format!(
             "cmux-tui-shutdown-disconnect-{}-{}.sock",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-
-        assert!(shutdown_read_error(&path).is_ok());
-
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-        assert!(shutdown_read_error(&path).is_err());
-        drop(listener);
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let identify: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(identify["cmd"], "identify");
+            write_json_line(
+                &mut stream,
+                &json!({
+                    "id": identify["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "version": "test",
+                        "protocol": PROTOCOL_VERSION,
+                        "pid": std::process::id(),
+                        "capabilities": [SERVER_SHUTDOWN_CAPABILITY],
+                    },
+                }),
+            )
+            .unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            let shutdown: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(shutdown["cmd"], "shutdown");
+        });
+
+        let result = ServerLifecycle::connect(path.clone()).unwrap().stop();
+
+        server.join().unwrap();
         std::fs::remove_file(path).unwrap();
+        let error = result.expect_err("disconnect without a success response was accepted");
+        assert!(
+            error.to_string().contains(crate::localization::catalog().server.response_closed)
+                || error
+                    .to_string()
+                    .contains(crate::localization::catalog().server.transport_failed)
+        );
     }
 
     #[cfg(unix)]
