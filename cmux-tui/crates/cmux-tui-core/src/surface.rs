@@ -1998,17 +1998,6 @@ impl Surface {
     }
 
     #[cfg(test)]
-    pub(crate) fn count_server_shutdown_attempts_for_test(&self) -> Arc<AtomicUsize> {
-        let attempts = Arc::new(AtomicUsize::new(0));
-        let Self::Pty(pty) = self else { return attempts };
-        let Some(process) = &pty.local_process else { return attempts };
-        let process = process.lock().unwrap();
-        let LocalProcess::Untracked(killer) = &*process else { return attempts };
-        *killer.lock().unwrap() = Box::new(TestCountingFailingChildKiller(attempts.clone()));
-        attempts
-    }
-
-    #[cfg(test)]
     pub(crate) fn set_recovering_server_shutdown_for_test(
         &self,
     ) -> (Arc<AtomicBool>, Arc<AtomicUsize>) {
@@ -2839,22 +2828,6 @@ impl ChildKiller for TestSlowFailingChildKiller {
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
         Box::new(Self(self.0))
-    }
-}
-
-#[cfg(test)]
-#[derive(Debug)]
-struct TestCountingFailingChildKiller(Arc<AtomicUsize>);
-
-#[cfg(test)]
-impl ChildKiller for TestCountingFailingChildKiller {
-    fn kill(&mut self) -> std::io::Result<()> {
-        self.0.fetch_add(1, Ordering::AcqRel);
-        Err(std::io::Error::other("forced counted shutdown failure"))
-    }
-
-    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        Box::new(Self(self.0.clone()))
     }
 }
 

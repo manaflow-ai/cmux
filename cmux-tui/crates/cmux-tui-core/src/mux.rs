@@ -44,6 +44,8 @@ const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
 const SHUTDOWN_FANOUT_WORKERS: usize = 32;
+const SHUTDOWN_RECONCILE_INITIAL_DELAY: Duration = Duration::from_millis(25);
+const SHUTDOWN_RECONCILE_MAX_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ShutdownOwnerKey {
@@ -123,6 +125,86 @@ impl ShutdownOwnerLedger {
     #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.owners.lock().unwrap().is_empty()
+    }
+}
+
+#[derive(Default)]
+struct ShutdownOwnerReconcilerState {
+    pending: bool,
+    stopping: bool,
+}
+
+#[derive(Default)]
+struct ShutdownOwnerReconciler {
+    state: Mutex<ShutdownOwnerReconcilerState>,
+    wake: std::sync::Condvar,
+}
+
+impl ShutdownOwnerReconciler {
+    fn start(self: &Arc<Self>, mux: Weak<Mux>) -> anyhow::Result<()> {
+        let reconciler = self.clone();
+        std::thread::Builder::new()
+            .name("cmux-shutdown-owner-reconciler".into())
+            .spawn(move || reconciler.run(mux))
+            .context("start shutdown owner reconciler")?;
+        Ok(())
+    }
+
+    fn schedule(&self) {
+        let mut state = self.state.lock().unwrap();
+        if state.stopping {
+            return;
+        }
+        state.pending = true;
+        self.wake.notify_one();
+    }
+
+    fn stop(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.stopping = true;
+        self.wake.notify_all();
+    }
+
+    fn run(self: Arc<Self>, mux: Weak<Mux>) {
+        let mut delay = SHUTDOWN_RECONCILE_INITIAL_DELAY;
+        loop {
+            let mut state = self.state.lock().unwrap();
+            while !state.pending && !state.stopping {
+                state = self.wake.wait(state).unwrap();
+            }
+            if state.stopping {
+                return;
+            }
+            state.pending = false;
+            drop(state);
+
+            loop {
+                let Some(mux) = mux.upgrade() else { return };
+                let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
+                let pending = match mux.lock_shutdown_coordinator_until(deadline) {
+                    Ok(_coordinator) => mux.terminate_staged_shutdown_owners_until(deadline),
+                    Err(_) => true,
+                };
+                drop(mux);
+                if !pending {
+                    delay = SHUTDOWN_RECONCILE_INITIAL_DELAY;
+                    break;
+                }
+
+                let state = self.state.lock().unwrap();
+                let mut state = if state.pending {
+                    state
+                } else {
+                    self.wake.wait_timeout(state, delay).unwrap().0
+                };
+                if state.stopping {
+                    return;
+                }
+                state.pending = false;
+                drop(state);
+                delay = delay.saturating_mul(2).min(SHUTDOWN_RECONCILE_MAX_DELAY);
+            }
+        }
     }
 }
 
@@ -1001,6 +1083,7 @@ pub struct Mux {
     async_surface_creations: AsyncSurfaceCreationGate,
     shutdown_coordinator: Mutex<()>,
     shutdown_owners: ShutdownOwnerLedger,
+    shutdown_owner_reconciler: Arc<ShutdownOwnerReconciler>,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -1233,6 +1316,7 @@ impl Mux {
             async_surface_creations: AsyncSurfaceCreationGate::default(),
             shutdown_coordinator: Mutex::new(()),
             shutdown_owners: ShutdownOwnerLedger::default(),
+            shutdown_owner_reconciler: Arc::new(ShutdownOwnerReconciler::default()),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
@@ -1278,6 +1362,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        mux.shutdown_owner_reconciler.start(Arc::downgrade(&mux))?;
         #[cfg(unix)]
         mux.adopt_terminal_hosts()?;
         Ok(mux)
@@ -3963,22 +4048,27 @@ impl Mux {
             .filter_map(|surface| self.shutdown_owners.stage_surface(&surface))
             .collect::<Vec<_>>();
         let deadline = Instant::now() + SHUTDOWN_TERMINATION_TIMEOUT;
-        let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else { return };
-        self.terminate_shutdown_owners_until(owners, deadline);
+        let Ok(_coordinator) = self.lock_shutdown_coordinator_until(deadline) else {
+            self.shutdown_owner_reconciler.schedule();
+            return;
+        };
+        if self.terminate_shutdown_owners_until(owners, deadline) {
+            self.shutdown_owner_reconciler.schedule();
+        }
     }
 
-    fn terminate_staged_shutdown_owners_until(&self, deadline: Instant) {
+    fn terminate_staged_shutdown_owners_until(&self, deadline: Instant) -> bool {
         let owners = self.shutdown_owners.snapshot();
-        self.terminate_shutdown_owners_until(owners, deadline);
+        self.terminate_shutdown_owners_until(owners, deadline)
     }
 
     fn terminate_shutdown_owners_until(
         &self,
         owners: Vec<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)>,
         deadline: Instant,
-    ) {
+    ) -> bool {
         if owners.is_empty() {
-            return;
+            return false;
         }
         #[cfg(unix)]
         let process_snapshot = crate::process_session::SessionProcessSnapshot::capture(
@@ -4001,6 +4091,7 @@ impl Mux {
         let confirmed =
             owners.into_iter().filter(|(key, _)| !failed.contains(key)).collect::<Vec<_>>();
         self.shutdown_owners.remove_confirmed(&confirmed);
+        !failed.is_empty()
     }
 
     pub fn list_agents(
@@ -8088,6 +8179,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        self.shutdown_owner_reconciler.stop();
         if let Ok(state) = self.state.get_mut() {
             for surface in state.surfaces.values() {
                 surface.disconnect_for_daemon_shutdown();
@@ -10466,25 +10558,6 @@ mod tests {
 
         assert!(mux.shutdown_owners.is_empty(), "retained owner had no normal-lifecycle retry");
         assert!(attempts.load(Ordering::Acquire) >= 2);
-    }
-
-    #[test]
-    fn ordinary_surface_close_does_not_retry_unrelated_retained_owners() {
-        let mux = test_mux();
-        let retained = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let retained_owner = mux.surface(retained.id).unwrap();
-        let attempts = retained_owner.count_server_shutdown_attempts_for_test();
-
-        assert!(mux.close_surface(retained.id).unwrap());
-        assert_eq!(attempts.load(Ordering::Acquire), 1);
-
-        let current = mux.new_workspace(None, Some((80, 24))).unwrap();
-        assert!(mux.close_surface(current.id).unwrap());
-        assert_eq!(
-            attempts.load(Ordering::Acquire),
-            1,
-            "an unrelated close retried retained shutdown ownership"
-        );
     }
 
     #[test]

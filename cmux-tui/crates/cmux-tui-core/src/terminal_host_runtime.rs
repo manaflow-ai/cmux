@@ -350,6 +350,75 @@ mod unix {
         }
     }
 
+    struct PublishedHostRecovery {
+        process: Option<SpawnedHostProcess>,
+        record_path: PathBuf,
+        terminal_id: String,
+        incarnation: String,
+        owner_token: String,
+        host_pid: u32,
+    }
+
+    impl PublishedHostRecovery {
+        fn new(
+            process: SpawnedHostProcess,
+            record_path: PathBuf,
+            terminal_id: String,
+            incarnation: HostIncarnation,
+            owner_token: CapabilityToken,
+            host_pid: u32,
+        ) -> Self {
+            Self {
+                process: Some(process),
+                record_path,
+                terminal_id,
+                incarnation: incarnation.to_hex(),
+                owner_token: encode_hex(owner_token.as_bytes()),
+                host_pid,
+            }
+        }
+
+        fn commit(mut self) -> SpawnedHostProcess {
+            self.process.take().expect("published terminal-host process is present")
+        }
+
+        fn matching_record(&self) -> Option<TerminalHostRecord> {
+            let record: TerminalHostRecord =
+                serde_json::from_slice(&fs::read(&self.record_path).ok()?).ok()?;
+            validate_terminal_host_record(&self.record_path, &record).ok()?;
+            (record.terminal_id == self.terminal_id
+                && record.incarnation == self.incarnation
+                && record.owner_token == self.owner_token
+                && record.host_pid == self.host_pid)
+                .then_some(record)
+        }
+
+        fn reconcile(&mut self) {
+            let Some(process) = self.process.take() else { return };
+            let Some(record) = self.matching_record() else {
+                // Publication was not proven, so the exact spawned process
+                // remains the only safe cleanup target.
+                drop(process);
+                return;
+            };
+
+            // The authenticated durable record now owns PTY cleanup. Never
+            // exact-kill the host after this handoff because its child runs
+            // in a separate session and may ignore terminal hangup.
+            process.detach_reaper();
+            if let Ok(attachment) = connect_record(record, self.record_path.clone()) {
+                let _ = attachment.terminate();
+                attachment.disconnect();
+            }
+        }
+    }
+
+    impl Drop for PublishedHostRecovery {
+        fn drop(&mut self) {
+            self.reconcile();
+        }
+    }
+
     #[derive(Debug)]
     struct HostLaunch {
         endpoint: String,
@@ -965,18 +1034,18 @@ mod unix {
             anyhow::bail!("terminal host changed terminal identity during bootstrap");
         }
 
+        let launch_recovery = PublishedHostRecovery::new(
+            process,
+            record_path.clone(),
+            terminal_hex.clone(),
+            ready.incarnation,
+            owner_token,
+            host_pid,
+        );
         let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode()?);
         launch_frame.request_id = 2;
         write_frame(&mut stdin, &launch_frame)?;
-        let launched_frame = match read_required_frame(&mut stdout, "launch ready") {
-            Ok(frame) => frame,
-            Err(error) => {
-                if cancelled() && record_path.exists() {
-                    process.detach_reaper();
-                }
-                return Err(error);
-            }
-        };
+        let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
         if launched_frame.kind != MessageKind::Ready || launched_frame.request_id != 2 {
             anyhow::bail!("terminal host did not acknowledge launch");
         }
@@ -1003,7 +1072,7 @@ mod unix {
         // would leave a live published host while the mux marks its registry
         // row Exited.
         let mut attachment = connect_record(record, record_path)?;
-        attachment.launch_process = Some(process);
+        attachment.launch_process = Some(launch_recovery.commit());
         if cancelled() {
             drop(attachment);
             anyhow::bail!("terminal host launch cancelled because the server is shutting down");

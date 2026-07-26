@@ -396,39 +396,41 @@ impl ServerLifecycle {
             if surface.kind != "pty" {
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
-            let process_request_id = take_legacy_request_id(next_request_id)?;
-            set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
-                .map_err(|_| LegacyConnectionInterrupted)?;
-            write_json_line(
-                self.reader.get_mut(),
-                &json!({
-                    "id": process_request_id,
-                    "cmd": "process-info",
-                    "surface": surface.id,
-                }),
-            )
-            .map_err(|_| LegacyConnectionInterrupted)?;
-            let process_response =
-                read_response_until(&mut self.reader, process_request_id, deadline)
+            if !surface.dead {
+                let process_request_id = take_legacy_request_id(next_request_id)?;
+                set_transport_deadline(self.reader.get_mut().as_ref(), deadline)
                     .map_err(|_| LegacyConnectionInterrupted)?;
-            let process_data = response_data(&process_response)?;
-            let pid = process_data
-                .get("pid")
-                .and_then(Value::as_u64)
-                .and_then(|pid| libc::pid_t::try_from(pid).ok())
-                .filter(|pid| *pid > 1)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-                })?;
-            let owner = capture_process_session(pid, expected, deadline)
-                .map_err(|_| {
-                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-                })?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-                })?;
-            if !owners.iter().any(|captured| captured.id() == owner.id()) {
-                owners.push(owner);
+                write_json_line(
+                    self.reader.get_mut(),
+                    &json!({
+                        "id": process_request_id,
+                        "cmd": "process-info",
+                        "surface": surface.id,
+                    }),
+                )
+                .map_err(|_| LegacyConnectionInterrupted)?;
+                let process_response =
+                    read_response_until(&mut self.reader, process_request_id, deadline)
+                        .map_err(|_| LegacyConnectionInterrupted)?;
+                let process_data = response_data(&process_response)?;
+                let pid = process_data
+                    .get("pid")
+                    .and_then(Value::as_u64)
+                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                    .filter(|pid| *pid > 1)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                    })?;
+                let owner = capture_process_session(pid, expected, deadline)
+                    .map_err(|_| {
+                        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                    })?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                    })?;
+                if !owners.iter().any(|captured| captured.id() == owner.id()) {
+                    owners.push(owner);
+                }
             }
 
             let request_id = take_legacy_request_id(next_request_id)?;
@@ -767,11 +769,12 @@ fn response_data(response: &Value) -> anyhow::Result<&Value> {
 struct LegacySurface {
     id: u64,
     kind: String,
+    dead: bool,
 }
 
 #[cfg(unix)]
 fn legacy_surfaces(data: &Value) -> anyhow::Result<Vec<LegacySurface>> {
-    let mut surfaces = std::collections::HashMap::<u64, String>::new();
+    let mut surfaces = std::collections::HashMap::<u64, (String, bool)>::new();
     for workspace in data.get("workspaces").and_then(Value::as_array).into_iter().flatten() {
         for screen in workspace.get("screens").and_then(Value::as_array).into_iter().flatten() {
             for pane in screen.get("panes").and_then(Value::as_array).into_iter().flatten() {
@@ -782,8 +785,9 @@ fn legacy_surfaces(data: &Value) -> anyhow::Result<Vec<LegacySurface>> {
                                 crate::localization::catalog().server.legacy_cleanup_failed
                             )
                         })?;
-                        if let Some(previous) = surfaces.insert(surface, kind.to_string())
-                            && previous != kind
+                        let dead = tab.get("dead").and_then(Value::as_bool).unwrap_or(false);
+                        if let Some(previous) = surfaces.insert(surface, (kind.to_string(), dead))
+                            && previous != (kind.to_string(), dead)
                         {
                             anyhow::bail!(
                                 crate::localization::catalog().server.legacy_cleanup_failed
@@ -794,8 +798,10 @@ fn legacy_surfaces(data: &Value) -> anyhow::Result<Vec<LegacySurface>> {
             }
         }
     }
-    let mut surfaces =
-        surfaces.into_iter().map(|(id, kind)| LegacySurface { id, kind }).collect::<Vec<_>>();
+    let mut surfaces = surfaces
+        .into_iter()
+        .map(|(id, (kind, dead))| LegacySurface { id, kind, dead })
+        .collect::<Vec<_>>();
     surfaces.sort_by_key(|surface| surface.id);
     Ok(surfaces)
 }
