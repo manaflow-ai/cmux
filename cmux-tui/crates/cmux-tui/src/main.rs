@@ -14,6 +14,8 @@ mod host_colors;
 mod keys;
 mod localization;
 mod machine;
+#[cfg(unix)]
+mod machine_agent;
 mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
@@ -40,7 +42,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceKind, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
-use machine::{MachineActionResult, MachineController, MachineRequest, MachineUiState};
+use machine::{
+    MachineActionResult, MachineConnectRoute, MachineController, MachineRequest, MachineUiState,
+};
 #[cfg(unix)]
 use machine_provider_client::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
@@ -248,6 +252,7 @@ USAGE:
   cmux-tui [OPTIONS]           Start a session (TUI + control socket)
   cmux-tui attach [OPTIONS]    Attach to an existing session or one terminal
   cmux-tui relay [OPTIONS]     Relay stdio to a session's socket
+  {machine_agent_usage}
   cmux-tui <verb> [OPTIONS]    Run one control-socket command
   cmux-tui plugin <subcommand> Manage sidebar plugins locally
 
@@ -325,6 +330,25 @@ PLUGIN VERBS (local; no socket protocol command)
   plugin update <name>
   plugin remove <name>
 ";
+
+fn usage_for(messages: &localization::MachineAgentMessages) -> String {
+    usage_for_platform(messages, cfg!(unix))
+}
+
+fn usage_for_platform(
+    messages: &localization::MachineAgentMessages,
+    supports_machine_agent: bool,
+) -> String {
+    if supports_machine_agent {
+        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", messages.usage))
+    } else {
+        USAGE.replace("  {machine_agent_usage}\n", "")
+    }
+}
+
+fn usage() -> String {
+    usage_for(&localization::catalog().machine_agent)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
@@ -473,7 +497,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
             "-h" | "--help" => {
-                print!("{USAGE}");
+                print!("{}", usage());
                 std::process::exit(0);
             }
             "-V" | "--version" => {
@@ -673,7 +697,7 @@ fn main() {
         std::process::exit(exit_code);
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
-        cli::print_help(USAGE);
+        cli::print_help(&usage());
         std::process::exit(0);
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
@@ -685,9 +709,21 @@ fn main() {
         }
         return;
     }
+    #[cfg(unix)]
+    if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
+        discard_provider_secret_environment();
+        if let Err(error) = machine_agent::run(&raw_args[1..]) {
+            eprintln!("cmux-tui: {error}");
+            if error.show_help() {
+                eprintln!("{}", localization::catalog().machine_agent.help);
+            }
+            std::process::exit(1);
+        }
+        return;
+    }
     if cli::is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(cli::run(&raw_args, USAGE));
+        std::process::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
     #[cfg(unix)]
@@ -1214,10 +1250,14 @@ impl MachineController for StaticMachineController {
     fn perform(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
         match request {
             MachineRequest::Switch(machine) => self.switch(machine),
-            MachineRequest::Connect(target) => {
+            MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let machine = self.runtime.connect_machine(&target)?;
                 self.switch(machine)
             }
+            MachineRequest::Connect { route: MachineConnectRoute::Provider, .. } => Ok(self
+                .notice(
+                    localization::catalog().sidebar.machine_catalog_provider_actions_unsupported,
+                )),
             MachineRequest::Create => {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
             }
@@ -1370,7 +1410,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux-tui: {msg}\n\n{USAGE}");
+    eprintln!("cmux-tui: {msg}\n\n{}", usage());
     std::process::exit(2);
 }
 
@@ -1453,7 +1493,7 @@ mod tests {
 
         assert_eq!(
             controller.perform(MachineRequest::Create).unwrap().ui.notice.as_deref(),
-            Some("このマシンカタログでは仮想マシンを作成できません")
+            Some("このマシンカタログではマシンを作成できません")
         );
         assert_eq!(
             controller
@@ -1728,11 +1768,38 @@ mod tests {
 
     #[test]
     fn startup_help_lists_all_provider_entrypoints() {
-        assert!(USAGE.contains("--surface <id>"));
-        assert!(USAGE.contains("--machine-provider <path>"));
-        assert!(USAGE.contains("--machine-provider-command <program> [arg ...] --"));
-        assert!(USAGE.contains("--cloud"));
-        assert!(USAGE.contains("--cloud-identity"));
+        let usage = usage();
+        assert!(usage.contains("--surface <id>"));
+        assert!(usage.contains("--machine-provider <path>"));
+        assert!(usage.contains("--machine-provider-command <program> [arg ...] --"));
+        assert!(usage.contains("--cloud"));
+        assert!(usage.contains("--cloud-identity"));
+    }
+
+    #[test]
+    fn startup_help_localizes_the_machine_agent_entrypoint() {
+        let english = usage_for_platform(
+            &localization::catalog_for_locale("en_US.UTF-8").machine_agent,
+            true,
+        );
+        assert!(english.contains("cmux machine-agent"));
+        assert!(english.contains("Share one local session through the configured host"));
+        let japanese = usage_for_platform(
+            &localization::catalog_for_locale("ja_JP.UTF-8").machine_agent,
+            true,
+        );
+        assert!(japanese.contains("cmux machine-agent"));
+        assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
+        assert!(!japanese.contains("Share one local session"));
+    }
+
+    #[test]
+    fn startup_help_omits_machine_agent_on_unsupported_platforms() {
+        let english = &localization::catalog_for_locale("en_US.UTF-8").machine_agent;
+        let usage = usage_for_platform(english, false);
+        assert!(!usage.contains("machine-agent"));
+        assert!(usage.contains("cmux-tui relay"));
+        assert!(!usage.lines().any(|line| !line.is_empty() && line.trim().is_empty()));
     }
 
     #[test]

@@ -72,6 +72,14 @@ npx cmux
 
 See [Machines](machines.md) for Unix and SSH examples, rail input, and remote setup.
 
+To share an existing local session through cmux.cloud without a public listener, run its outbound machine agent separately:
+
+```bash
+npx cmux machine-agent --session agents
+```
+
+Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ Connect machine` on cmux.cloud.
+
 ## Sessions and sockets
 
 The default socket path is:
