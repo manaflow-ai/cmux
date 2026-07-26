@@ -12,6 +12,8 @@ static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 #[cfg(test)]
 thread_local! {
     static FORCE_KILL_TIMEOUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FORCE_REAPER_SPAWN_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static REAP_CHILD_CALLED_ON_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[derive(Debug, Clone)]
@@ -157,12 +159,19 @@ struct ReapRequest {
 fn reap_child_detached(child: Child, profile_dir: Option<PathBuf>) {
     let request = std::sync::Arc::new(Mutex::new(Some(ReapRequest { child, profile_dir })));
     let worker_request = request.clone();
-    let spawned =
+    #[cfg(test)]
+    let force_spawn_failure = FORCE_REAPER_SPAWN_FAILURE.get();
+    #[cfg(not(test))]
+    let force_spawn_failure = false;
+    let spawned = if force_spawn_failure {
+        Err(std::io::Error::other("forced Chrome reaper spawn failure"))
+    } else {
         std::thread::Builder::new().name("cmux-tui-cdp-chrome-reaper".into()).spawn(move || {
             if let Some(request) = worker_request.lock().unwrap().take() {
                 reap_child(request);
             }
-        });
+        })
+    };
     if spawned.is_err()
         && let Some(request) = request.lock().unwrap().take()
     {
@@ -171,6 +180,8 @@ fn reap_child_detached(child: Child, profile_dir: Option<PathBuf>) {
 }
 
 fn reap_child(mut request: ReapRequest) {
+    #[cfg(test)]
+    REAP_CHILD_CALLED_ON_THREAD.set(true);
     let _ = request.child.kill();
     if request.child.wait().is_ok()
         && let Some(profile_dir) = request.profile_dir
@@ -398,5 +409,36 @@ mod tests {
         }
 
         assert!(reaped, "dropping Chrome discarded an unconfirmed child without reaping it");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reaper_spawn_failure_never_waits_on_the_caller_thread() {
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let chrome = Chrome {
+            child: Mutex::new(Some(child)),
+            profile_dir: make_profile_dir().unwrap(),
+            profile_ephemeral: true,
+            web_socket_url: "ws://127.0.0.1/unused".to_string(),
+        };
+
+        REAP_CHILD_CALLED_ON_THREAD.set(false);
+        FORCE_KILL_TIMEOUT.set(true);
+        FORCE_REAPER_SPAWN_FAILURE.set(true);
+        drop(chrome);
+        FORCE_REAPER_SPAWN_FAILURE.set(false);
+        FORCE_KILL_TIMEOUT.set(false);
+        let reaped_inline = REAP_CHILD_CALLED_ON_THREAD.get();
+
+        let cleanup = Command::new("true").spawn().unwrap();
+        reap_child_detached(cleanup, None);
+
+        assert!(!reaped_inline, "reaper spawn failure fell back to an unbounded caller wait");
     }
 }

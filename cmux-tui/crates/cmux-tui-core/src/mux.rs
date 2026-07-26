@@ -1316,6 +1316,8 @@ pub struct Mux {
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    new_pane_after_spawn: Mutex<Option<Arc<dyn Fn(Arc<Surface>) + Send + Sync>>>,
+    #[cfg(test)]
     terminal_adoption_after_attach: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(all(test, unix))]
     terminal_adoption_surface_factory: Mutex<Option<TerminalAdoptionSurfaceFactory>>,
@@ -1556,6 +1558,8 @@ impl Mux {
             terminal_create_after_materialization_lock: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            new_pane_after_spawn: Mutex::new(None),
             #[cfg(test)]
             terminal_adoption_after_attach: Mutex::new(None),
             #[cfg(all(test, unix))]
@@ -6354,6 +6358,10 @@ impl Mux {
                 eprintln!("cmux-tui: pane PTY creation failed: {error:#}");
                 anyhow::anyhow!("pane creation failed")
             })?;
+        #[cfg(test)]
+        if let Some(hook) = self.new_pane_after_spawn.lock().unwrap().clone() {
+            hook(surface.clone());
+        }
         let pane_id = self.next_id();
         let active_at = self.next_active_at();
         let mut changed_screen = None;
@@ -10553,6 +10561,45 @@ mod tests {
             assert_eq!(order, vec![p1, p2, p3, p4]);
             assert_eq!(screen.zellij_auto_layout.as_deref(), Some(order.as_slice()));
         });
+    }
+
+    #[test]
+    fn failed_new_pane_attachment_retains_shutdown_ownership() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let target = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let (spawned_tx, spawned_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.new_pane_after_spawn.lock().unwrap() = Some(Arc::new({
+            move |surface| {
+                surface.set_server_shutdown_failure_for_test(true);
+                spawned_tx.send(surface).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+
+        let create = std::thread::spawn({
+            let mux = mux.clone();
+            move || mux.new_pane(target, None)
+        });
+        let abandoned = spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(mux.close_pane(target).unwrap());
+        release_tx.send(()).unwrap();
+
+        let error = create.join().unwrap().unwrap_err();
+        assert!(error.to_string().contains("not found"));
+        assert!(mux.surface(abandoned.id).is_none());
+        assert_eq!(
+            mux.shutdown_owners.len(),
+            1,
+            "failed pane attachment discarded its process owner instead of staging a retry"
+        );
+
+        *mux.new_pane_after_spawn.lock().unwrap() = None;
+        abandoned.set_server_shutdown_failure_for_test(false);
+        let _ = mux.close_all_surfaces_for_shutdown();
+        assert!(mux.shutdown_owners.is_empty());
     }
 
     #[test]

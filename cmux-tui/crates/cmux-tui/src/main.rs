@@ -1415,6 +1415,44 @@ mod tests {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn completed_server_guard_never_unlinks_a_replacement_socket() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let socket_path =
+            std::env::temp_dir().join(format!("cg-{}-{suffix:x}.sock", std::process::id()));
+        let original = UnixListener::bind(&socket_path).unwrap();
+        let mux = Mux::new("server-guard-test", SurfaceOptions::default());
+        let shutdown_watch = mux.watch_shutdown_request();
+        let (completion, completed) = std::sync::mpsc::channel();
+        let (replacement_tx, replacement_rx) = std::sync::mpsc::sync_channel(1);
+        let replacement_path = socket_path.clone();
+        let worker = std::thread::spawn(move || {
+            completed.recv().unwrap();
+            let replacement = UnixListener::bind(&replacement_path).unwrap();
+            replacement_tx.send(replacement).unwrap();
+        });
+        let guard = ServerProcessShutdownGuard {
+            socket_path: socket_path.clone(),
+            shutdown_watch,
+            completion: Some(completion),
+            worker: Some(worker),
+        };
+
+        guard.complete();
+
+        let replacement = replacement_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let client = UnixStream::connect(&socket_path)
+            .expect("guard completion unlinked the replacement server socket");
+        drop(client);
+        drop(replacement);
+        drop(original);
+        cmux_tui_core::server::cleanup(&socket_path);
+    }
+
     #[test]
     fn surface_only_attach_does_not_publish_session_default_colors() {
         let mux = Mux::new("surface-only-color-test", SurfaceOptions::default());
