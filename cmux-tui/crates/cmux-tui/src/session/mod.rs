@@ -15,10 +15,10 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, GuardedMouseEncode, Mux, MuxEventReceiver, PaneId,
-    PointerSemanticProbe, PointerSnapshotProbe, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
-    Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
-    TerminalPointerSnapshot, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserFrameUpdate, BrowserStatus, DefaultColors, GuardedMouseEncode, Mux,
+    MuxEventReceiver, PaneId, PointerSemanticProbe, PointerSnapshotProbe, ScreenId,
+    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    SurfaceResizeReporter, TerminalPointerSnapshot, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot};
 use serde::Deserialize;
@@ -1405,6 +1405,16 @@ impl SurfaceHandle {
             SurfaceHandle::Local(surface, _) => surface.browser_frame(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 surface.browser_frame()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.browser_frame_update(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_frame_update()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }

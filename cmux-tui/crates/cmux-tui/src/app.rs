@@ -65,7 +65,7 @@ use crate::session::{
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::{
-    GraphicsCompletion, GraphicsPresentation, GraphicsResponseFilter, GraphicsWriter, StdoutLock,
+    GraphicsCompletion, GraphicsProcessing, GraphicsResponseFilter, GraphicsWriter, StdoutLock,
     graphics_fence_channel,
 };
 use crate::ui::input::{InputEvent, TextInput};
@@ -3360,6 +3360,16 @@ struct GraphicIdentity {
     surface: SurfaceId,
     rect: Rect,
     seq: u64,
+    pointer_frame_seq: Option<u64>,
+}
+
+impl GraphicIdentity {
+    fn same_pointer_route(self, other: Self) -> bool {
+        self.session_generation == other.session_generation
+            && self.surface == other.surface
+            && self.rect == other.rect
+            && self.pointer_frame_seq == other.pointer_frame_seq
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3724,7 +3734,7 @@ struct PendingPointerMotion {
 enum PointerRoutePhase {
     Fresh,
     GraphicsRenderPending,
-    GraphicsPresentationPending,
+    GraphicsProcessingPending,
     PaintPending,
     DrawPending,
 }
@@ -5247,7 +5257,7 @@ impl App {
         self.emit_graphics()?;
         self.commit_rendered_pointer_frame();
         self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
-            PointerRoutePhase::GraphicsPresentationPending
+            PointerRoutePhase::GraphicsProcessingPending
         } else {
             PointerRoutePhase::Fresh
         };
@@ -6003,7 +6013,7 @@ impl App {
         self.pending_pointer_motion = None;
         self.deferred_input_sequence = 0;
         self.rendered_pointer_frame = RenderedPointerFrame::default();
-        // Retain presented and in-flight graphics state until the replacement
+        // Retain processed and in-flight graphics state until the replacement
         // session presents its first snapshot. The writer may still present
         // an older accepted submission before the replacement is written.
         self.pointer_route_phase = PointerRoutePhase::DrawPending;
@@ -6058,7 +6068,7 @@ impl App {
         if action.rebuilds_pointer_route() {
             self.commit_rendered_pointer_frame_for(action);
             self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
-                PointerRoutePhase::GraphicsPresentationPending
+                PointerRoutePhase::GraphicsProcessingPending
             } else {
                 PointerRoutePhase::Fresh
             };
@@ -6534,8 +6544,7 @@ impl App {
         }
         if !matches!(
             self.pointer_route_phase,
-            PointerRoutePhase::GraphicsRenderPending
-                | PointerRoutePhase::GraphicsPresentationPending
+            PointerRoutePhase::GraphicsRenderPending | PointerRoutePhase::GraphicsProcessingPending
         ) {
             return false;
         }
@@ -6555,7 +6564,7 @@ impl App {
     }
 
     fn pending_graphics_changes_cell(&self, x: u16, y: u16) -> bool {
-        if self.pointer_route_phase != PointerRoutePhase::GraphicsPresentationPending
+        if self.pointer_route_phase != PointerRoutePhase::GraphicsProcessingPending
             || self.pending_graphics_submission.is_none()
         {
             return false;
@@ -6567,7 +6576,11 @@ impl App {
         let graphic_at = |snapshot: &[GraphicIdentity]| {
             snapshot.iter().copied().find(|graphic| graphic.rect.contains(x, y))
         };
-        graphic_at(&self.last_graphics_snapshot) != graphic_at(pending)
+        match (graphic_at(&self.last_graphics_snapshot), graphic_at(pending)) {
+            (Some(processed), Some(pending)) => !processed.same_pointer_route(pending),
+            (None, None) => false,
+            (Some(_), None) | (None, Some(_)) => true,
+        }
     }
 
     fn next_replay_pointer_route_is_stale(&self) -> bool {
@@ -6996,8 +7009,12 @@ impl App {
             self.pending_graphics_snapshot.as_deref().unwrap_or(&self.last_graphics_snapshot);
         let changed_rects = previous
             .iter()
-            .filter(|graphic| !snapshot.contains(graphic))
-            .chain(snapshot.iter().filter(|graphic| !previous.contains(graphic)))
+            .filter(|graphic| !snapshot.iter().any(|next| graphic.same_pointer_route(*next)))
+            .chain(
+                snapshot
+                    .iter()
+                    .filter(|graphic| !previous.iter().any(|old| graphic.same_pointer_route(*old))),
+            )
             .map(|graphic| graphic.rect)
             .collect::<Vec<_>>();
         for rect in changed_rects {
@@ -7021,7 +7038,7 @@ impl App {
         if &snapshot == submitted_snapshot {
             if self.pointer_route_phase == PointerRoutePhase::GraphicsRenderPending {
                 self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
-                    PointerRoutePhase::GraphicsPresentationPending
+                    PointerRoutePhase::GraphicsProcessingPending
                 } else {
                     PointerRoutePhase::Fresh
                 };
@@ -7035,7 +7052,7 @@ impl App {
         let submission = self.next_graphics_submission;
         if writer.submit(submission, self.session_generation, placements) {
             self.track_graphics_submission(submission, snapshot);
-            self.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+            self.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
         }
         Ok(())
     }
@@ -7046,6 +7063,7 @@ impl App {
             surface: placement.surface,
             rect: placement.rect,
             seq: placement.seq,
+            pointer_frame_seq: placement.pointer_frame_seq,
         }
     }
 
@@ -7066,12 +7084,13 @@ impl App {
             // dirty again and emits another SurfaceOutput instead of having
             // its wakeup erased after we captured an older frame.
             surface.take_dirty();
-            let Some(frame) = surface.browser_frame() else { continue };
+            let Some(update) = surface.browser_frame_update() else { continue };
             placements.push(GraphicPlacement {
                 surface: area.surface,
                 rect: area.content,
-                seq: frame.seq,
-                data_b64: frame.data_b64,
+                seq: update.frame.seq,
+                pointer_frame_seq: update.pointer_frame_seq,
+                data_b64: update.frame.data_b64,
             });
         }
         placements
@@ -7084,8 +7103,8 @@ impl App {
             return RenderAction::None;
         };
         match completion {
-            GraphicsCompletion::Presented(presentation) => {
-                self.commit_graphics_presentation(presentation);
+            GraphicsCompletion::Processed(processing) => {
+                self.commit_graphics_processing(processing);
                 RenderAction::None
             }
             GraphicsCompletion::Failed => self.disable_graphics_after_failure(),
@@ -7108,29 +7127,33 @@ impl App {
         RenderAction::Draw
     }
 
-    fn commit_graphics_presentation(&mut self, presentation: GraphicsPresentation) {
-        let settles_latest = self.pending_graphics_submission == Some(presentation.id);
-        let belongs_to_current_session = presentation.session_generation == self.session_generation;
-        let current_browser_frames = (settles_latest && belongs_to_current_session).then(|| {
-            presentation
-                .graphics
-                .iter()
-                .filter(|graphic| {
-                    self.session
-                        .surface(graphic.surface)
-                        .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
-                })
-                .map(|graphic| (graphic.surface, graphic.seq))
-                .collect::<Vec<_>>()
-        });
-        self.last_graphics_snapshot = presentation
+    fn commit_graphics_processing(&mut self, processing: GraphicsProcessing) {
+        let settles_latest = self.pending_graphics_submission == Some(processing.id);
+        let belongs_to_current_session = processing.session_generation == self.session_generation;
+        let current_browser_authorities =
+            (settles_latest && belongs_to_current_session).then(|| {
+                processing
+                    .graphics
+                    .iter()
+                    .filter(|graphic| {
+                        self.session
+                            .surface(graphic.surface)
+                            .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+                    })
+                    .filter_map(|graphic| {
+                        graphic.pointer_frame_seq.map(|authority| (graphic.surface, authority))
+                    })
+                    .collect::<Vec<_>>()
+            });
+        self.last_graphics_snapshot = processing
             .graphics
             .iter()
             .map(|graphic| GraphicIdentity {
-                session_generation: presentation.session_generation,
+                session_generation: processing.session_generation,
                 surface: graphic.surface,
                 rect: graphic.rect,
                 seq: graphic.seq,
+                pointer_frame_seq: graphic.pointer_frame_seq,
             })
             .collect();
         if settles_latest {
@@ -7138,17 +7161,17 @@ impl App {
             self.pending_graphics_snapshot = None;
             self.pending_graphics_affected_rects.clear();
         }
-        if let Some(current_browser_frames) = current_browser_frames {
+        if let Some(current_browser_authorities) = current_browser_authorities {
             self.rendered_pane_content_generations
                 .retain(|_, generation| !matches!(generation, PaneContentGeneration::Browser(_)));
-            for (surface, generation) in current_browser_frames {
+            for (surface, generation) in current_browser_authorities {
                 self.rendered_pane_content_generations
                     .insert(surface, PaneContentGeneration::Browser(generation));
             }
             self.commit_rendered_pane_content_generations();
         }
         if settles_latest
-            && self.pointer_route_phase == PointerRoutePhase::GraphicsPresentationPending
+            && self.pointer_route_phase == PointerRoutePhase::GraphicsProcessingPending
         {
             self.pointer_route_phase = PointerRoutePhase::Fresh;
         }
@@ -8438,9 +8461,8 @@ impl App {
             || queued_bytes.saturating_add(input_bytes) > MAX_DEFERRED_INPUT_BYTES
         {
             if !prioritize_release {
-                self.status_message = Some(
-                    "Input queue byte limit reached while a session change is pending".to_string(),
-                );
+                self.status_message =
+                    Some(localization::catalog().input.deferred_queue_byte_limit.to_string());
                 return RenderAction::Draw;
             }
             let Some(removed) = self.deferred_input.pop_front() else { break };
@@ -12451,7 +12473,8 @@ impl App {
                     let cell = (x.saturating_sub(area.content.x), y.saturating_sub(area.content.y));
                     let next = (area.surface, cell.0, cell.1);
                     if self.last_browser_hover != Some(next)
-                        && let Some(frame_seq) = self.presented_browser_frame_seq(area.surface)
+                        && let Some(frame_seq) =
+                            self.processed_browser_pointer_authority(area.surface)
                     {
                         let _ = self.send_browser_mouse(
                             area.surface,
@@ -12786,7 +12809,7 @@ impl App {
                     if self.active_pane() != Some(area.pane) {
                         self.focus_pane_after_input(area.pane);
                     }
-                    if let Some(frame_seq) = self.presented_browser_frame_seq(area.surface)
+                    if let Some(frame_seq) = self.processed_browser_pointer_authority(area.surface)
                         && self.send_browser_mouse(
                             area.surface,
                             area.content,
@@ -13658,7 +13681,7 @@ impl App {
         let Some(surface) = self.session.surface(surface_id) else { return Ok(RenderAction::None) };
         if surface.kind() == SurfaceKind::Browser {
             if area.content.contains(x, y) {
-                let Some(frame_seq) = self.presented_browser_frame_seq(surface_id) else {
+                let Some(frame_seq) = self.processed_browser_pointer_authority(surface_id) else {
                     return Ok(RenderAction::None);
                 };
                 let (px, py) = self.browser_point(area.content, x, y);
@@ -13818,7 +13841,7 @@ impl App {
         (col * f64::from(self.cell_pixels.0), row * f64::from(self.cell_pixels.1))
     }
 
-    fn presented_browser_frame_seq(&self, surface: SurfaceId) -> Option<u64> {
+    fn processed_browser_pointer_authority(&self, surface: SurfaceId) -> Option<u64> {
         match self.rendered_pointer_frame.pane_content_generations.get(&surface) {
             Some(PaneContentGeneration::Browser(frame_seq)) => Some(*frame_seq),
             Some(PaneContentGeneration::Terminal(_)) | None => None,
@@ -16830,7 +16853,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_graphics_presentation_does_not_block_terminal_pointer_input() {
+    fn browser_graphics_processing_does_not_block_terminal_pointer_input() {
         let (mux, surface) = test_mux("graphics-terminal-pointer-scope-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -16842,7 +16865,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
         let content = app.pane_areas[0].content;
-        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -16861,8 +16884,8 @@ mod tests {
     }
 
     #[test]
-    fn browser_click_requires_a_presented_frame() {
-        let mux = Mux::new("browser-presented-frame-test", SurfaceOptions::default());
+    fn browser_click_requires_a_processed_frame() {
+        let mux = Mux::new("browser-processed-frame-test", SurfaceOptions::default());
         let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
         surface.kill();
         let mut app = test_app(Session::Local(mux.clone()));
@@ -16889,14 +16912,14 @@ mod tests {
 
         assert!(
             blocked.drain_mouse_lifetimes().is_empty(),
-            "a placeholder with no presented browser frame must not accept pointer input"
+            "a placeholder with no processed browser frame must not accept pointer input"
         );
         assert!(!matches!(app.drag, Some(Drag::Browser { .. })));
         mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
-    fn pending_graphics_deletion_blocks_pointer_through_presented_rect() {
+    fn pending_graphics_deletion_blocks_pointer_through_processed_rect() {
         let mux = Mux::new("graphics-deletion-pointer-barrier-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.last_graphics_snapshot.push(GraphicIdentity {
@@ -16904,9 +16927,10 @@ mod tests {
             surface: 11,
             rect: Rect { x: 2, y: 2, width: 8, height: 4 },
             seq: 13,
+            pointer_frame_seq: Some(13),
         });
         app.pending_graphics_submission = Some(7);
-        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
         let covered = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: 3,
@@ -16916,7 +16940,7 @@ mod tests {
 
         assert!(
             app.pointer_route_is_stale_for_mouse(&covered),
-            "the old browser image still owns this cell until deletion is presented"
+            "the old browser image still owns this cell until deletion is processed"
         );
 
         app.pending_graphics_snapshot = Some(vec![GraphicIdentity {
@@ -16924,6 +16948,7 @@ mod tests {
             surface: 11,
             rect: Rect { x: 12, y: 2, width: 8, height: 4 },
             seq: 13,
+            pointer_frame_seq: Some(13),
         }]);
         let newly_covered = MouseEvent { column: 13, ..covered };
         let unchanged = MouseEvent { column: 25, ..covered };
@@ -16942,8 +16967,9 @@ mod tests {
             surface: 11,
             rect,
             seq: 13,
+            pointer_frame_seq: Some(13),
         });
-        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
 
         app.track_graphics_submission(
             7,
@@ -16952,6 +16978,7 @@ mod tests {
                 surface: 11,
                 rect,
                 seq: 14,
+                pointer_frame_seq: Some(13),
             }],
         );
 
@@ -16962,14 +16989,15 @@ mod tests {
     }
 
     #[test]
-    fn superseded_graphics_presentations_keep_intermediate_cells_blocked() {
-        let mux = Mux::new("graphics-presentation-union-test", SurfaceOptions::default());
+    fn superseded_graphics_processing_keeps_intermediate_cells_blocked() {
+        let mux = Mux::new("graphics-processing-union-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let intermediate = GraphicIdentity {
             session_generation: app.session_generation,
             surface: 11,
             rect: Rect { x: 2, y: 2, width: 8, height: 4 },
             seq: 13,
+            pointer_frame_seq: Some(13),
         };
         let covered = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -16977,33 +17005,34 @@ mod tests {
             row: 3,
             modifiers: KeyModifiers::NONE,
         };
-        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
 
         app.track_graphics_submission(2, vec![intermediate]);
         app.track_graphics_submission(3, Vec::new());
 
         assert!(
             app.pointer_route_is_stale_for_mouse(&covered),
-            "A→B→A must block cells touched by the intermediate B presentation"
+            "A→B→A must block cells touched by the intermediate B processing"
         );
 
-        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
             id: 2,
             session_generation: intermediate.session_generation,
-            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
                 surface: intermediate.surface,
                 rect: intermediate.rect,
                 seq: intermediate.seq,
+                pointer_frame_seq: intermediate.pointer_frame_seq,
             }],
         });
         assert_eq!(app.last_graphics_snapshot, vec![intermediate]);
         assert_eq!(app.pending_graphics_submission, Some(3));
         assert!(
             app.pointer_route_is_stale_for_mouse(&covered),
-            "the cell must stay blocked while the replacement A presentation is pending"
+            "the cell must stay blocked while replacement A processing is pending"
         );
 
-        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
             id: 3,
             session_generation: app.session_generation,
             graphics: Vec::new(),
@@ -17014,8 +17043,8 @@ mod tests {
     }
 
     #[test]
-    fn newer_browser_render_keeps_an_older_presentation_acknowledgment_stale() {
-        let mux = Mux::new("graphics-presentation-order-test", SurfaceOptions::default());
+    fn newer_browser_render_keeps_an_older_processing_acknowledgment_stale() {
+        let mux = Mux::new("graphics-processing-order-test", SurfaceOptions::default());
         let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
         let surface_id = surface.id;
         surface.kill();
@@ -17023,13 +17052,14 @@ mod tests {
         app.pending_graphics_submission = Some(7);
         app.pointer_route_phase = PointerRoutePhase::GraphicsRenderPending;
 
-        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
             id: 7,
             session_generation: app.session_generation,
-            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
                 surface: surface_id,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                 seq: 13,
+                pointer_frame_seq: Some(13),
             }],
         });
 
@@ -17041,14 +17071,15 @@ mod tests {
         );
 
         app.pending_graphics_submission = Some(8);
-        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
-        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
             id: 8,
             session_generation: app.session_generation,
-            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
                 surface: surface_id,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                 seq: 14,
+                pointer_frame_seq: Some(14),
             }],
         });
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
@@ -17060,17 +17091,18 @@ mod tests {
     }
 
     #[test]
-    fn graphics_writer_failure_releases_the_pointer_presentation_barrier() {
+    fn graphics_writer_failure_releases_the_pointer_processing_barrier() {
         let mux = Mux::new("graphics-failure-pointer-barrier-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.graphics_supported = true;
         app.pending_graphics_submission = Some(9);
-        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
         app.last_graphics_snapshot.push(GraphicIdentity {
             session_generation: app.session_generation,
             surface: 11,
             rect: Rect { x: 1, y: 2, width: 3, height: 4 },
             seq: 15,
+            pointer_frame_seq: Some(15),
         });
         app.rendered_pane_content_generations.insert(11, PaneContentGeneration::Browser(15));
 
@@ -17095,6 +17127,7 @@ mod tests {
             surface: 11,
             rect: Rect { x: 1, y: 2, width: 3, height: 4 },
             seq: 15,
+            pointer_frame_seq: Some(15),
             data_b64: "AAAA".to_string(),
         };
 
@@ -17115,16 +17148,17 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.session_generation = 2;
         app.pending_graphics_submission = Some(8);
-        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.pointer_route_phase = PointerRoutePhase::GraphicsProcessingPending;
         app.rendered_pane_content_generations.insert(11, PaneContentGeneration::Terminal(21));
 
-        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+        app.commit_graphics_processing(crate::ui::graphics_writer::GraphicsProcessing {
             id: 7,
             session_generation: 1,
-            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+            graphics: vec![crate::ui::graphics_writer::ProcessedGraphic {
                 surface: 11,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                 seq: 13,
+                pointer_frame_seq: Some(13),
             }],
         });
 
@@ -20682,6 +20716,7 @@ mod tests {
             surface: 77,
             rect: Rect { x: 2, y: 3, width: 12, height: 5 },
             seq: 9,
+            pointer_frame_seq: Some(9),
         };
         app.last_graphics_snapshot.push(previous);
         app.pending_graphics_submission = Some(4);
@@ -20691,7 +20726,7 @@ mod tests {
         assert_eq!(
             app.pending_graphics_submission,
             Some(4),
-            "an in-flight old-session presentation must remain tracked until replacement"
+            "an in-flight old-session graphic must remain tracked until replacement"
         );
         assert_eq!(
             app.last_graphics_snapshot,
@@ -22050,7 +22085,7 @@ mod tests {
         assert_eq!(app.deferred_input.len(), 1);
         assert_eq!(
             app.status_message.as_deref(),
-            Some("Input queue byte limit reached while a session change is pending")
+            Some(localization::catalog().input.deferred_queue_byte_limit)
         );
     }
 

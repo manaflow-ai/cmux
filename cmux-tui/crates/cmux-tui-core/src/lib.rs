@@ -45,10 +45,10 @@ pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
-    BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, GuardedMouseEncode,
-    PointerSemanticProbe, PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface,
-    SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
-    TerminalPointerSnapshot,
+    BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus, DefaultColors,
+    GuardedMouseEncode, PointerSemanticProbe, PointerSnapshotProbe, RenderAttachFrame,
+    RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
+    TerminalHostConnectionState, TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,

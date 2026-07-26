@@ -9,14 +9,15 @@ use cmux_tui_core::{Rect, SurfaceId};
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
 const PLACEMENT_ID: u32 = 1;
-pub(crate) const PRESENTATION_FENCE_ID_BASE: u32 = 2_000_000_001;
-const PRESENTATION_FENCE_ID_COUNT: u64 = 2_000_000_000;
+pub(crate) const PROCESSING_FENCE_ID_BASE: u32 = 2_000_000_001;
+const PROCESSING_FENCE_ID_COUNT: u64 = 2_000_000_000;
 
 #[derive(Debug, Clone)]
 pub struct GraphicPlacement {
     pub surface: SurfaceId,
     pub rect: Rect,
     pub seq: u64,
+    pub pointer_frame_seq: Option<u64>,
     pub data_b64: String,
 }
 
@@ -107,14 +108,14 @@ pub fn delete_image(surface: SurfaceId) -> Vec<u8> {
     format!("{ESC}_Ga=d,d=i,i={id},q=2;{ESC}\\").into_bytes()
 }
 
-pub(crate) fn presentation_fence_id(submission: u64) -> u32 {
-    PRESENTATION_FENCE_ID_BASE + (submission.wrapping_sub(1) % PRESENTATION_FENCE_ID_COUNT) as u32
+pub(crate) fn processing_fence_id(submission: u64) -> u32 {
+    PROCESSING_FENCE_ID_BASE + (submission.wrapping_sub(1) % PROCESSING_FENCE_ID_COUNT) as u32
 }
 
 /// Append a side-effect-free graphics query after one submitted frame. Its
-/// reply is the presentation fence: the host has processed every preceding
-/// Kitty graphics command before pointer routing may use that frame.
-pub(crate) fn presentation_fence(id: u32) -> Vec<u8> {
+/// immediate reply confirms that the terminal parsed every preceding Kitty
+/// graphics command. It does not report compositor presentation.
+pub(crate) fn processing_fence(id: u32) -> Vec<u8> {
     format!("{ESC}_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA{ESC}\\").into_bytes()
 }
 
@@ -292,11 +293,11 @@ mod tests {
     }
 
     #[test]
-    fn presentation_fence_uses_reserved_query_id() {
-        let id = presentation_fence_id(7);
-        assert!(id >= PRESENTATION_FENCE_ID_BASE);
+    fn processing_fence_uses_reserved_query_id() {
+        let id = processing_fence_id(7);
+        assert!(id >= PROCESSING_FENCE_ID_BASE);
         assert_eq!(
-            String::from_utf8(presentation_fence(id)).unwrap(),
+            String::from_utf8(processing_fence(id)).unwrap(),
             format!("\x1b_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")
         );
     }
@@ -307,6 +308,7 @@ mod tests {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
             seq: 1,
+            pointer_frame_seq: Some(1),
             data_b64: "frame".to_string(),
         };
         let collapsed =
@@ -323,6 +325,7 @@ mod tests {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
             seq: 1,
+            pointer_frame_seq: Some(1),
             data_b64: "old-frame".to_string(),
         };
         let replacement = GraphicPlacement { data_b64: "replacement-frame".to_string(), ..old };

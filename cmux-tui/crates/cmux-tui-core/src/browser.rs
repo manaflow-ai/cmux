@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -113,7 +113,9 @@ pub struct BrowserAttachState {
     pub rows: u16,
     pub status: BrowserStatus,
     pub frame: Option<BrowserFrame>,
-    /// Retained frame sequence that may currently receive guarded pointer input.
+    /// Opaque pointer-authority token. It may reuse an earlier bitmap sequence
+    /// across ordinary repaints while the document and coordinate mapping stay
+    /// unchanged.
     pub pointer_frame_seq: Option<u64>,
     pub frames_stalled: bool,
 }
@@ -151,14 +153,14 @@ struct BrowserState {
     /// epoch or an authoritative streamed frame arrives.
     failed_screencast_capture_epoch: Option<u64>,
     pending_frame: Option<(u64, BrowserFrame)>,
-    /// Frame that may currently receive guarded pointer input. Navigation and
-    /// geometry changes invalidate it before the next screencast frame lands.
+    /// Opaque pointer-authority token. Navigation and geometry changes
+    /// invalidate it before the next admissible screencast frame lands.
     pointer_frame_seq: Option<u64>,
     /// Changes whenever pointer admission changes, so a failed command can
-    /// restore its previous frame only if no asynchronous browser event won
+    /// restore its previous authority only if no asynchronous browser event won
     /// the race in the meantime.
     pointer_frame_revision: u64,
-    /// Ownership epoch for pointer captures. Unlike the presentation frame,
+    /// Ownership epoch for pointer captures. Unlike pointer authority,
     /// this survives ordinary repaint frames and geometry changes, and changes
     /// only when navigation or failure invalidates the page that accepted it.
     pointer_capture_generation: u64,
@@ -227,7 +229,7 @@ struct PointerFrameInvalidation {
 enum BrowserCommand {
     WakeLatest,
     Mouse {
-        input_owner: u64,
+        input_owner: BrowserPointerOwner,
         event_type: String,
         x: f64,
         y: f64,
@@ -304,8 +306,15 @@ impl BrowserCommandOrder {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrowserPointerOwner {
+    Local,
+    Legacy,
+    Client(u64),
+}
+
 pub(crate) struct BrowserMouseDispatch<'a> {
-    pub(crate) input_owner: u64,
+    pub(crate) input_owner: BrowserPointerOwner,
     pub(crate) event_type: &'a str,
     pub(crate) x: f64,
     pub(crate) y: f64,
@@ -325,7 +334,7 @@ impl BrowserCommand {
         )
     }
 
-    fn mouse_move_owner(&self) -> Option<u64> {
+    fn mouse_move_owner(&self) -> Option<BrowserPointerOwner> {
         match self {
             BrowserCommand::Mouse { input_owner, event_type, .. } if event_type == "mouseMoved" => {
                 Some(*input_owner)
@@ -356,10 +365,42 @@ struct BrowserWorkerErrorState {
     active_pointer_presses: HashMap<String, ActivePointerPress>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct ActivePointerPress {
-    input_owner: u64,
+    input_owner: BrowserPointerOwner,
     capture_generation: u64,
+    last_x: f64,
+    last_y: f64,
+    click_count: Option<u32>,
+    legacy_expires_at: Option<Instant>,
+}
+
+impl ActivePointerPress {
+    fn new(
+        input_owner: BrowserPointerOwner,
+        capture_generation: u64,
+        x: f64,
+        y: f64,
+        click_count: Option<u32>,
+    ) -> Self {
+        Self {
+            input_owner,
+            capture_generation,
+            last_x: x,
+            last_y: y,
+            click_count,
+            legacy_expires_at: (input_owner == BrowserPointerOwner::Legacy)
+                .then(|| Instant::now() + LEGACY_POINTER_PRESS_LEASE),
+        }
+    }
+
+    fn refresh_legacy_lease(&mut self, x: f64, y: f64) {
+        self.last_x = x;
+        self.last_y = y;
+        if self.input_owner == BrowserPointerOwner::Legacy {
+            self.legacy_expires_at = Some(Instant::now() + LEGACY_POINTER_PRESS_LEASE);
+        }
+    }
 }
 
 pub struct BrowserRuntime {
@@ -519,6 +560,8 @@ const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
+const BROWSER_WORKER_IDLE_TICK: Duration = Duration::from_millis(100);
+const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(5);
 const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
@@ -1195,7 +1238,21 @@ fn start_browser_worker(
     let _ =
         std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
             let mut failures = BrowserWorkerErrorState::default();
-            while let Ok(first) = rx.recv() {
+            loop {
+                let first = match rx.recv_timeout(BROWSER_WORKER_IDLE_TICK) {
+                    Ok(first) => first,
+                    Err(RecvTimeoutError::Timeout) => {
+                        expire_legacy_pointer_presses(
+                            &surface,
+                            &mux,
+                            id,
+                            &mut failures,
+                            Instant::now(),
+                        );
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                };
                 let mut batch = vec![first];
                 let mut order = command_order.lock().unwrap();
                 while let Ok(next) = rx.try_recv() {
@@ -1213,6 +1270,13 @@ fn start_browser_worker(
                 batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
                 coalesce_worker_mouse_moves(&mut batch);
                 for queued in batch {
+                    expire_legacy_pointer_presses(
+                        &surface,
+                        &mux,
+                        id,
+                        &mut failures,
+                        Instant::now(),
+                    );
                     run_browser_worker_command(&surface, queued.command, &mux, id, &mut failures);
                 }
             }
@@ -1220,6 +1284,30 @@ fn start_browser_worker(
                 let _ = done_tx.send(());
             }
         });
+}
+
+fn expire_legacy_pointer_presses(
+    surface: &Surface,
+    mux: &Weak<Mux>,
+    id: SurfaceId,
+    failures: &mut BrowserWorkerErrorState,
+    now: Instant,
+) {
+    let expired = failures
+        .active_pointer_presses
+        .iter()
+        .filter(|(_, press)| press.legacy_expires_at.is_some_and(|deadline| deadline <= now))
+        .map(|(button, _)| button.clone())
+        .collect::<Vec<_>>();
+    for button in expired {
+        let Some(press) = failures.active_pointer_presses.remove(&button) else {
+            continue;
+        };
+        let result = surface.as_browser().map_or(Ok(()), |browser| {
+            browser.release_expired_pointer_press_blocking(&button, press)
+        });
+        record_browser_worker_result(surface, mux, id, true, result, failures);
+    }
 }
 
 fn take_latest_worker_commands(
@@ -1267,13 +1355,16 @@ fn run_browser_worker_command(
     if matches!(&command, BrowserCommand::Mouse { .. })
         && let Some(mux) = mux.upgrade()
     {
-        failures.active_pointer_presses.retain(|_, press| {
-            press.input_owner == 0 || mux.control_clients.contains(press.input_owner)
+        failures.active_pointer_presses.retain(|_, press| match press.input_owner {
+            BrowserPointerOwner::Local | BrowserPointerOwner::Legacy => true,
+            BrowserPointerOwner::Client(client) => mux.control_clients.contains(client),
         });
         if matches!(
             &command,
-            BrowserCommand::Mouse { input_owner, .. }
-                if *input_owner != 0 && !mux.control_clients.contains(*input_owner)
+            BrowserCommand::Mouse {
+                input_owner: BrowserPointerOwner::Client(client),
+                ..
+            } if !mux.control_clients.contains(*client)
         ) {
             return;
         }
@@ -1486,11 +1577,27 @@ impl BrowserSurface {
         }
     }
 
-    /// Return the newest usable screencast frame sequence, or `None` while the
-    /// retained frame is not currently safe for pointer input.
+    /// Return the opaque authority token for guarded pointer input. The token
+    /// survives ordinary repaints and changes only after document or geometry
+    /// invalidation, so clients must not treat it as the latest bitmap number.
     pub fn latest_frame_seq(&self) -> Option<u64> {
         let state = self.state.lock().unwrap();
         self.pointer_epoch_is_current_locked(&state).then_some(state.pointer_frame_seq).flatten()
+    }
+
+    pub fn latest_frame_update(&self) -> Option<BrowserFrameUpdate> {
+        let state = self.state.lock().unwrap();
+        if matches!(state.status, BrowserStatus::Failed(_)) {
+            return None;
+        }
+        state.latest_frame.clone().map(|frame| BrowserFrameUpdate {
+            frame,
+            status: state.status.clone(),
+            pointer_frame_seq: self
+                .pointer_epoch_is_current_locked(&state)
+                .then_some(state.pointer_frame_seq)
+                .flatten(),
+        })
     }
 
     pub fn title(&self) -> String {
@@ -1890,12 +1997,23 @@ impl BrowserSurface {
         state.next_frame_seq = state.next_frame_seq.saturating_add(1);
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
-        state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
-        let pointer_frame_seq = (matches!(state.status, BrowserStatus::Live)
+        let page_viewport = (frame.css_width.max(1), frame.css_height.max(1));
+        let pointer_geometry_changed =
+            state.page_viewport.is_some_and(|previous| previous != page_viewport);
+        state.page_viewport = Some(page_viewport);
+        let can_authorize_pointer = matches!(state.status, BrowserStatus::Live)
             && state.pending_navigation_epoch.is_none()
-            && state.pending_document_epoch.is_none())
-        .then_some(frame.seq);
-        Self::set_pointer_frame_locked(state, pointer_frame_seq);
+            && state.pending_document_epoch.is_none();
+        let pointer_frame_seq = can_authorize_pointer.then(|| {
+            if pointer_geometry_changed {
+                frame.seq
+            } else {
+                state.pointer_frame_seq.unwrap_or(frame.seq)
+            }
+        });
+        if state.pointer_frame_seq != pointer_frame_seq {
+            Self::set_pointer_frame_locked(state, pointer_frame_seq);
+        }
         state.latest_frame = Some(frame.clone());
         let update = BrowserFrameUpdate {
             frame,
@@ -2755,8 +2873,8 @@ impl BrowserSurface {
         self.mouse_event_for_frame(event_type, x, y, button, click_count, None)
     }
 
-    /// Queue a mouse event admitted by `frame_seq`. Uncaptured events for a
-    /// stale frame are ignored; a press that was accepted owns its matching
+    /// Queue a mouse event admitted by the opaque `frame_seq` authority token.
+    /// Uncaptured events with stale authority are ignored; an accepted press owns its matching
     /// motion and release until navigation or geometry invalidates the page.
     pub fn mouse_event_for_frame(
         &self,
@@ -2768,7 +2886,7 @@ impl BrowserSurface {
         frame_seq: Option<u64>,
     ) -> anyhow::Result<()> {
         self.mouse_event_for_frame_from(BrowserMouseDispatch {
-            input_owner: 0,
+            input_owner: BrowserPointerOwner::Local,
             event_type,
             x,
             y,
@@ -2778,9 +2896,9 @@ impl BrowserSurface {
         })
     }
 
-    /// Queue guarded mouse input owned by one control connection. Owner zero
-    /// is reserved for the in-process TUI; socket clients use their registry
-    /// id so one client cannot consume another client's captured press.
+    /// Queue guarded mouse input under one capture owner. Local in-process
+    /// input has a reserved stable owner, legacy sockets use owner zero with a
+    /// bounded lease, and negotiated sockets use their connection registry id.
     pub(crate) fn mouse_event_for_frame_from(
         &self,
         dispatch: BrowserMouseDispatch<'_>,
@@ -2831,10 +2949,13 @@ impl BrowserSurface {
                 else {
                     return Ok(());
                 };
-                captured_press = Some(ActivePointerPress {
-                    input_owner: dispatch.input_owner,
-                    capture_generation: generation,
-                });
+                captured_press = Some(ActivePointerPress::new(
+                    dispatch.input_owner,
+                    generation,
+                    dispatch.x,
+                    dispatch.y,
+                    dispatch.click_count,
+                ));
                 Some(point)
             }
             ("mouseReleased", Some(_)) => {
@@ -2862,6 +2983,10 @@ impl BrowserSurface {
                     );
                     if point.is_none() {
                         active_pointer_presses.remove(button);
+                    } else if press.input_owner == dispatch.input_owner
+                        && let Some(press) = active_pointer_presses.get_mut(button)
+                    {
+                        press.refresh_legacy_lease(dispatch.x, dispatch.y);
                     }
                     point
                 } else {
@@ -2902,11 +3027,32 @@ impl BrowserSurface {
         Ok(())
     }
 
+    fn release_expired_pointer_press_blocking(
+        &self,
+        button: &str,
+        press: ActivePointerPress,
+    ) -> anyhow::Result<()> {
+        let Some((x, y)) =
+            self.scale_captured_input_point(press.capture_generation, press.last_x, press.last_y)
+        else {
+            return Ok(());
+        };
+        let session = self.require_live_session()?;
+        session.runtime.client.dispatch_mouse_event(
+            &session.session_id,
+            "mouseReleased",
+            x,
+            y,
+            Some(button),
+            press.click_count,
+        )
+    }
+
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         self.wheel_for_frame(x, y, delta_y, None)
     }
 
-    /// Queue a wheel event only if `frame_seq` is still the live browser frame.
+    /// Queue a wheel event only if `frame_seq` is still the live pointer-authority token.
     pub fn wheel_for_frame(
         &self,
         x: f64,
@@ -3192,7 +3338,7 @@ impl BrowserSurface {
                 if result.is_download {
                     // Chrome explicitly confirmed that the response was handed
                     // to the download manager, so the current document and its
-                    // presented frame remain authoritative.
+                    // rendered frame remain authoritative.
                     self.restore_pointer_frame_after_failed_command(invalidation);
                     return Ok(());
                 }
@@ -4833,18 +4979,18 @@ mod tests {
     }
 
     #[test]
-    fn guarded_input_mapping_requires_the_current_live_frame() {
+    fn guarded_input_mapping_requires_the_current_live_pointer_authority() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
 
         browser.store_frame(test_frame(2));
-        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
-        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
+        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_none());
 
         browser.mark_failed("failed".to_string());
-        assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_none());
+        assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
     }
 
     #[test]
@@ -4964,8 +5110,13 @@ mod tests {
         browser.store_frame_for_epoch(test_frame(3), capture_epoch);
         assert_eq!(
             browser.latest_frame_seq(),
+            Some(2),
+            "the restarted stream must retain the authorized document and geometry"
+        );
+        assert_eq!(
+            browser.latest_frame().map(|frame| frame.seq),
             Some(3),
-            "the restarted stream may advance the authorized presentation"
+            "the restarted stream may advance the visual frame"
         );
     }
 
@@ -5198,6 +5349,23 @@ mod tests {
     }
 
     #[test]
+    fn viewport_change_rotates_pointer_authority() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let mut resized = test_frame(2);
+        resized.css_width += 1;
+
+        browser.store_frame(resized);
+
+        assert_eq!(browser.latest_frame_seq(), Some(2));
+        assert!(
+            browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none(),
+            "a bitmap viewport change must revoke the old coordinate mapping"
+        );
+    }
+
+    #[test]
     fn legacy_pointer_capture_has_a_bounded_worker_lease() {
         let source = include_str!("browser.rs");
         let production =
@@ -5207,6 +5375,43 @@ mod tests {
                 && production.contains("expire_legacy_pointer_presses"),
             "owner-zero compatibility captures need periodic expiry and a balancing release"
         );
+
+        let (runtime, server) = runtime_accepting_mouse_dispatches(vec!["mouseReleased"]);
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let now = Instant::now();
+        let mut press = super::ActivePointerPress::new(
+            super::BrowserPointerOwner::Legacy,
+            capture_generation,
+            1.0,
+            1.0,
+            Some(1),
+        );
+        press.legacy_expires_at = Some(now);
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert("left".to_string(), press);
+
+        super::expire_legacy_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            now,
+        );
+
+        assert!(
+            failures.active_pointer_presses.is_empty(),
+            "expiry must clear compatibility ownership even if release dispatch later fails"
+        );
+        runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]
@@ -5489,11 +5694,11 @@ mod tests {
 
         assert!(
             browser.scale_guarded_input_point(None, 1.0, 1.0).is_none(),
-            "legacy mouse input must not bypass an invalidated presentation frame"
+            "legacy mouse input must not bypass invalidated pointer authority"
         );
         assert!(
             browser.scale_guarded_wheel(None, 1.0, 1.0, 1.0).is_none(),
-            "legacy wheel input must not bypass an invalidated presentation frame"
+            "legacy wheel input must not bypass invalidated pointer authority"
         );
     }
 
@@ -5760,7 +5965,7 @@ mod tests {
 
         let result = browser.mouse_event_blocking(
             super::BrowserMouseDispatch {
-                input_owner: 0,
+                input_owner: super::BrowserPointerOwner::Legacy,
                 event_type: "mousePressed",
                 x: 1.0,
                 y: 1.0,
@@ -5796,7 +6001,7 @@ mod tests {
 
         for dispatch in [
             super::BrowserMouseDispatch {
-                input_owner: 41,
+                input_owner: super::BrowserPointerOwner::Client(41),
                 event_type: "mousePressed",
                 x: 1.0,
                 y: 1.0,
@@ -5805,7 +6010,7 @@ mod tests {
                 frame_seq: Some(1),
             },
             super::BrowserMouseDispatch {
-                input_owner: 42,
+                input_owner: super::BrowserPointerOwner::Client(42),
                 event_type: "mousePressed",
                 x: 2.0,
                 y: 2.0,
@@ -5814,7 +6019,7 @@ mod tests {
                 frame_seq: Some(1),
             },
             super::BrowserMouseDispatch {
-                input_owner: 42,
+                input_owner: super::BrowserPointerOwner::Client(42),
                 event_type: "mouseReleased",
                 x: 2.0,
                 y: 2.0,
@@ -5827,14 +6032,14 @@ mod tests {
         }
         assert_eq!(
             active_pointer_presses.get("left").map(|press| press.input_owner),
-            Some(41),
+            Some(super::BrowserPointerOwner::Client(41)),
             "a competing client must not overwrite or consume the original press capture"
         );
 
         browser
             .mouse_event_blocking(
                 super::BrowserMouseDispatch {
-                    input_owner: 41,
+                    input_owner: super::BrowserPointerOwner::Client(41),
                     event_type: "mouseReleased",
                     x: 1.0,
                     y: 1.0,
@@ -5865,12 +6070,18 @@ mod tests {
         let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
         let mut active_pointer_presses = std::collections::HashMap::from([(
             "left".to_string(),
-            super::ActivePointerPress { input_owner: 0, capture_generation },
+            super::ActivePointerPress::new(
+                super::BrowserPointerOwner::Legacy,
+                capture_generation,
+                1.0,
+                1.0,
+                Some(1),
+            ),
         )]);
 
         let result = browser.mouse_event_blocking(
             super::BrowserMouseDispatch {
-                input_owner: 0,
+                input_owner: super::BrowserPointerOwner::Legacy,
                 event_type: "mouseReleased",
                 x: 1.0,
                 y: 1.0,
@@ -6005,7 +6216,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_navigation_dispatch_restores_the_presented_frame_admission() {
+    fn failed_navigation_dispatch_restores_the_rendered_frame_admission() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (stop_tx, stop_rx) = mpsc::channel();
@@ -6049,7 +6260,7 @@ mod tests {
         stop_tx.send(()).unwrap();
         runtime.shutdown();
         server.join().unwrap();
-        assert!(restored, "a rejected navigation must leave the still-presented frame interactive");
+        assert!(restored, "a rejected navigation must leave the rendered frame interactive");
         assert!(capture_restored, "a rejected navigation must restore active capture ownership");
     }
 

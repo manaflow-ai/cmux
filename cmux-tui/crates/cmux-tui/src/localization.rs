@@ -81,6 +81,7 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct InputMessages {
     pub deferred_destination_changed: &'static str,
+    pub deferred_queue_byte_limit: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -343,6 +344,7 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     input: InputMessages {
         deferred_destination_changed: "Deferred input was discarded because its destination changed",
+        deferred_queue_byte_limit: "Input queue byte limit reached while a session change is pending",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -495,6 +497,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     input: InputMessages {
         deferred_destination_changed: "送信先が変更されたため、保留中の入力を破棄しました",
+        deferred_queue_byte_limit: "セッションの変更中に入力キューのバイト上限に達しました",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
@@ -625,6 +628,14 @@ mod tests {
         assert_eq!(
             JAPANESE.input.deferred_destination_changed,
             "送信先が変更されたため、保留中の入力を破棄しました"
+        );
+        assert_eq!(
+            ENGLISH.input.deferred_queue_byte_limit,
+            "Input queue byte limit reached while a session change is pending"
+        );
+        assert_eq!(
+            JAPANESE.input.deferred_queue_byte_limit,
+            "セッションの変更中に入力キューのバイト上限に達しました"
         );
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,

@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, GuardedMouseEncode, MuxEvent,
-    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
-    PointerSemanticProbe, PointerSnapshotProbe, Rgb, SurfaceId, SurfaceKind,
-    TerminalPointerSnapshot, platform::transport, server::GUARDED_BROWSER_POINTER_CAPABILITY,
+    BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, DefaultColors,
+    GuardedMouseEncode, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
+    NotificationLevel, PairingChallenge, PointerSemanticProbe, PointerSnapshotProbe, Rgb,
+    SurfaceId, SurfaceKind, TerminalPointerSnapshot, platform::transport,
+    server::GUARDED_BROWSER_POINTER_CAPABILITY,
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
@@ -477,6 +478,18 @@ impl RemoteSurface {
         } else {
             browser.frame.as_ref().map(|frame| frame.frame.clone())
         }
+    }
+
+    pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            return None;
+        }
+        browser.frame.as_ref().map(|frame| BrowserFrameUpdate {
+            frame: frame.frame.clone(),
+            status: browser.status.clone(),
+            pointer_frame_seq: browser.pointer_frame_seq,
+        })
     }
 
     pub fn browser_frame_seq(&self) -> Option<u64> {

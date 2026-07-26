@@ -10,12 +10,12 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use parking_lot::ReentrantMutex;
 
 use super::graphics::{
-    GraphicPlacement, GraphicsState, PRESENTATION_FENCE_ID_BASE, presentation_fence,
-    presentation_fence_id,
+    GraphicPlacement, GraphicsState, PROCESSING_FENCE_ID_BASE, processing_fence,
+    processing_fence_id,
 };
 
 pub type StdoutLock = ReentrantMutex<()>;
-const PRESENTATION_FENCE_TIMEOUT: Duration = Duration::from_secs(1);
+const PROCESSING_FENCE_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_GRAPHICS_RESPONSE_EVENTS: usize = 128;
 
 struct GraphicsSubmission {
@@ -25,22 +25,23 @@ struct GraphicsSubmission {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PresentedGraphic {
+pub struct ProcessedGraphic {
     pub surface: SurfaceId,
     pub rect: Rect,
     pub seq: u64,
+    pub pointer_frame_seq: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GraphicsPresentation {
+pub struct GraphicsProcessing {
     pub id: u64,
     pub session_generation: u64,
-    pub graphics: Vec<PresentedGraphic>,
+    pub graphics: Vec<ProcessedGraphic>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphicsCompletion {
-    Presented(GraphicsPresentation),
+    Processed(GraphicsProcessing),
     Failed,
 }
 
@@ -80,10 +81,10 @@ impl GraphicsFenceWaiter {
     }
 
     fn wait_for(&self, expected: u32) -> std::io::Result<()> {
-        let result = self.responses.recv_timeout(PRESENTATION_FENCE_TIMEOUT).map_err(|error| {
+        let result = self.responses.recv_timeout(PROCESSING_FENCE_TIMEOUT).map_err(|error| {
             std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                format!("graphics presentation fence timed out: {error}"),
+                format!("graphics processing fence timed out: {error}"),
             )
         });
         self.cancel(expected);
@@ -92,14 +93,14 @@ impl GraphicsFenceWaiter {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "graphics presentation fence replied out of order: expected {expected}, got {}",
+                    "graphics processing fence replied out of order: expected {expected}, got {}",
                     response.id
                 ),
             ));
         }
         if !response.ok {
             return Err(std::io::Error::other(format!(
-                "host rejected graphics presentation fence {expected}"
+                "host rejected graphics processing fence {expected}"
             )));
         }
         Ok(())
@@ -161,7 +162,7 @@ impl GraphicsResponseFilter {
             let mut buffered = self.buffered.take().unwrap();
             buffered.events.push(event);
             if let Some(response) = parse_graphics_response(&buffered.payload)
-                && response.id >= PRESENTATION_FENCE_ID_BASE
+                && response.id >= PROCESSING_FENCE_ID_BASE
                 && response.id == self.notifier.expected()
             {
                 self.notifier.notify(response);
@@ -216,13 +217,13 @@ fn parse_graphics_response(payload: &str) -> Option<GraphicsFenceResponse> {
     Some(GraphicsFenceResponse { id, ok: message == "OK" })
 }
 
-trait PresentationFence: Send + 'static {
+trait ProcessingFence: Send + 'static {
     fn prepare(&mut self, _id: u32) {}
     fn cancel(&mut self, _id: u32) {}
     fn wait(&mut self, id: u32) -> std::io::Result<()>;
 }
 
-impl PresentationFence for GraphicsFenceWaiter {
+impl ProcessingFence for GraphicsFenceWaiter {
     fn prepare(&mut self, id: u32) {
         GraphicsFenceWaiter::prepare(self, id);
     }
@@ -237,10 +238,10 @@ impl PresentationFence for GraphicsFenceWaiter {
 }
 
 #[cfg(test)]
-struct ClosurePresentationFence<F>(F);
+struct ClosureProcessingFence<F>(F);
 
 #[cfg(test)]
-impl<F> PresentationFence for ClosurePresentationFence<F>
+impl<F> ProcessingFence for ClosureProcessingFence<F>
 where
     F: FnMut() -> std::io::Result<()> + Send + 'static,
 {
@@ -260,10 +261,10 @@ pub struct GraphicsWriter {
 impl GraphicsWriter {
     pub fn spawn(
         stdout_lock: Arc<StdoutLock>,
-        presentation_fence: GraphicsFenceWaiter,
+        processing_fence: GraphicsFenceWaiter,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
-        Self::spawn_with_fence(stdout_lock, std::io::stdout(), presentation_fence, on_ready)
+        Self::spawn_with_fence(stdout_lock, std::io::stdout(), processing_fence, on_ready)
     }
 
     #[cfg(test)]
@@ -279,13 +280,13 @@ impl GraphicsWriter {
     fn spawn_with_output_and_fence(
         stdout_lock: Arc<StdoutLock>,
         output: impl Write + Send + 'static,
-        presentation_fence: impl FnMut() -> std::io::Result<()> + Send + 'static,
+        processing_fence: impl FnMut() -> std::io::Result<()> + Send + 'static,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
         Self::spawn_with_fence(
             stdout_lock,
             output,
-            ClosurePresentationFence(presentation_fence),
+            ClosureProcessingFence(processing_fence),
             on_ready,
         )
     }
@@ -293,7 +294,7 @@ impl GraphicsWriter {
     fn spawn_with_fence(
         stdout_lock: Arc<StdoutLock>,
         output: impl Write + Send + 'static,
-        presentation_fence: impl PresentationFence,
+        processing_fence: impl ProcessingFence,
         on_ready: impl Fn() + Send + 'static,
     ) -> std::io::Result<Self> {
         let (tx, rx) = sync_channel(1);
@@ -310,7 +311,7 @@ impl GraphicsWriter {
                     rx,
                     stdout_lock,
                     output,
-                    presentation_fence_waiter: presentation_fence,
+                    processing_fence_waiter: processing_fence,
                     on_ready,
                     done_tx,
                 });
@@ -376,7 +377,7 @@ struct WriterLoop<W, P, F> {
     rx: Receiver<()>,
     stdout_lock: Arc<StdoutLock>,
     output: W,
-    presentation_fence_waiter: P,
+    processing_fence_waiter: P,
     on_ready: F,
     done_tx: SyncSender<()>,
 }
@@ -384,7 +385,7 @@ struct WriterLoop<W, P, F> {
 fn writer_loop<W, P, F>(worker: WriterLoop<W, P, F>)
 where
     W: Write,
-    P: PresentationFence,
+    P: ProcessingFence,
     F: Fn(),
 {
     let WriterLoop {
@@ -393,7 +394,7 @@ where
         rx,
         stdout_lock,
         mut output,
-        mut presentation_fence_waiter,
+        mut processing_fence_waiter,
         on_ready,
         done_tx,
     } = worker;
@@ -403,20 +404,21 @@ where
         loop {
             let next = slot.lock().unwrap().take();
             let Some(submission) = next else { break };
-            let presented_graphics = submission
+            let processed_graphics = submission
                 .placements
                 .iter()
-                .map(|placement| PresentedGraphic {
+                .map(|placement| ProcessedGraphic {
                     surface: placement.surface,
                     rect: placement.rect,
                     seq: placement.seq,
+                    pointer_frame_seq: placement.pointer_frame_seq,
                 })
                 .collect();
             let batches =
                 graphics.frame_batches(submission.session_generation, &submission.placements);
-            let fence_id = presentation_fence_id(submission.id);
-            presentation_fence_waiter.prepare(fence_id);
-            let presented = {
+            let fence_id = processing_fence_id(submission.id);
+            processing_fence_waiter.prepare(fence_id);
+            let processed = {
                 let _guard = stdout_lock.lock();
                 let mut result = Ok(());
                 for batch in batches {
@@ -425,28 +427,27 @@ where
                     }
                 }
                 if result.is_ok() {
-                    result = output.write_all(&presentation_fence(fence_id));
+                    result = output.write_all(&processing_fence(fence_id));
                 }
                 if result.is_ok() {
                     result = output.flush();
                 }
                 if result.is_ok() {
-                    result = presentation_fence_waiter.wait(fence_id);
+                    result = processing_fence_waiter.wait(fence_id);
                 }
                 result
             };
-            if presented.is_err() {
-                presentation_fence_waiter.cancel(fence_id);
+            if processed.is_err() {
+                processing_fence_waiter.cancel(fence_id);
                 *completion.lock().unwrap() = Some(GraphicsCompletion::Failed);
                 on_ready();
                 return;
             }
-            *completion.lock().unwrap() =
-                Some(GraphicsCompletion::Presented(GraphicsPresentation {
-                    id: submission.id,
-                    session_generation: submission.session_generation,
-                    graphics: presented_graphics,
-                }));
+            *completion.lock().unwrap() = Some(GraphicsCompletion::Processed(GraphicsProcessing {
+                id: submission.id,
+                session_generation: submission.session_generation,
+                graphics: processed_graphics,
+            }));
             on_ready();
         }
     }
@@ -482,10 +483,10 @@ mod tests {
     }
 
     #[test]
-    fn kitty_graphics_response_completes_matching_presentation_fence() {
+    fn kitty_graphics_response_completes_matching_processing_fence() {
         let (waiter, notifier) = graphics_fence_channel();
         let mut filter = GraphicsResponseFilter::new(notifier);
-        let id = presentation_fence_id(11);
+        let id = processing_fence_id(11);
         waiter.prepare(id);
         let response = format!("Gi={id};OK");
         let wire_events = std::iter::once(key('_', KeyModifiers::ALT))
@@ -516,8 +517,11 @@ mod tests {
 
     #[test]
     fn kitty_query_acknowledges_processing_not_presentation() {
-        let graphics_source = include_str!("graphics.rs");
-        let writer_source = include_str!("graphics_writer.rs");
+        let production = |source: &'static str| {
+            source.split("\n#[cfg(test)]\nmod tests {").next().expect("production graphics source")
+        };
+        let graphics_source = production(include_str!("graphics.rs"));
+        let writer_source = production(include_str!("graphics_writer.rs"));
         assert!(
             !graphics_source.contains("presentation_fence")
                 && !writer_source.contains("GraphicsPresentation")
@@ -540,6 +544,7 @@ mod tests {
                     surface: 1,
                     rect: Rect { x: 0, y: 0, width: 10, height: 5 },
                     seq: 1,
+                    pointer_frame_seq: Some(1),
                     data_b64: "AAAA".to_string(),
                 }],
             },
@@ -554,6 +559,7 @@ mod tests {
                     surface: 1,
                     rect: Rect { x: 1, y: 1, width: 11, height: 6 },
                     seq: 2,
+                    pointer_frame_seq: Some(1),
                     data_b64: "BBBB".to_string(),
                 }],
             },
@@ -575,10 +581,10 @@ mod tests {
     }
 
     #[test]
-    fn presentation_waits_for_host_fence_after_stdout_flush() {
+    fn processing_completion_waits_for_host_fence_after_stdout_flush() {
         let lock = Arc::new(StdoutLock::new(()));
         let held = lock.lock();
-        let (presented_tx, presented_rx) = std::sync::mpsc::channel();
+        let (processed_tx, processed_rx) = std::sync::mpsc::channel();
         let (fence_entered_tx, fence_entered_rx) = std::sync::mpsc::channel();
         let (fence_release_tx, fence_release_rx) = std::sync::mpsc::channel();
         let mut writer = GraphicsWriter::spawn_with_output_and_fence(
@@ -590,7 +596,7 @@ mod tests {
                 Ok(())
             },
             move || {
-                presented_tx.send(()).unwrap();
+                processed_tx.send(()).unwrap();
             },
         )
         .unwrap();
@@ -602,12 +608,13 @@ mod tests {
                 surface: 11,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                 seq: 13,
+                pointer_frame_seq: Some(8),
                 data_b64: "AAAA".to_string(),
             }]
         ));
         assert!(
-            presented_rx.recv_timeout(Duration::from_millis(50)).is_err(),
-            "submission must not become pointer-visible while output is blocked"
+            processed_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "submission must not complete while output is blocked"
         );
 
         drop(held);
@@ -615,24 +622,25 @@ mod tests {
         assert_eq!(
             writer.take_completion(),
             None,
-            "stdout flush must not make a frame pointer-visible before the host fence replies"
+            "stdout flush alone must not complete the ordered submission"
         );
         assert!(
-            presented_rx.recv_timeout(Duration::from_millis(50)).is_err(),
-            "the app must remain stale while the host has not acknowledged the frame"
+            processed_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "the app must wait until the host acknowledges command processing"
         );
 
         fence_release_tx.send(()).unwrap();
-        presented_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        processed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(
             writer.take_completion(),
-            Some(GraphicsCompletion::Presented(GraphicsPresentation {
+            Some(GraphicsCompletion::Processed(GraphicsProcessing {
                 id: 7,
                 session_generation: 1,
-                graphics: vec![PresentedGraphic {
+                graphics: vec![ProcessedGraphic {
                     surface: 11,
                     rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                     seq: 13,
+                    pointer_frame_seq: Some(8),
                 }],
             }))
         );
@@ -655,6 +663,7 @@ mod tests {
                 surface: 11,
                 rect: Rect { x: 1, y: 2, width: 3, height: 4 },
                 seq: 15,
+                pointer_frame_seq: Some(9),
                 data_b64: "AAAA".to_string(),
             }]
         ));

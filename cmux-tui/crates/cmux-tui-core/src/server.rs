@@ -42,7 +42,7 @@ use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
-use crate::browser::{BrowserFrameUpdate, BrowserMouseDispatch};
+use crate::browser::{BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner};
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
@@ -2545,14 +2545,14 @@ fn handle_browser_mouse_command(
         "move" => "mouseMoved",
         other => anyhow::bail!("bad browser mouse kind {other:?}"),
     };
-    // Capability-aware clients keep a connection-scoped capture owner. Keep
-    // owner zero for legacy one-shot control calls so a down/move/up sequence
-    // issued through separate short-lived sockets remains wire-compatible.
+    // Capability-aware clients keep a connection-scoped capture owner. Legacy
+    // one-shot calls share a bounded compatibility owner so down/move/up calls
+    // issued through separate short-lived sockets remain wire-compatible.
     let input_owner =
         if mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY) {
-            client
+            BrowserPointerOwner::Client(client)
         } else {
-            0
+            BrowserPointerOwner::Legacy
         };
     surface.browser_mouse_event_for_frame_from(BrowserMouseDispatch {
         input_owner,

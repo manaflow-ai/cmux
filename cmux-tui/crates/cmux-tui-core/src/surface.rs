@@ -27,7 +27,8 @@ use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
-    BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
+    BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserFrameUpdate, BrowserSource,
+    BrowserStatus,
 };
 use crate::browser::{
     BrowserMouseDispatch, BrowserResizeWaiter, BrowserSurface, PendingBrowserResize,
@@ -2348,7 +2349,11 @@ impl Surface {
         self.as_browser().and_then(BrowserSurface::latest_frame)
     }
 
-    /// Return the newest usable browser frame sequence for guarded input.
+    pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
+        self.as_browser().and_then(BrowserSurface::latest_frame_update)
+    }
+
+    /// Return the opaque browser pointer-authority token for guarded input.
     pub fn browser_frame_seq(&self) -> Option<u64> {
         self.as_browser().and_then(BrowserSurface::latest_frame_seq)
     }
