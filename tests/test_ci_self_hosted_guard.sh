@@ -840,7 +840,7 @@ check_web_db_behavior_tests() {
 }
 
 check_web_test_runner_behavior() {
-  local fixture_dir fixture_runner args_log expected_args
+  local fixture_dir fixture_runner args_log expected_args live_mode
   fixture_dir="$(mktemp -d)"
   fixture_runner="$fixture_dir/web/scripts/run-tests.sh"
   args_log="$fixture_dir/bun-args.log"
@@ -884,12 +884,13 @@ EOF
 
   if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
     CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
-    /bin/bash "$fixture_runner" --coverage -t "fixture runs"; then
+    /bin/bash "$fixture_runner" \
+    --coverage -t "fixture runs" --bail=2 --changed=main --parallel=2; then
     rm -rf "$fixture_dir"
     echo "FAIL: shared web test runner option-only discovery should execute"
     exit 1
   fi
-  expected_args+=$'\n--coverage\n-t\nfixture runs'
+  expected_args+=$'\n--coverage\n-t\nfixture runs\n--bail=2\n--changed=main\n--parallel=2'
   if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
     echo "FAIL: option-only runs must retain sorted discovery before forwarding options"
     cat "$args_log"
@@ -911,6 +912,38 @@ EOF
     rm -rf "$fixture_dir"
     exit 1
   fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --bail tests/beta; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner optional flag plus filter should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--bail\ntests/beta'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: optional-valued flags must not consume a following test filter"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  for live_mode in --watch --hot; do
+    if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+      CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+      /bin/bash "$fixture_runner" "$live_mode"; then
+      rm -rf "$fixture_dir"
+      echo "FAIL: shared web test runner $live_mode mode should execute"
+      exit 1
+    fi
+    expected_args=$'test\n--isolate\n'"$live_mode"
+    if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+      echo "FAIL: $live_mode mode must delegate live test discovery to Bun"
+      cat "$args_log"
+      rm -rf "$fixture_dir"
+      exit 1
+    fi
+  done
 
   mkdir -p "$fixture_dir/empty/scripts"
   cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"

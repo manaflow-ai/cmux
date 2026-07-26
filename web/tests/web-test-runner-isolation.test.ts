@@ -113,6 +113,20 @@ test("shared web test runner preserves sorted recursive discovery", () => {
     }
     expectHeadingsInOrder(optionedResult.output, expectedHeadings);
     expect(optionedResult.output).not.toContain("ignored.test.ts:");
+
+    const scopedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "--bail", "tests/beta.test.ts"],
+      fixtureRoot,
+    );
+    if (scopedResult.status !== 0) {
+      throw new Error(
+        `optional Bun flag consumed a test filter:\n${scopedResult.output}`,
+      );
+    }
+    expect(scopedResult.output).toContain("tests/beta.test.ts:");
+    expect(scopedResult.output).not.toContain("scripts/alpha_spec.mts:");
+    expect(scopedResult.output).not.toContain("tests/nested/");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

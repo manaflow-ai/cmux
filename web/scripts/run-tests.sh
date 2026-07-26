@@ -4,7 +4,7 @@ set -euo pipefail
 WEB_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$WEB_ROOT"
 
-arguments_include_test_filter() {
+arguments_require_bun_discovery() {
   local expects_value=0
   local positional_only=0
   local argument
@@ -18,19 +18,23 @@ arguments_include_test_filter() {
       continue
     fi
 
-    # Unknown options with separate values fall through as explicit filters,
-    # which delegates discovery to Bun instead of accidentally widening a run.
+    # Optional-valued and unknown flags consume a value only in --flag=value
+    # form. A following token is treated as a filter and delegated to Bun,
+    # which avoids accidentally widening a scoped run.
     case "$argument" in
       --)
         positional_only=1
         ;;
+      --watch|--hot)
+        return 0
+        ;;
       -t|--test-name-pattern|--timeout|--rerun-each|--retry|--seed)
         expects_value=1
         ;;
-      --coverage-reporter|--coverage-dir|--bail|--reporter|--reporter-outfile)
+      --coverage-reporter|--coverage-dir|--reporter|--reporter-outfile)
         expects_value=1
         ;;
-      --max-concurrency|--path-ignore-patterns|--changed|--parallel|--parallel-delay|--shard)
+      --max-concurrency|--path-ignore-patterns|--parallel-delay|--shard)
         expects_value=1
         ;;
       -*)
@@ -44,7 +48,7 @@ arguments_include_test_filter() {
   return 1
 }
 
-if arguments_include_test_filter "$@"; then
+if arguments_require_bun_discovery "$@"; then
   exec bun test --isolate "$@"
 fi
 
