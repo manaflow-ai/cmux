@@ -3596,8 +3596,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
 
         webView.needsDisplay = false
-        webView.scrollView.needsDisplay = false
-        webView.scrollView.contentView.needsDisplay = false
         anchor.frame = NSRect(x: 32, y: 20, width: 400, height: 240)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
