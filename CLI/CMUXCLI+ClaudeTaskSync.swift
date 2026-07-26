@@ -69,7 +69,7 @@ extension CMUXCLI {
                 homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
             )
             let loader = ClaudeTaskSnapshotLoader(tasksRootURL: tasksRootURL)
-            try withClaudeTaskSnapshotLock(loader: loader, sessionID: sessionID) {
+            try withClaudeTaskSnapshotLock(loader: loader) {
                 let todos = try loader.load(sessionID: sessionID)
                 let feedSnapshot: [String: Any] = [
                     "todos": todos.map(claudeTaskFeedDictionary),
@@ -86,14 +86,15 @@ extension CMUXCLI {
                     toolInputOverride: feedSnapshot
                 )
 
-                let checklistItems = todos.prefix(50).map {
+                let checklistItems = todos.map {
                     claudeTaskChecklistDictionary($0, sessionID: sessionID)
                 }
                 do {
                     _ = try client.sendV2(
-                        method: "workspace.todo.set",
+                        method: "workspace.todo.reconcile",
                         params: [
                             "workspace_id": resolvedTarget.workspaceId,
+                            "owner_id": claudeTaskChecklistOwnerID(sessionID: sessionID),
                             "items": checklistItems,
                         ]
                     )
@@ -115,16 +116,13 @@ extension CMUXCLI {
 
     private func withClaudeTaskSnapshotLock(
         loader: ClaudeTaskSnapshotLoader,
-        sessionID: String,
         body: () throws -> Void
     ) throws {
         try FileManager.default.createDirectory(
             at: loader.tasksRootURL,
             withIntermediateDirectories: true
         )
-        let lockID = claudeTaskChecklistID(sessionID: sessionID, taskID: "lock")
-        let lockURL = loader.tasksRootURL
-            .appendingPathComponent(".cmux-task-sync-\(lockID.uuidString).lock")
+        let lockURL = loader.tasksRootURL.appendingPathComponent(".cmux-task-sync.lock")
         let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else { throw POSIXError(.EIO) }
         defer { close(descriptor) }
@@ -155,6 +153,10 @@ extension CMUXCLI {
             "state": claudeTaskState(todo.state, workspaceWireFormat: true),
             "origin": "agent",
         ]
+    }
+
+    private func claudeTaskChecklistOwnerID(sessionID: String) -> String {
+        "claude:\(sessionID)"
     }
 
     private func claudeTaskState(

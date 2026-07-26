@@ -62,13 +62,27 @@ struct ClaudeTaskSnapshotLoaderTests {
         let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
 
         #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
-            environment: [:],
+            environment: ["HOME": "/tmp/hook-home"],
             homeDirectoryURL: home
-        ).path == "/Users/example/.claude/tasks")
+        ).path == "/tmp/hook-home/.claude/tasks")
         #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
-            environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude-profile"],
+            environment: [
+                "HOME": "/tmp/hook-home",
+                "CLAUDE_CONFIG_DIR": "/tmp/claude-profile",
+            ],
             homeDirectoryURL: home
         ).path == "/tmp/claude-profile/tasks")
+        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+            environment: [
+                "HOME": "/tmp/hook-home",
+                "CLAUDE_CONFIG_DIR": "~/claude-profile",
+            ],
+            homeDirectoryURL: home
+        ).path == "/tmp/hook-home/claude-profile/tasks")
+        #expect(ClaudeTaskSnapshotLoader.tasksRootURL(
+            environment: ["HOME": "  "],
+            homeDirectoryURL: home
+        ).path == "/Users/example/.claude/tasks")
     }
 
     private func writeTask(_ json: String, named name: String, in directory: URL) throws {

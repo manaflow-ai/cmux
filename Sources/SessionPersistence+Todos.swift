@@ -23,11 +23,13 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
 /// One persisted checklist item. Raw `state` / `origin` strings (not the
 /// package enums) so a manifest written by a future build with new cases
 /// still decodes here; unknown values degrade to pending/user on restore.
+/// The optional owner key scopes authoritative agent reconciliation.
 struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
     var id: UUID
     var text: String
     var state: String
     var origin: String
+    var ownerID: String?
     var attachments: [WorkspaceChecklistAttachment] = []
 
     private enum CodingKeys: String, CodingKey {
@@ -35,6 +37,7 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         case text
         case state
         case origin
+        case ownerID = "owner_id"
         case attachments
     }
 
@@ -43,12 +46,14 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         text: String,
         state: String,
         origin: String,
+        ownerID: String? = nil,
         attachments: [WorkspaceChecklistAttachment] = []
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
+        self.ownerID = ownerID
         self.attachments = attachments
     }
 
@@ -58,6 +63,7 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         self.text = try container.decode(String.self, forKey: .text)
         self.state = try container.decode(String.self, forKey: .state)
         self.origin = try container.decode(String.self, forKey: .origin)
+        self.ownerID = try container.decodeIfPresent(String.self, forKey: .ownerID)
         self.attachments = (try? container.decode(LossySessionChecklistAttachments.self, forKey: .attachments))?.attachments ?? []
     }
 
@@ -67,6 +73,7 @@ struct SessionChecklistItemSnapshot: Codable, Equatable, Sendable {
         try container.encode(text, forKey: .text)
         try container.encode(state, forKey: .state)
         try container.encode(origin, forKey: .origin)
+        try container.encodeIfPresent(ownerID, forKey: .ownerID)
         if !attachments.isEmpty {
             try container.encode(attachments, forKey: .attachments)
         }
@@ -81,6 +88,7 @@ extension SessionChecklistItemSnapshot {
             text: item.text,
             state: item.state.rawValue,
             origin: item.origin.rawValue,
+            ownerID: item.ownerID,
             attachments: item.attachments
         )
     }
@@ -95,6 +103,7 @@ extension SessionChecklistItemSnapshot {
             text: normalizedText,
             state: WorkspaceChecklistItem.State(rawValue: state) ?? .pending,
             origin: WorkspaceChecklistItem.Origin(rawValue: origin) ?? .user,
+            ownerID: ownerID,
             attachments: attachments
         )
     }

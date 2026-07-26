@@ -24,11 +24,12 @@ public struct ClaudeTaskSnapshotLoader {
     /// Resolves Claude's task root from its process environment.
     ///
     /// `CLAUDE_CONFIG_DIR` wins when configured; otherwise tasks are read from
-    /// `~/.claude/tasks`.
+    /// `$HOME/.claude/tasks`. An absent or empty hook `HOME` falls back to the
+    /// supplied home directory.
     ///
     /// - Parameters:
     ///   - environment: The Claude hook process environment.
-    ///   - homeDirectoryURL: The hook user's home directory.
+    ///   - homeDirectoryURL: The fallback hook-user home directory.
     /// - Returns: The configured Claude tasks directory.
     public static func tasksRootURL(
         environment: [String: String],
@@ -36,12 +37,24 @@ public struct ClaudeTaskSnapshotLoader {
     ) -> URL {
         let configuredDirectory = environment["CLAUDE_CONFIG_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let environmentHome = Self.nonEmpty(environment["HOME"]).map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
+        let hookHomeURL = environmentHome ?? homeDirectoryURL
         let configURL: URL
         if let configuredDirectory, !configuredDirectory.isEmpty {
-            let expanded = NSString(string: configuredDirectory).expandingTildeInPath
-            configURL = URL(fileURLWithPath: expanded, isDirectory: true)
+            if configuredDirectory == "~" {
+                configURL = hookHomeURL
+            } else if configuredDirectory.hasPrefix("~/") {
+                configURL = hookHomeURL.appendingPathComponent(
+                    String(configuredDirectory.dropFirst(2)),
+                    isDirectory: true
+                )
+            } else {
+                configURL = URL(fileURLWithPath: configuredDirectory, isDirectory: true)
+            }
         } else {
-            configURL = homeDirectoryURL.appendingPathComponent(".claude", isDirectory: true)
+            configURL = hookHomeURL.appendingPathComponent(".claude", isDirectory: true)
         }
         return configURL.appendingPathComponent("tasks", isDirectory: true)
     }

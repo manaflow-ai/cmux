@@ -41,8 +41,9 @@ public enum WorkspaceChecklistReplaceError: Error, Equatable, Sendable {
 }
 
 extension Array where Element == WorkspaceChecklistItem {
-    /// Atomically replaces the checklist with `items`, preserving identity
-    /// and origin/attachments for incoming items whose `id` matches an existing item.
+    /// Atomically replaces the checklist with `items`, preserving identity,
+    /// origin, owner, and attachments for incoming items whose `id` matches
+    /// an existing item.
     ///
     /// Rules:
     /// - Rejects the whole replace (no mutation) when any item's text is
@@ -51,8 +52,8 @@ extension Array where Element == WorkspaceChecklistItem {
     /// - Text is normalized exactly like `addChecklistItem` (trimmed, capped
     ///   at ``WorkspaceChecklistItem/maxTextLength``).
     /// - An item whose `id` matches an existing item keeps that identity,
-    ///   the existing origin, and existing attachment references; its state
-    ///   comes from the incoming item when given, else stays the existing state.
+    ///   the existing origin, owner, and attachment references; its state comes
+    ///   from the incoming item when given, else stays the existing state.
     /// - Any other item is created: identity from the incoming `id` (or a
     ///   fresh UUID), origin from the incoming `origin` (or `.user`), state
     ///   from the incoming `state` (or `.pending`).
@@ -85,6 +86,7 @@ extension Array where Element == WorkspaceChecklistItem {
                     text: normalized,
                     state: item.state ?? existing.state,
                     origin: existing.origin,
+                    ownerID: existing.ownerID,
                     attachments: existing.attachments
                 ))
             } else {

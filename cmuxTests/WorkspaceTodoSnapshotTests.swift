@@ -47,6 +47,7 @@ struct WorkspaceTodoSnapshotTests {
                 text: "ship it",
                 state: "in-progress",
                 origin: "agent",
+                ownerID: "claude:session-a",
                 attachments: [attachment]
             ),
         ]
@@ -60,6 +61,7 @@ struct WorkspaceTodoSnapshotTests {
                 text: "ship it",
                 state: "in-progress",
                 origin: "agent",
+                ownerID: "claude:session-a",
                 attachments: [attachment]
             ),
         ])
@@ -72,6 +74,7 @@ struct WorkspaceTodoSnapshotTests {
                 text: "ship it",
                 state: .inProgress,
                 origin: .agent,
+                ownerID: "claude:session-a",
                 attachments: [attachment]
             ),
         ])

@@ -623,6 +623,7 @@ jobs:
             -only-testing:cmuxTests/ClaudeTaskSyncHookTests \
             -only-testing:cmuxTests/HostSettingsShortcutNotificationTests \
             -only-testing:cmuxTests/PhonePushPresenceGateTests \
+            -only-testing:cmuxTests/WorkspaceTodoSnapshotTests \
             test
 
       - name: Run remote tmux mirror detach and placement regressions
@@ -1195,6 +1196,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWorkspaces
             CMUXAgentLaunch
           )
           # SwiftPM emits an error-severity diagnostic while planning the

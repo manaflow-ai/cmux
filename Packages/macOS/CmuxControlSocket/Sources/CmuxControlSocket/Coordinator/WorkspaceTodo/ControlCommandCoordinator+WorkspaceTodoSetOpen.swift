@@ -1,10 +1,10 @@
 internal import Foundation
 
-/// Workspace-todo set/open verbs extracted from the primary workspace-todo coordinator file, which sits at its file-length budget.
+/// Workspace-todo batch/open verbs extracted from the primary workspace-todo coordinator file, which sits at its file-length budget.
 extension ControlCommandCoordinator {
-    /// The up-front parse of `workspace.todo.set`'s `items` array: either
-    /// every element parsed, or the error to reply with (atomicity: nothing
-    /// crosses the seam on a malformed request).
+    /// The up-front parse of a batch mutation's `items` array: either every
+    /// element parsed, or the error to reply with (atomicity: nothing crosses
+    /// the seam on a malformed request).
     private enum WorkspaceTodoSetItemsParse {
         case items([ControlWorkspaceTodoSetItemParam])
         case invalid(ControlCallResult)
@@ -55,21 +55,9 @@ extension ControlCommandCoordinator {
         return .items(items)
     }
 
-    /// `workspace.todo.set` — atomic identity-preserving replace; replies
-    /// with the resulting list payload.
-    func workspaceTodoSet(_ params: [String: JSONValue]) -> ControlCallResult {
-        let items: [ControlWorkspaceTodoSetItemParam]
-        switch workspaceTodoSetItems(params) {
-        case .invalid(let error):
-            return error
-        case .items(let parsed):
-            items = parsed
-        }
-        let resolution = context?.controlWorkspaceTodoSet(
-            routing: routingSelectors(params),
-            workspaceID: uuid(params, "workspace_id"),
-            items: items
-        ) ?? .tabManagerUnavailable
+    private func workspaceTodoSetResult(
+        _ resolution: ControlWorkspaceTodoSetResolution
+    ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -108,6 +96,48 @@ extension ControlCommandCoordinator {
         case .resolved(let windowID, let checklist):
             return .ok(workspaceTodoListPayload(windowID: windowID, checklist: checklist))
         }
+    }
+
+    /// `workspace.todo.set` — atomic identity-preserving replace; replies
+    /// with the resulting list payload.
+    func workspaceTodoSet(_ params: [String: JSONValue]) -> ControlCallResult {
+        let items: [ControlWorkspaceTodoSetItemParam]
+        switch workspaceTodoSetItems(params) {
+        case .invalid(let error):
+            return error
+        case .items(let parsed):
+            items = parsed
+        }
+        return workspaceTodoSetResult(context?.controlWorkspaceTodoSet(
+            routing: routingSelectors(params),
+            workspaceID: uuid(params, "workspace_id"),
+            items: items
+        ) ?? .tabManagerUnavailable)
+    }
+
+    /// `workspace.todo.reconcile` — atomically replaces one owner's items
+    /// while preserving user entries and other owners' entries.
+    func workspaceTodoReconcile(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let rawOwnerID = string(params, "owner_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid owner_id", data: nil)
+        }
+        let ownerID = rawOwnerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ownerID.isEmpty, ownerID.count <= 500 else {
+            return .err(code: "invalid_params", message: "owner_id must be 1...500 characters", data: nil)
+        }
+        let items: [ControlWorkspaceTodoSetItemParam]
+        switch workspaceTodoSetItems(params) {
+        case .invalid(let error):
+            return error
+        case .items(let parsed):
+            items = parsed
+        }
+        return workspaceTodoSetResult(context?.controlWorkspaceTodoReconcile(
+            routing: routingSelectors(params),
+            workspaceID: uuid(params, "workspace_id"),
+            ownerID: ownerID,
+            items: items
+        ) ?? .tabManagerUnavailable)
     }
 
     /// `workspace.todo.open` — open (or focus) the workspace's todo pane.

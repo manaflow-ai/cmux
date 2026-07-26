@@ -172,8 +172,17 @@ enum ClaudeHookLiveDeliveryHarness {
                 return v2Response(id: id, ok: true, result: [
                     "surfaces": [["id": surfaceId, "ref": "surface:1", "focused": true]],
                 ])
-            case "workspace.todo.set":
+            case "workspace.todo.reconcile":
                 mutationSeen.signal()
+                let params = payload["params"] as? [String: Any]
+                let items = params?["items"] as? [[String: Any]] ?? []
+                if items.count > 50 {
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "invalid_params", "message": "checklist cap exceeded"]
+                    )
+                }
                 return v2Response(id: id, ok: true, result: [:])
             default:
                 return v2Response(

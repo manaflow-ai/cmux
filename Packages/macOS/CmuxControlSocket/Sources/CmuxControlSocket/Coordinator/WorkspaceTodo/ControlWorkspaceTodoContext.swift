@@ -183,6 +183,23 @@ public protocol ControlWorkspaceTodoContext: AnyObject {
         items: [ControlWorkspaceTodoSetItemParam]
     ) -> ControlWorkspaceTodoSetResolution
 
+    /// Atomically replaces only the checklist items owned by one external
+    /// source, preserving all unrelated checklist entries.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The explicit target workspace, or `nil` for the
+    ///     resolved window's selected workspace.
+    ///   - ownerID: The stable source-scoped ownership key.
+    ///   - items: The complete desired checklist for that owner, in order.
+    /// - Returns: The reconcile resolution.
+    func controlWorkspaceTodoReconcile(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution
+
     /// Opens (or focuses) the workspace's todo pane for
     /// `workspace.todo.open`.
     ///

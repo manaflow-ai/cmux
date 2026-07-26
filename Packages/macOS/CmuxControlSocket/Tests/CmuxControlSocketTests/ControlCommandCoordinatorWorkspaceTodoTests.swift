@@ -17,6 +17,7 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var lastSetState: (itemID: UUID?, itemIndex: Int?, stateRaw: String)?
     var lastRemove: (itemID: UUID?, itemIndex: Int?)?
     var lastSetItems: [ControlWorkspaceTodoSetItemParam]?
+    var lastReconcile: (ownerID: String, items: [ControlWorkspaceTodoSetItemParam])?
     var lastOpenRequestedFocus: Bool?
     var lastWorkspaceID: UUID??
 
@@ -93,6 +94,17 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     ) -> ControlWorkspaceTodoSetResolution {
         lastWorkspaceID = workspaceID
         lastSetItems = items
+        return setResolution
+    }
+
+    func controlWorkspaceTodoReconcile(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution {
+        lastWorkspaceID = workspaceID
+        lastReconcile = (ownerID, items)
         return setResolution
     }
 

@@ -35,6 +35,8 @@ extension ControlCommandCoordinator {
             return workspaceTodoClear(request.params)
         case "workspace.todo.set":
             return workspaceTodoSet(request.params)
+        case "workspace.todo.reconcile":
+            return workspaceTodoReconcile(request.params)
         case "workspace.todo.open":
             return workspaceTodoOpen(request.params)
         default:
