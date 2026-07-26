@@ -1818,6 +1818,14 @@ impl Surface {
         });
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_server_shutdown_delay_for_test(&self, delay: Duration) {
+        let Self::Pty(pty) = self else { return };
+        let Some(process) = &pty.local_process else { return };
+        *process.lock().unwrap() =
+            LocalProcess::Untracked(Box::new(TestSlowFailingChildKiller(delay)));
+    }
+
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -2634,6 +2642,22 @@ impl ChildKiller for TestFailingChildKiller {
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
         Box::new(TestFailingChildKiller)
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct TestSlowFailingChildKiller(Duration);
+
+#[cfg(test)]
+impl ChildKiller for TestSlowFailingChildKiller {
+    fn kill(&mut self) -> std::io::Result<()> {
+        std::thread::sleep(self.0);
+        Err(std::io::Error::other("forced delayed shutdown failure"))
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(Self(self.0))
     }
 }
 

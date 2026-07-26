@@ -10107,6 +10107,51 @@ mod tests {
         assert!(mux.shutdown_surfaces.lock().unwrap().is_empty());
     }
 
+    #[test]
+    fn ordinary_surface_close_does_not_retain_terminal_render_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let owned = mux.surface(surface.id).unwrap();
+        owned.set_server_shutdown_failure_for_test(true);
+        let before_close = Arc::strong_count(&owned);
+
+        assert!(mux.close_surface(surface.id).unwrap());
+
+        assert!(
+            Arc::strong_count(&owned) < before_close,
+            "shutdown escrow retained the heavyweight Surface"
+        );
+    }
+
+    #[test]
+    fn bulk_surface_close_uses_one_shared_termination_deadline() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        for _ in 1..64 {
+            mux.new_tab(Some(pane), None, None).unwrap();
+        }
+        let surfaces = mux.with_state(|state| {
+            state.panes[&pane]
+                .tabs
+                .iter()
+                .map(|surface| state.surfaces[surface].clone())
+                .collect::<Vec<_>>()
+        });
+        for surface in &surfaces {
+            surface.set_server_shutdown_delay_for_test(Duration::from_millis(50));
+        }
+
+        let started = Instant::now();
+        assert!(mux.close_pane(pane).unwrap());
+
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "bulk close multiplied the per-surface shutdown timeout: {:?}",
+            started.elapsed()
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn server_shutdown_rejects_malformed_host_records_before_removing_topology() {
@@ -10226,18 +10271,13 @@ mod tests {
         let worker = std::thread::spawn({
             let gate = gate.clone();
             move || {
-                bounded_shutdown_fanout(
-                    &[(); SHUTDOWN_FANOUT_WORKERS + 1],
-                    deadline,
-                    |_, _| {
-                        started_tx.send(()).unwrap();
-                        let (released, wake) = &*gate;
-                        let released = wake
-                            .wait_while(released.lock().unwrap(), |released| !*released)
-                            .unwrap();
-                        drop(released);
-                    },
-                );
+                bounded_shutdown_fanout(&[(); SHUTDOWN_FANOUT_WORKERS + 1], deadline, |_, _| {
+                    started_tx.send(()).unwrap();
+                    let (released, wake) = &*gate;
+                    let released =
+                        wake.wait_while(released.lock().unwrap(), |released| !*released).unwrap();
+                    drop(released);
+                });
             }
         });
 
