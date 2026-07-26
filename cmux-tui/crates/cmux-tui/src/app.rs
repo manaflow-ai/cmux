@@ -11352,6 +11352,22 @@ mod tests {
     }
 
     #[test]
+    fn empty_option_dead_key_does_not_match_alt_modeless_bindings() {
+        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT),
+            shifted_key: Some('N'),
+            base_layout_key: Some('n'),
+            text: String::new(),
+        });
+        let (key, fallback) = input.shortcut_keys();
+
+        assert_eq!(
+            super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
+            None
+        );
+    }
+
+    #[test]
     fn alt_binding_with_matching_associated_text_remains_active() {
         let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
