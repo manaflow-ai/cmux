@@ -43,10 +43,11 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.
 - Wrappers are pure forced proxies. They never copy or launch the helper and
-  never fall back to in-process computer use. cmux owns the onboarding window,
-  while the helper raises its own native permission requests and the proxy
-  keeps its external-flow flag off so the first driving call waits for both
-  helper grants before it is forwarded.
+  never fall back to in-process computer use. cmux owns the onboarding window
+  and opens the permanent macOS permission panes directly; it does not ask the
+  helper to raise an intermediate native prompt. The proxy keeps its
+  external-flow flag off so the first driving call waits for both helper grants
+  before it is forwarded.
 - Kill switch: set `CMUX_COMPUTER_USE_MCP_DISABLED=1`, or toggle it off in
   Settings → Computer Use (persists to `~/.config/cmux/cmux.json` and is
   exported to spawned terminals).
@@ -64,11 +65,16 @@ the main cmux app:
 Onboarding appears on the first real Computer Use tool invocation, not on cmux
 or agent startup. Settings → Computer Use always shows the two authoritative
 permission states; choosing **Grant…** for an ungranted permission opens that
-same permission step and its draggable helper-app recovery path. Its two-card
-overview mirrors the native Codex Computer Use flow: each **Allow** action asks
-the standalone helper to raise the matching macOS prompt, then reads status
-from that helper over its Unix socket. The main cmux process never calls a TCC
-API or executes the driver binary.
+same permission step and its draggable helper-app recovery path. Each first-run
+**Allow** action opens the matching permanent System Settings pane in one step;
+a repeat visit is labeled **Open System Settings**. If macOS has not listed the
+helper yet, drag or add the **cmux Computer Use** app tile to the list, then turn
+it on. cmux reads status from the helper over its Unix socket, advances to the
+next missing permission, and shows a completion screen once both are granted.
+Do not invoke `check_permissions {prompt:true}` or any standalone driver while
+this flow is active: that creates the stray native permission dialogs this
+onboarding deliberately avoids. The main cmux process never calls a TCC API or
+executes the driver binary.
 
 If actions fail with a permission error, grant Accessibility to cmux Computer
 Use. If screenshots come back blank, grant Screen Recording to cmux Computer
@@ -145,8 +151,11 @@ The agent's pointer shows as the cmux logo gradient (`#12c7f5 → #2d8cff →
 #6c5cff`) with a `cmux` label, so it is visually distinct from the user's
 cursor. It is configured by env the wrapper injects
 (`CUA_DRIVER_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
-the helper daemon is driving. If no cursor appears, confirm the MCP config uses
-the helper socket, has a stable `CUA_DRIVER_DEFAULT_SESSION`, and uses the pinned
+the helper daemon is driving. cmux disables the upstream 20-second idle hide
+and the helper periodically reasserts the static panel directly above the
+driven target, so the cursor remains visible while a session is active even
+between tool calls. If no cursor appears, confirm the MCP config uses the
+helper socket, has a stable `CUA_DRIVER_DEFAULT_SESSION`, and uses the pinned
 driver build.
 
 ## Finding and focusing the driving session

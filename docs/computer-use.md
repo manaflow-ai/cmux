@@ -1,4 +1,4 @@
-# cmux cua computer use
+# cmux Computer Use
 
 cmux bundles `cua-driver` from the `manaflow-ai/cmux-cua` fork of trycua/cua
 and exposes it as an MCP server named `cmux-computer-use` for compatibility
@@ -37,6 +37,15 @@ diagnostic tools.
 cmux's injection disables the upstream driver's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 
+The first real tool invocation opens cmux's onboarding. Its first **Allow**
+action goes directly to the matching permanent System Settings pane instead of
+raising a second native TCC prompt first. If the helper is absent from the
+permission list, the compact companion supplies a draggable **cmux Computer
+Use** app tile; add it, turn it on, and let onboarding advance after the helper
+reports the grant. Agents must not call a standalone driver's permission
+prompt while onboarding is active, because that creates unrelated permission
+dialogs under the wrong process identity.
+
 Risk gating is handled by the MCP client harness. Claude Code and Codex show
 their normal tool approval UI for actions, and `cua-driver` advertises the
 profile-specific annotations. Codex app approval is brokered through its
@@ -64,6 +73,10 @@ pid/window addressing, `get_window_state`, stable snapshot tokens, explicit
 cursor and diagnostic controls, and proxy-only `perform_actions`. Keeping the
 profiles separate prevents a cmux extension from silently changing Codex's
 built-in Computer Use schema.
+
+`cmux-computer-use-client` is the bundled command-line executable the wrappers
+launch directly. MCP is its machine-readable stdio protocol—not a separate
+user-installed service—and no Node or Sky bridge is involved.
 
 Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
 automatic computer-use MCP injection. Native-profile development builds may

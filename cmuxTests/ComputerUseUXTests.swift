@@ -654,22 +654,22 @@ struct ComputerUseUXTests {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
             statusIsKnown: true,
-            nativeRequestAttempted: false
+            systemSettingsOpened: false
         ) == .allow)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
             statusIsKnown: true,
-            nativeRequestAttempted: true
+            systemSettingsOpened: true
         ) == .openSystemSettings)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: true,
             statusIsKnown: true,
-            nativeRequestAttempted: true
+            systemSettingsOpened: true
         ) == .done)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: true,
             statusIsKnown: false,
-            nativeRequestAttempted: true
+            systemSettingsOpened: true
         ) == .openSystemSettings)
 
         #expect(ComputerUsePermissionRowAction.allow.destination == .systemSettings)

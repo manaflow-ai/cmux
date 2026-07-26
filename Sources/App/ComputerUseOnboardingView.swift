@@ -3,10 +3,9 @@ import SwiftUI
 
 /// Two-card onboarding for the standalone local computer-use helper.
 ///
-/// Permissions belong to `cmux Computer Use`. Each initial Allow action asks
-/// that helper to raise the native macOS prompt. A repeat action opens the
-/// matching System Settings pane and presents the helper as a Finder-compatible
-/// drag source.
+/// Permissions belong to `cmux Computer Use`. Each initial Allow action opens
+/// the matching permanent System Settings pane directly and presents the helper
+/// as a Finder-compatible drag source when macOS has not listed it yet.
 @MainActor
 struct ComputerUseOnboardingView: View {
     static let initialStep = ComputerUseOnboardingStep.overview
@@ -15,7 +14,9 @@ struct ComputerUseOnboardingView: View {
     @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
     let initialStep: ComputerUseOnboardingStep
     let onPermissionSetupStarted: @MainActor () -> Void
+    let onPermissionCompanionLayoutReady: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
+    let onOnboardingCompleted: @MainActor () -> Void
 
     @State private var step: ComputerUseOnboardingStep
     @State private var accessibilityGranted = false
@@ -27,20 +28,24 @@ struct ComputerUseOnboardingView: View {
     @State private var helperIcon: NSImage?
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
-    @State private var nativeRequestAttempted: Set<ComputerUseSystemPermission> = []
+    @State private var settingsOpened: Set<ComputerUseSystemPermission> = []
 
     init(
         runtimeService: ComputerUseRuntimeService,
         presentationState: ComputerUseOnboardingPresentationState,
         initialStep: ComputerUseOnboardingStep = .overview,
         onPermissionSetupStarted: @escaping @MainActor () -> Void = {},
-        onExpandedRequested: @escaping @MainActor () -> Void = {}
+        onPermissionCompanionLayoutReady: @escaping @MainActor () -> Void = {},
+        onExpandedRequested: @escaping @MainActor () -> Void = {},
+        onOnboardingCompleted: @escaping @MainActor () -> Void = {}
     ) {
         self.runtimeService = runtimeService
         self.presentationState = presentationState
         self.initialStep = initialStep
         self.onPermissionSetupStarted = onPermissionSetupStarted
+        self.onPermissionCompanionLayoutReady = onPermissionCompanionLayoutReady
         self.onExpandedRequested = onExpandedRequested
+        self.onOnboardingCompleted = onOnboardingCompleted
         _step = State(initialValue: initialStep)
         _helperIcon = State(initialValue: runtimeService.presentationIcon)
     }
@@ -127,10 +132,21 @@ struct ComputerUseOnboardingView: View {
 
     /// The reference-style overview shown before entering a macOS permission pane.
     private var expandedOnboarding: some View {
+        Group {
+            if step == .complete {
+                completedOnboarding
+            } else {
+                permissionOnboarding
+            }
+        }
+        .frame(width: 600, height: 440)
+    }
+
+    private var permissionOnboarding: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 helperHeroIcon
-                    .padding(.top, 44)
+                    .padding(.top, 52)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.title",
@@ -141,9 +157,9 @@ struct ComputerUseOnboardingView: View {
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.detail",
-                    defaultValue: "macOS may say “cmux Computer Use is asking for permission.” That is expected—the helper owns access.\nChoose the button shown: Allow, Open System Settings, or Allow for One Month.\n“Screen & System Audio Recording” and “Screen and Audio” are Apple’s labels; cmux only uses screenshots.\nIf no alert appears, you deny it, or see Quit & Reopen, click Open System Settings on that row; cmux stays open."
+                    defaultValue: "cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."
                 ))
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(overviewSecondaryText)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
@@ -162,7 +178,46 @@ struct ComputerUseOnboardingView: View {
                 .frame(height: 46)
                 .accessibilityHidden(true)
         }
-        .frame(width: 600, height: 440)
+    }
+
+    private var completedOnboarding: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.gradient)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 31, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 64, height: 64)
+            .shadow(color: .black.opacity(0.24), radius: 10, y: 5)
+            .padding(.top, 105)
+            .accessibilityHidden(true)
+
+            Text(String(
+                localized: "computerUse.onboarding.done.title",
+                defaultValue: "cmux Computer Use Is Ready"
+            ))
+            .font(.system(size: 26, weight: .bold))
+            .padding(.top, 22)
+
+            Text(String(
+                localized: "computerUse.onboarding.done.detailReady",
+                defaultValue: "Setup is complete. You can now ask cmux to use apps on your Mac."
+            ))
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(overviewSecondaryText)
+            .multilineTextAlignment(.center)
+            .padding(.top, 10)
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white.opacity(0.7))
+                .padding(.top, 30)
+
+            Spacer()
+        }
+        .padding(.horizontal, 48)
     }
 
     private var helperHeroIcon: some View {
@@ -303,8 +358,8 @@ struct ComputerUseOnboardingView: View {
         let action = ComputerUsePermissionRowAction.resolve(
             granted: granted,
             statusIsKnown: permissionStatusIsKnown,
-            nativeRequestAttempted: systemPermission.map {
-                nativeRequestAttempted.contains($0)
+            systemSettingsOpened: systemPermission.map {
+                settingsOpened.contains($0)
             } ?? false
         )
         if action == .done {
@@ -355,15 +410,10 @@ struct ComputerUseOnboardingView: View {
             .buttonStyle(.plain)
             .disabled(!isButtonEnabled)
             .accessibilityHint(
-                action == .allow
-                    ? String(
-                        localized: "computerUse.onboarding.requestNativePermission",
-                        defaultValue: "Ask cmux Computer Use to show the macOS permission alert"
-                    )
-                    : String(
-                        localized: "computerUse.onboarding.openSystemSettings",
-                        defaultValue: "Open System Settings"
-                    )
+                String(
+                    localized: "computerUse.onboarding.openSystemSettings",
+                    defaultValue: "Open System Settings"
+                )
             )
         }
     }
@@ -428,6 +478,11 @@ struct ComputerUseOnboardingView: View {
                     lineWidth: 0.5
                 )
         }
+        .onAppear {
+            if presentationState.markPermissionCompanionLayoutReady() {
+                onPermissionCompanionLayoutReady()
+            }
+        }
     }
 
     /// A file-URL drag source accepted by the macOS permission lists.
@@ -488,12 +543,12 @@ struct ComputerUseOnboardingView: View {
         if step == .accessibility {
             return String(
                 localized: "computerUse.onboarding.companion.accessibility",
-                defaultValue: "Drag \(runtimeService.applicationName) to the list above to allow Accessibility"
+                defaultValue: "Add \(runtimeService.applicationName) if needed, then turn it on for Accessibility"
             )
         }
         return String(
             localized: "computerUse.onboarding.companion.screenRecording",
-            defaultValue: "Drag \(runtimeService.applicationName) to the list above to allow Screenshots"
+            defaultValue: "Add \(runtimeService.applicationName) if needed, then turn it on for Screenshots"
         )
     }
 
@@ -578,10 +633,9 @@ struct ComputerUseOnboardingView: View {
                 return
             }
 
-            // Helper installation and the native request both suspend. Re-read
-            // the permission after that boundary instead of using the button's
-            // captured value, because a grant can arrive while setup is in
-            // flight (for example after Quit & Reopen).
+            // Helper installation and status refresh both suspend. Re-read the
+            // permission after that boundary because a grant can arrive while
+            // setup is in flight (for example after Quit & Reopen).
             let currentlyGranted = permissionStep == .accessibility
                 ? accessibilityGranted
                 : screenRecordingGranted
@@ -589,20 +643,12 @@ struct ComputerUseOnboardingView: View {
             let action = ComputerUsePermissionRowAction.resolve(
                 granted: currentlyGranted,
                 statusIsKnown: permissionStatusIsKnown,
-                nativeRequestAttempted: nativeRequestAttempted.contains(
+                systemSettingsOpened: settingsOpened.contains(
                     systemPermission
                 )
             )
-            if action == .allow {
-                let outcome = await runtimeService.requestSystemPermission(
-                    systemPermission
-                )
-                guard !Task.isCancelled else { return }
-                nativeRequestAttempted.insert(systemPermission)
-                if outcome == .accepted {
-                    return
-                }
-            }
+            guard action.destination == .systemSettings else { return }
+            settingsOpened.insert(systemPermission)
             await openSystemSettings(for: permissionStep)
         }
     }
@@ -629,6 +675,8 @@ struct ComputerUseOnboardingView: View {
             .screenRecording
         case .overview:
             nil
+        case .complete:
+            nil
         }
     }
 
@@ -648,9 +696,9 @@ struct ComputerUseOnboardingView: View {
         screenRecordingGranted = newScreenRecordingGranted
 
         if statusIsKnown, newAccessibilityGranted, newScreenRecordingGranted {
-            if step != .overview || isPermissionCompanionVisible {
-                step = .overview
-                onExpandedRequested()
+            if step != .complete {
+                step = .complete
+                onOnboardingCompleted()
             }
             return
         }

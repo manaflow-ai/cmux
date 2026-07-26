@@ -6,15 +6,33 @@ import SwiftUI
 final class ComputerUseOnboardingPresentationState: ObservableObject {
     @Published private(set) var returnToOverviewGeneration = 0
     @Published private(set) var permissionCompanionVisible = false
+    @Published private(set) var permissionCompanionLayoutReady = false
 
     func showPermissionCompanion() {
         guard !permissionCompanionVisible else { return }
+        permissionCompanionLayoutReady = false
         permissionCompanionVisible = true
     }
 
-    func requestReturnToOverview() {
+    @discardableResult
+    func markPermissionCompanionLayoutReady() -> Bool {
+        guard permissionCompanionVisible, !permissionCompanionLayoutReady else {
+            return false
+        }
+        permissionCompanionLayoutReady = true
+        return true
+    }
+
+    func requestExpandedPresentation(resetToOverview: Bool = true) {
         permissionCompanionVisible = false
-        returnToOverviewGeneration &+= 1
+        permissionCompanionLayoutReady = false
+        if resetToOverview {
+            returnToOverviewGeneration &+= 1
+        }
+    }
+
+    func requestReturnToOverview() {
+        requestExpandedPresentation()
     }
 }
 
@@ -36,6 +54,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
+    static let completionDismissDelay: Duration = .seconds(2.4)
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
     private static let permissionCompanionWindowSize = NSSize(width: 472, height: 112)
     private static let expandedWindowStyleMask: NSWindow.StyleMask = [
@@ -53,7 +72,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var systemSettingsTrackingTask: Task<Void, Never>?
     private var pendingPlacementRequestID: UUID?
     private var systemSettingsActivatedForPendingRequest = false
+    private var pendingPermissionCompanionFrame: NSRect?
     private var presentationState: ComputerUseOnboardingPresentationState?
+    private var expandedPresentationTask: Task<Void, Never>?
+    private var completionDismissTask: Task<Void, Never>?
 
     init(runtimeService: ComputerUseRuntimeService) {
         self.runtimeService = runtimeService
@@ -79,6 +101,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     func present(startingAt startingPoint: StartingPoint = .overview) {
         stopSystemSettingsObservation()
+        completionDismissTask?.cancel()
+        completionDismissTask = nil
         window?.close()
         let window = makeWindow(startingAt: startingPoint)
         self.window = window
@@ -102,7 +126,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             onPermissionSetupStarted: { [weak self] in
                 self?.permissionSetupStarted()
             },
-            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() }
+            onPermissionCompanionLayoutReady: { [weak self] in
+                self?.permissionCompanionLayoutReady()
+            },
+            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() },
+            onOnboardingCompleted: { [weak self] in self?.onboardingCompleted() }
         )
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: Self.expandedWindowSize),
@@ -133,6 +161,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     func dismiss() {
         stopSystemSettingsObservation()
+        completionDismissTask?.cancel()
+        completionDismissTask = nil
         window?.close()
         window = nil
     }
@@ -153,8 +183,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         systemSettingsPlacementRetryTask = nil
         systemSettingsTrackingTask?.cancel()
         systemSettingsTrackingTask = nil
+        expandedPresentationTask?.cancel()
+        expandedPresentationTask = nil
         pendingPlacementRequestID = nil
         systemSettingsActivatedForPendingRequest = false
+        pendingPermissionCompanionFrame = nil
     }
 
     private func observeSystemSettingsActivation() {
@@ -204,24 +237,17 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             {
                 if let frame = permissionCompanionFrameInSystemSettings()
                 {
+                    pendingPermissionCompanionFrame = frame
                     presentationState?.showPermissionCompanion()
-                    // Publish the compact SwiftUI content before beginning the
-                    // one AppKit-owned frame interpolation.
-                    await Task.yield()
-                    guard
-                        !Task.isCancelled,
-                        pendingPlacementRequestID == requestID
-                    else {
-                        return
-                    }
-                    positionPermissionCompanion(
-                        at: frame,
-                        animate: true
-                    )
-                    pendingPlacementRequestID = nil
-                    systemSettingsActivatedForPendingRequest = false
                     systemSettingsPlacementRetryTask = nil
-                    beginSystemSettingsTracking()
+                    // The compact view's onAppear is the deterministic layout
+                    // handshake. It starts the frame interpolation only after
+                    // SwiftUI has replaced the 600×440 content, preventing the
+                    // expanded permission cards from being squeezed into the
+                    // 472×112 destination during the glide.
+                    if presentationState?.permissionCompanionLayoutReady == true {
+                        permissionCompanionLayoutReady()
+                    }
                     return
                 }
                 do {
@@ -239,6 +265,25 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                 systemSettingsPlacementRetryTask = nil
             }
         }
+    }
+
+    private func permissionCompanionLayoutReady() {
+        guard
+            let requestID = pendingPlacementRequestID,
+            let frame = pendingPermissionCompanionFrame,
+            presentationState?.permissionCompanionLayoutReady == true,
+            let window
+        else {
+            return
+        }
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        guard pendingPlacementRequestID == requestID else { return }
+        positionPermissionCompanion(at: frame, animate: true)
+        pendingPlacementRequestID = nil
+        pendingPermissionCompanionFrame = nil
+        systemSettingsActivatedForPendingRequest = false
+        beginSystemSettingsTracking()
     }
 
     @discardableResult
@@ -309,7 +354,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                     }
                 }
                 do {
-                    try await clock.sleep(for: .milliseconds(150))
+                    // Track at roughly 30fps. Each move is origin-only and
+                    // nonanimated, so it follows System Settings continuously
+                    // without queuing competing AppKit frame animations.
+                    try await clock.sleep(for: .milliseconds(33))
                 } catch {
                     return
                 }
@@ -356,15 +404,20 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         }?.frame ?? NSScreen.screens.first?.frame
     }
 
-    private func showExpandedOnboarding() {
+    private func showExpandedOnboarding(
+        resetStep: Bool = true,
+        completion: (@MainActor () -> Void)? = nil
+    ) {
         guard let window else { return }
+        expandedPresentationTask?.cancel()
+        expandedPresentationTask = nil
         systemSettingsPlacementRetryTask?.cancel()
         systemSettingsPlacementRetryTask = nil
         systemSettingsTrackingTask?.cancel()
         systemSettingsTrackingTask = nil
         pendingPlacementRequestID = nil
         systemSettingsActivatedForPendingRequest = false
-        presentationState?.requestReturnToOverview()
+        pendingPermissionCompanionFrame = nil
         let visibleFrame = window.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? window.frame
@@ -374,13 +427,65 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             width: Self.expandedWindowSize.width,
             height: Self.expandedWindowSize.height
         )
-        configureForExpandedOnboarding(
-            window,
-            frame: expandedFrame,
-            animate: shouldAnimate(window)
-        )
+        let animate = shouldAnimate(window)
+            && presentationState?.permissionCompanionVisible == true
+        if animate {
+            // Keep the already-laid-out compact card during the frame glide.
+            // Swap in the expanded hierarchy only after the destination frame
+            // is stable, the inverse of the compact-layout handshake above.
+            window.setAppKitOwnedFrame(expandedFrame, display: true, animate: true)
+            expandedPresentationTask = Task { @MainActor [weak self, weak window] in
+                do {
+                    try await ContinuousClock().sleep(for: .milliseconds(350))
+                } catch {
+                    return
+                }
+                guard let self, let window, self.window === window else { return }
+                self.finishExpandedPresentation(
+                    window: window,
+                    frame: expandedFrame,
+                    resetStep: resetStep
+                )
+                self.expandedPresentationTask = nil
+                completion?()
+            }
+        } else {
+            finishExpandedPresentation(
+                window: window,
+                frame: expandedFrame,
+                resetStep: resetStep
+            )
+            completion?()
+        }
+    }
+
+    private func finishExpandedPresentation(
+        window: ComputerUseOnboardingWindow,
+        frame: NSRect,
+        resetStep: Bool
+    ) {
+        configureForExpandedOnboarding(window, frame: frame, animate: false)
+        presentationState?.requestExpandedPresentation(resetToOverview: resetStep)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func onboardingCompleted() {
+        completionDismissTask?.cancel()
+        completionDismissTask = nil
+        showExpandedOnboarding(resetStep: false) { [weak self] in
+            guard let self else { return }
+            self.completionDismissTask = Task { @MainActor [weak self] in
+                do {
+                    try await ContinuousClock().sleep(for: Self.completionDismissDelay)
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                self.completionDismissTask = nil
+                self.dismiss()
+            }
+        }
     }
 
     /// Applies the compact permission presentation while preserving the
