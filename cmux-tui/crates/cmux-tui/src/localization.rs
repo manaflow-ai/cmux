@@ -25,6 +25,7 @@ pub(crate) struct ForeignViewportMessages {
 pub(crate) struct TerminalMessages {
     pub clear_history_help: &'static str,
     pub clear_history_failed: &'static str,
+    pub clear_history_outcome_unknown: &'static str,
     pub clear_history_unsupported: &'static str,
     pub clear_history_fallback_unrepresentable: &'static str,
     pub clear_history_preservation_impossible: &'static str,
@@ -225,6 +226,7 @@ static ENGLISH: Catalog = Catalog {
     terminal: TerminalMessages {
         clear_history_help: "Clear PTY history while preserving its active prompt.",
         clear_history_failed: "Could not clear terminal history",
+        clear_history_outcome_unknown: "Terminal history clear outcome is unknown. Reconnect the session before retrying.",
         clear_history_unsupported: "clear-history is not supported by this server; restart the cmux-tui server",
         clear_history_fallback_unrepresentable: "the current terminal keyboard mode cannot encode the fallback key",
         clear_history_preservation_impossible: "the active terminal input extends into retained history",
@@ -347,6 +349,7 @@ static JAPANESE: Catalog = Catalog {
     terminal: TerminalMessages {
         clear_history_help: "アクティブなプロンプトを保持したまま PTY 履歴を消去します。",
         clear_history_failed: "ターミナル履歴を消去できませんでした",
+        clear_history_outcome_unknown: "ターミナル履歴の消去結果を確認できません。再試行する前にセッションを再接続してください。",
         clear_history_unsupported: "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
         clear_history_fallback_unrepresentable: "現在のターミナルキーボードモードでは代替キーを送信できません",
         clear_history_preservation_impossible: "アクティブなターミナル入力が保持中の履歴にまたがっています",

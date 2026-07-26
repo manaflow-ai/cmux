@@ -5481,6 +5481,10 @@ impl App {
                     "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
                     failure.error
                 )
+            } else if failure.label == "clear terminal history"
+                && failure.delivery == PtyOperationDelivery::Ambiguous
+            {
+                localization::catalog().terminal.clear_history_outcome_unknown.to_string()
             } else if failure.label == "clear terminal history" {
                 let detail = localized_clear_history_failure(&failure.error);
                 format!("{}: {}", localization::catalog().terminal.clear_history_failed, detail)

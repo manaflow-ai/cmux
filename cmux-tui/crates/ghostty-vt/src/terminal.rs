@@ -632,8 +632,14 @@ impl VtBoundaryTracker {
     }
 
     fn feed_byte(&mut self, byte: u8) {
+        if self.consume_utf8_byte(byte) {
+            return;
+        }
+
         if self.state == VtBoundaryState::Ground {
-            self.feed_ground(byte);
+            if byte == 0x1b {
+                self.state = VtBoundaryState::Escape;
+            }
             return;
         }
 
@@ -648,24 +654,24 @@ impl VtBoundaryTracker {
         };
     }
 
-    fn feed_ground(&mut self, byte: u8) {
+    fn consume_utf8_byte(&mut self, byte: u8) -> bool {
         if self.utf8_remaining != 0 {
             if matches!(byte, 0x80..=0xbf) {
                 self.utf8_remaining -= 1;
-                return;
+                return true;
             }
             // Ghostty replaces the incomplete code point and retries this byte
             // from the UTF-8 accept state.
             self.utf8_remaining = 0;
         }
 
-        match byte {
-            0x1b => self.state = VtBoundaryState::Escape,
-            0xc2..=0xdf => self.utf8_remaining = 1,
-            0xe0..=0xef => self.utf8_remaining = 2,
-            0xf0..=0xf4 => self.utf8_remaining = 3,
-            _ => {}
-        }
+        self.utf8_remaining = match byte {
+            0xc2..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+        self.utf8_remaining != 0
     }
 }
 
