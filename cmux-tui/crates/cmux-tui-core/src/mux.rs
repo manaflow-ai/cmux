@@ -10032,6 +10032,47 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_surface_close_retains_failed_process_ownership_for_shutdown() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let owned = mux.surface(surface.id).unwrap();
+        owned.set_server_shutdown_failure_for_test(true);
+
+        assert!(mux.close_surface(surface.id).unwrap());
+        assert!(mux.surface(surface.id).is_none());
+        assert_eq!(mux.shutdown_surfaces.lock().unwrap().len(), 1);
+
+        owned.set_server_shutdown_failure_for_test(false);
+        assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        assert!(mux.shutdown_surfaces.lock().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn server_shutdown_rejects_malformed_host_records_before_removing_topology() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-shutdown-host-record-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("00000000000040008000000000000031.json"), b"{not-valid-json")
+            .unwrap();
+        let mux = Mux::new_for_test(
+            "strict-shutdown-records",
+            SurfaceOptions { terminal_host_root: Some(root.clone()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        let result = mux.close_all_surfaces_for_shutdown();
+        let topology_retained = mux.surface(surface.id).is_some();
+        let _ = std::fs::remove_dir_all(&root);
+
+        let error = result.unwrap_err();
+        assert!(format!("{error:#}").contains("load terminal hosts for server shutdown"));
+        assert!(topology_retained);
+    }
+
+    #[test]
     fn server_shutdown_waits_for_async_browser_bootstrap() {
         let mux = test_mux();
         let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
@@ -10115,6 +10156,41 @@ mod tests {
         let observed = observed.into_inner().unwrap();
         assert_eq!(observed.len(), SHUTDOWN_FANOUT_WORKERS * 2 + 1);
         assert!(observed.into_iter().all(|item_deadline| item_deadline == deadline));
+    }
+
+    #[test]
+    fn shutdown_fanout_does_not_claim_another_batch_after_the_deadline() {
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(SHUTDOWN_FANOUT_WORKERS + 1);
+        let deadline = Instant::now() + Duration::from_millis(250);
+        let worker = std::thread::spawn({
+            let gate = gate.clone();
+            move || {
+                bounded_shutdown_fanout(
+                    &vec![(); SHUTDOWN_FANOUT_WORKERS + 1],
+                    deadline,
+                    |_, _| {
+                        started_tx.send(()).unwrap();
+                        let (released, wake) = &*gate;
+                        let released = wake
+                            .wait_while(released.lock().unwrap(), |released| !*released)
+                            .unwrap();
+                        drop(released);
+                    },
+                );
+            }
+        });
+
+        for _ in 0..SHUTDOWN_FANOUT_WORKERS {
+            started_rx.recv_timeout(Duration::from_millis(200)).unwrap();
+        }
+        std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+        let (released, wake) = &*gate;
+        *released.lock().unwrap() = true;
+        wake.notify_all();
+        worker.join().unwrap();
+
+        assert_eq!(started_rx.try_iter().count(), 0);
     }
 
     #[test]

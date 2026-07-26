@@ -2925,6 +2925,28 @@ mod tests {
         assert_eq!(signals.load(Ordering::Relaxed), 0);
     }
 
+    #[test]
+    fn local_shutdown_does_not_wait_for_the_pty_writer_lock() {
+        let mux = Mux::new_for_test("shutdown-writer-lock", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let locked = surface.clone();
+        let (held_tx, held_rx) = sync_channel(1);
+        let holder = std::thread::spawn(move || {
+            let pty = locked.as_pty().unwrap();
+            let _runtime = pty.runtime.lock().unwrap();
+            held_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(150));
+        });
+        held_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let started = Instant::now();
+        assert!(surface.terminate_for_server_shutdown(started + Duration::from_millis(25)));
+        assert!(started.elapsed() < Duration::from_millis(100));
+
+        holder.join().unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
