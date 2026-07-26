@@ -3677,6 +3677,88 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
+    func testFullConfigurationReloadStagesAppearanceUntilConfigurationCommit() {
+#if DEBUG
+        let app = GhosttyApp.shared
+        let originalProfile =
+            GhosttyStartupAppearancePreviewState.profile
+        let originalBackgroundHex =
+            app.defaultBackgroundColor.hexString()
+        let targetProfile: GhosttyStartupAppearancePreviewProfile =
+            originalBackgroundHex.caseInsensitiveCompare("#101820")
+                == .orderedSame
+            ? .freshInstall
+            : .userExplicitColors
+        let retainedPanels = (0..<16).map { _ in
+            TerminalPanel(
+                workspaceId: UUID(),
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        }
+
+        let reloadCompleted = expectation(
+            description: "staged appearance reload completed"
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyConfigDidReload,
+            object: nil,
+            queue: .main
+        ) { _ in
+            reloadCompleted.fulfill()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            GhosttyStartupAppearancePreviewState.profile =
+                originalProfile
+            GhosttyConfig.invalidateLoadCache()
+
+            let restoreCompleted = expectation(
+                description: "original appearance restored"
+            )
+            let restoreObserver =
+                NotificationCenter.default.addObserver(
+                    forName: .ghosttyConfigDidReload,
+                    object: nil,
+                    queue: .main
+                ) { _ in
+                    restoreCompleted.fulfill()
+                }
+            app.reloadConfiguration(
+                source: "test.restoreStagedAppearance",
+                reloadSettingsFromFile: false
+            )
+            wait(for: [restoreCompleted], timeout: 5)
+            NotificationCenter.default.removeObserver(
+                restoreObserver
+            )
+            withExtendedLifetime(retainedPanels) {}
+        }
+
+        GhosttyStartupAppearancePreviewState.profile =
+            targetProfile
+        GhosttyConfig.invalidateLoadCache()
+        app.reloadConfiguration(
+            source: "test.stageAppearance",
+            reloadSettingsFromFile: false,
+            preferredColorScheme: .light
+        )
+
+        XCTAssertEqual(
+            app.defaultBackgroundColor.hexString(),
+            originalBackgroundHex,
+            "A pending full reload must not publish its new background before the matching Ghostty config commits"
+        )
+        wait(for: [reloadCompleted], timeout: 5)
+        XCTAssertNotEqual(
+            app.defaultBackgroundColor.hexString(),
+            originalBackgroundHex,
+            "The staged appearance must publish when the full configuration commits"
+        )
+#else
+        throw XCTSkip("Startup appearance previews require DEBUG")
+#endif
+    }
+
     func testConfigurationFontReconcilerLateWorkCannotExtendCapture() {
         let scheduler =
             ManualTerminalFontConfigurationReloadScheduler()
