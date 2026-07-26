@@ -490,7 +490,7 @@ impl PtyInputSender {
         )
     }
 
-    pub fn enqueue_coalescing_surface_operation_with_retained_bytes(
+    pub fn enqueue_surface_operation_with_retained_bytes(
         &self,
         label: &'static str,
         surface_id: SurfaceId,
@@ -501,9 +501,9 @@ impl PtyInputSender {
         self.enqueue_mutation(
             label,
             PtyMutationIdentity {
-                coalesce_key: Some((label, surface_id, 0)),
                 failure_surface_id: Some(surface_id),
                 retained_bytes,
+                ..Default::default()
             },
             remote,
             None,

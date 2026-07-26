@@ -678,38 +678,101 @@ pub(crate) fn apply_clear_history_transition(
 }
 
 pub(crate) struct TerminalStreamProgress {
-    revision: Mutex<u64>,
+    state: Mutex<TerminalStreamProgressState>,
     changed: Condvar,
+}
+
+#[derive(Default)]
+struct TerminalStreamProgressState {
+    revision: u64,
+    clear_history_wait: Option<ClearHistoryWaitState>,
+}
+
+struct ClearHistoryWaitState {
+    deadline: Instant,
+    // Timed-out waits leave this state latched at zero until real PTY output
+    // advances the stream. Queued repeats then fail without restarting the
+    // full timeout, while concurrent callers share one deadline.
+    waiters: usize,
+}
+
+pub(crate) struct ClearHistoryWaitLease<'a> {
+    progress: &'a TerminalStreamProgress,
+    deadline: Instant,
+    timed_out: bool,
+}
+
+impl ClearHistoryWaitLease<'_> {
+    pub(crate) fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
+    pub(crate) fn mark_timed_out(&mut self) {
+        self.timed_out = true;
+    }
+}
+
+impl Drop for ClearHistoryWaitLease<'_> {
+    fn drop(&mut self) {
+        self.progress.finish_clear_history_wait(self.timed_out);
+    }
 }
 
 impl Default for TerminalStreamProgress {
     fn default() -> Self {
-        Self { revision: Mutex::new(0), changed: Condvar::new() }
+        Self { state: Mutex::new(TerminalStreamProgressState::default()), changed: Condvar::new() }
     }
 }
 
 impl TerminalStreamProgress {
     pub(crate) fn revision(&self) -> u64 {
-        *self.revision.lock().unwrap()
+        self.state.lock().unwrap().revision
     }
 
     pub(crate) fn notify(&self) {
-        let mut revision = self.revision.lock().unwrap();
-        *revision = revision.wrapping_add(1);
+        let mut state = self.state.lock().unwrap();
+        state.revision = state.revision.wrapping_add(1);
+        // An expired budget is retained only while the stream is unchanged.
+        // Active waiters keep their original deadline across fragmented output.
+        if state.clear_history_wait.as_ref().is_some_and(|wait| wait.waiters == 0) {
+            state.clear_history_wait = None;
+        }
         self.changed.notify_all();
     }
 
+    pub(crate) fn begin_clear_history_wait(&self, timeout: Duration) -> ClearHistoryWaitLease<'_> {
+        let mut state = self.state.lock().unwrap();
+        let wait = state.clear_history_wait.get_or_insert_with(|| ClearHistoryWaitState {
+            deadline: Instant::now() + timeout,
+            waiters: 0,
+        });
+        wait.waiters += 1;
+        ClearHistoryWaitLease { progress: self, deadline: wait.deadline, timed_out: false }
+    }
+
+    fn finish_clear_history_wait(&self, timed_out: bool) {
+        let mut state = self.state.lock().unwrap();
+        let Some(wait) = state.clear_history_wait.as_mut() else {
+            return;
+        };
+        debug_assert!(wait.waiters > 0);
+        wait.waiters -= 1;
+        if !timed_out && wait.waiters == 0 {
+            state.clear_history_wait = None;
+        }
+    }
+
     pub(crate) fn wait_for_change(&self, observed: u64, deadline: Instant) -> Option<u64> {
-        let mut revision = self.revision.lock().unwrap();
-        while *revision == observed {
+        let mut state = self.state.lock().unwrap();
+        while state.revision == observed {
             let remaining = deadline.checked_duration_since(Instant::now())?;
-            let (next, timeout) = self.changed.wait_timeout(revision, remaining).unwrap();
-            revision = next;
-            if timeout.timed_out() && *revision == observed {
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.revision == observed {
                 return None;
             }
         }
-        Some(*revision)
+        Some(state.revision)
     }
 }
 
@@ -1932,8 +1995,8 @@ impl Surface {
 
         // Local resize takes terminal before runtime. Keep the same order for
         // alternate-screen fallback so resize and Command-K cannot deadlock.
-        let deadline = Instant::now() + CLEAR_HISTORY_STREAM_WAIT_TIMEOUT;
         let mut observed_progress = pty.stream_progress.revision();
+        let mut stream_wait = None;
         loop {
             let mut term = pty.term.lock().unwrap();
             let before = terminal_scroll_position(&term);
@@ -1942,9 +2005,16 @@ impl Surface {
             {
                 ClearHistoryTransition::Blocked => {
                     drop(term);
+                    let deadline = stream_wait
+                        .get_or_insert_with(|| {
+                            pty.stream_progress
+                                .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
+                        })
+                        .deadline();
                     let Some(progress) =
                         pty.stream_progress.wait_for_change(observed_progress, deadline)
                     else {
+                        stream_wait.as_mut().unwrap().mark_timed_out();
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             CLEAR_HISTORY_STREAM_TIMEOUT_ERROR
                         )));

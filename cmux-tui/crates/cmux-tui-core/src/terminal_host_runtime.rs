@@ -1626,8 +1626,8 @@ mod unix {
             &self,
             fallback_key: Option<&KeyInput>,
         ) -> anyhow::Result<()> {
-            let deadline = Instant::now() + CLEAR_HISTORY_STREAM_WAIT_TIMEOUT;
             let mut observed_progress = self.stream_progress.revision();
+            let mut stream_wait = None;
             loop {
                 let mut term = self.term.lock().unwrap();
                 match apply_clear_history_transition(&mut term, fallback_key)? {
@@ -1640,9 +1640,16 @@ mod unix {
                     }
                     ClearHistoryTransition::Blocked => {
                         drop(term);
+                        let deadline = stream_wait
+                            .get_or_insert_with(|| {
+                                self.stream_progress
+                                    .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
+                            })
+                            .deadline();
                         let Some(progress) =
                             self.stream_progress.wait_for_change(observed_progress, deadline)
                         else {
+                            stream_wait.as_mut().unwrap().mark_timed_out();
                             anyhow::bail!(CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
                         };
                         observed_progress = progress;

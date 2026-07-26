@@ -750,7 +750,7 @@ Example:
 
 On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. Without prompt metadata, only retained scrollback is cleared, preserving the visible grid and cursor. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
 
-The command fails without changing history, the visible grid, or the cursor when active input extends into retained history or exact preservation cannot be proven. If the terminal stream ends inside an incomplete VT sequence, the server waits for a bounded interval and then fails without mutation unless the sequence completes.
+The command fails without changing history, the visible grid, or the cursor when active input extends into retained history or exact preservation cannot be proven. If the terminal stream ends inside an incomplete VT sequence, the server waits for a bounded interval and then fails without mutation unless the sequence completes. Repeated requests against the same unchanged stream share that interval. After it expires, only new PTY output permits a fresh interval.
 
 Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
 
