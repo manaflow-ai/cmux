@@ -3315,6 +3315,30 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didComplete)
     }
 
+    func testConfigurationReloadReadsMagnificationAfterSettingsReload() {
+        var storedMagnificationPercent = 100
+
+        let transaction =
+            TerminalFontConfigurationReloadTransaction.prepare(
+                appliedMagnificationPercent: 100,
+                reloadSettings: {
+                    storedMagnificationPercent = 200
+                },
+                storedMagnificationPercent: {
+                    storedMagnificationPercent
+                }
+            )
+
+        XCTAssertEqual(
+            transaction.previousMagnificationPercent,
+            100
+        )
+        XCTAssertEqual(
+            transaction.targetMagnificationPercent,
+            200
+        )
+    }
+
     func testConfigurationRefreshWakesParkedFontMutation() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

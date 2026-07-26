@@ -321,6 +321,79 @@ private func endFontState()
     }
 
     @Test
+    func configurationReloadKeepsCapturedLineageAuthoritativeUntilReconciliation()
+        throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(13, isExplicitOverride: true)
+        let magnification =
+            MutableFontMagnificationPercent(100)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            globalFontMagnificationPercentProvider: {
+                magnification.value
+            },
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        beginFontState(runtimeSurface, 13, true, 26)
+        defer {
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        let reloadState =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100
+            )
+        magnification.value = 200
+
+        let inheritedLineage = try #require(
+            surface.fontSizeLineageSnapshot()
+        )
+        #expect(
+            inheritedLineage == TerminalFontSizeLineage(
+                basePoints: 13,
+                isExplicitOverride: true
+            )
+        )
+
+        var descendantTemplate = CmuxSurfaceConfigTemplate()
+        descendantTemplate.fontSizeLineage = inheritedLineage
+        let descendant = makeSurface(
+            configTemplate: descendantTemplate,
+            globalFontMagnificationPercent: 200
+        )
+        let descendantLineage = try #require(
+            descendant.runtimeCreationConfigTemplate()
+                .fontSizeLineage
+        )
+        #expect(
+            CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: descendantLineage.basePoints,
+                percent: 200
+            ) == 26
+        )
+
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: reloadState,
+                configuredRuntimePoints: 26,
+                magnificationPercent: 200
+            ) == .applied
+        )
+    }
+
+    @Test
     func configurationReloadPreservesExplicitBaseAcrossRuntimeClamp()
         throws {
         var template = CmuxSurfaceConfigTemplate()
@@ -736,6 +809,8 @@ private func endFontState()
     private func makeSurface(
         configTemplate: CmuxSurfaceConfigTemplate,
         globalFontMagnificationPercent: Int = 100,
+        globalFontMagnificationPercentProvider:
+            (@Sendable () -> Int)? = nil,
         engine: FakeTerminalEngine = FakeTerminalEngine(),
         registry: FakeSurfaceRegistry = FakeSurfaceRegistry()
     ) -> TerminalSurface {
@@ -774,8 +849,19 @@ private func endFontState()
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY",
-                globalFontMagnificationPercent: { globalFontMagnificationPercent }
+                globalFontMagnificationPercent:
+                    globalFontMagnificationPercentProvider
+                    ?? { globalFontMagnificationPercent }
             )
         )
+    }
+}
+
+private final class MutableFontMagnificationPercent:
+    @unchecked Sendable {
+    var value: Int
+
+    init(_ value: Int) {
+        self.value = value
     }
 }
