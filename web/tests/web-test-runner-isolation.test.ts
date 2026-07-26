@@ -179,6 +179,17 @@ test("shared web test runner fails when default discovery finds no tests", () =>
   const fixtureRoot = createRunnerFixture();
   try {
     mkdirSync(join(fixtureRoot, "tests"));
+    const allowedResult = runChild(
+      "/bin/bash",
+      ["scripts/run-tests.sh", "--pass-with-no-tests"],
+      fixtureRoot,
+    );
+    if (allowedResult.status !== 0) {
+      throw new Error(
+        `--pass-with-no-tests did not preserve Bun discovery:\n${allowedResult.output}`,
+      );
+    }
+
     const result = runChild(
       "/bin/bash",
       ["scripts/run-tests.sh"],
