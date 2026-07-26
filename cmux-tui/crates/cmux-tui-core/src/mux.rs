@@ -6400,16 +6400,24 @@ impl Mux {
 
     /// Set the deepest split ratio in `dir` on the path to `pane`.
     pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
+        enum RatioOutcome {
+            Unchanged,
+            Changed(ScreenId),
+        }
+
         let ratio = clamp_split_ratio(ratio);
-        let changed_screen = {
+        let outcome = {
             let mut state = self.state.lock().unwrap();
             state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(|screen| {
                 if !screen.root.contains(pane) {
                     return None;
                 }
+                let split = screen.root.deepest_split_for_pane(pane, dir)?;
+                if screen.root.split_ratio(split) == Some(ratio) {
+                    return Some(RatioOutcome::Unchanged);
+                }
                 let before = screen.layout_snapshot();
                 let changed = if screen.layout_columns_active() {
-                    let split = screen.root.deepest_split_for_pane(pane, dir)?;
                     match screen.set_projected_viewport_split_ratio(split, ratio) {
                         Some(changed) => changed,
                         None => {
@@ -6435,18 +6443,20 @@ impl Mux {
                 };
                 if changed {
                     screen.record_layout_change(before, Vec::new(), None);
-                    Some(screen.id)
+                    Some(RatioOutcome::Changed(screen.id))
                 } else {
                     None
                 }
             })
         };
-        if let Some(screen) = changed_screen {
-            self.emit(MuxEvent::TreeChanged);
-            self.emit(MuxEvent::LayoutChanged(screen));
-            true
-        } else {
-            false
+        match outcome {
+            Some(RatioOutcome::Changed(screen)) => {
+                self.emit(MuxEvent::TreeChanged);
+                self.emit(MuxEvent::LayoutChanged(screen));
+                true
+            }
+            Some(RatioOutcome::Unchanged) => true,
+            None => false,
         }
     }
 
@@ -6490,6 +6500,9 @@ impl Mux {
                 return false;
             }
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+            if screen.root.split_ratio(split) == Some(ratio) {
+                return true;
+            }
             let coalesce = transaction
                 .map(|(client, transaction)| LayoutMutationKey::Resize { client, transaction });
             let before = screen.layout_snapshot_for_coalescing_change(coalesce);
@@ -10035,11 +10048,18 @@ mod tests {
             }
         });
 
+        let events = mux.subscribe();
         assert!(mux.set_split_ratio(split, 0.5));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(_)));
+        let after_change = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            (screen.layout_revision, screen.layout_undo.len())
+        });
         assert!(mux.set_split_ratio(split, 0.5));
         assert!(!mux.set_split_ratio(split, 0.25));
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
+            assert_eq!((screen.layout_revision, screen.layout_undo.len()), after_change);
             assert_eq!(screen.viewport_splits[&split], 1.0);
             assert_eq!(
                 screen
@@ -10056,6 +10076,7 @@ mod tests {
             ));
             assert!(state.split_screens.contains_key(&split));
         });
+        assert!(events.try_iter().next().is_none());
     }
 
     #[test]
@@ -11237,6 +11258,36 @@ mod tests {
         });
 
         assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
+    }
+
+    #[test]
+    fn unchanged_ratio_commands_preserve_undo_metadata_revision_and_events() {
+        let mux = test_mux();
+        let (p1, _, _) = seed_split_ratio_tree(&mux);
+        mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
+        let before = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            (screen.layout_revision, screen.layout_undo.len(), screen.zellij_auto_layout.clone())
+        });
+        let events = mux.subscribe();
+
+        assert!(mux.set_split_ratio(10, 0.5));
+        assert!(mux.set_ratio(p1, SplitDir::Right, 0.5));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(
+                (
+                    screen.layout_revision,
+                    screen.layout_undo.len(),
+                    screen.zellij_auto_layout.clone(),
+                ),
+                before
+            );
+            assert!(state.split_screens.contains_key(&10));
+            assert!(state.split_screens.contains_key(&11));
+        });
+        assert!(events.try_iter().next().is_none());
     }
 
     #[test]

@@ -368,6 +368,19 @@ impl Node {
         }
     }
 
+    pub(crate) fn split_ratio(&self, target: SplitId) -> Option<f32> {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => None,
+            Node::Split { id, ratio, a, b, .. } => {
+                if *id == target {
+                    Some(*ratio)
+                } else {
+                    a.split_ratio(target).or_else(|| b.split_ratio(target))
+                }
+            }
+        }
+    }
+
     fn set_split_ratios(&mut self, ratios: &BTreeMap<SplitId, f32>) {
         match self {
             Node::Leaf(_) | Node::Stack { .. } => {}
