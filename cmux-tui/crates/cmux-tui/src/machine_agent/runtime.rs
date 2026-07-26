@@ -25,6 +25,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MIN_HEARTBEAT: Duration = Duration::from_millis(protocol::MIN_HEARTBEAT_INTERVAL_MS);
 const MAX_HEARTBEAT: Duration = Duration::from_millis(protocol::MAX_HEARTBEAT_INTERVAL_MS);
 const EVENT_QUEUE_CAPACITY: usize = 128;
+const LOCAL_OPEN_CONCURRENCY: usize = 4;
 const LOCAL_OPEN_QUEUE_CAPACITY: usize = 8;
 const LOCAL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 const LOCAL_WRITE_QUEUE_CAPACITY: usize = 8;
@@ -640,7 +641,7 @@ fn generation_worker(context: WorkerContext) {
         return;
     }
 
-    let local_opens = match spawn_local_connector(local, inputs_tx.clone()) {
+    let local_opens = match spawn_local_connectors(local, inputs_tx.clone()) {
         Ok(local_opens) => local_opens,
         Err(_) => {
             control.close();
@@ -713,27 +714,39 @@ struct LocalOpenRequest {
     instance_id: u64,
 }
 
-fn spawn_local_connector(
+fn spawn_local_connectors(
     local: Arc<dyn LocalSessionConnector>,
     sender: SyncSender<WorkerInput>,
 ) -> io::Result<SyncSender<LocalOpenRequest>> {
     let (requests, receiver) = mpsc::sync_channel::<LocalOpenRequest>(LOCAL_OPEN_QUEUE_CAPACITY);
-    thread::Builder::new().name("machine-agent-local-connector".to_string()).spawn(move || {
-        while let Ok(request) = receiver.recv() {
-            let connection = local.open();
-            if let Err(error) = sender.send(WorkerInput::LocalOpenCompleted {
-                stream_id: request.stream_id,
-                instance_id: request.instance_id,
-                connection,
-            }) {
-                if let WorkerInput::LocalOpenCompleted { connection: Ok(connection), .. } = error.0
-                {
-                    connection.control.close();
+    let receiver = Arc::new(Mutex::new(receiver));
+    for index in 0..LOCAL_OPEN_CONCURRENCY {
+        let local = Arc::clone(&local);
+        let receiver = Arc::clone(&receiver);
+        let sender = sender.clone();
+        thread::Builder::new().name(format!("machine-agent-local-connector-{index}")).spawn(
+            move || {
+                loop {
+                    let request = receiver.lock().unwrap().recv();
+                    let Ok(request) = request else { break };
+                    let connection = local.open();
+                    if let Err(error) = sender.send(WorkerInput::LocalOpenCompleted {
+                        stream_id: request.stream_id,
+                        instance_id: request.instance_id,
+                        connection,
+                    }) {
+                        if let WorkerInput::LocalOpenCompleted {
+                            connection: Ok(connection), ..
+                        } = error.0
+                        {
+                            connection.control.close();
+                        }
+                        break;
+                    }
                 }
-                break;
-            }
-        }
-    })?;
+            },
+        )?;
+    }
     Ok(requests)
 }
 
@@ -1700,15 +1713,17 @@ mod tests {
     }
 
     struct BlockingLocal {
-        stream: Mutex<Option<DuplexConnection>>,
+        streams: Mutex<VecDeque<DuplexConnection>>,
+        opens: AtomicUsize,
         started: (Mutex<bool>, Condvar),
         released: (Mutex<bool>, Condvar),
     }
 
     impl BlockingLocal {
-        fn new(stream: DuplexConnection) -> Arc<Self> {
+        fn new(streams: Vec<DuplexConnection>) -> Arc<Self> {
             Arc::new(Self {
-                stream: Mutex::new(Some(stream)),
+                streams: Mutex::new(streams.into()),
+                opens: AtomicUsize::new(0),
                 started: (Mutex::new(false), Condvar::new()),
                 released: (Mutex::new(false), Condvar::new()),
             })
@@ -1735,19 +1750,21 @@ mod tests {
         }
 
         fn open(&self) -> io::Result<DuplexConnection> {
-            let (started, available) = &self.started;
-            *started.lock().unwrap() = true;
-            available.notify_all();
+            if self.opens.fetch_add(1, Ordering::SeqCst) == 0 {
+                let (started, available) = &self.started;
+                *started.lock().unwrap() = true;
+                available.notify_all();
 
-            let (released, available) = &self.released;
-            let mut released = released.lock().unwrap();
-            while !*released {
-                released = available.wait(released).unwrap();
+                let (released, available) = &self.released;
+                let mut released = released.lock().unwrap();
+                while !*released {
+                    released = available.wait(released).unwrap();
+                }
             }
-            self.stream
+            self.streams
                 .lock()
                 .unwrap()
-                .take()
+                .pop_front()
                 .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionRefused, "no fake session"))
         }
     }
@@ -2069,8 +2086,12 @@ mod tests {
     fn blocked_local_open_does_not_block_cloud_control_frames() {
         let (cloud, mut cloud_servers) = QueueCloud::new();
         let mut cloud_server = WirePeer::new(cloud_servers.remove(0));
-        let (local_client, _local_server) = UnixStream::pair().unwrap();
-        let local = BlockingLocal::new(duplex_from_unix_stream(local_client).unwrap());
+        let (blocked_local_client, _blocked_local_server) = UnixStream::pair().unwrap();
+        let (ready_local_client, _ready_local_server) = UnixStream::pair().unwrap();
+        let local = BlockingLocal::new(vec![
+            duplex_from_unix_stream(blocked_local_client).unwrap(),
+            duplex_from_unix_stream(ready_local_client).unwrap(),
+        ]);
         let stop = AtomicStop::new();
         let agent = MachineAgent::new(
             identity(),
@@ -2095,13 +2116,22 @@ mod tests {
         cloud_server.reader.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
         cloud_server.write(Message::Ping(Heartbeat { nonce: 42 }));
         assert!(matches!(cloud_server.read().message, Message::Pong(Heartbeat { nonce: 42 })));
-        cloud_server.reader.get_ref().set_read_timeout(None).unwrap();
+        cloud_server.write(Message::Open(OpenStream {
+            stream_id: 8,
+            open_id: OpaqueId::new("ready-open").unwrap(),
+            initial_window: 4,
+        }));
+        assert!(matches!(
+            cloud_server.read().message,
+            Message::Opened(StreamOpened { stream_id: 8, .. })
+        ));
 
         local.release();
         assert!(matches!(
             cloud_server.read().message,
             Message::Opened(StreamOpened { stream_id: 7, .. })
         ));
+        cloud_server.reader.get_ref().set_read_timeout(None).unwrap();
         stop.stop();
         cloud_server.shutdown();
         agent_thread.join().unwrap();
