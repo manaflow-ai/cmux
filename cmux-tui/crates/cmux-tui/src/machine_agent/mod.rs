@@ -5,6 +5,9 @@ mod protocol_io;
 mod runtime;
 mod transport;
 
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,9 +41,13 @@ impl ArgsError {
     fn localized(&self, messages: &crate::localization::MachineAgentMessages) -> String {
         match self {
             Self::MissingValue(argument) => messages.argument_needs_value_message(argument),
-            Self::InvalidCloudPort(value) => messages.invalid_cloud_port_message(value),
+            Self::InvalidCloudPort(value) => {
+                messages.invalid_cloud_port_message(&value.escape_default().to_string())
+            }
             Self::ZeroCloudPort => messages.cloud_port_cannot_be_zero.to_string(),
-            Self::UnknownArgument(argument) => messages.unknown_argument_message(argument),
+            Self::UnknownArgument(argument) => {
+                messages.unknown_argument_message(&argument.escape_default().to_string())
+            }
         }
     }
 }
@@ -53,6 +60,10 @@ pub(super) fn run(raw_args: &[String]) -> anyhow::Result<()> {
         print!("{}", messages.help);
         return Ok(());
     }
+    run_agent(args).map_err(|_| anyhow::Error::msg(messages.runtime_failed))
+}
+
+fn run_agent(args: Args) -> anyhow::Result<()> {
     let session = SessionName::new(args.session.clone())?;
     let socket =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
@@ -151,9 +162,41 @@ impl StopSignal for ProcessStop {
 
 struct StderrReporter;
 
+fn open_pairing_terminal() -> Option<File> {
+    let terminal = OpenOptions::new().write(true).open("/dev/tty").ok()?;
+    if unsafe { libc::isatty(terminal.as_raw_fd()) } != 1 {
+        return None;
+    }
+    Some(terminal)
+}
+
+fn write_pairing_code(
+    terminal: Option<&mut dyn Write>,
+    diagnostics: &mut dyn Write,
+    messages: &crate::localization::MachineAgentMessages,
+    code: &str,
+) -> io::Result<()> {
+    match terminal {
+        Some(terminal) => writeln!(terminal, "{}: {code}", messages.pairing_code),
+        None => writeln!(diagnostics, "{}", messages.pairing_code_unavailable),
+    }
+}
+
 impl Reporter for StderrReporter {
     fn pairing_code(&self, code: &str) {
-        eprintln!("{}: {code}", crate::localization::catalog().machine_agent.pairing_code);
+        let messages = &crate::localization::catalog().machine_agent;
+        let mut terminal = open_pairing_terminal();
+        let mut diagnostics = io::stderr().lock();
+        if write_pairing_code(
+            terminal.as_mut().map(|terminal| terminal as &mut dyn Write),
+            &mut diagnostics,
+            messages,
+            code,
+        )
+        .is_err()
+        {
+            let _ = writeln!(diagnostics, "{}", messages.pairing_code_unavailable);
+        }
     }
 
     fn registered(&self, session: &str) {
