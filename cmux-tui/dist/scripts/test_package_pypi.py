@@ -35,6 +35,15 @@ class LauncherCommandTests(unittest.TestCase):
             "pipx run --spec cmux==1.2.3 cmux",
         )
 
+    def test_pipx_run_dot_cache_restarts_the_same_version(self) -> None:
+        self.assertEqual(
+            launcher_command(
+                "1.2.3",
+                "/Users/test/.local/pipx/.cache/0123456789abcde/bin/cmux",
+            ),
+            "pipx run --spec cmux==1.2.3 cmux",
+        )
+
     def test_stable_install_path_is_reused_directly(self) -> None:
         self.assertEqual(
             launcher_command("1.2.3", "/Users/test/.local/bin/cmux"),
