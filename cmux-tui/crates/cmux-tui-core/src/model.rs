@@ -39,8 +39,8 @@ pub(crate) struct ScreenLayoutSnapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayoutMutationKey {
-    Split(SplitId),
-    Column(SplitId),
+    Split { split: SplitId, client: u64, transaction: u64 },
+    Column { column: SplitId, client: u64, transaction: u64 },
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +153,7 @@ impl Node {
         match self {
             Node::Leaf(_) => false,
             Node::Split { a, b, .. } => a.expand_stack_pane(target) || b.expand_stack_pane(target),
-            Node::Stack { panes, expanded } if panes.contains(&target) => {
+            Node::Stack { panes, expanded } if panes.contains(&target) && *expanded != target => {
                 *expanded = target;
                 true
             }

@@ -51,8 +51,12 @@ Response envelope:
 
 ```text
 object{id?:any,ok:true,data:any}
-| object{id?:any,ok:false,error:string}
+| object{id?:any,ok:false,error:string,error_code?:string}
 ```
+
+`error_code` is an additive machine-readable classification for commands that
+define one. Clients must continue to display or log `error` and ignore unknown
+codes.
 
 Decode errors return:
 

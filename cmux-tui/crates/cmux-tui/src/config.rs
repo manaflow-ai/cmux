@@ -1418,6 +1418,16 @@ impl Default for Keys {
 }
 
 impl Keys {
+    fn shortcut_label_for_chord(&self, action: Action, chord: &Chord) -> Option<String> {
+        let chord_label = chord.display_label()?;
+        let is_prefix_passthrough = action == Action::SendPrefix && *chord == self.prefix;
+        if chord.mods.contains(KeyModifiers::ALT) && !is_prefix_passthrough {
+            Some(chord_label)
+        } else {
+            Some(format!("{} {chord_label}", self.prefix.display_label()?))
+        }
+    }
+
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
@@ -1444,15 +1454,7 @@ impl Keys {
         self.bindings
             .iter()
             .filter(|(_, bound)| *bound == action)
-            .filter_map(|(chord, _)| {
-                let chord_label = chord.display_label()?;
-                let is_prefix_passthrough = action == Action::SendPrefix && *chord == self.prefix;
-                if chord.mods.contains(KeyModifiers::ALT) && !is_prefix_passthrough {
-                    Some(chord_label)
-                } else {
-                    Some(format!("{} {chord_label}", self.prefix.display_label()?))
-                }
-            })
+            .filter_map(|(chord, _)| self.shortcut_label_for_chord(action, chord))
             .collect()
     }
 
@@ -1472,12 +1474,20 @@ impl Keys {
     /// Bound actions in canonical catalog order, ready for shortcut help and
     /// future command surfaces.
     pub fn resolved_shortcuts(&self) -> Vec<(&'static ActionDefinition, Vec<String>)> {
+        let mut shortcuts_by_action = HashMap::<Action, Vec<String>>::new();
+        for (chord, action) in &self.bindings {
+            if let Some(label) = self.shortcut_label_for_chord(*action, chord) {
+                shortcuts_by_action.entry(*action).or_default().push(label);
+            }
+        }
         action_definitions()
             .iter()
             .copied()
             .filter_map(|definition| {
-                let shortcuts = self.shortcut_labels(definition.action);
-                (!shortcuts.is_empty()).then_some((definition, shortcuts))
+                shortcuts_by_action
+                    .remove(&definition.action)
+                    .filter(|shortcuts| !shortcuts.is_empty())
+                    .map(|shortcuts| (definition, shortcuts))
             })
             .collect()
     }

@@ -31,6 +31,7 @@ import type {
   ListAgentsResult,
   ListClientsResult,
   ListTerminalsResult,
+  LayoutUndoResult,
   MoveTerminalResult,
   NotificationLevel,
   NotifyResult,
@@ -127,6 +128,7 @@ export type RenameWorkspaceOptions = CmuxRequestParams<"rename-workspace">;
 export type MoveWorkspaceOptions = CmuxRequestParams<"move-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
 export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
+export type NewPaneRightOptions = Omit<CmuxRequestParams<"new-pane-right">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
@@ -546,6 +548,13 @@ export class CmuxClient {
     await this.requireProtocol(9, "new-pane");
     return this.request("new-pane", { pane, ...options });
   }
+  async newPaneRight(
+    pane: Id,
+    options: NewPaneRightOptions = {},
+  ): Promise<SurfaceResult> {
+    await this.requireCapability("viewport-splits-v1", "viewport panes");
+    return this.request("new-pane-right", { pane, ...options });
+  }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
   }
@@ -555,6 +564,27 @@ export class CmuxClient {
   async setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
     await this.requireProtocol(8, "set-split-ratio");
     return this.request("set-split-ratio", { split, ratio });
+  }
+  async setViewportPaneWidth(pane: Id, width: number): Promise<EmptyResult> {
+    await this.requireCapability(
+      "viewport-column-resize-v1",
+      "viewport pane resizing",
+    );
+    return this.request("set-viewport-pane-width", { pane, width });
+  }
+  async undoLayout(
+    pane: Id,
+    confirmationRevision?: number,
+  ): Promise<LayoutUndoResult> {
+    await this.requireCapability("layout-undo-v1", "layout undo");
+    if (confirmationRevision === undefined) {
+      return this.request("undo-layout", { pane });
+    }
+    return this.request("undo-layout", {
+      pane,
+      revision: confirmationRevision,
+      confirm_close: true,
+    });
   }
   paneNeighbor(pane: Id, dir: PaneDirection): Promise<PaneNeighborResult> {
     return this.request("pane-neighbor", { pane, dir });

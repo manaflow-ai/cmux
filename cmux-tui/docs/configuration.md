@@ -197,7 +197,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | --- | --- | --- | --- |
 | `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
 
-`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
+`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
 
 ## Server
 

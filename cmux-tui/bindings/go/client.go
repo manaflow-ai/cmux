@@ -389,6 +389,16 @@ func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) 
 	return result, c.request(ctx, "new-pane", params, &result)
 }
 
+func (c *Client) NewPaneRight(ctx context.Context, pane uint64, opts NewPaneRightOptions) (SurfaceResult, error) {
+	if err := c.requireCapability(ctx, "viewport-splits-v1", "viewport panes"); err != nil {
+		return SurfaceResult{}, err
+	}
+	params := commandMap(opts)
+	params["pane"] = pane
+	var result SurfaceResult
+	return result, c.request(ctx, "new-pane-right", params, &result)
+}
+
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
 	params := commandMap(opts)
 	params["pane"] = pane
@@ -406,6 +416,47 @@ func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32)
 		return err
 	}
 	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
+}
+
+func (c *Client) SetViewportPaneWidth(ctx context.Context, pane uint64, width float32) error {
+	if err := c.requireCapability(ctx, "viewport-column-resize-v1", "viewport pane resizing"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-viewport-pane-width", map[string]any{"pane": pane, "width": width}, nil)
+}
+
+// UndoLayout previews the latest layout undo when confirmationRevision is nil.
+// To confirm a pane-closing undo, pass the exact revision returned by
+// LayoutUndoConfirmationRequired.
+func (c *Client) UndoLayout(ctx context.Context, pane uint64, confirmationRevision *uint64) (LayoutUndoResult, error) {
+	if err := c.requireCapability(ctx, "layout-undo-v1", "layout undo"); err != nil {
+		return nil, err
+	}
+	params := map[string]any{"pane": pane}
+	if confirmationRevision != nil {
+		params["revision"] = *confirmationRevision
+		params["confirm_close"] = true
+	}
+	var wire struct {
+		Undone               bool     `json:"undone"`
+		ConfirmationRequired bool     `json:"confirmation_required"`
+		Screen               uint64   `json:"screen"`
+		Revision             uint64   `json:"revision"`
+		ClosesPanes          []uint64 `json:"closes_panes"`
+	}
+	if err := c.request(ctx, "undo-layout", params, &wire); err != nil {
+		return nil, err
+	}
+	switch {
+	case wire.Undone && !wire.ConfirmationRequired:
+		return LayoutUndoUndone{Screen: wire.Screen, Revision: wire.Revision}, nil
+	case !wire.Undone && wire.ConfirmationRequired:
+		return LayoutUndoConfirmationRequired{
+			Screen: wire.Screen, Revision: wire.Revision, ClosesPanes: wire.ClosesPanes,
+		}, nil
+	default:
+		return nil, &decodeError{msg: "layout undo response has no unique outcome"}
+	}
 }
 
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {

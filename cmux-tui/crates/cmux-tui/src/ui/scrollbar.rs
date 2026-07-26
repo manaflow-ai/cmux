@@ -199,12 +199,17 @@ pub(crate) fn horizontal_offset_at(
         return None;
     }
     let maximum = content_width.saturating_sub(viewport_width);
-    if maximum == 0 || track_width == 1 {
+    let (_, thumb_width) = horizontal_thumb_geometry(content_width, viewport_width, 0, track_width);
+    let travel = track_width.saturating_sub(thumb_width);
+    if maximum == 0 || travel == 0 {
         return Some(0);
     }
-    let position = position.min(track_width - 1) as u32;
-    let offset = (position * u32::from(maximum) + u32::from(track_width - 1) / 2)
-        / u32::from(track_width - 1);
+    // Treat the pointer as the thumb center so drag coordinates use the
+    // same travel range as horizontal_thumb_geometry.
+    let position = u32::from(position.min(track_width - 1))
+        .saturating_sub(u32::from(thumb_width) / 2)
+        .min(u32::from(travel));
+    let offset = (position * u32::from(maximum) + u32::from(travel) / 2) / u32::from(travel);
     Some(offset as u16)
 }
 
@@ -224,8 +229,17 @@ mod tests {
     #[test]
     fn horizontal_track_positions_map_to_offsets() {
         assert_eq!(horizontal_offset_at(0, 80, 10, 0), None);
-        assert_eq!(horizontal_offset_at(120, 80, 11, 0), Some(0));
-        assert_eq!(horizontal_offset_at(120, 80, 11, 5), Some(20));
-        assert_eq!(horizontal_offset_at(120, 80, 11, 10), Some(40));
+        assert_eq!(horizontal_offset_at(120, 80, 12, 4), Some(0));
+        assert_eq!(horizontal_offset_at(120, 80, 12, 6), Some(20));
+        assert_eq!(horizontal_offset_at(120, 80, 12, 8), Some(40));
+        assert_eq!(horizontal_offset_at(120, 80, 12, 11), Some(40));
+    }
+
+    #[test]
+    fn horizontal_thumb_center_round_trips_to_its_offset() {
+        for offset in [0, 20, 40] {
+            let (thumb_x, thumb_width) = horizontal_thumb_geometry(120, 80, offset, 12);
+            assert_eq!(horizontal_offset_at(120, 80, 12, thumb_x + thumb_width / 2), Some(offset));
+        }
     }
 }

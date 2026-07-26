@@ -121,8 +121,7 @@ mod tests {
             vec![GraphicPlacement {
                 surface: 1,
                 rect: Rect { x: 0, y: 0, width: 10, height: 5 },
-                source_x_px: 0,
-                source_width_px: None,
+                source_crop_px: None,
                 seq: 1,
                 data_b64: "AAAA".to_string(),
             }],
@@ -133,8 +132,7 @@ mod tests {
             vec![GraphicPlacement {
                 surface: 1,
                 rect: Rect { x: 1, y: 1, width: 11, height: 6 },
-                source_x_px: 0,
-                source_width_px: None,
+                source_crop_px: None,
                 seq: 2,
                 data_b64: "BBBB".to_string(),
             }],

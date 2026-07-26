@@ -214,9 +214,15 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "new-browser-tab": client.new_browser_tab,
         "new-workspace": client.new_workspace,
         "new-screen": client.new_screen,
+        "new-pane": client.new_pane,
+        "new-pane-right": client.new_pane_right,
         "split": client.split,
         "set-ratio": client.set_ratio,
         "set-split-ratio": client.set_split_ratio,
+        "set-viewport-pane-width": client.set_viewport_pane_width,
+        "undo-layout": lambda **kw: client.undo_layout(
+            kw["pane"], kw.get("revision") if kw.get("confirm_close") else None
+        ),
         "pane-neighbor": client.pane_neighbor,
         "focus-direction": client.focus_direction,
         "swap-pane": client.swap_pane,
@@ -339,7 +345,7 @@ def wait_contains(client: CmuxClient, request: Dict[str, Any], path: str, needle
 def get_path(value: Any, path: str) -> Any:
     current = value
     for part in path.split("."):
-        match = re.fullmatch(r"([A-Za-z0-9_-]+)(?:\[(\d+)\])?", part)
+        match = re.fullmatch(r"([A-Za-z0-9_-]+)(?:\[(-?\d+)\])?", part)
         if not match:
             raise FixtureFailure(f"bad JSON path segment {part!r}")
         key = match.group(1)
@@ -348,7 +354,7 @@ def get_path(value: Any, path: str) -> Any:
         current = current[key]
         if match.group(2) is not None:
             index = int(match.group(2))
-            if not isinstance(current, list) or index >= len(current):
+            if not isinstance(current, list) or index >= len(current) or index < -len(current):
                 raise FixtureFailure(f"path {path!r} missing index {index}")
             current = current[index]
     return current

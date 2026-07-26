@@ -235,6 +235,21 @@ public final class CmuxClient implements AutoCloseable {
         return new SurfaceResult(asLong(request("new-pane", params).get("surface")));
     }
 
+    public SurfaceResult newPaneRight(
+        long pane,
+        Double width,
+        Integer cols,
+        Integer rows
+    ) throws CmuxException {
+        requireCapability("viewport-splits-v1", "viewport panes");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        putIfNotNull(params, "width", width);
+        putIfNotNull(params, "cols", cols);
+        putIfNotNull(params, "rows", rows);
+        return new SurfaceResult(asLong(request("new-pane-right", params).get("surface")));
+    }
+
     public SurfaceResult split(long pane, String dir, Integer cols, Integer rows) throws CmuxException {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("pane", pane);
@@ -258,6 +273,52 @@ public final class CmuxClient implements AutoCloseable {
         params.put("split", split);
         params.put("ratio", ratio);
         request("set-split-ratio", params);
+    }
+
+    public void setViewportPaneWidth(long pane, double width) throws CmuxException {
+        requireCapability("viewport-column-resize-v1", "viewport pane resizing");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        params.put("width", width);
+        request("set-viewport-pane-width", params);
+    }
+
+    /**
+     * Previews layout undo when confirmationRevision is null. Confirm a
+     * pane-closing undo by passing the exact revision from the preview.
+     */
+    public LayoutUndoResult undoLayout(long pane, Long confirmationRevision)
+        throws CmuxException {
+        requireCapability("layout-undo-v1", "layout undo");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("pane", pane);
+        if (confirmationRevision != null) {
+            params.put("revision", confirmationRevision);
+            params.put("confirm_close", true);
+        }
+        Map<String, Object> data = request("undo-layout", params);
+        long screen = asLong(data.get("screen"));
+        long revision = asLong(data.get("revision"));
+        if (Boolean.TRUE.equals(data.get("undone"))
+            && !Boolean.TRUE.equals(data.get("confirmation_required"))) {
+            return new LayoutUndoUndone(screen, revision);
+        }
+        if (!Boolean.TRUE.equals(data.get("undone"))
+            && Boolean.TRUE.equals(data.get("confirmation_required"))) {
+            Object rawPanes = data.get("closes_panes");
+            if (!(rawPanes instanceof List<?> panes)) {
+                throw new CmuxDecodeException(
+                    "layout undo confirmation omitted closes_panes",
+                    null
+                );
+            }
+            List<Long> closesPanes = new ArrayList<>();
+            for (Object value : panes) {
+                closesPanes.add(asLong(value));
+            }
+            return new LayoutUndoConfirmationRequired(screen, revision, List.copyOf(closesPanes));
+        }
+        throw new CmuxDecodeException("layout undo response has no unique outcome", null);
     }
 
     public void setDefaultColors(String fg, String bg) throws CmuxException {

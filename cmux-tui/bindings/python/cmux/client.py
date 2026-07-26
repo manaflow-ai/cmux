@@ -6,8 +6,8 @@ import os
 import socket
 import tempfile
 import threading
-from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 
 class CmuxError(Exception):
@@ -101,6 +101,25 @@ class ReloadConfigResult:
 @dataclass(frozen=True)
 class SurfaceResult:
     surface: int
+
+
+@dataclass(frozen=True)
+class LayoutUndoUndone:
+    screen: int
+    revision: int
+    undone: bool = field(default=True, init=False)
+
+
+@dataclass(frozen=True)
+class LayoutUndoConfirmationRequired:
+    screen: int
+    revision: int
+    closes_panes: List[int]
+    undone: bool = field(default=False, init=False)
+    confirmation_required: bool = field(default=True, init=False)
+
+
+LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 
 
 @dataclass(frozen=True)
@@ -603,6 +622,19 @@ class CmuxClient:
         self._require_protocol(9, "new-pane")
         return SurfaceResult(int(self._request("new-pane", pane=pane, cols=cols, rows=rows)["surface"]))
 
+    def new_pane_right(
+        self,
+        pane: int,
+        width: Optional[float] = None,
+        cols: Optional[int] = None,
+        rows: Optional[int] = None,
+    ) -> SurfaceResult:
+        self._require_capability("viewport-splits-v1", "viewport panes")
+        data = self._request(
+            "new-pane-right", pane=pane, width=width, cols=cols, rows=rows
+        )
+        return SurfaceResult(int(data["surface"]))
+
     def split(
         self,
         pane: int,
@@ -620,6 +652,36 @@ class CmuxClient:
         self._require_protocol(8, "set-split-ratio")
         self._request("set-split-ratio", split=split, ratio=ratio)
         return EmptyResult()
+
+    def set_viewport_pane_width(self, pane: int, width: float) -> EmptyResult:
+        self._require_capability(
+            "viewport-column-resize-v1", "viewport pane resizing"
+        )
+        self._request("set-viewport-pane-width", pane=pane, width=width)
+        return EmptyResult()
+
+    def undo_layout(
+        self, pane: int, confirmation_revision: Optional[int] = None
+    ) -> LayoutUndoResult:
+        """Preview layout undo, then pass the preview's exact revision to confirm."""
+        self._require_capability("layout-undo-v1", "layout undo")
+        data = self._request(
+            "undo-layout",
+            pane=pane,
+            revision=confirmation_revision,
+            confirm_close=True if confirmation_revision is not None else None,
+        )
+        if data.get("undone") is True:
+            return LayoutUndoUndone(
+                screen=int(data["screen"]), revision=int(data["revision"])
+            )
+        if data.get("confirmation_required") is True:
+            return LayoutUndoConfirmationRequired(
+                screen=int(data["screen"]),
+                revision=int(data["revision"]),
+                closes_panes=[int(value) for value in data.get("closes_panes", [])],
+            )
+        raise ProtocolError("layout undo response has no outcome")
 
     def pane_neighbor(self, pane: int, dir: str) -> Dict[str, Any]:
         return self._request("pane-neighbor", pane=pane, dir=dir)

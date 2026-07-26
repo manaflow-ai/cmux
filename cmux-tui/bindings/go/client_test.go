@@ -228,6 +228,61 @@ func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
 	}
 }
 
+func TestUndoLayoutPreservesPreviewRevisionForConfirmation(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(10)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"layout-undo-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 2)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for range 2 {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			requests <- request
+			data := map[string]any{
+				"undone": false, "confirmation_required": true,
+				"screen": 3, "revision": 8, "closes_panes": []uint64{15},
+			}
+			if request["confirm_close"] == true {
+				data = map[string]any{"undone": true, "screen": 3, "revision": 9}
+			}
+			_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": data})
+		}
+	}()
+
+	preview, err := client.UndoLayout(context.Background(), 15, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmation, ok := preview.(LayoutUndoConfirmationRequired)
+	if !ok || confirmation.Revision != 8 || len(confirmation.ClosesPanes) != 1 {
+		t.Fatalf("preview = %#v", preview)
+	}
+	result, err := client.UndoLayout(context.Background(), 15, &confirmation.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := result.(LayoutUndoUndone); !ok {
+		t.Fatalf("result = %#v", result)
+	}
+	<-requests
+	confirm := <-requests
+	if confirm["revision"] != float64(8) || confirm["confirm_close"] != true {
+		t.Fatalf("confirmation request = %#v", confirm)
+	}
+}
+
 func TestNewPaneRejectsServersOlderThanProtocolNine(t *testing.T) {
 	protocol := uint32(8)
 	client := &Client{protocol: &protocol}

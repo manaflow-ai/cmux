@@ -193,6 +193,42 @@ pub struct SurfaceResult {
     pub surface: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutUndoResult {
+    Undone { screen: u64, revision: u64 },
+    ConfirmationRequired { screen: u64, revision: u64, closes_panes: Vec<u64> },
+}
+
+impl<'de> Deserialize<'de> for LayoutUndoResult {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            #[serde(default)]
+            undone: bool,
+            #[serde(default)]
+            confirmation_required: bool,
+            screen: u64,
+            revision: u64,
+            #[serde(default)]
+            closes_panes: Vec<u64>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        match (wire.undone, wire.confirmation_required) {
+            (true, false) => Ok(Self::Undone { screen: wire.screen, revision: wire.revision }),
+            (false, true) => Ok(Self::ConfirmationRequired {
+                screen: wire.screen,
+                revision: wire.revision,
+                closes_panes: wire.closes_panes,
+            }),
+            _ => Err(serde::de::Error::custom("layout undo response has no unique outcome")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkspacePlacement {
     pub workspace: u64,
@@ -675,6 +711,22 @@ impl CmuxClient {
         self.request("new-pane", params)
     }
 
+    pub fn new_pane_right(
+        &mut self,
+        pane: u64,
+        width: Option<f32>,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<SurfaceResult> {
+        self.require_capability("viewport-splits-v1", "viewport panes")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        insert_opt(&mut params, "width", width);
+        insert_opt(&mut params, "cols", cols);
+        insert_opt(&mut params, "rows", rows);
+        self.request("new-pane-right", params)
+    }
+
     pub fn split(
         &mut self,
         pane: u64,
@@ -704,6 +756,34 @@ impl CmuxClient {
         params.insert("split".to_string(), Value::from(split));
         params.insert("ratio".to_string(), Value::from(ratio));
         self.request::<Empty>("set-split-ratio", params).map(|_| ())
+    }
+
+    pub fn set_viewport_pane_width(&mut self, pane: u64, width: f32) -> Result<()> {
+        self.require_capability("viewport-column-resize-v1", "viewport pane resizing")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        params.insert("width".to_string(), Value::from(width));
+        self.request::<Empty>("set-viewport-pane-width", params).map(|_| ())
+    }
+
+    /// Undo the latest structural layout action.
+    ///
+    /// Pass `None` to preview the undo. If the result is
+    /// `ConfirmationRequired`, show its closing pane ids and call this method
+    /// again with that exact `revision`.
+    pub fn undo_layout(
+        &mut self,
+        pane: u64,
+        confirmation_revision: Option<u64>,
+    ) -> Result<LayoutUndoResult> {
+        self.require_capability("layout-undo-v1", "layout undo")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        if let Some(revision) = confirmation_revision {
+            params.insert("revision".to_string(), Value::from(revision));
+            params.insert("confirm_close".to_string(), Value::Bool(true));
+        }
+        self.request("undo-layout", params)
     }
 
     pub fn set_default_colors(&mut self, fg: Option<&str>, bg: Option<&str>) -> Result<()> {
@@ -1375,6 +1455,34 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(mutation.workspace_revision, 5);
+    }
+
+    #[test]
+    fn layout_undo_decodes_both_outcomes() {
+        let preview: LayoutUndoResult = serde_json::from_value(serde_json::json!({
+            "undone": false,
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+            "closes_panes": [15],
+        }))
+        .unwrap();
+        assert_eq!(
+            preview,
+            LayoutUndoResult::ConfirmationRequired {
+                screen: 3,
+                revision: 8,
+                closes_panes: vec![15],
+            }
+        );
+
+        let undone: LayoutUndoResult = serde_json::from_value(serde_json::json!({
+            "undone": true,
+            "screen": 3,
+            "revision": 9,
+        }))
+        .unwrap();
+        assert_eq!(undone, LayoutUndoResult::Undone { screen: 3, revision: 9 });
     }
 
     #[test]

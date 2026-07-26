@@ -611,6 +611,8 @@ Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
 
 CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSON stdout both print the exact result object.
 
+The result is an identity-bearing runtime snapshot for inspection. Its `layout` is not the declarative `layout` input accepted by `apply-layout`.
+
 ### apply-layout
 
 | Field | Value |
@@ -1154,7 +1156,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `new-pane` |
-| Flags | `--pane <id> [--width <fraction>] [--cols <n> --rows <n>]` |
+| Flags | `--pane <id> [--cols <n> --rows <n>]` |
 | Plain stdout | new surface id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -1197,7 +1199,7 @@ Errors:
 | --- | --- |
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
-| spawn or PTY error string | PTY creation or child spawn fails |
+| `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1233,6 +1235,7 @@ Params:
 | --- | --- | --- | --- |
 | `pane` | `Id` | required | Must belong to a screen with viewport columns |
 | `width` | `float32` | required | Finite value from 0.1 through 1.0 |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
 Result: empty object.
 
@@ -1269,7 +1272,7 @@ Example:
 | status | implemented |
 | since | protocol 9 additive capability `layout-undo-v1` |
 
-Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Repeated resize changes to one exact split or horizontal column are coalesced. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
+Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
 
 If the entry created panes, the first request returns a confirmation preview without mutating state. The client must show `closes_panes`, then resend the exact returned `revision` with `confirm_close:true`. Any later structural change invalidates that revision. A rejected or stale confirmation closes nothing.
 
@@ -1298,6 +1301,11 @@ Errors:
 | `layout revision conflict: expected <n>, current <n>` | The confirmation revision is stale or incorrect |
 | `layout changed before undo could commit` | The layout changed after validation and before commit |
 | `bad request: ...` | Missing fields or wrong JSON type |
+
+Expected failures also include a machine-readable response `error_code`.
+`layout-undo-unavailable` means the screen has no undo entry.
+`layout-undo-stale` means a previously valid entry or confirmation can no
+longer commit. Other failures omit `error_code`.
 
 CLI mapping:
 
@@ -1436,6 +1444,7 @@ Params:
 | --- | --- | --- | --- |
 | `split` | `Id` | required | Stable split id from `list-workspaces` or `export-layout` |
 | `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
 Result: `object{}`.
 

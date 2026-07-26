@@ -2,7 +2,13 @@ import unittest
 from unittest.mock import patch
 
 from cmux import CmuxClient, ProtocolError
-from cmux.client import IdentifyResult, Layout, _parse_tree
+from cmux.client import (
+    IdentifyResult,
+    Layout,
+    LayoutUndoConfirmationRequired,
+    LayoutUndoUndone,
+    _parse_tree,
+)
 
 
 class ProtocolTests(unittest.TestCase):
@@ -176,6 +182,56 @@ class ProtocolTests(unittest.TestCase):
         client.set_split_ratio(1, 0.5)
 
         self.assertEqual(requests, [("set-split-ratio", {"split": 1, "ratio": 0.5})])
+
+    def test_layout_undo_preserves_preview_revision_for_confirmation(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {"layout-undo-v1"}
+        requests = []
+        responses = [
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [15],
+            },
+            {"undone": True, "screen": 3, "revision": 9},
+        ]
+        client._request = lambda command, **params: (
+            requests.append((command, params)) or responses.pop(0)
+        )
+
+        preview = client.undo_layout(15)
+        self.assertEqual(
+            preview,
+            LayoutUndoConfirmationRequired(
+                screen=3, revision=8, closes_panes=[15]
+            ),
+        )
+        result = client.undo_layout(15, preview.revision)
+        self.assertEqual(result, LayoutUndoUndone(screen=3, revision=9))
+        self.assertEqual(
+            requests,
+            [
+                (
+                    "undo-layout",
+                    {
+                        "pane": 15,
+                        "revision": None,
+                        "confirm_close": None,
+                    },
+                ),
+                (
+                    "undo-layout",
+                    {
+                        "pane": 15,
+                        "revision": 8,
+                        "confirm_close": True,
+                    },
+                ),
+            ],
+        )
 
     def test_layout_preserves_protocol_seven_positional_constructor_order(self) -> None:
         first = Layout("leaf", 1)

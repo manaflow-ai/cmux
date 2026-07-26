@@ -304,6 +304,14 @@ export interface NewPaneRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
+export interface NewPaneRightRequest extends CmuxRequestBase {
+  cmd: "new-pane-right";
+  pane: Id;
+  width?: number | null;
+  cols?: number | null;
+  rows?: number | null;
+}
+
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
   pane: Id;
@@ -333,6 +341,35 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
   /** The server clamps this value to `0.05..0.95`. */
   ratio: number;
 }
+
+export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
+  cmd: "set-viewport-pane-width";
+  pane: Id;
+  width: number;
+}
+
+interface UndoLayoutRequestBase extends CmuxRequestBase {
+  cmd: "undo-layout";
+  pane: Id;
+}
+export type UndoLayoutRequest =
+  | (UndoLayoutRequestBase & { revision?: null; confirm_close?: false | null })
+  | (UndoLayoutRequestBase & { revision: number; confirm_close: true });
+
+export type LayoutUndoResult =
+  | {
+      undone: true;
+      confirmation_required?: false;
+      screen: Id;
+      revision: number;
+    }
+  | {
+      undone: false;
+      confirmation_required: true;
+      screen: Id;
+      revision: number;
+      closes_panes: Id[];
+    };
 
 export interface PaneNeighborRequest extends CmuxRequestBase { cmd: "pane-neighbor"; pane: Id; dir: PaneDirection }
 export interface PaneNeighborResult { pane: Id | null }
@@ -568,9 +605,12 @@ export type CmuxRequest =
   | CreateTerminalRequest
   | NewScreenRequest
   | NewPaneRequest
+  | NewPaneRightRequest
   | SplitRequest
   | SetRatioRequest
   | SetSplitRatioRequest
+  | SetViewportPaneWidthRequest
+  | UndoLayoutRequest
   | PaneNeighborRequest
   | FocusDirectionRequest
   | SwapPaneRequest
@@ -636,8 +676,11 @@ export interface CmuxResponseDataMap {
   "create-terminal": TerminalPlacement;
   "new-screen": SurfaceResult;
   "new-pane": SurfaceResult;
+  "new-pane-right": SurfaceResult;
   split: SurfaceResult;
   "set-ratio": EmptyResult;
+  "set-viewport-pane-width": EmptyResult;
+  "undo-layout": LayoutUndoResult;
   "set-split-ratio": EmptyResult;
   "pane-neighbor": PaneNeighborResult;
   "focus-direction": FocusDirectionResult;

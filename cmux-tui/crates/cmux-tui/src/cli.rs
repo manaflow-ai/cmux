@@ -230,7 +230,7 @@ const VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         name: "new-pane-right",
-        help: "Create a two-thirds-width viewport pane to the right.",
+        help: "Create a viewport pane to the right (default width: two-thirds).",
         allowed: &["pane", "width", "cols", "rows"],
         kind: socket(build_new_pane_right, print_surface, false),
     },

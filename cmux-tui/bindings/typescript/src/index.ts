@@ -4,6 +4,7 @@ export {
   type AttachSurfaceOptions,
   type CmuxClientOptions,
   type NewBrowserTabOptions,
+  type NewPaneRightOptions,
   type NewScreenOptions,
   type NewTabOptions,
   type NewWorkspaceOptions,

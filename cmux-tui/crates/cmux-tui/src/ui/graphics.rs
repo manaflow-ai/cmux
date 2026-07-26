@@ -14,8 +14,7 @@ const PLACEMENT_ID: u32 = 1;
 pub struct GraphicPlacement {
     pub surface: SurfaceId,
     pub rect: Rect,
-    pub source_x_px: u32,
-    pub source_width_px: Option<u32>,
+    pub source_crop_px: Option<(u32, u32)>,
     pub seq: u64,
     pub data_b64: String,
 }
@@ -51,8 +50,7 @@ impl GraphicsState {
             batch.extend(place_image_cropped(
                 placement.surface,
                 placement.rect,
-                placement.source_x_px,
-                placement.source_width_px,
+                placement.source_crop_px,
             ));
             if !batch.is_empty() {
                 out.push(batch);
@@ -89,12 +87,11 @@ pub fn transmit_png(surface: SurfaceId, data_b64: &str) -> Vec<u8> {
 pub fn place_image_cropped(
     surface: SurfaceId,
     rect: Rect,
-    source_x_px: u32,
-    source_width_px: Option<u32>,
+    source_crop_px: Option<(u32, u32)>,
 ) -> Vec<u8> {
     let id = image_id(surface);
-    let crop = source_width_px
-        .map_or_else(String::new, |width| format!(",x={source_x_px},w={}", width.max(1)));
+    let crop =
+        source_crop_px.map_or_else(String::new, |(x, width)| format!(",x={x},w={}", width.max(1)));
     format!(
         "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID}{crop},c={},r={},q=2;{ESC}\\{ESC}8",
         rect.y + 1,
@@ -275,7 +272,6 @@ mod tests {
         let bytes = String::from_utf8(place_image_cropped(
             2,
             Rect { x: 4, y: 6, width: 80, height: 24 },
-            0,
             None,
         ))
         .unwrap();
@@ -293,8 +289,7 @@ mod tests {
         let bytes = String::from_utf8(place_image_cropped(
             2,
             Rect { x: 4, y: 6, width: 40, height: 24 },
-            80,
-            Some(320),
+            Some((80, 320)),
         ))
         .unwrap();
         assert!(bytes.contains(",x=80,w=320,c=40,r=24,"));
@@ -305,8 +300,7 @@ mod tests {
         let visible = GraphicPlacement {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
-            source_x_px: 0,
-            source_width_px: None,
+            source_crop_px: None,
             seq: 1,
             data_b64: "frame".to_string(),
         };

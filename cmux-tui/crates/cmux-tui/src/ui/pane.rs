@@ -217,14 +217,19 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let screen = frame.area();
     let full_width = area.viewport.map_or(bar.width, |clip| clip.full_rect_width);
     let source_x = area.viewport.map_or(0, |clip| clip.rect_source_x);
+    let screen_right = screen.x.saturating_add(screen.width);
+    let screen_bottom = screen.y.saturating_add(screen.height);
     if full_width < 2
         || bar.width == 0
         || source_x >= full_width
-        || bar.y >= screen.height
-        || bar.x >= screen.width
+        || bar.x < screen.x
+        || bar.x >= screen_right
+        || bar.y < screen.y
+        || bar.y >= screen_bottom
     {
         return;
     }
+    let visible_bar = Rect { width: bar.width.min(screen_right.saturating_sub(bar.x)), ..bar };
     let theme = app.config.theme;
     let chrome = app.chrome;
     let style = border_style(app, focused);
@@ -254,7 +259,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             },
         )
     };
-    let visible_rect = |rect| clip_tab_bar_rect(rect, bar, source_x);
+    let visible_rect = |rect| clip_tab_bar_rect(rect, visible_bar, source_x);
     // Hover highlight for the bar's controls (+, ‹, ›).
     let ctrl_style = |rect: Rect| {
         if visible_rect(rect)
@@ -374,16 +379,14 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
 
-    let visible_width = bar.width.min(full_width.saturating_sub(source_x));
+    let visible_width = visible_bar.width.min(full_width.saturating_sub(source_x));
     let frame_buf = frame.buffer_mut();
     for dx in 0..visible_width {
         frame_buf[(bar.x + dx, bar.y)] = logical[(source_x + dx, 0)].clone();
     }
-    app.hits.extend(
-        hits.into_iter().filter_map(|(rect, hit)| {
-            clip_tab_bar_rect(rect, bar, source_x).map(|rect| (rect, hit))
-        }),
-    );
+    app.hits.extend(hits.into_iter().filter_map(|(rect, hit)| {
+        clip_tab_bar_rect(rect, visible_bar, source_x).map(|rect| (rect, hit))
+    }));
 }
 
 /// Draw one pane's terminal content; returns the frame cursor position

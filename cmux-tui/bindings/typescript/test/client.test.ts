@@ -210,6 +210,59 @@ test("setSplitRatio accepts newer additive protocols", async () => {
   await client.close();
 });
 
+test("undoLayout preserves the preview revision for confirmation", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["layout-undo-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    requests.push(request);
+    if (request.confirm_close === true) {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { undone: true, screen: 3, revision: 9 },
+      });
+    } else {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          undone: false,
+          confirmation_required: true,
+          screen: 3,
+          revision: 8,
+          closes_panes: [15],
+        },
+      });
+    }
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  const preview = await client.undoLayout(15);
+  assert.equal(preview.undone, false);
+  if (preview.undone) throw new Error("expected confirmation preview");
+  const result = await client.undoLayout(15, preview.revision);
+  assert.equal(result.undone, true);
+  assert.deepEqual(requests, [
+    { id: 2, cmd: "undo-layout", pane: 15 },
+    { id: 3, cmd: "undo-layout", pane: 15, revision: 8, confirm_close: true },
+  ]);
+  await client.close();
+});
+
 test("stable terminal resolve and close serialize process identity", async () => {
   const terminalId = "0123456789abcdef0123456789abcdef";
   const incarnation = "fedcba9876543210fedcba9876543210";

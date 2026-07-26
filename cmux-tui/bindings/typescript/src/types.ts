@@ -6,6 +6,7 @@ export type {
   NewBrowserTabOptions,
   NewScreenOptions,
   NewTabOptions,
+  NewPaneRightOptions,
   NewWorkspaceOptions,
   SelectOptions,
   SelectTabOptions,

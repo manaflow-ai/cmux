@@ -18,11 +18,12 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, LayoutUndoResult,
-    MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId,
-    Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, ViewportColumn,
-    WorkspaceId, ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport,
-    layout_screen, layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
+    BrowserSource, BrowserStatus, DEFAULT_VIEWPORT_PANE_WIDTH, Direction, LayoutUndoError,
+    LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node,
+    PairingChallenge, PaneId, Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
+    ViewportColumn, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
+    exact_split_for_pane_edge_with_viewport, layout_screen, layout_screen_with_viewport,
+    split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -85,6 +86,7 @@ const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
 const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
 const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
 const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
+static NEXT_LOCAL_RESIZE_CLIENT: AtomicU64 = AtomicU64::new(1);
 
 pub enum AppEvent {
     SessionScoped {
@@ -642,6 +644,14 @@ enum SessionCompletionAction {
     LayoutUndoStale,
 }
 
+fn layout_undo_error_completion(error: &anyhow::Error) -> Option<SessionCompletionAction> {
+    match error.downcast_ref::<LayoutUndoError>() {
+        Some(LayoutUndoError::Unavailable) => Some(SessionCompletionAction::LayoutUndoUnavailable),
+        Some(LayoutUndoError::Stale(_)) => Some(SessionCompletionAction::LayoutUndoStale),
+        None => None,
+    }
+}
+
 struct PendingSessionMutationState {
     events: SessionEventSender,
     pending_mutations: Arc<AtomicUsize>,
@@ -919,6 +929,8 @@ pub struct OrderedSession {
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
+    layout_resize_client: u64,
+    layout_resize_transaction: Arc<AtomicU64>,
     #[cfg(test)]
     surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
 }
@@ -961,6 +973,8 @@ impl OrderedSession {
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
+            layout_resize_client: NEXT_LOCAL_RESIZE_CLIENT.fetch_add(1, Ordering::Relaxed),
+            layout_resize_transaction: Arc::new(AtomicU64::new(1)),
             #[cfg(test)]
             surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
         }
@@ -1998,17 +2012,12 @@ impl OrderedSession {
         self.enqueue_with_completion("undo layout", true, move |session| {
             let result = match session.undo_layout(pane, revision, confirm_close) {
                 Ok(result) => result,
-                Err(error) if error.to_string() == "no layout change to undo" => {
-                    return Ok(Some(SessionCompletionAction::LayoutUndoUnavailable));
+                Err(error) => {
+                    if let Some(action) = layout_undo_error_completion(&error) {
+                        return Ok(Some(action));
+                    }
+                    return Err(error);
                 }
-                Err(error)
-                    if confirm_close
-                        && (error.to_string().contains("layout revision")
-                            || error.to_string().contains("layout changed")) =>
-                {
-                    return Ok(Some(SessionCompletionAction::LayoutUndoStale));
-                }
-                Err(error) => return Err(error),
             };
             match result {
                 LayoutUndoResult::Undone { .. } => Ok(None),
@@ -2031,22 +2040,35 @@ impl OrderedSession {
     }
 
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
+        let client = self.layout_resize_client;
+        let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
         self.enqueue_coalescing_session_mutation(
             "resize exact pane split",
             ("split id", split),
-            move |session| session.set_split_ratio(split, ratio),
+            move |session| {
+                session.set_split_ratio_in_transaction(split, ratio, client, transaction)
+            },
         );
     }
 
     fn set_viewport_pane_width_deferred(&self, pane: PaneId, width: f32) {
+        let client = self.layout_resize_client;
+        let transaction = self.layout_resize_transaction.load(Ordering::Acquire);
         self.enqueue_coalescing_session_mutation(
             "resize viewport pane",
             ("viewport pane", pane),
-            move |session| session.set_viewport_pane_width(pane, width),
+            move |session| {
+                session.set_viewport_pane_width_in_transaction(pane, width, client, transaction)
+            },
         );
     }
 
     fn settle_split_ratio(&self) {
+        let _ = self.layout_resize_transaction.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |transaction| Some(transaction.wrapping_add(1).max(1)),
+        );
         self.enqueue("settle split resize", |_| Ok(()));
     }
 
@@ -3376,6 +3398,28 @@ fn clip_horizontal_rect(rect: Rect, viewport: Rect, output_x: u16) -> Option<(Re
         },
         left - rect.x,
     ))
+}
+
+fn browser_source_crop(
+    frame_width: u32,
+    source_column: u16,
+    visible_columns: u16,
+    full_columns: u16,
+) -> Option<(u32, u32)> {
+    if frame_width == 0 || visible_columns == 0 || full_columns == 0 {
+        return None;
+    }
+    let frame_width = u64::from(frame_width);
+    let full_columns = u64::from(full_columns);
+    let source_column = u64::from(source_column).min(full_columns);
+    let end_column = source_column.saturating_add(u64::from(visible_columns)).min(full_columns);
+    if source_column >= end_column {
+        return None;
+    }
+    let source_x = source_column.saturating_mul(frame_width) / full_columns;
+    let source_end = end_column.saturating_mul(frame_width).div_ceil(full_columns).min(frame_width);
+    let source_x = source_x.min(frame_width.saturating_sub(1));
+    Some((source_x as u32, source_end.saturating_sub(source_x).max(1) as u32))
 }
 
 impl PaneFocusHistory {
@@ -5895,6 +5939,13 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
+        let live_screens = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .map(|screen| screen.id)
+            .collect::<HashSet<_>>();
+        self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
         self.sidebar_workspace_selection = selected_workspace
@@ -6151,16 +6202,18 @@ impl App {
                 continue;
             }
             let Some(frame) = surface.browser_frame() else { continue };
-            let source_x_px =
-                u32::from(area.content_source_x()) * u32::from(self.cell_pixels.0.max(1));
-            let source_width_px = area
-                .viewport
-                .map(|_| u32::from(area.content.width) * u32::from(self.cell_pixels.0.max(1)));
+            let source_crop_px = area.viewport.and_then(|clip| {
+                browser_source_crop(
+                    frame.css_width,
+                    clip.content_source_x,
+                    area.content.width,
+                    clip.full_content_width,
+                )
+            });
             placements.push(GraphicPlacement {
                 surface: area.surface,
                 rect: area.content,
-                source_x_px,
-                source_width_px,
+                source_crop_px,
                 seq: frame.seq,
                 data_b64: frame.data_b64,
             });
@@ -12141,10 +12194,9 @@ impl App {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
-        if self.horizontal_scrollbar_state().is_some()
-            && (self.content_area.contains(x, y)
-                || matches!(self.hit_at(x, y), Some(Hit::HorizontalScrollbar { .. })))
-        {
+        let over_scrollbar = matches!(self.hit_at(x, y), Some(Hit::HorizontalScrollbar { .. }));
+        let over_clipped_pane = self.pane_area_at(x, y).is_some_and(|area| area.viewport.is_some());
+        if self.horizontal_scrollbar_state().is_some() && (over_scrollbar || over_clipped_pane) {
             let step = (self.content_area.width / 6).max(1) as i16;
             self.scroll_horizontal_viewport(if right { step } else { -step }, true);
             return Ok(RenderAction::Draw);
@@ -12459,13 +12511,13 @@ mod tests {
         SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock,
         SurfaceResizeDecision, SurfaceResizeOwnership, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
         WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_hover_forward_allowed, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_host_input, forward_mux_event,
-        forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
-        with_panic_stdout_lock,
+        browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
+        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item, forward_host_input,
+        forward_mux_event, forward_mux_events, layout_undo_error_completion, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session, with_panic_stdout_lock,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -12475,8 +12527,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
-        BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
-        SurfaceOptions, ZoomMode, layout_screen,
+        BrowserStatus, Direction, LayoutUndoError, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId,
+        SurfaceKind, SurfaceOptions, ZoomMode, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -13505,7 +13557,12 @@ mod tests {
 
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
+        app.viewport_states.insert(u64::MAX, ViewportMotion::new(Instant::now()));
         app.replace_tree(app.session.tree());
+        assert!(
+            !app.viewport_states.contains_key(&u64::MAX),
+            "closed screens must not leave viewport animation state behind"
+        );
         app.sync_layout((80, 25));
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
@@ -14471,6 +14528,8 @@ mod tests {
         app.handle_mouse(event(MouseEventKind::ScrollDown, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<65;5;3M");
 
+        app.content_area = content;
+        app.viewport_virtual_width = content.width * 2;
         app.handle_mouse(event(MouseEventKind::ScrollLeft, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<66;5;3M");
 
@@ -14567,6 +14626,28 @@ mod tests {
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn layout_undo_expected_failures_are_typed_and_localized() {
+        assert!(matches!(
+            layout_undo_error_completion(&anyhow::Error::new(LayoutUndoError::Stale(
+                "layout changed since the last undoable action".to_string()
+            ))),
+            Some(SessionCompletionAction::LayoutUndoStale)
+        ));
+        assert!(matches!(
+            layout_undo_error_completion(&anyhow::Error::new(LayoutUndoError::Unavailable)),
+            Some(SessionCompletionAction::LayoutUndoUnavailable)
+        ));
+    }
+
+    #[test]
+    fn browser_crop_scales_to_downsampled_frame_width() {
+        assert_eq!(browser_source_crop(50, 20, 40, 100), Some((10, 20)));
+        assert_eq!(browser_source_crop(101, 20, 40, 100), Some((20, 41)));
+        assert_eq!(browser_source_crop(50, 90, 20, 100), Some((45, 5)));
+        assert_eq!(browser_source_crop(0, 20, 40, 100), None);
     }
 
     #[test]

@@ -36,7 +36,7 @@ The modeless `Alt-n` binding creates a new pane and reapplies Zellij's default d
 
 ## Viewport Panes
 
-`Ctrl-b g` creates a terminal immediately after the horizontal column containing the focused pane. Its default width is two thirds of each frontend's viewport. Supporting frontends retain each column's independent width and expose overflow through a horizontal scrollbar. Ordinary split and startup behavior remain tiled.
+`Ctrl-b g` creates a terminal immediately after the horizontal column containing the focused pane. Its default width is two-thirds of each frontend's viewport. Supporting frontends retain each column's independent width and expose overflow through a horizontal scrollbar. Ordinary split and startup behavior remain tiled.
 
 ## Layout Undo
 

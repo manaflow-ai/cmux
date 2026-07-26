@@ -18,9 +18,9 @@ use cmux_tui_core::server::{
     VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, LayoutUndoResult, Mux, MuxEventReceiver, PaneId,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind,
-    SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserStatus, DefaultColors, LayoutUndoError, LayoutUndoResult, Mux,
+    MuxEventReceiver, PaneId, ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId,
+    SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde::Deserialize;
@@ -50,13 +50,24 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
 }
 
 pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
-    error.downcast_ref::<remote::RemoteRequestError>().is_some_and(|error| {
-        matches!(
-            error,
-            remote::RemoteRequestError::Rejected(message)
-                if message == &format!("unknown surface {surface}")
+    let expected = format!("unknown surface {surface}");
+    error
+        .downcast_ref::<remote::RemoteRequestError>()
+        .is_some_and(|error| error.rejection_message() == Some(expected.as_str()))
+}
+
+fn normalize_remote_layout_undo_error(error: anyhow::Error) -> anyhow::Error {
+    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+        return error;
+    };
+    match remote.rejection_code() {
+        Some(LayoutUndoError::UNAVAILABLE_CODE) => LayoutUndoError::Unavailable.into(),
+        Some(LayoutUndoError::STALE_CODE) => LayoutUndoError::Stale(
+            remote.rejection_message().unwrap_or("layout changed before undo").to_string(),
         )
-    })
+        .into(),
+        _ => error,
+    }
 }
 
 #[cfg(test)]
@@ -80,7 +91,16 @@ pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected(message.to_string()).into()
+    remote::RemoteRequestError::Rejected { message: message.to_string(), code: None }.into()
+}
+
+#[cfg(test)]
+fn test_remote_rejected_error_with_code(message: &str, code: &str) -> anyhow::Error {
+    remote::RemoteRequestError::Rejected {
+        message: message.to_string(),
+        code: Some(code.to_string()),
+    }
+    .into()
 }
 
 pub struct SidebarPluginSurface {
@@ -785,19 +805,64 @@ impl Session {
         }
     }
 
+    #[cfg(test)]
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> anyhow::Result<()> {
+        self.set_split_ratio_inner(split, ratio, None)
+    }
+
+    pub fn set_split_ratio_in_transaction(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        client: u64,
+        transaction: u64,
+    ) -> anyhow::Result<()> {
+        self.set_split_ratio_inner(split, ratio, Some((client, transaction)))
+    }
+
+    fn set_split_ratio_inner(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        transaction: Option<(u64, u64)>,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux
-                .set_split_ratio(split, ratio)
-                .then_some(())
-                .ok_or_else(|| anyhow::anyhow!("unknown split {split}")),
+            Session::Local(mux) => {
+                let changed = transaction.map_or_else(
+                    || mux.set_split_ratio(split, ratio),
+                    |(client, transaction)| {
+                        mux.set_split_ratio_in_transaction(split, ratio, client, transaction)
+                    },
+                );
+                changed.then_some(()).ok_or_else(|| anyhow::anyhow!("unknown split {split}"))
+            }
             Session::Remote(remote) => remote
-                .request(json!({"cmd": "set-split-ratio", "split": split, "ratio": ratio}))
+                .request(json!({
+                    "cmd": "set-split-ratio",
+                    "split": split,
+                    "ratio": ratio,
+                    "transaction": transaction.map(|(_, transaction)| transaction),
+                }))
                 .map(|_| ()),
         }
     }
 
-    pub fn set_viewport_pane_width(&self, pane: PaneId, width: f32) -> anyhow::Result<()> {
+    pub fn set_viewport_pane_width_in_transaction(
+        &self,
+        pane: PaneId,
+        width: f32,
+        client: u64,
+        transaction: u64,
+    ) -> anyhow::Result<()> {
+        self.set_viewport_pane_width_inner(pane, width, Some((client, transaction)))
+    }
+
+    fn set_viewport_pane_width_inner(
+        &self,
+        pane: PaneId,
+        width: f32,
+        transaction: Option<(u64, u64)>,
+    ) -> anyhow::Result<()> {
         if !width.is_finite()
             || !(cmux_tui_core::MIN_VIEWPORT_PANE_WIDTH..=cmux_tui_core::MAX_VIEWPORT_PANE_WIDTH)
                 .contains(&width)
@@ -805,10 +870,17 @@ impl Session {
             anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
         }
         match self {
-            Session::Local(mux) => mux
-                .set_viewport_pane_width(pane, width)
-                .then_some(())
-                .ok_or_else(|| anyhow::anyhow!("pane {pane} has no resizable viewport column")),
+            Session::Local(mux) => {
+                let changed = transaction.map_or_else(
+                    || mux.set_viewport_pane_width(pane, width),
+                    |(client, transaction)| {
+                        mux.set_viewport_pane_width_in_transaction(pane, width, client, transaction)
+                    },
+                );
+                changed
+                    .then_some(())
+                    .ok_or_else(|| anyhow::anyhow!("pane {pane} has no resizable viewport column"))
+            }
             Session::Remote(remote) => {
                 if !remote.supports_capability(VIEWPORT_COLUMN_RESIZE_CAPABILITY) {
                     anyhow::bail!(
@@ -820,6 +892,7 @@ impl Session {
                         "cmd": "set-viewport-pane-width",
                         "pane": pane,
                         "width": width,
+                        "transaction": transaction.map(|(_, transaction)| transaction),
                     }))
                     .map(|_| ())
             }
@@ -840,12 +913,14 @@ impl Session {
                         "remote cmux server does not support layout undo; upgrade the server"
                     );
                 }
-                let result = remote.request(json!({
-                    "cmd": "undo-layout",
-                    "pane": pane,
-                    "revision": revision,
-                    "confirm_close": confirm_close,
-                }))?;
+                let result = remote
+                    .request(json!({
+                        "cmd": "undo-layout",
+                        "pane": pane,
+                        "revision": revision,
+                        "confirm_close": confirm_close,
+                    }))
+                    .map_err(normalize_remote_layout_undo_error)?;
                 let screen = result
                     .get("screen")
                     .and_then(serde_json::Value::as_u64)
@@ -1620,11 +1695,12 @@ pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
 
 #[cfg(test)]
 mod tests {
-    use cmux_tui_core::{Mux, SurfaceOptions};
+    use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{
-        Session, is_remote_surface_unavailable, resize_action,
-        test_remote_rejected_error_with_message, test_remote_transport_error,
+        Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
+        test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
+        test_remote_transport_error,
     };
 
     #[test]
@@ -1638,6 +1714,27 @@ mod tests {
             77
         ));
         assert!(!is_remote_surface_unavailable(&test_remote_transport_error(), 77));
+    }
+
+    #[test]
+    fn remote_layout_undo_error_codes_restore_typed_failures() {
+        let stale = normalize_remote_layout_undo_error(test_remote_rejected_error_with_code(
+            "layout changed",
+            LayoutUndoError::STALE_CODE,
+        ));
+        assert!(matches!(
+            stale.downcast_ref::<LayoutUndoError>(),
+            Some(LayoutUndoError::Stale(message)) if message == "layout changed"
+        ));
+
+        let unavailable = normalize_remote_layout_undo_error(test_remote_rejected_error_with_code(
+            "no layout change to undo",
+            LayoutUndoError::UNAVAILABLE_CODE,
+        ));
+        assert!(matches!(
+            unavailable.downcast_ref::<LayoutUndoError>(),
+            Some(LayoutUndoError::Unavailable)
+        ));
     }
 
     #[test]

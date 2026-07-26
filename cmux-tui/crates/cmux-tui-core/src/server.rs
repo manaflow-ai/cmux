@@ -460,10 +460,14 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
     },
     SetViewportPaneWidth {
         pane: PaneId,
         width: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
     },
     UndoLayout {
         pane: PaneId,
@@ -704,6 +708,8 @@ struct Response {
     data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<String>,
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
@@ -1980,13 +1986,27 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
                 matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
             shutdown_daemon = matches!(&req.cmd, Command::ShutdownDaemon { .. });
             match handle_command(mux, client, req.cmd, writer) {
-                Ok(data) => Response { id, ok: true, data: Some(data), error: None },
-                Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
+                Ok(data) => {
+                    Response { id, ok: true, data: Some(data), error: None, error_code: None }
+                }
+                Err(error) => Response {
+                    id,
+                    ok: false,
+                    data: None,
+                    error_code: error
+                        .downcast_ref::<crate::LayoutUndoError>()
+                        .map(|error| error.code().to_string()),
+                    error: Some(error.to_string()),
+                },
             }
         }
-        Err(e) => {
-            Response { id: None, ok: false, data: None, error: Some(format!("bad request: {e}")) }
-        }
+        Err(e) => Response {
+            id: None,
+            ok: false,
+            data: None,
+            error: Some(format!("bad request: {e}")),
+            error_code: None,
+        },
     };
     let response_ok = response.ok;
     let sent =
@@ -3785,20 +3805,30 @@ fn handle_command(
             }
             Ok(json!({}))
         }
-        Command::SetSplitRatio { split, ratio } => {
-            if !mux.set_split_ratio(split, ratio) {
+        Command::SetSplitRatio { split, ratio, transaction } => {
+            let changed = transaction.map_or_else(
+                || mux.set_split_ratio(split, ratio),
+                |transaction| mux.set_split_ratio_in_transaction(split, ratio, client, transaction),
+            );
+            if !changed {
                 anyhow::bail!("unknown split {split}");
             }
             Ok(json!({}))
         }
-        Command::SetViewportPaneWidth { pane, width } => {
+        Command::SetViewportPaneWidth { pane, width, transaction } => {
             if !width.is_finite()
                 || !(crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH)
                     .contains(&width)
             {
                 anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
             }
-            if !mux.set_viewport_pane_width(pane, width) {
+            let changed = transaction.map_or_else(
+                || mux.set_viewport_pane_width(pane, width),
+                |transaction| {
+                    mux.set_viewport_pane_width_in_transaction(pane, width, client, transaction)
+                },
+            );
+            if !changed {
                 anyhow::bail!("pane {pane} has no resizable viewport column");
             }
             Ok(json!({}))
@@ -7035,6 +7065,27 @@ mod tests {
         .unwrap();
         assert_eq!(result["undone"].as_bool(), Some(true));
         assert!(mux.surface(right.id).is_none());
+    }
+
+    #[test]
+    fn layout_undo_protocol_serializes_the_machine_readable_error_code() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        handle_message(
+            &mux,
+            7,
+            &json!({"id": 19, "cmd": "undo-layout", "pane": pane}).to_string(),
+            &writer,
+        );
+
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 19);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], crate::LayoutUndoError::UNAVAILABLE_CODE);
     }
 
     #[test]

@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
@@ -25,7 +26,9 @@ use ghostty_vt::{
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
-use super::tree::{TreeView, parse_tree};
+#[cfg(test)]
+use super::tree::parse_tree;
+use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
@@ -67,7 +70,7 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected(String),
+    Rejected { message: String, code: Option<String> },
     Shutdown,
 }
 
@@ -79,6 +82,20 @@ impl RemoteRequestError {
     pub(crate) fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout)
     }
+
+    pub(crate) fn rejection_code(&self) -> Option<&str> {
+        match self {
+            Self::Rejected { code, .. } => code.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn rejection_message(&self) -> Option<&str> {
+        match self {
+            Self::Rejected { message, .. } => Some(message),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for RemoteRequestError {
@@ -87,7 +104,9 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
-            Self::Rejected(error) => write!(formatter, "remote command rejected: {error}"),
+            Self::Rejected { message, .. } => {
+                write!(formatter, "remote command rejected: {message}")
+            }
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
         }
     }
@@ -1162,7 +1181,10 @@ impl RemoteSession {
     }
 
     fn subscription_recovery_is_retryable(error: &anyhow::Error) -> bool {
-        matches!(error.downcast_ref::<RemoteRequestError>(), Some(RemoteRequestError::Rejected(_)))
+        matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Rejected { .. })
+        )
     }
 
     fn log_frame(&self, surface: SurfaceId, line: String) {
@@ -1217,7 +1239,8 @@ impl RemoteSession {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
-            Err(RemoteRequestError::Rejected(error.to_string()).into())
+            let code = response.get("error_code").and_then(Value::as_str).map(ToString::to_string);
+            Err(RemoteRequestError::Rejected { message: error.to_string(), code }.into())
         }
     }
 
@@ -1464,7 +1487,15 @@ impl RemoteSession {
                 return Err(e);
             }
         };
-        let tree = parse_tree(&data);
+        let capabilities = self.capabilities.lock().unwrap();
+        let tree = parse_tree_with_capabilities(
+            &data,
+            TreeCapabilities {
+                viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
+                viewport_column_resize: capabilities.contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+            },
+        );
+        drop(capabilities);
         self.exited_surfaces.lock().unwrap().retain(|surface_id| {
             tree.workspaces
                 .iter()
@@ -3168,7 +3199,10 @@ mod tests {
 
     #[test]
     fn subscription_recovery_retries_only_explicit_rejection() {
-        let rejected = anyhow::Error::new(RemoteRequestError::Rejected("no capacity".to_string()));
+        let rejected = anyhow::Error::new(RemoteRequestError::Rejected {
+            message: "no capacity".to_string(),
+            code: None,
+        });
         let timeout = anyhow::Error::new(RemoteRequestError::Timeout);
         let shutdown = anyhow::Error::new(RemoteRequestError::Shutdown);
 

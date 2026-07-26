@@ -39,7 +39,7 @@ cargo run -p cmux-tui -- attach --session agents --surface <surface-id>
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
 
-Pane layout stays tiled by default. Press `Ctrl-b g` to append a terminal to the right at two thirds of the viewport width. The existing layout keeps its width, so a continuous horizontal scrollbar appears in the status bar. Focusing a pane reveals it with an animated viewport movement. `Alt-n` reapplies Zellij's automatic layout inside the focused horizontal column. `Ctrl-b U` undoes the latest structural layout action on the focused screen; undoing pane creation asks for confirmation before closing the pane.
+Pane layout stays tiled by default. Press `Ctrl-b g` to append a terminal to the right at two-thirds of the viewport width. The existing layout keeps its width, so a continuous horizontal scrollbar appears in the status bar. Focusing a pane reveals it with an animated viewport movement. `Alt-n` reapplies Zellij's automatic layout inside the focused horizontal column. `Ctrl-b U` undoes the latest structural layout action on the focused screen; undoing pane creation asks for confirmation before closing the pane.
 
 `attach --surface <id>` attaches one PTY terminal by numeric or short surface id. It uses the full host terminal without the sidebar, status bar, pane border, or other tabs.
 
