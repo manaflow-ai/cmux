@@ -10,6 +10,7 @@ members = [
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
     "crates/cmux-relay",
+    "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
 ]
@@ -38,6 +39,7 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-remote = { path = "crates/cmux-remote" }
+cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"
 async-trait = "0.1"
@@ -65,6 +67,7 @@ futures-util = "0.3"
 hmac = "0.12"
 http = "1"
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
+subtle = "2.6.1"
 parking_lot = "0.12"
 rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"] }
 sha2 = "0.10"
