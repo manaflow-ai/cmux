@@ -482,6 +482,7 @@ fn legacy_server_process_helper() {
                 | "zombie-child"
                 | "reparent-on-close"
                 | "browser-surface"
+                | "dead-surface"
         ));
         let surfaces: &[u64] = match (scenario.as_str(), snapshot_index) {
             ("zombie-child", _) => &[],
@@ -494,6 +495,8 @@ fn legacy_server_process_helper() {
             .map(|surface| {
                 if scenario == "browser-surface" {
                     serde_json::json!({"surface": surface, "kind": "browser"})
+                } else if scenario == "dead-surface" {
+                    serde_json::json!({"surface": surface, "kind": "pty", "dead": true})
                 } else {
                     serde_json::json!({"surface": surface, "kind": "pty"})
                 }
@@ -527,13 +530,19 @@ fn legacy_server_process_helper() {
             let mut close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
             if close_request["cmd"].as_str() == Some("process-info") {
                 assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
-                let pid = fs::read_to_string(
-                    std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
-                )
-                .unwrap()
-                .trim()
-                .parse::<u32>()
-                .unwrap();
+                let pid = if scenario == "dead-surface" {
+                    None
+                } else {
+                    Some(
+                        fs::read_to_string(
+                            std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
+                        )
+                        .unwrap()
+                        .trim()
+                        .parse::<u32>()
+                        .unwrap(),
+                    )
+                };
                 writeln!(
                     stream,
                     "{}",
@@ -1315,6 +1324,72 @@ fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(!process_exists(descendant_pid));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_closes_exited_legacy_placeholders_without_a_pid() {
+    let mut server =
+        LegacyServerProcess::start("legacy-server-dead-placeholder", "dead-surface", None);
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
+}
+
+#[cfg(unix)]
+#[test]
+fn published_host_launch_errors_reap_the_complete_pty_session() {
+    let mut server = HeadlessServer::start_with(
+        "published-host-launch-error",
+        false,
+        &[("CMUX_TUI_TEST_INVALID_HOST_READY", "1"), ("CMUX_TUI_TEST_HOST_READY_DELAY_MS", "500")],
+    );
+    let direct_pid_file = server.dir.join("failed-launch-direct.pid");
+    let descendant_pid_file = server.dir.join("failed-launch-descendant.pid");
+    let command = format!(
+        "echo $$ > {}; trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; wait",
+        direct_pid_file.display(),
+        descendant_pid_file.display()
+    );
+
+    let output = cli(&server, &["run", "--new-workspace", "--command", &command]);
+    assert!(!output.status.success(), "injected invalid launch acknowledgement succeeded");
+    let direct_pid = wait_for_pid_file(&direct_pid_file, Duration::from_secs(5));
+    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while (process_exists(direct_pid)
+        || process_group_exists(direct_pid)
+        || process_exists(descendant_pid)
+        || !terminal_host_pids(&host_root).is_empty())
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let cleaned = !process_exists(direct_pid)
+        && !process_group_exists(direct_pid)
+        && !process_exists(descendant_pid)
+        && terminal_host_pids(&host_root).is_empty();
+
+    let stop = cli(&server, &["--json", "server", "stop"]);
+    assert_success(&stop);
+    assert!(server.child.wait().unwrap().success());
+    for pid in [direct_pid, descendant_pid] {
+        if let Ok(pid) = libc::pid_t::try_from(pid) {
+            // SAFETY: both PIDs came from this isolated test fixture.
+            let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
+
+    assert!(cleaned, "post-publication launch error left PTY ownership unreconciled");
 }
 
 #[cfg(unix)]

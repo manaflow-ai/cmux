@@ -2008,6 +2008,23 @@ impl Surface {
         attempts
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_recovering_server_shutdown_for_test(
+        &self,
+    ) -> (Arc<AtomicBool>, Arc<AtomicUsize>) {
+        let failing = Arc::new(AtomicBool::new(true));
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let Self::Pty(pty) = self else { return (failing, attempts) };
+        let Some(process) = &pty.local_process else { return (failing, attempts) };
+        let process = process.lock().unwrap();
+        let LocalProcess::Untracked(killer) = &*process else { return (failing, attempts) };
+        *killer.lock().unwrap() = Box::new(TestRecoveringChildKiller {
+            failing: failing.clone(),
+            attempts: attempts.clone(),
+        });
+        (failing, attempts)
+    }
+
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -2838,6 +2855,29 @@ impl ChildKiller for TestCountingFailingChildKiller {
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
         Box::new(Self(self.0.clone()))
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct TestRecoveringChildKiller {
+    failing: Arc<AtomicBool>,
+    attempts: Arc<AtomicUsize>,
+}
+
+#[cfg(test)]
+impl ChildKiller for TestRecoveringChildKiller {
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.attempts.fetch_add(1, Ordering::AcqRel);
+        if self.failing.load(Ordering::Acquire) {
+            Err(std::io::Error::other("forced transient shutdown failure"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(Self { failing: self.failing.clone(), attempts: self.attempts.clone() })
     }
 }
 

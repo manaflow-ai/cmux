@@ -2359,6 +2359,9 @@ mod unix {
             incarnation: bootstrapped.incarnation,
         };
         let mut response = Frame::new(MessageKind::Ready, ready.encode());
+        if std::env::var("CMUX_TUI_TEST_INVALID_HOST_READY").as_deref() == Ok("1") {
+            response.kind = MessageKind::Snapshot;
+        }
         response.request_id = launch_frame.request_id;
         // Publication is the ownership handoff. If the launcher dies in the
         // narrow record-before-Ready window, EPIPE must not tear down the

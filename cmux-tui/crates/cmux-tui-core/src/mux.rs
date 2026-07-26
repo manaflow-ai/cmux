@@ -10448,6 +10448,27 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_surface_close_reconciles_a_transient_termination_failure() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let owned = mux.surface(surface.id).unwrap();
+        let (failing, attempts) = owned.set_recovering_server_shutdown_for_test();
+
+        assert!(mux.close_surface(surface.id).unwrap());
+        assert_eq!(mux.shutdown_owners.len(), 1);
+        assert_eq!(attempts.load(Ordering::Acquire), 1);
+
+        failing.store(false, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !mux.shutdown_owners.is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(mux.shutdown_owners.is_empty(), "retained owner had no normal-lifecycle retry");
+        assert!(attempts.load(Ordering::Acquire) >= 2);
+    }
+
+    #[test]
     fn ordinary_surface_close_does_not_retry_unrelated_retained_owners() {
         let mux = test_mux();
         let retained = mux.new_workspace(None, Some((80, 24))).unwrap();
