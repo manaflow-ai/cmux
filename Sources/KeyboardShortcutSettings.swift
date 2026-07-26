@@ -1107,10 +1107,10 @@ enum SystemWideHotkeySettings {
 
     private static func migrateLegacyShortcutIfNeeded(defaults: UserDefaults = .standard) {
         guard defaults.object(forKey: legacyShortcutKey) != nil else { return }
-        defer { defaults.removeObject(forKey: legacyShortcutKey) }
-
+        let legacyData = defaults.data(forKey: legacyShortcutKey)
+        defaults.removeObject(forKey: legacyShortcutKey)
         guard defaults.object(forKey: action.defaultsKey) == nil,
-              let data = defaults.data(forKey: legacyShortcutKey),
+              let data = legacyData,
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
             return
         }
