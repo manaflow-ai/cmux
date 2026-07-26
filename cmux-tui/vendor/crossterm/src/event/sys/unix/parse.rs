@@ -1487,6 +1487,31 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_csi_u_encoded_key_code_with_all_modifiers_and_lock_state() {
+        assert_eq!(
+            parse_csi_u_encoded_key_code(b"\x1B[97;256u").unwrap(),
+            Some(InternalEvent::Event(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('a'),
+                    KeyModifiers::SHIFT
+                        | KeyModifiers::ALT
+                        | KeyModifiers::CONTROL
+                        | KeyModifiers::SUPER
+                        | KeyModifiers::HYPER
+                        | KeyModifiers::META,
+                    KeyEventKind::Press,
+                    KeyEventState::CAPS_LOCK | KeyEventState::NUM_LOCK,
+                ),
+                shifted_key: None,
+                base_layout_key: None,
+                text: String::new(),
+            }))),
+        );
+        assert!(parse_csi_u_encoded_key_code(b"\x1B[97;0u").is_err());
+        assert!(parse_csi_u_encoded_key_code(b"\x1B[97;257u").is_err());
+    }
+
+    #[test]
     fn test_parse_csi_u_preserves_shifted_keycode() {
         assert_eq!(
             parse_event(b"\x1B[57:40;4u", false).unwrap(),

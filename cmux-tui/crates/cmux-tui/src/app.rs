@@ -12503,7 +12503,7 @@ mod tests {
     }
 
     #[test]
-    fn alt_character_without_associated_text_does_not_match_modeless_bindings() {
+    fn explicit_alt_character_without_associated_text_matches_modeless_bindings() {
         let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
@@ -12512,15 +12512,15 @@ mod tests {
         });
         let (key, fallback) = input.shortcut_keys();
 
-        assert!(input.suppresses_alt_shortcut());
+        assert!(!input.suppresses_alt_shortcut());
         assert_eq!(
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
-            None
+            Some(Action::FocusDown)
         );
     }
 
     #[test]
-    fn ambiguous_alt_character_without_text_does_not_match_modeless_bindings() {
+    fn explicit_alt_character_without_layout_metadata_matches_modeless_bindings() {
         let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
             shifted_key: None,
@@ -12529,10 +12529,10 @@ mod tests {
         });
         let (key, fallback) = input.shortcut_keys();
 
-        assert!(input.suppresses_alt_shortcut());
+        assert!(!input.suppresses_alt_shortcut());
         assert_eq!(
             super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
-            None
+            Some(Action::FocusDown)
         );
     }
 
@@ -13891,6 +13891,58 @@ mod tests {
             assert!(!viewport.contains("history-"));
             assert!(compact.contains("prompt>visible-content"));
         });
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn delayed_clear_history_completion_preserves_newer_viewport_and_selection() {
+        let (mux, surface) = test_mux("delayed-command-k-ui-test", None);
+        surface.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> ");
+        });
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::SUPER,
+        ))))
+        .unwrap();
+        let completion = loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(
+                &event,
+                AppEvent::ClearHistorySucceeded { surface: completed }
+                    if *completed == surface.id
+            ) {
+                break event;
+            }
+        };
+
+        app.handle(AppEvent::Input(Event::FocusGained)).unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("new-output-{line}\r\n").as_bytes());
+            }
+        });
+        surface.scroll_delta(-5).unwrap();
+        let offset = surface.with_terminal(|term| term.scrollbar().unwrap().offset).unwrap();
+        assert!(offset > 0);
+        let selection = Selection { surface: surface.id, anchor: (1, 1), head: (2, 2) };
+        app.selection = Some(selection);
+
+        app.handle(completion).unwrap();
+
+        assert_eq!(surface.with_terminal(|term| term.scrollbar().unwrap().offset).unwrap(), offset);
+        assert!(app.selection.is_some_and(|current| {
+            current.surface == selection.surface
+                && current.anchor == selection.anchor
+                && current.head == selection.head
+        }));
         mux.close_surface(surface.id).unwrap();
     }
 
