@@ -1450,6 +1450,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn owner_disconnected_session_stops_instead_of_reconnecting_forever() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "owner-disconnect", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(FaultGroup {
+            daemon: daemon.clone(),
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let client = ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "owner-disconnected-client".into(),
+                session: SessionId([99; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(1),
+                    attempt_timeout: Duration::from_millis(100),
+                    full_jitter: false,
+                    heartbeat_interval: None,
+                    heartbeat_timeout: Duration::from_secs(1),
+                    maximum_attempts: None,
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+
+        assert!(
+            daemon.disconnect(&server.device_id, client.session_id()).await.unwrap(),
+            "owner disconnect did not remove the logical session"
+        );
+        let error = tokio::time::timeout(Duration::from_millis(500), client.receive())
+            .await
+            .expect("owner-disconnected client kept reconnecting")
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConnectionError::Protocol(ref message)
+                    if message == "daemon no longer has the requested logical session"
+            ),
+            "unexpected terminal error: {error}"
+        );
+    }
+
+    #[tokio::test]
     async fn replay_window_pressure_backpressures_until_ack_instead_of_failing_bulk_send() {
         let directory = tempdir().unwrap();
         let limits = SessionLimits { replay_frames_per_lane: 1, ..SessionLimits::default() };
