@@ -126,6 +126,12 @@ struct BrowserState {
     // concurrent capture restart may advance and settle the shared frame
     // epoch without proving that the document committed.
     pending_navigation_epoch: Option<u64>,
+    /// Cross-document navigation stays fail-closed until a loader-matched
+    /// first paint is captured and admitted.
+    pending_document_epoch: Option<u64>,
+    /// URL expected by a navigate/history command. A same-document event may
+    /// settle the command only when its URL matches this reservation.
+    pending_same_document_url: Option<String>,
     pending_frame: Option<(u64, BrowserFrame)>,
     /// Frame that may currently receive guarded pointer input. Navigation and
     /// geometry changes invalidate it before the next screencast frame lands.
@@ -193,6 +199,7 @@ struct PointerFrameInvalidation {
     previous_capture_generation: u64,
     previous_pending_frame_epoch: Option<u64>,
     previous_pending_navigation_epoch: Option<u64>,
+    previous_pending_same_document_url: Option<String>,
     previous_pending_frame: Option<(u64, BrowserFrame)>,
     revision: u64,
     expected_frame_epoch: Option<u64>,
@@ -228,6 +235,18 @@ enum BrowserCommand {
     Forward,
     Reload,
     Activate,
+    AuthorizeDocumentPaint {
+        session_id: String,
+        frame_id: String,
+        loader_id: String,
+        navigation_epoch: u64,
+    },
+    AuthorizeSameDocumentPaint {
+        session_id: String,
+        frame_id: String,
+        loader_id: String,
+        url: String,
+    },
     Reconfigure {
         queued: QueuedBrowserGeometry,
         report: Option<Box<dyn FnOnce(Option<u64>) + Send>>,
@@ -436,6 +455,7 @@ pub struct BrowserSurface {
     command_tx: Mutex<Option<SyncSender<SequencedBrowserCommand>>>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
+    latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
 }
@@ -555,6 +575,7 @@ impl BrowserRuntime {
         }
         self.client.seed_main_frame(session_id)?;
         self.client.page_enable(session_id)?;
+        self.client.set_lifecycle_events_enabled(session_id)?;
         let (pixel_w, pixel_h) = browser.pixel_size();
         self.client.set_device_metrics(session_id, pixel_w, pixel_h)?;
         self.client.start_screencast(session_id, pixel_w, pixel_h)?;
@@ -642,6 +663,7 @@ pub(crate) fn new_surface(
     let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
     let command_order = Arc::new(Mutex::new(BrowserCommandOrder::default()));
     let latest_nav = Arc::new(Mutex::new(None));
+    let latest_authority = Arc::new(Mutex::new(None));
     let frame_epoch = Arc::new(FrameEpoch::default());
     #[cfg(test)]
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
@@ -659,6 +681,8 @@ pub(crate) fn new_surface(
             handled_navigation_epoch: frame_epoch.latest_navigation(),
             pending_frame_epoch: None,
             pending_navigation_epoch: None,
+            pending_document_epoch: None,
+            pending_same_document_url: None,
             pending_frame: None,
             pointer_frame_seq: None,
             pointer_frame_revision: 0,
@@ -691,6 +715,7 @@ pub(crate) fn new_surface(
         command_tx: Mutex::new(Some(command_tx)),
         command_order: command_order.clone(),
         latest_nav: latest_nav.clone(),
+        latest_authority: latest_authority.clone(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
     }));
@@ -699,6 +724,7 @@ pub(crate) fn new_surface(
         command_rx,
         command_order,
         latest_nav,
+        latest_authority,
         mux,
         worker_done_tx,
     );
@@ -872,6 +898,34 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
                         runtime.remove_route(&tx);
                     }
                 }
+                CdpEvent::DocumentPainted { session_id, frame_id, loader_id, navigation_epoch } => {
+                    let tx =
+                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::DocumentPainted {
+                            session_id,
+                            frame_id,
+                            loader_id,
+                            navigation_epoch,
+                        })
+                    {
+                        runtime.remove_route(&tx);
+                    }
+                }
+                CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id } => {
+                    let tx =
+                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                    if let Some(tx) = tx
+                        && tx.deliver(CdpEvent::NavigatedWithinDocument {
+                            params,
+                            session_id,
+                            frame_id,
+                            loader_id,
+                        })
+                    {
+                        runtime.remove_route(&tx);
+                    }
+                }
                 CdpEvent::TargetCreated(created) => {
                     let tx = created.opener_id.as_ref().and_then(|opener_id| {
                         runtime.routes.lock().unwrap().by_target.get(opener_id).cloned()
@@ -986,6 +1040,38 @@ fn start_surface_thread(
                         mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }
+                CdpEvent::DocumentPainted { session_id, frame_id, loader_id, navigation_epoch }
+                    if browser.needs_document_paint(navigation_epoch) =>
+                {
+                    let _ =
+                        browser.enqueue_latest_authority(BrowserCommand::AuthorizeDocumentPaint {
+                            session_id,
+                            frame_id,
+                            loader_id,
+                            navigation_epoch,
+                        });
+                }
+                CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id } => {
+                    if let Some(url) = handle_same_document_navigated(browser, &params)
+                        && browser.needs_same_document_paint(&url)
+                    {
+                        let _ = browser.enqueue_latest_authority(
+                            BrowserCommand::AuthorizeSameDocumentPaint {
+                                session_id,
+                                frame_id,
+                                loader_id,
+                                url,
+                            },
+                        );
+                    }
+                    if let Some(mux) = mux.upgrade() {
+                        mux.emit(MuxEvent::TitleChanged {
+                            surface: id,
+                            title: browser.title().into(),
+                        });
+                        mux.emit(MuxEvent::SurfaceOutput(id));
+                    }
+                }
                 CdpEvent::Other { method, params, .. }
                     if method == "Page.javascriptDialogOpening" =>
                 {
@@ -1014,6 +1100,7 @@ fn start_browser_worker(
     rx: Receiver<SequencedBrowserCommand>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
+    latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     mux: Weak<Mux>,
     done_tx: Option<Sender<()>>,
 ) {
@@ -1029,6 +1116,9 @@ fn start_browser_worker(
                 }
                 batch.extend(order.retained_releases.drain(..));
                 if let Some(command) = take_latest_worker_commands(&latest_nav) {
+                    batch.push(command);
+                }
+                if let Some(command) = take_latest_worker_commands(&latest_authority) {
                     batch.push(command);
                 }
                 drop(order);
@@ -1126,6 +1216,25 @@ fn run_browser_worker_command(
             BrowserCommand::Forward => browser.forward_blocking(),
             BrowserCommand::Reload => browser.reload_blocking(),
             BrowserCommand::Activate => browser.activate_blocking(),
+            BrowserCommand::AuthorizeDocumentPaint {
+                session_id,
+                frame_id,
+                loader_id,
+                navigation_epoch,
+            } => browser.authorize_document_paint_blocking(
+                &session_id,
+                &frame_id,
+                &loader_id,
+                navigation_epoch,
+            ),
+            BrowserCommand::AuthorizeSameDocumentPaint { session_id, frame_id, loader_id, url } => {
+                browser.authorize_same_document_paint_blocking(
+                    &session_id,
+                    &frame_id,
+                    &loader_id,
+                    &url,
+                )
+            }
             BrowserCommand::Reconfigure { queued, .. } => {
                 browser.reconfigure_reserved_blocking(queued)
             }
@@ -1260,7 +1369,8 @@ impl BrowserSurface {
     /// Return the newest usable screencast frame sequence, or `None` while the
     /// retained frame is not currently safe for pointer input.
     pub fn latest_frame_seq(&self) -> Option<u64> {
-        self.state.lock().unwrap().pointer_frame_seq
+        let state = self.state.lock().unwrap();
+        self.pointer_epoch_is_current_locked(&state).then_some(state.pointer_frame_seq).flatten()
     }
 
     pub fn title(&self) -> String {
@@ -1480,11 +1590,8 @@ impl BrowserSurface {
         if frame_epoch >= state.accepted_frame_epoch
             && state.pending_frame_epoch.is_none_or(|pending_epoch| frame_epoch >= pending_epoch)
         {
-            Self::accept_frame_epoch_locked(
-                &mut state,
-                frame_epoch,
-                self.frame_epoch.latest_navigation().min(frame_epoch),
-            );
+            let accepted_navigation_epoch = state.accepted_navigation_epoch;
+            Self::accept_frame_epoch_locked(&mut state, frame_epoch, accepted_navigation_epoch);
         }
         Self::mark_state_dirty_locked(&mut state);
     }
@@ -1662,7 +1769,8 @@ impl BrowserSurface {
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
         let pointer_frame_seq = (matches!(state.status, BrowserStatus::Live)
-            && state.pending_navigation_epoch.is_none())
+            && state.pending_navigation_epoch.is_none()
+            && state.pending_document_epoch.is_none())
         .then_some(frame.seq);
         Self::set_pointer_frame_locked(state, pointer_frame_seq);
         state.latest_frame = Some(frame.clone());
@@ -1841,7 +1949,9 @@ impl BrowserSurface {
     fn pointer_epoch_is_current_locked(&self, state: &BrowserState) -> bool {
         state.pending_frame_epoch.is_none()
             && state.pending_navigation_epoch.is_none()
+            && state.pending_document_epoch.is_none()
             && state.accepted_frame_epoch == self.frame_epoch.current()
+            && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
     }
 
     fn scale_guarded_input_point(
@@ -1851,8 +1961,9 @@ impl BrowserSurface {
         y: f64,
     ) -> Option<(f64, f64)> {
         let state = self.state.lock().unwrap();
+        let pointer_frame_seq = state.pointer_frame_seq?;
         if !self.pointer_epoch_is_current_locked(&state)
-            || frame_seq.is_some_and(|frame_seq| state.pointer_frame_seq != Some(frame_seq))
+            || frame_seq.is_some_and(|frame_seq| pointer_frame_seq != frame_seq)
         {
             return None;
         }
@@ -1913,6 +2024,7 @@ impl BrowserSurface {
         let previous_capture_generation = state.pointer_capture_generation;
         let previous_pending_frame_epoch = state.pending_frame_epoch;
         let previous_pending_navigation_epoch = state.pending_navigation_epoch;
+        let previous_pending_same_document_url = state.pending_same_document_url.clone();
         let previous_pending_frame = state.pending_frame.clone();
         Self::set_pointer_frame_locked(state, None);
         Self::set_pending_attach_frame_locked(state, None);
@@ -1924,6 +2036,7 @@ impl BrowserSurface {
             previous_capture_generation,
             previous_pending_frame_epoch,
             previous_pending_navigation_epoch,
+            previous_pending_same_document_url,
             previous_pending_frame,
             revision: state.pointer_frame_revision,
             expected_frame_epoch: None,
@@ -1936,14 +2049,32 @@ impl BrowserSurface {
     }
 
     fn begin_navigation_frame_transition(&self) -> anyhow::Result<PointerFrameInvalidation> {
+        self.begin_navigation_frame_transition_to(None)
+    }
+
+    fn begin_targeted_navigation_frame_transition(
+        &self,
+        url: String,
+    ) -> anyhow::Result<PointerFrameInvalidation> {
+        self.begin_navigation_frame_transition_to(Some(url))
+    }
+
+    fn begin_navigation_frame_transition_to(
+        &self,
+        same_document_url: Option<String>,
+    ) -> anyhow::Result<PointerFrameInvalidation> {
         let mut state = self.state.lock().unwrap();
-        if state.pending_frame_epoch.is_some() || state.pending_navigation_epoch.is_some() {
+        if state.pending_frame_epoch.is_some()
+            || state.pending_navigation_epoch.is_some()
+            || state.pending_document_epoch.is_some()
+        {
             anyhow::bail!("browser navigation is still committing");
         }
         let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
         let mut invalidation = Self::invalidate_pointer_frame_locked(&mut state, true);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_epoch = Some(pending_frame_epoch);
+        state.pending_same_document_url = same_document_url;
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
         Self::mark_state_dirty_locked(&mut state);
@@ -1981,10 +2112,12 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
+        state.pending_document_epoch = None;
+        state.pending_same_document_url = None;
         state.pending_frame = None;
     }
 
-    fn accept_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
+    fn observe_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
         let mut state = self.state.lock().unwrap();
         if frame_epoch <= state.handled_navigation_epoch
             || state
@@ -1993,22 +2126,77 @@ impl BrowserSurface {
         {
             return false;
         }
+        let command_already_revoked_capture = state.pending_navigation_epoch.is_some();
         state.handled_navigation_epoch = frame_epoch;
         if state.pending_navigation_epoch.is_some_and(|pending_epoch| frame_epoch >= pending_epoch)
         {
             state.pending_navigation_epoch = None;
         }
-        Self::invalidate_pointer_frame_locked(&mut state, false);
-        if frame_epoch < state.accepted_frame_epoch
-            || state.pending_frame_epoch.is_some_and(|pending_epoch| frame_epoch < pending_epoch)
+        state.pending_same_document_url = None;
+        Self::invalidate_pointer_frame_locked(&mut state, !command_already_revoked_capture);
+        state.pending_document_epoch = Some(frame_epoch);
+        let pending_frame_epoch = state
+            .pending_frame_epoch
+            .unwrap_or(frame_epoch)
+            .max(frame_epoch)
+            .max(state.accepted_frame_epoch);
+        state.pending_frame_epoch = Some(pending_frame_epoch);
+        state.pending_frame = None;
+        Self::mark_state_dirty_locked(&mut state);
+        true
+    }
+
+    fn needs_document_paint(&self, navigation_epoch: u64) -> bool {
+        self.state.lock().unwrap().pending_document_epoch == Some(navigation_epoch)
+    }
+
+    fn needs_same_document_paint(&self, url: &str) -> bool {
+        let state = self.state.lock().unwrap();
+        state.pending_document_epoch.is_none()
+            && state.pending_same_document_url.as_deref() == Some(url)
+    }
+
+    fn accept_document_paint(
+        &self,
+        navigation_epoch: u64,
+        frame_epoch: u64,
+        frame: BrowserFrame,
+    ) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.pending_document_epoch != Some(navigation_epoch)
+            || state.handled_navigation_epoch != navigation_epoch
+            || self.frame_epoch.latest_navigation() != navigation_epoch
+            || frame_epoch < navigation_epoch
         {
-            Self::reconcile_navigation_capture_locked(&mut state, frame_epoch);
-            Self::mark_state_dirty_locked(&mut state);
-            return true;
+            return false;
         }
-        state.pending_frame_epoch = Some(frame_epoch);
-        state.pending_frame = state.pending_frame.take().filter(|(epoch, _)| *epoch >= frame_epoch);
-        Self::accept_frame_epoch_locked(&mut state, frame_epoch, frame_epoch);
+        state.pending_document_epoch = None;
+        state.pending_navigation_epoch = None;
+        state.pending_same_document_url = None;
+        state.pending_frame_epoch = None;
+        state.pending_frame = None;
+        state.accepted_navigation_epoch = navigation_epoch;
+        state.accepted_frame_epoch = frame_epoch;
+        Self::store_frame_locked(&mut state, frame);
+        Self::mark_state_dirty_locked(&mut state);
+        true
+    }
+
+    fn accept_same_document_paint(&self, url: &str, frame_epoch: u64, frame: BrowserFrame) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.pending_document_epoch.is_some()
+            || state.pending_same_document_url.as_deref() != Some(url)
+            || state.accepted_navigation_epoch != self.frame_epoch.latest_navigation()
+            || frame_epoch != self.frame_epoch.current()
+        {
+            return false;
+        }
+        state.pending_frame_epoch = None;
+        state.pending_navigation_epoch = None;
+        state.pending_same_document_url = None;
+        state.pending_frame = None;
+        state.accepted_frame_epoch = frame_epoch;
+        Self::store_frame_locked(&mut state, frame);
         Self::mark_state_dirty_locked(&mut state);
         true
     }
@@ -2024,6 +2212,7 @@ impl BrowserSurface {
         state.pointer_capture_generation = invalidation.previous_capture_generation;
         state.pending_frame_epoch = invalidation.previous_pending_frame_epoch;
         state.pending_navigation_epoch = invalidation.previous_pending_navigation_epoch;
+        state.pending_same_document_url = invalidation.previous_pending_same_document_url;
         state.pending_frame = invalidation.previous_pending_frame;
         Self::set_pointer_frame_locked(&mut state, invalidation.previous);
         let retained_frame = state.latest_frame.clone();
@@ -2091,8 +2280,9 @@ impl BrowserSurface {
         delta_y: f64,
     ) -> Option<(f64, f64, f64)> {
         let state = self.state.lock().unwrap();
+        let pointer_frame_seq = state.pointer_frame_seq?;
         if !self.pointer_epoch_is_current_locked(&state)
-            || frame_seq.is_some_and(|frame_seq| state.pointer_frame_seq != Some(frame_seq))
+            || frame_seq.is_some_and(|frame_seq| pointer_frame_seq != frame_seq)
         {
             return None;
         }
@@ -2247,6 +2437,24 @@ impl BrowserSurface {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
             Err(TrySendError::Disconnected(_)) => {
                 self.latest_nav.lock().unwrap().take();
+                anyhow::bail!("browser command worker is closed")
+            }
+        }
+    }
+
+    fn enqueue_latest_authority(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        if self.is_dead() {
+            anyhow::bail!("browser surface is closed");
+        }
+        let tx = self.command_sender()?;
+        let mut order = self.command_order.lock().unwrap();
+        let command = order.sequence(command);
+        *self.latest_authority.lock().unwrap() = Some(command);
+        let wake = order.sequence(BrowserCommand::WakeLatest);
+        match tx.try_send(wake) {
+            Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
+            Err(TrySendError::Disconnected(_)) => {
+                self.latest_authority.lock().unwrap().take();
                 anyhow::bail!("browser command worker is closed")
             }
         }
@@ -2475,6 +2683,95 @@ impl BrowserSurface {
         session.runtime.client.insert_text(&session.session_id, text)
     }
 
+    fn authorize_document_paint_blocking(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+        navigation_epoch: u64,
+    ) -> anyhow::Result<()> {
+        if !self.needs_document_paint(navigation_epoch)
+            || self.frame_epoch.latest_navigation() != navigation_epoch
+        {
+            return Ok(());
+        }
+        let session = self.require_live_session()?;
+        if session.session_id != session_id {
+            return Ok(());
+        }
+        let frame_epoch = self.restart_screencast_for_authority(&session)?;
+        let captured = match session
+            .runtime
+            .client
+            .capture_main_frame_for_loader(session_id, frame_id, loader_id)
+        {
+            Ok(captured) => captured,
+            Err(_) if self.frame_epoch.latest_navigation() != navigation_epoch => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        let accepted = self.accept_document_paint(
+            navigation_epoch,
+            frame_epoch,
+            BrowserFrame {
+                session_id: session_id.to_string(),
+                data_b64: captured.data_b64,
+                css_width: captured.css_width,
+                css_height: captured.css_height,
+                seq: 0,
+            },
+        );
+        if accepted {
+            self.dirty.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
+
+    fn authorize_same_document_paint_blocking(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+        url: &str,
+    ) -> anyhow::Result<()> {
+        if !self.needs_same_document_paint(url) {
+            return Ok(());
+        }
+        let session = self.require_live_session()?;
+        if session.session_id != session_id {
+            return Ok(());
+        }
+        let frame_epoch = self.restart_screencast_for_authority(&session)?;
+        let captured = session
+            .runtime
+            .client
+            .capture_main_frame_for_loader(session_id, frame_id, loader_id)?;
+        let accepted = self.accept_same_document_paint(
+            url,
+            frame_epoch,
+            BrowserFrame {
+                session_id: session_id.to_string(),
+                data_b64: captured.data_b64,
+                css_width: captured.css_width,
+                css_height: captured.css_height,
+                seq: 0,
+            },
+        );
+        if accepted {
+            self.dirty.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
+
+    fn restart_screencast_for_authority(&self, session: &BrowserSession) -> anyhow::Result<u64> {
+        let (width, height) = self.pixel_size();
+        session.runtime.client.stop_screencast(&session.session_id)?;
+        session.runtime.client.start_screencast_with_frame_barrier(
+            &session.session_id,
+            width,
+            height,
+        )
+    }
+
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
         self.enqueue_latest_nav(BrowserCommand::Navigate(url.to_string()))
     }
@@ -2482,7 +2779,7 @@ impl BrowserSurface {
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
-        let invalidation = self.begin_navigation_frame_transition()?;
+        let invalidation = self.begin_targeted_navigation_frame_transition(normalized.clone())?;
         match session.runtime.client.navigate(&session.session_id, &normalized) {
             Ok(result) if result.error_text.is_some() => {
                 let error = result.error_text.expect("guarded above");
@@ -2532,7 +2829,7 @@ impl BrowserSurface {
             );
         }
         let entry = &history.entries[next as usize];
-        let invalidation = self.begin_navigation_frame_transition()?;
+        let invalidation = self.begin_targeted_navigation_frame_transition(entry.url.clone())?;
         self.finish_navigation_command(
             invalidation,
             session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id),
@@ -2607,7 +2904,7 @@ fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value, f
     if frame.get("parentId").is_some() {
         return;
     }
-    if !browser.accept_navigation_frame_epoch(frame_epoch) {
+    if !browser.observe_navigation_frame_epoch(frame_epoch) {
         return;
     }
     if let Some(url) = frame.get("url").and_then(|v| v.as_str()).filter(|url| !url.is_empty()) {
@@ -2620,6 +2917,19 @@ fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value, f
         let _ = browser.set_title(title.to_string());
     }
     browser.clear_error();
+}
+
+fn handle_same_document_navigated(
+    browser: &BrowserSurface,
+    params: &serde_json::Value,
+) -> Option<String> {
+    let url = params.get("url").and_then(|value| value.as_str())?.to_string();
+    if !url.is_empty() {
+        browser.set_url(url.clone());
+        let _ = browser.set_title(url.clone());
+    }
+    browser.clear_error();
+    Some(url)
 }
 
 fn dialog_response(params: &serde_json::Value) -> (bool, String) {
@@ -2741,9 +3051,9 @@ mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
         BrowserSession, BrowserSource, BrowserStatus, MAX_RECONFIGURE_WAITERS_PER_RESERVATION,
-        SequencedBrowserCommand, capture_scale_for, handle_frame_navigated, new_surface,
-        normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
-        take_latest_worker_commands,
+        SequencedBrowserCommand, capture_scale_for, handle_frame_navigated,
+        handle_same_document_navigated, new_surface, normalize_url, runtime_endpoint,
+        scaled_pixels, start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2979,13 +3289,18 @@ mod tests {
                                     "id": id,
                                     "result": {
                                         "frameTree": {
-                                            "frame": {"id": "main-frame", "url": "about:blank"}
+                                            "frame": {
+                                                "id": "main-frame",
+                                                "loaderId": "loader-1",
+                                                "url": "about:blank"
+                                            }
                                         }
                                     }
                                 }),
                             );
                         }
                         "Page.enable"
+                        | "Page.setLifecycleEventsEnabled"
                         | "Emulation.setDeviceMetricsOverride"
                         | "Page.startScreencast" => {
                             write_ws_json(&mut ws, json!({"id": id, "result": {}}));
@@ -3072,13 +3387,18 @@ mod tests {
                                     "id": id,
                                     "result": {
                                         "frameTree": {
-                                            "frame": {"id": "main-frame", "url": "about:blank"}
+                                            "frame": {
+                                                "id": "main-frame",
+                                                "loaderId": "loader-1",
+                                                "url": "about:blank"
+                                            }
                                         }
                                     }
                                 }),
                             );
                         }
                         "Page.enable"
+                        | "Page.setLifecycleEventsEnabled"
                         | "Emulation.setDeviceMetricsOverride"
                         | "Page.startScreencast" => {
                             write_ws_json(&mut ws, json!({"id": id, "result": {}}));
@@ -3539,13 +3859,18 @@ mod tests {
                                     "id": id,
                                     "result": {
                                         "frameTree": {
-                                            "frame": {"id": "main-frame", "url": "about:blank"}
+                                            "frame": {
+                                                "id": "main-frame",
+                                                "loaderId": "loader-1",
+                                                "url": "about:blank"
+                                            }
                                         }
                                     }
                                 }),
                             );
                         }
                         "Page.enable"
+                        | "Page.setLifecycleEventsEnabled"
                         | "Emulation.setDeviceMetricsOverride"
                         | "Page.startScreencast" => {
                             write_ws_json(&mut ws, json!({"id": id, "result": {}}));
@@ -3605,6 +3930,7 @@ mod tests {
                             "frameTree": {
                                 "frame": {
                                     "id": "main-frame",
+                                    "loaderId": "loader-1",
                                     "url": "https://example.test"
                                 }
                             }
@@ -3612,9 +3938,12 @@ mod tests {
                     }),
                 );
 
-                for expected in
-                    ["Page.enable", "Emulation.setDeviceMetricsOverride", "Page.startScreencast"]
-                {
+                for expected in [
+                    "Page.enable",
+                    "Page.setLifecycleEventsEnabled",
+                    "Emulation.setDeviceMetricsOverride",
+                    "Page.startScreencast",
+                ] {
                     let request = read_ws_json(&mut ws);
                     assert_eq!(request["method"], expected);
                     write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
@@ -4079,7 +4408,7 @@ mod tests {
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_some());
         assert_eq!(browser.latest_frame_seq(), Some(1));
 
-        let frame_epoch = browser.frame_epoch.advance();
+        let frame_epoch = browser.frame_epoch.advance_navigation();
         handle_frame_navigated(
             browser,
             json!({"frame": {"url": "https://next.test", "name": "next"}}),
@@ -4098,6 +4427,12 @@ mod tests {
         );
         assert!(browser.scale_guarded_input_point(Some(1), 1.0, 1.0).is_none());
         browser.store_frame(test_frame(2));
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "an unverified streamed frame must remain non-interactive"
+        );
+        assert!(browser.accept_document_paint(frame_epoch, frame_epoch, test_frame(2)));
         assert_eq!(browser.latest_frame_seq(), Some(2));
         assert!(browser.scale_guarded_input_point(Some(2), 1.0, 1.0).is_some());
     }
@@ -4127,6 +4462,196 @@ mod tests {
             None,
             "a streamed frame without committed-loader paint proof must remain non-interactive"
         );
+    }
+
+    #[test]
+    fn old_screencast_generation_cannot_overwrite_authorized_pixels() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let navigation_epoch = browser.frame_epoch.advance_navigation();
+        handle_frame_navigated(
+            browser,
+            json!({
+                "frame": {
+                    "id": "main-frame",
+                    "loaderId": "next-loader",
+                    "url": "https://next.test"
+                }
+            }),
+            navigation_epoch,
+        );
+        let capture_epoch = browser.frame_epoch.advance();
+        assert!(browser.accept_document_paint(navigation_epoch, capture_epoch, test_frame(2)));
+
+        browser.store_frame_for_epoch(test_frame(3), navigation_epoch);
+        assert_eq!(
+            browser.latest_frame_seq(),
+            Some(2),
+            "a delayed frame from the stopped stream must not replace authorized pixels"
+        );
+        browser.store_frame_for_epoch(test_frame(3), capture_epoch);
+        assert_eq!(
+            browser.latest_frame_seq(),
+            Some(3),
+            "the restarted stream may advance the authorized presentation"
+        );
+    }
+
+    #[test]
+    fn lifecycle_paint_authorizes_loader_bracketed_capture_end_to_end() {
+        const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (start_tx, start_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            start_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.frameNavigated",
+                    "sessionId": "session-1",
+                    "params": {
+                        "frame": {
+                            "id": "main-frame",
+                            "loaderId": "loader-2",
+                            "url": "https://next.test"
+                        }
+                    }
+                }),
+            );
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "AAAA",
+                        "sessionId": 9,
+                        "metadata": {"deviceWidth": 80, "deviceHeight": 48}
+                    }
+                }),
+            );
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "method": "Page.lifecycleEvent",
+                    "sessionId": "session-1",
+                    "params": {
+                        "frameId": "main-frame",
+                        "loaderId": "loader-2",
+                        "name": "firstPaint",
+                        "timestamp": 1.0
+                    }
+                }),
+            );
+
+            let mut authority_calls = 0;
+            while authority_calls < 5 {
+                let request = read_ws_json(&mut ws);
+                match request["method"].as_str().unwrap() {
+                    "Page.screencastFrameAck" => {}
+                    "Page.stopScreencast" | "Page.startScreencast" => {
+                        authority_calls += 1;
+                        write_ws_json(&mut ws, json!({"id": request["id"], "result": {}}));
+                    }
+                    "Page.getFrameTree" => {
+                        authority_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {
+                                    "frameTree": {
+                                        "frame": {
+                                            "id": "main-frame",
+                                            "loaderId": "loader-2",
+                                            "url": "https://next.test"
+                                        }
+                                    }
+                                }
+                            }),
+                        );
+                    }
+                    "Page.captureScreenshot" => {
+                        authority_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {"data": ONE_PIXEL_PNG}
+                            }),
+                        );
+                    }
+                    method => panic!("unexpected CDP method {method}"),
+                }
+            }
+            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let route = runtime.register("target-1", "session-1");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        start_surface_thread(surface.clone(), route, Weak::new(), Arc::downgrade(&runtime))
+            .unwrap();
+        browser.store_frame(test_frame(1));
+
+        start_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline && browser.latest_frame_seq() != Some(2) {
+            thread::yield_now();
+        }
+        assert_eq!(browser.latest_frame_seq(), Some(2));
+        assert_eq!(
+            browser.latest_frame().map(|frame| frame.data_b64),
+            Some(ONE_PIXEL_PNG.to_string())
+        );
+
+        stop_tx.send(()).unwrap();
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn same_document_capture_reopens_authority_without_a_new_navigation_epoch() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let navigation_epoch = browser.frame_epoch.latest_navigation();
+        let url = "https://example.test/#next";
+        browser
+            .begin_targeted_navigation_frame_transition(url.to_string())
+            .expect("same-document reservation");
+
+        let observed =
+            handle_same_document_navigated(browser, &json!({"frameId": "main-frame", "url": url}))
+                .expect("same-document URL");
+        assert!(browser.needs_same_document_paint(&observed));
+        let capture_epoch = browser.frame_epoch.advance();
+        assert!(browser.accept_same_document_paint(&observed, capture_epoch, test_frame(2)));
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(browser.frame_epoch.latest_navigation(), navigation_epoch);
+        assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(state.pending_navigation_epoch, None);
+        assert_eq!(state.pointer_frame_seq, Some(2));
     }
 
     #[test]
@@ -4233,11 +4758,12 @@ mod tests {
             state.accepted_frame_epoch, reconfigure_epoch,
             "an older queued navigation must not roll frame admission behind a completed resize"
         );
-        assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(state.pending_frame_epoch, Some(reconfigure_epoch));
+        assert_eq!(state.pending_document_epoch, Some(navigation_epoch));
         assert_eq!(
             state.latest_frame.as_ref().map(|frame| frame.seq),
-            Some(2),
-            "frames from the newest reconciled epoch must remain live"
+            None,
+            "unverified frames must remain pending even at the newest capture epoch"
         );
     }
 
@@ -4271,11 +4797,17 @@ mod tests {
             navigation_epoch,
         );
         browser.store_frame_for_epoch(test_frame(3), navigation_epoch);
+        assert_eq!(
+            browser.latest_frame_seq(),
+            None,
+            "the navigation stream cannot authorize its own document identity"
+        );
+        assert!(browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(3)));
 
         assert_eq!(
             browser.latest_frame_seq(),
             Some(3),
-            "a post-navigation frame may regain pointer authority"
+            "a loader-authorized paint may regain pointer authority"
         );
     }
 
@@ -4304,6 +4836,7 @@ mod tests {
                     "params": {
                         "frame": {
                             "id": "main-frame",
+                            "loaderId": "reload-loader",
                             "url": "https://example.test"
                         }
                     }
@@ -4320,6 +4853,7 @@ mod tests {
                     "params": {
                         "frame": {
                             "id": "main-frame",
+                            "loaderId": "next-loader",
                             "url": "https://next.test"
                         }
                     }
@@ -4364,6 +4898,8 @@ mod tests {
             None,
             "the authoritative reload event must release the serialized navigation lane"
         );
+        let reload_epoch = browser.frame_epoch.current();
+        assert!(browser.accept_document_paint(reload_epoch, reload_epoch, test_frame(2)));
         browser.navigate_blocking("https://next.test").unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         while Instant::now() < deadline
@@ -4371,6 +4907,8 @@ mod tests {
         {
             thread::yield_now();
         }
+        let navigation_epoch = browser.frame_epoch.current();
+        assert!(browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(3)));
 
         let state = browser.state.lock().unwrap();
         assert_eq!(state.pending_frame_epoch, None);

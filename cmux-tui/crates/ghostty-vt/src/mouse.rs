@@ -70,6 +70,40 @@ pub(crate) struct MouseModeProbe {
     signature_calls: u64,
 }
 
+/// Allocation-free fingerprint of Ghostty's effective mouse encoder behavior.
+/// The fixed probe inputs produce fewer than 192 bytes for every supported
+/// protocol. The overflow hash keeps a deterministic fingerprint if an
+/// upstream format ever exceeds that bound.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct MouseModeSignature {
+    bytes: [u8; 192],
+    stored_len: u16,
+    total_len: u16,
+    overflow_hash: u64,
+}
+
+impl Default for MouseModeSignature {
+    fn default() -> Self {
+        Self { bytes: [0; 192], stored_len: 0, total_len: 0, overflow_hash: 0xcbf2_9ce4_8422_2325 }
+    }
+}
+
+impl Extend<u8> for MouseModeSignature {
+    fn extend<T: IntoIterator<Item = u8>>(&mut self, iter: T) {
+        for byte in iter {
+            let index = usize::from(self.stored_len);
+            if index < self.bytes.len() {
+                self.bytes[index] = byte;
+                self.stored_len += 1;
+            } else {
+                self.overflow_hash ^= u64::from(byte);
+                self.overflow_hash = self.overflow_hash.wrapping_mul(0x100_0000_01b3);
+            }
+            self.total_len = self.total_len.saturating_add(1);
+        }
+    }
+}
+
 impl MouseEncoders {
     pub fn new() -> Result<Self> {
         Ok(Self { primary: MouseEncoder::new()?, release: MouseEncoder::new()? })
@@ -113,14 +147,14 @@ impl MouseModeProbe {
         })
     }
 
-    pub(crate) fn signature(&mut self, terminal: sys::GhosttyTerminal) -> Vec<u8> {
+    pub(crate) fn signature(&mut self, terminal: sys::GhosttyTerminal) -> MouseModeSignature {
         #[cfg(test)]
         {
             self.signature_calls += 1;
         }
         self.encoder.sync_from_raw_terminal(terminal);
         self.encoder.reset_motion_dedupe();
-        let mut signature = Vec::with_capacity(96);
+        let mut signature = MouseModeSignature::default();
         // Together these events distinguish X10, normal, button-motion,
         // any-motion, UTF-8, SGR, URXVT, and pixel-coordinate behavior.
         for (tag, input) in [
@@ -185,12 +219,15 @@ impl MouseModeProbe {
                 },
             ),
         ] {
-            let mut encoded = Vec::new();
-            let result = self.encoder.encode(input, &mut encoded);
-            signature.push(tag);
-            signature.push(u8::from(result.is_err()));
-            signature.extend_from_slice(&(encoded.len() as u16).to_le_bytes());
-            signature.extend_from_slice(&encoded);
+            let encoded_start = signature.total_len;
+            let result = self.encoder.encode(input, &mut signature);
+            let encoded_len = signature.total_len.saturating_sub(encoded_start);
+            signature.extend([
+                tag,
+                u8::from(result.is_err()),
+                encoded_len.to_le_bytes()[0],
+                encoded_len.to_le_bytes()[1],
+            ]);
         }
         signature
     }

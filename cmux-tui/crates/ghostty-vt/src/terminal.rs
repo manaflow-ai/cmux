@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ghostty_vt_sys as sys;
 
-use crate::mouse::MouseModeProbe;
+use crate::mouse::{MouseModeProbe, MouseModeSignature};
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
@@ -148,6 +148,12 @@ pub struct Callbacks {
 struct MouseModeChangeDetector {
     state: MouseModeChangeState,
     utf8_remaining: u8,
+    csi_private: bool,
+    csi_parameter: u16,
+    csi_has_digits: bool,
+    csi_has_mouse_mode: bool,
+    csi_intermediate: Option<u8>,
+    csi_invalid: bool,
 }
 
 #[derive(Default)]
@@ -174,11 +180,17 @@ impl MouseModeChangeDetector {
             self.state = match state {
                 State::Ground => match byte {
                     0x1b => State::Escape,
-                    0x9b => State::Csi,
+                    0x9b => {
+                        self.start_csi();
+                        State::Csi
+                    }
                     _ => State::Ground,
                 },
                 State::Escape => match byte {
-                    b'[' => State::Csi,
+                    b'[' => {
+                        self.start_csi();
+                        State::Csi
+                    }
                     b'c' => {
                         may_have_changed = true;
                         State::Ground
@@ -188,17 +200,79 @@ impl MouseModeChangeDetector {
                     _ => State::Ground,
                 },
                 State::Csi => match byte {
-                    0x1b => State::Escape,
+                    0x1b => {
+                        self.start_csi();
+                        State::Escape
+                    }
                     0x00..=0x1f | 0x7f => State::Csi,
+                    b'?' if !self.csi_has_digits
+                        && !self.csi_private
+                        && self.csi_intermediate.is_none() =>
+                    {
+                        self.csi_private = true;
+                        State::Csi
+                    }
+                    b'0'..=b'9' if self.csi_intermediate.is_none() => {
+                        self.csi_has_digits = true;
+                        self.csi_parameter = self
+                            .csi_parameter
+                            .saturating_mul(10)
+                            .saturating_add(u16::from(byte - b'0'));
+                        State::Csi
+                    }
+                    b';' if self.csi_intermediate.is_none() => {
+                        self.finish_csi_parameter();
+                        State::Csi
+                    }
+                    0x20..=0x2f if self.csi_intermediate.is_none() => {
+                        self.finish_csi_parameter();
+                        self.csi_intermediate = Some(byte);
+                        State::Csi
+                    }
                     0x40..=0x7e => {
-                        may_have_changed |= matches!(byte, b'h' | b'l' | b'p' | b'r');
+                        self.finish_csi_parameter();
+                        may_have_changed |= self.csi_changes_mouse_mode(byte);
+                        self.start_csi();
                         State::Ground
                     }
-                    _ => State::Csi,
+                    _ => {
+                        self.csi_invalid = true;
+                        State::Csi
+                    }
                 },
             };
         }
         may_have_changed
+    }
+
+    fn start_csi(&mut self) {
+        self.csi_private = false;
+        self.csi_parameter = 0;
+        self.csi_has_digits = false;
+        self.csi_has_mouse_mode = false;
+        self.csi_intermediate = None;
+        self.csi_invalid = false;
+    }
+
+    fn finish_csi_parameter(&mut self) {
+        if self.csi_has_digits && MOUSE_DEC_MODES.contains(&self.csi_parameter) {
+            self.csi_has_mouse_mode = true;
+        }
+        self.csi_parameter = 0;
+        self.csi_has_digits = false;
+    }
+
+    fn csi_changes_mouse_mode(&self, final_byte: u8) -> bool {
+        if self.csi_invalid {
+            return false;
+        }
+        let private_mouse_change = self.csi_private
+            && self.csi_intermediate.is_none()
+            && self.csi_has_mouse_mode
+            && matches!(final_byte, b'h' | b'l' | b'r');
+        let soft_reset =
+            !self.csi_private && self.csi_intermediate == Some(b'!') && final_byte == b'p';
+        private_mouse_change || soft_reset
     }
 
     fn consume_utf8_continuation(&mut self, byte: u8) -> bool {
@@ -230,7 +304,7 @@ pub struct Terminal {
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_bits: u8,
-    mouse_mode_signature: Vec<u8>,
+    mouse_mode_signature: MouseModeSignature,
     mouse_mode_probe: MouseModeProbe,
     mouse_mode_change_detector: MouseModeChangeDetector,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
@@ -1146,7 +1220,7 @@ impl Terminal {
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_bits: 0,
-            mouse_mode_signature: Vec::new(),
+            mouse_mode_signature: MouseModeSignature::default(),
             mouse_mode_probe,
             mouse_mode_change_detector: MouseModeChangeDetector::default(),
             callbacks: Box::new(callbacks),

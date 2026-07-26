@@ -5,7 +5,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
@@ -23,6 +23,8 @@ const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
 /// arithmetic. It is a queue-enforcement budget, not an exact allocator usage
 /// measurement.
 pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
+const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
+const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 
 #[cfg(test)]
 static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -97,6 +99,13 @@ pub struct ScreencastFrame {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapturedFrame {
+    pub data_b64: String,
+    pub css_width: u32,
+    pub css_height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetInfo {
     pub session_id: Option<String>,
     pub target_id: String,
@@ -135,10 +144,30 @@ pub struct NavigationResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdpEvent {
     ScreencastFrame(ScreencastFrame),
-    FrameNavigated { params: Value, session_id: String, frame_epoch: u64 },
+    FrameNavigated {
+        params: Value,
+        session_id: String,
+        frame_epoch: u64,
+    },
+    DocumentPainted {
+        session_id: String,
+        frame_id: String,
+        loader_id: String,
+        navigation_epoch: u64,
+    },
+    NavigatedWithinDocument {
+        params: Value,
+        session_id: String,
+        frame_id: String,
+        loader_id: String,
+    },
     TargetCreated(TargetCreated),
     TargetInfoChanged(TargetInfo),
-    Other { method: String, params: Value, session_id: Option<String> },
+    Other {
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+    },
     Closed(String),
 }
 
@@ -182,6 +211,15 @@ struct PendingCall {
 struct FrameSession {
     epoch: Arc<FrameEpoch>,
     main_frame_id: Option<String>,
+    main_loader_id: Option<String>,
+    pending_document: Option<PendingDocument>,
+    minimum_screencast_timestamp: Option<f64>,
+}
+
+struct PendingDocument {
+    frame_id: String,
+    loader_id: String,
+    navigation_epoch: u64,
 }
 
 struct EventQueue {
@@ -303,6 +341,16 @@ pub fn event_retained_bytes(event: &CdpEvent) -> usize {
             .len()
             .saturating_add(json_retained_bytes(params))
             .saturating_add(size_of::<u64>()),
+        CdpEvent::DocumentPainted { session_id, frame_id, loader_id, .. } => session_id
+            .len()
+            .saturating_add(frame_id.len())
+            .saturating_add(loader_id.len())
+            .saturating_add(size_of::<u64>()),
+        CdpEvent::NavigatedWithinDocument { params, session_id, frame_id, loader_id } => session_id
+            .len()
+            .saturating_add(frame_id.len())
+            .saturating_add(loader_id.len())
+            .saturating_add(json_retained_bytes(params)),
         CdpEvent::TargetCreated(target) => target
             .target_id
             .len()
@@ -469,7 +517,13 @@ impl CdpClient {
     pub fn register_frame_epoch(&self, session_id: &str, frame_epoch: Arc<FrameEpoch>) {
         self.inner.frame_epochs.lock().unwrap().insert(
             session_id.to_string(),
-            FrameSession { epoch: frame_epoch, main_frame_id: None },
+            FrameSession {
+                epoch: frame_epoch,
+                main_frame_id: None,
+                main_loader_id: None,
+                pending_document: None,
+                minimum_screencast_timestamp: None,
+            },
         );
     }
 
@@ -544,6 +598,11 @@ impl CdpClient {
         self.call("Page.enable", json!({}), Some(session_id)).map(|_| ())
     }
 
+    pub fn set_lifecycle_events_enabled(&self, session_id: &str) -> anyhow::Result<()> {
+        self.call("Page.setLifecycleEventsEnabled", json!({ "enabled": true }), Some(session_id))
+            .map(|_| ())
+    }
+
     pub fn seed_main_frame(&self, session_id: &str) -> anyhow::Result<()> {
         let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
         let frame = result
@@ -554,11 +613,16 @@ impl CdpClient {
             .get("id")
             .and_then(|value| value.as_str())
             .ok_or_else(|| anyhow::anyhow!("Page.getFrameTree root frame missing id"))?;
+        let loader_id = frame
+            .get("loaderId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Page.getFrameTree root frame missing loaderId"))?;
         let mut frame_epochs = self.inner.frame_epochs.lock().unwrap();
         let frame_session = frame_epochs
             .get_mut(session_id)
             .ok_or_else(|| anyhow::anyhow!("missing frame epoch for CDP session {session_id}"))?;
         frame_session.main_frame_id = Some(frame_id.to_string());
+        frame_session.main_loader_id = Some(loader_id.to_string());
         Ok(())
     }
 
@@ -596,14 +660,22 @@ impl CdpClient {
         max_width: u32,
         max_height: u32,
     ) -> anyhow::Result<u64> {
-        let frame_epoch = self
-            .inner
-            .frame_epochs
-            .lock()
-            .unwrap()
-            .get(session_id)
-            .map(|frame_session| frame_session.epoch.clone())
-            .ok_or_else(|| anyhow::anyhow!("missing frame epoch for CDP session {session_id}"))?;
+        let minimum_screencast_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| anyhow::anyhow!("system clock precedes Unix epoch: {error}"))?
+            .as_secs_f64();
+        let frame_epoch = {
+            let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let frame_session = frame_sessions.get_mut(session_id).ok_or_else(|| {
+                anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
+            })?;
+            // Chromium records this timestamp when pixels enter the screencast
+            // pipeline, before asynchronous encoding. A frame captured before
+            // stopScreencast may otherwise be emitted after this restart with
+            // the new Chromium session id.
+            frame_session.minimum_screencast_timestamp = Some(minimum_screencast_timestamp);
+            frame_session.epoch.clone()
+        };
         self.call_with_frame_barrier(
             "Page.startScreencast",
             json!({
@@ -620,6 +692,63 @@ impl CdpClient {
 
     pub fn stop_screencast(&self, session_id: &str) -> anyhow::Result<()> {
         self.call("Page.stopScreencast", json!({}), Some(session_id)).map(|_| ())
+    }
+
+    /// Capture the presented viewport only while the main frame remains
+    /// attached to `loader_id`. The before/after checks make the returned
+    /// pixels document authority instead of inferring identity from event
+    /// arrival order.
+    pub fn capture_main_frame_for_loader(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+    ) -> anyhow::Result<CapturedFrame> {
+        self.require_main_frame_loader(session_id, frame_id, loader_id)?;
+        let result = self.call(
+            "Page.captureScreenshot",
+            json!({
+                "format": "png",
+                "fromSurface": true,
+                "captureBeyondViewport": false,
+            }),
+            Some(session_id),
+        )?;
+        self.require_main_frame_loader(session_id, frame_id, loader_id)?;
+        let data_b64 = result
+            .get("data")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Page.captureScreenshot response missing data"))?;
+        let decoded_len = canonical_base64_decoded_len(data_b64)
+            .ok_or_else(|| anyhow::anyhow!("Page.captureScreenshot returned invalid base64"))?;
+        if data_b64.len() > MAX_ENCODED_FRAME_BYTES || decoded_len > MAX_DECODED_FRAME_BYTES {
+            anyhow::bail!("Page.captureScreenshot returned an oversized frame");
+        }
+        let (css_width, css_height) = png_dimensions(data_b64)
+            .ok_or_else(|| anyhow::anyhow!("Page.captureScreenshot returned an invalid PNG"))?;
+        Ok(CapturedFrame { data_b64: data_b64.to_string(), css_width, css_height })
+    }
+
+    fn require_main_frame_loader(
+        &self,
+        session_id: &str,
+        expected_frame_id: &str,
+        expected_loader_id: &str,
+    ) -> anyhow::Result<()> {
+        let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
+        let frame = result
+            .get("frameTree")
+            .and_then(|tree| tree.get("frame"))
+            .ok_or_else(|| anyhow::anyhow!("Page.getFrameTree response missing root frame"))?;
+        let frame_id = frame.get("id").and_then(Value::as_str).unwrap_or_default();
+        let loader_id = frame.get("loaderId").and_then(Value::as_str).unwrap_or_default();
+        if frame_id != expected_frame_id || loader_id != expected_loader_id {
+            anyhow::bail!(
+                "main document changed while authorizing captured pixels \
+                 (expected frame {expected_frame_id} loader {expected_loader_id})"
+            );
+        }
+        Ok(())
     }
 
     pub fn navigate(&self, session_id: &str, url: &str) -> anyhow::Result<NavigationResult> {
@@ -889,14 +1018,6 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     let Some(method) = value.get("method").and_then(|v| v.as_str()) else { return };
     let params = value.get("params").cloned().unwrap_or(Value::Null);
     let session_id = value.get("sessionId").and_then(|v| v.as_str()).map(str::to_string);
-    let frame_navigation = session_id.is_some()
-        && match method {
-            "Page.frameNavigated" => {
-                params.get("frame").is_some_and(|frame| frame.get("parentId").is_none())
-            }
-            "Page.navigatedWithinDocument" => true,
-            _ => false,
-        };
     match method {
         "Page.screencastFrame" => {
             if let Some(target_session) = session_id.as_deref() {
@@ -904,13 +1025,20 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     return;
                 };
                 ack_screencast_frame(inner, target_session, ack_id);
-                let frame_epoch = inner
+                let (frame_epoch, minimum_screencast_timestamp) = inner
                     .frame_epochs
                     .lock()
                     .unwrap()
                     .get(target_session)
-                    .map_or(0, |frame_session| frame_session.epoch.current());
-                let Some(frame) = screencast_frame(&params, target_session, frame_epoch) else {
+                    .map_or((0, None), |frame_session| {
+                        (frame_session.epoch.current(), frame_session.minimum_screencast_timestamp)
+                    });
+                let Some(frame) = screencast_frame(
+                    &params,
+                    target_session,
+                    frame_epoch,
+                    minimum_screencast_timestamp,
+                ) else {
                     return;
                 };
                 dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
@@ -926,22 +1054,23 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 dispatch_event(inner, CdpEvent::TargetInfoChanged(info));
             }
         }
-        _ if frame_navigation => {
+        "Page.frameNavigated" if session_id.is_some() => {
             let session_id = session_id.expect("guarded above");
-            let Some(frame_epoch) =
-                main_frame_navigation_epoch(inner, method, &params, &session_id)
-            else {
-                dispatch_event(
-                    inner,
-                    CdpEvent::Other {
-                        method: method.to_string(),
-                        params,
-                        session_id: Some(session_id),
-                    },
-                );
-                return;
-            };
-            dispatch_event(inner, CdpEvent::FrameNavigated { params, session_id, frame_epoch });
+            if let Some(frame_epoch) = main_frame_navigation_epoch(inner, &params, &session_id) {
+                dispatch_event(inner, CdpEvent::FrameNavigated { params, session_id, frame_epoch });
+            }
+        }
+        "Page.lifecycleEvent" if session_id.is_some() => {
+            let session_id = session_id.expect("guarded above");
+            if let Some(event) = main_frame_document_paint(inner, &params, &session_id) {
+                dispatch_event(inner, event);
+            }
+        }
+        "Page.navigatedWithinDocument" if session_id.is_some() => {
+            let session_id = session_id.expect("guarded above");
+            if let Some(event) = main_frame_same_document_navigation(inner, params, session_id) {
+                dispatch_event(inner, event);
+            }
         }
         _ => {
             dispatch_event(
@@ -952,31 +1081,64 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     }
 }
 
-fn main_frame_navigation_epoch(
-    inner: &Inner,
-    method: &str,
-    params: &Value,
-    session_id: &str,
-) -> Option<u64> {
+fn main_frame_navigation_epoch(inner: &Inner, params: &Value, session_id: &str) -> Option<u64> {
     let mut frame_epochs = inner.frame_epochs.lock().unwrap();
     let frame_session = frame_epochs.get_mut(session_id)?;
-    match method {
-        "Page.frameNavigated" => {
-            let frame = params.get("frame")?;
-            if frame.get("parentId").is_some() {
-                return None;
-            }
-            frame_session.main_frame_id = Some(frame.get("id")?.as_str()?.to_string());
-        }
-        "Page.navigatedWithinDocument" => {
-            let frame_id = params.get("frameId")?.as_str()?;
-            if frame_session.main_frame_id.as_deref() != Some(frame_id) {
-                return None;
-            }
-        }
-        _ => return None,
+    let frame = params.get("frame")?;
+    if frame.get("parentId").is_some() {
+        return None;
     }
-    Some(frame_session.epoch.advance_navigation())
+    let frame_id = frame.get("id")?.as_str()?.to_string();
+    let loader_id = frame.get("loaderId").and_then(Value::as_str).map(str::to_string);
+    let navigation_epoch = frame_session.epoch.advance_navigation();
+    frame_session.main_frame_id = Some(frame_id.clone());
+    frame_session.main_loader_id = loader_id.clone();
+    frame_session.pending_document =
+        loader_id.map(|loader_id| PendingDocument { frame_id, loader_id, navigation_epoch });
+    Some(navigation_epoch)
+}
+
+fn main_frame_document_paint(inner: &Inner, params: &Value, session_id: &str) -> Option<CdpEvent> {
+    if !matches!(
+        params.get("name").and_then(Value::as_str),
+        Some("firstPaint" | "firstContentfulPaint")
+    ) {
+        return None;
+    }
+    let frame_id = params.get("frameId")?.as_str()?;
+    let lifecycle_loader_id = params.get("loaderId").and_then(Value::as_str).unwrap_or_default();
+    let frame_epochs = inner.frame_epochs.lock().unwrap();
+    let pending = frame_epochs.get(session_id)?.pending_document.as_ref()?;
+    if pending.frame_id != frame_id
+        || !lifecycle_loader_id.is_empty() && pending.loader_id != lifecycle_loader_id
+    {
+        return None;
+    }
+    Some(CdpEvent::DocumentPainted {
+        session_id: session_id.to_string(),
+        frame_id: pending.frame_id.clone(),
+        loader_id: pending.loader_id.clone(),
+        navigation_epoch: pending.navigation_epoch,
+    })
+}
+
+fn main_frame_same_document_navigation(
+    inner: &Inner,
+    params: Value,
+    session_id: String,
+) -> Option<CdpEvent> {
+    let frame_id = params.get("frameId")?.as_str()?.to_string();
+    let frame_epochs = inner.frame_epochs.lock().unwrap();
+    let frame_session = frame_epochs.get(&session_id)?;
+    if frame_session.main_frame_id.as_deref() != Some(frame_id.as_str()) {
+        return None;
+    }
+    Some(CdpEvent::NavigatedWithinDocument {
+        params,
+        session_id,
+        frame_id,
+        loader_id: frame_session.main_loader_id.clone()?,
+    })
 }
 
 fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
@@ -997,10 +1159,12 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
     let _ = inner.outbound.send(Outbound::Message(text));
 }
 
-fn screencast_frame(params: &Value, session_id: &str, frame_epoch: u64) -> Option<ScreencastFrame> {
-    const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
-    const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
-
+fn screencast_frame(
+    params: &Value,
+    session_id: &str,
+    frame_epoch: u64,
+    minimum_timestamp: Option<f64>,
+) -> Option<ScreencastFrame> {
     let supplied = params.get("data")?.as_str()?;
     if supplied.len() > MAX_ENCODED_FRAME_BYTES {
         return None;
@@ -1010,6 +1174,13 @@ fn screencast_frame(params: &Value, session_id: &str, frame_epoch: u64) -> Optio
     }
     let ack_id = params.get("sessionId")?.as_u64()?;
     let metadata = params.get("metadata").unwrap_or(&Value::Null);
+    if let Some(minimum_timestamp) = minimum_timestamp {
+        let capture_timestamp =
+            metadata.get("timestamp").and_then(Value::as_f64).filter(|value| value.is_finite())?;
+        if capture_timestamp < minimum_timestamp {
+            return None;
+        }
+    }
     let css_width = metadata
         .get("deviceWidth")
         .and_then(|v| v.as_u64())
@@ -1064,6 +1235,31 @@ fn base64_value(byte: u8) -> Option<u8> {
         b'/' => Some(63),
         _ => None,
     }
+}
+
+fn png_dimensions(data_b64: &str) -> Option<(u32, u32)> {
+    const HEADER_BASE64_BYTES: usize = 32;
+    const PNG_HEADER_BYTES: usize = 24;
+    let encoded = data_b64.as_bytes().get(..HEADER_BASE64_BYTES)?;
+    let mut decoded = [0_u8; PNG_HEADER_BYTES];
+    for (encoded, decoded) in encoded.chunks_exact(4).zip(decoded.chunks_exact_mut(3)) {
+        let a = base64_value(encoded[0])?;
+        let b = base64_value(encoded[1])?;
+        let c = base64_value(encoded[2])?;
+        let d = base64_value(encoded[3])?;
+        decoded[0] = a << 2 | b >> 4;
+        decoded[1] = b << 4 | c >> 2;
+        decoded[2] = c << 6 | d;
+    }
+    if decoded[..8] != [137, 80, 78, 71, 13, 10, 26, 10]
+        || decoded[8..12] != 13_u32.to_be_bytes()
+        || decoded[12..16] != *b"IHDR"
+    {
+        return None;
+    }
+    let width = u32::from_be_bytes(decoded[16..20].try_into().ok()?);
+    let height = u32::from_be_bytes(decoded[20..24].try_into().ok()?);
+    (width != 0 && height != 0).then_some((width, height))
 }
 
 fn target_info(params: &Value, session_id: Option<&str>) -> Option<TargetInfo> {
@@ -1275,7 +1471,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert!(screencast_frame(&params, "session-1", 0).is_none());
+        assert!(screencast_frame(&params, "session-1", 0, None).is_none());
     }
 
     #[test]
@@ -1286,7 +1482,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert_eq!(screencast_frame(&params, "session-1", 0).unwrap().data_b64, "aGk=");
+        assert_eq!(screencast_frame(&params, "session-1", 0, None).unwrap().data_b64, "aGk=");
     }
 
     #[test]
@@ -1297,7 +1493,7 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert!(screencast_frame(&params, "session-1", 0).is_none());
+        assert!(screencast_frame(&params, "session-1", 0, None).is_none());
     }
 
     #[test]
@@ -1395,7 +1591,13 @@ mod tests {
         let frame_epoch = Arc::new(FrameEpoch::default());
         inner.frame_epochs.lock().unwrap().insert(
             "session-1".to_string(),
-            FrameSession { epoch: frame_epoch.clone(), main_frame_id: None },
+            FrameSession {
+                epoch: frame_epoch.clone(),
+                main_frame_id: None,
+                main_loader_id: None,
+                pending_document: None,
+                minimum_screencast_timestamp: None,
+            },
         );
 
         handle_text(
@@ -1403,7 +1605,13 @@ mod tests {
             &json!({
                 "method": "Page.frameNavigated",
                 "sessionId": "session-1",
-                "params": {"frame": {"id": "frame-1", "url": "https://example.test"}}
+                "params": {
+                    "frame": {
+                        "id": "frame-1",
+                        "loaderId": "loader-1",
+                        "url": "https://example.test"
+                    }
+                }
             })
             .to_string(),
         );
@@ -1420,8 +1628,22 @@ mod tests {
             })
             .to_string(),
         );
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.lifecycleEvent",
+                "sessionId": "session-1",
+                "params": {
+                    "frameId": "frame-1",
+                    "loaderId": "loader-1",
+                    "name": "firstPaint",
+                    "timestamp": 1.0
+                }
+            })
+            .to_string(),
+        );
 
-        let (event_tx, event_rx) = sync_channel(2);
+        let (event_tx, event_rx) = sync_channel(3);
         inner.events.drain_into(&event_tx).unwrap();
         assert!(matches!(
             event_rx.recv().unwrap(),
@@ -1430,6 +1652,15 @@ mod tests {
         assert!(matches!(
             event_rx.recv().unwrap(),
             CdpEvent::ScreencastFrame(ScreencastFrame { frame_epoch: 1, .. })
+        ));
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::DocumentPainted {
+                frame_id,
+                loader_id,
+                navigation_epoch: 1,
+                ..
+            } if frame_id == "frame-1" && loader_id == "loader-1"
         ));
         assert_eq!(frame_epoch.current(), 1);
     }
@@ -1440,14 +1671,26 @@ mod tests {
         let frame_epoch = Arc::new(FrameEpoch::default());
         inner.frame_epochs.lock().unwrap().insert(
             "session-1".to_string(),
-            FrameSession { epoch: frame_epoch.clone(), main_frame_id: None },
+            FrameSession {
+                epoch: frame_epoch.clone(),
+                main_frame_id: None,
+                main_loader_id: None,
+                pending_document: None,
+                minimum_screencast_timestamp: None,
+            },
         );
         handle_text(
             &inner,
             &json!({
                 "method": "Page.frameNavigated",
                 "sessionId": "session-1",
-                "params": {"frame": {"id": "main-frame", "url": "https://example.test"}}
+                "params": {
+                    "frame": {
+                        "id": "main-frame",
+                        "loaderId": "loader-1",
+                        "url": "https://example.test"
+                    }
+                }
             })
             .to_string(),
         );
@@ -1483,6 +1726,83 @@ mod tests {
             1,
             "same-document navigation must not invalidate the current document's pointer authority"
         );
+        let (event_tx, event_rx) = sync_channel(2);
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(matches!(event_rx.recv().unwrap(), CdpEvent::FrameNavigated { .. }));
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::NavigatedWithinDocument {
+                frame_id,
+                loader_id,
+                ..
+            } if frame_id == "main-frame" && loader_id == "loader-1"
+        ));
+    }
+
+    #[test]
+    fn screenshot_authority_is_bracketed_by_the_committed_loader() {
+        const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            for post_loader in ["loader-1", "loader-2"] {
+                for expected in ["Page.getFrameTree", "Page.captureScreenshot", "Page.getFrameTree"]
+                {
+                    let request = loop {
+                        match ws.read().unwrap() {
+                            Message::Text(text) => {
+                                break serde_json::from_str::<Value>(&text).unwrap();
+                            }
+                            Message::Binary(bytes) => {
+                                break serde_json::from_slice::<Value>(&bytes).unwrap();
+                            }
+                            _ => {}
+                        }
+                    };
+                    assert_eq!(request["method"], expected);
+                    let result = match expected {
+                        "Page.getFrameTree" => {
+                            let loader_id = if request["id"].as_u64().unwrap().is_multiple_of(3) {
+                                post_loader
+                            } else {
+                                "loader-1"
+                            };
+                            json!({
+                                "frameTree": {
+                                    "frame": {
+                                        "id": "main-frame",
+                                        "loaderId": loader_id,
+                                        "url": "https://example.test"
+                                    }
+                                }
+                            })
+                        }
+                        "Page.captureScreenshot" => json!({"data": ONE_PIXEL_PNG}),
+                        _ => unreachable!(),
+                    };
+                    ws.send(Message::Text(
+                        json!({"id": request["id"], "result": result}).to_string().into(),
+                    ))
+                    .unwrap();
+                }
+            }
+        });
+        let (event_tx, _event_rx) = sync_channel(1);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+
+        let frame =
+            client.capture_main_frame_for_loader("session-1", "main-frame", "loader-1").unwrap();
+        assert_eq!((frame.css_width, frame.css_height), (1, 1));
+        let error = client
+            .capture_main_frame_for_loader("session-1", "main-frame", "loader-1")
+            .unwrap_err();
+        assert!(error.to_string().contains("main document changed"), "{error:#}");
+
+        drop(client);
+        server.join().unwrap();
     }
 
     #[test]
@@ -1552,7 +1872,7 @@ mod tests {
 
         let delayed = event_rx.recv_timeout(Duration::from_millis(200));
         assert!(
-            delayed.is_err(),
+            !matches!(delayed, Ok(CdpEvent::ScreencastFrame(_))),
             "a pre-restart capture emitted by a delayed encoder crossed the authority barrier: \
              {delayed:?}"
         );

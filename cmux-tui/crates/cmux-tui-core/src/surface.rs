@@ -576,6 +576,9 @@ pub struct SurfaceMeta {
 }
 
 /// A pane tab runtime.
+// Both variants are long-lived behind Arc<Surface>. Boxing one variant would
+// add another allocation and pointer chase for a small per-tab size reduction.
+#[allow(clippy::large_enum_variant)]
 pub enum Surface {
     Pty(PtySurface),
     Browser(BrowserSurface),
