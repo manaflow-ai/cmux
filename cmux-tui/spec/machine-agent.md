@@ -20,7 +20,7 @@ cmux machine register
 
 The destination, port, and optional identity file are local OpenSSH arguments. The remote command contains no user input and overrides any configured remote command. Agent and port forwarding are disabled. An explicit identity also sets `IdentitiesOnly=yes`.
 
-The long-lived process sets `BatchMode=yes`, so restart cannot block on a password, key passphrase, or host-key prompt. Before starting it, the user must complete an interactive `ssh cmux.cloud` once to trust the host and verify that an SSH agent or unencrypted key can authenticate. The agent does not edit SSH config, shell startup files, or service definitions.
+The long-lived process sets `BatchMode=yes` and `StrictHostKeyChecking=yes`, so restart cannot block on a password, key passphrase, or host-key prompt and cannot inherit a permissive host-key policy. Before starting it, the user must complete an interactive `ssh cmux.cloud` once to trust the host and verify that an SSH agent or unencrypted key can authenticate. The agent does not edit SSH config, shell startup files, or service definitions.
 
 There is one steady-state SSH connection. A broker-requested generation migration temporarily opens a replacement while the old generation drains existing streams.
 
