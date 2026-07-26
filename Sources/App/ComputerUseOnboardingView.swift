@@ -311,6 +311,10 @@ struct ComputerUseOnboardingView: View {
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(.primary)
         } else {
+            let isButtonEnabled = ComputerUsePermissionRowAction.isButtonEnabled(
+                helperIsReady: helperAppURL != nil,
+                permissionSetupInFlight: permissionSetupInFlight
+            )
             Button {
                 beginPermissionSetup(for: permissionStep)
             } label: {
@@ -327,12 +331,12 @@ struct ComputerUseOnboardingView: View {
                 .frame(width: 57, height: 24)
                 .foregroundStyle(.white)
                 .background(
-                    Color.accentColor,
+                    Color.accentColor.opacity(isButtonEnabled ? 1 : 0.55),
                     in: Capsule()
                 )
             }
             .buttonStyle(.plain)
-            .disabled(helperAppURL == nil || permissionSetupInFlight)
+            .disabled(!isButtonEnabled)
             .accessibilityHint(String(
                 localized: "computerUse.onboarding.openSystemSettings",
                 defaultValue: "Open System Settings"

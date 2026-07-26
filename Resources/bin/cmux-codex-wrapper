@@ -276,7 +276,7 @@ cmux_codex_install_computer_use_skill() {
     fi
 }
 
-cmux_codex_emit_computer_use_args() {
+cmux_codex_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
     for arg in "$@"; do
@@ -286,6 +286,11 @@ cmux_codex_emit_computer_use_args() {
                 ;;
         esac
     done
+    return 0
+}
+
+cmux_codex_emit_computer_use_args() {
+    cmux_codex_computer_use_enabled_for_invocation "$@" || return 1
     local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
     client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
@@ -609,12 +614,18 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
-# Computer-use args are generated independently of hook injection: the bundled
-# cua-driver is local and does not need the cmux hook socket, so a failed or
-# empty `hooks codex inject-args` emit must not silently drop computer use.
-if cmux_codex_read_computer_use_args "$@"; then
+# Skill discovery does not depend on the helper or its daemon being ready.
+# Install the signed app-bundled link before resolving MCP arguments so the
+# first Codex session can name cmux Computer Use even while onboarding is
+# preparing its standalone helper.
+if cmux_codex_computer_use_enabled_for_invocation "$@"; then
     cmux_codex_install_computer_use_skill || true
 fi
+
+# Computer-use args are generated independently of hook injection: the bundled
+# CLI is local and does not need the cmux hook socket, so a failed or empty
+# `hooks codex inject-args` emit must not silently drop computer use.
+cmux_codex_read_computer_use_args "$@" || true
 
 if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"

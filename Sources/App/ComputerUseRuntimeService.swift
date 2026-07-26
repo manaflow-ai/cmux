@@ -78,8 +78,23 @@ final class ComputerUseRuntimeService {
     /// the identical nested app immediately, avoiding a generic first frame.
     var presentationIcon: NSImage? {
         let candidate = installedHelperURL ?? bundledHelperAppURL
-        guard let candidate else { return nil }
-        return NSWorkspace.shared.icon(forFile: candidate.path)
+        return Self.resolvePresentationIcon(helperAppURL: candidate)
+    }
+
+    static func resolvePresentationIcon(
+        helperAppURL: URL?,
+        loadArtwork: (URL) -> NSImage? = { NSImage(contentsOf: $0) },
+        loadFallbackIcon: (URL) -> NSImage? = {
+            NSWorkspace.shared.icon(forFile: $0.path)
+        }
+    ) -> NSImage? {
+        guard let helperAppURL else { return nil }
+        let iconURL = helperAppURL
+            .appendingPathComponent("Contents/Resources/AppIcon.icns", isDirectory: false)
+        if let icon = loadArtwork(iconURL) {
+            return icon
+        }
+        return loadFallbackIcon(helperAppURL)
     }
 
     var stateDirectoryURL: URL {
@@ -1129,19 +1144,61 @@ final class ComputerUseRuntimeService {
     nonisolated private static func helperIsCurrent(nested: URL, destination: URL) -> Bool {
         guard !Task.isCancelled else { return false }
         let fileManager = FileManager.default
-        let nestedBinary = nested.appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
-        let destinationBinary = destination.appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
+        let nestedBinary = nested
+            .appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
+        let destinationBinary = destination
+            .appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
         guard fileManager.isExecutableFile(atPath: destinationBinary.path) else { return false }
-        guard fileManager.contentsEqual(
-            atPath: nested.appendingPathComponent("Contents/Info.plist").path,
-            andPath: destination.appendingPathComponent("Contents/Info.plist").path
-        ), !Task.isCancelled else {
+        guard
+            let nestedFiles = helperBundleRelativeFilePaths(at: nested),
+            let destinationFiles = helperBundleRelativeFilePaths(at: destination),
+            nestedFiles == destinationFiles
+        else {
             return false
+        }
+        for relativePath in nestedFiles {
+            guard !Task.isCancelled else { return false }
+            let nestedFile = nested.appendingPathComponent(relativePath, isDirectory: false)
+            let destinationFile = destination.appendingPathComponent(relativePath, isDirectory: false)
+            guard fileManager.contentsEqual(
+                atPath: nestedFile.path,
+                andPath: destinationFile.path
+            ) else {
+                return false
+            }
         }
         return fileManager.contentsEqual(
             atPath: nestedBinary.path,
             andPath: destinationBinary.path
         )
+    }
+
+    nonisolated private static func helperBundleRelativeFilePaths(
+        at root: URL
+    ) -> Set<String>? {
+        let fileManager = FileManager.default
+        guard
+            let enumerator = fileManager.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
+            return nil
+        }
+        var paths: Set<String> = []
+        for case let fileURL as URL in enumerator {
+            guard !Task.isCancelled else { return nil }
+            guard
+                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                values.isRegularFile == true
+            else {
+                continue
+            }
+            let relativePath = String(fileURL.path.dropFirst(root.path.count + 1))
+            paths.insert(relativePath)
+        }
+        return paths
     }
 
     nonisolated private static func installHelper(

@@ -13,4 +13,15 @@ enum ComputerUsePermissionRowAction: Equatable, Sendable {
         if granted { return .done }
         return .allow
     }
+
+    /// Helper installation happens independently when onboarding appears.
+    /// Keep Allow actionable while that background preparation is still
+    /// resolving the standalone helper; only an actively dispatched
+    /// permission request should suppress duplicate clicks.
+    static func isButtonEnabled(
+        helperIsReady _: Bool,
+        permissionSetupInFlight: Bool
+    ) -> Bool {
+        !permissionSetupInFlight
+    }
 }

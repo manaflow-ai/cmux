@@ -640,117 +640,46 @@ struct ComputerUseUXTests {
         ) == .checkStatus)
     }
 
-    @Test @MainActor
-    func permissionRowsRemainActionableWhileTheHelperIsBeingPrepared() async throws {
-        let fixtureRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "cmux-computer-use-onboarding-action-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let bundleURL = fixtureRoot.appendingPathComponent("EmptyHost.bundle", isDirectory: true)
-        let contentsURL = bundleURL.appendingPathComponent("Contents", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: contentsURL,
-            withIntermediateDirectories: true
-        )
-        let bundleInfo: [String: Any] = [
-            "CFBundleIdentifier": "com.cmuxterm.tests.empty-computer-use-host",
-            "CFBundleName": "Empty Computer Use Host",
-            "CFBundlePackageType": "BNDL",
-        ]
-        try PropertyListSerialization.data(
-            fromPropertyList: bundleInfo,
-            format: .xml,
-            options: 0
-        ).write(to: contentsURL.appendingPathComponent("Info.plist"))
-        let emptyBundle = try #require(Bundle(url: bundleURL))
-        let runtime = ComputerUseRuntimeService(
-            bundle: emptyBundle,
-            paths: ComputerUseRuntimePaths(
-                homeDirectoryURL: fixtureRoot,
-                socketRootDirectoryURL: fixtureRoot,
-                userIdentifier: 501,
-                environment: ["CMUX_TAG": "onboarding-action"],
-                authenticationToken: "test-token"
-            )
-        )
-        let controller = ComputerUseOnboardingWindowController(runtimeService: runtime)
-        let window = controller.makeWindow()
-        defer { window.close() }
-        window.orderBack(nil)
-
-        for _ in 0..<12 {
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            await Task.yield()
-        }
-
-        let allowLabel = String(
-            localized: "computerUse.onboarding.allow",
-            defaultValue: "Allow"
-        )
-        let allowButtons = Self.accessibilityDescendants(of: window.contentView)
-            .filter {
-                $0.accessibilityRole() == .button
-                    && $0.accessibilityLabel() == allowLabel
-            }
-        #expect(allowButtons.count == 2)
-        #expect(allowButtons.allSatisfy { $0.isAccessibilityEnabled() })
+    @Test
+    func permissionRowsRemainActionableWhileTheHelperIsBeingPrepared() {
+        #expect(ComputerUsePermissionRowAction.isButtonEnabled(
+            helperIsReady: false,
+            permissionSetupInFlight: false
+        ))
+        #expect(ComputerUsePermissionRowAction.isButtonEnabled(
+            helperIsReady: true,
+            permissionSetupInFlight: false
+        ))
+        #expect(!ComputerUsePermissionRowAction.isButtonEnabled(
+            helperIsReady: true,
+            permissionSetupInFlight: true
+        ))
     }
 
     @Test @MainActor
     func onboardingLoadsTheBundledComputerUseArtworkWithoutLaunchServices() throws {
-        let fixtureRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "cmux-computer-use-onboarding-icon-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let bundleURL = fixtureRoot.appendingPathComponent("IconHost.bundle", isDirectory: true)
-        let contentsURL = bundleURL.appendingPathComponent("Contents", isDirectory: true)
-        let helperResourcesURL = contentsURL
-            .appendingPathComponent("Library/cmux Computer Use.app/Contents/Resources")
-        try FileManager.default.createDirectory(
-            at: helperResourcesURL,
-            withIntermediateDirectories: true
-        )
-        let bundleInfo: [String: Any] = [
-            "CFBundleIdentifier": "com.cmuxterm.tests.icon-computer-use-host",
-            "CFBundleName": "Icon Computer Use Host",
-            "CFBundlePackageType": "BNDL",
-        ]
-        try PropertyListSerialization.data(
-            fromPropertyList: bundleInfo,
-            format: .xml,
-            options: 0
-        ).write(to: contentsURL.appendingPathComponent("Info.plist"))
-
+        let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
+        let expectedArtworkURL = helperAppURL
+            .appendingPathComponent("Contents/Resources/AppIcon.icns")
         let artwork = NSImage(size: NSSize(width: 32, height: 32))
-        artwork.lockFocus()
-        NSColor(calibratedRed: 1, green: 0, blue: 1, alpha: 1).setFill()
-        NSRect(x: 0, y: 0, width: 32, height: 32).fill()
-        artwork.unlockFocus()
-        let artworkTIFF = try #require(artwork.tiffRepresentation)
-        let bitmap = try #require(NSBitmapImageRep(data: artworkTIFF))
-        let imageData = try #require(bitmap.representation(using: .png, properties: [:]))
-        try imageData.write(
-            to: helperResourcesURL.appendingPathComponent("AppIcon.icns")
-        )
+        var artworkRequests: [URL] = []
+        var fallbackRequests: [URL] = []
 
-        let iconBundle = try #require(Bundle(url: bundleURL))
-        let runtime = ComputerUseRuntimeService(bundle: iconBundle)
-        let icon = try #require(runtime.presentationIcon)
-        let iconTIFF = try #require(icon.tiffRepresentation)
-        let rendered = try #require(NSBitmapImageRep(data: iconTIFF))
-        let center = try #require(rendered.colorAt(
-            x: rendered.pixelsWide / 2,
-            y: rendered.pixelsHigh / 2
-        )?.usingColorSpace(.deviceRGB))
+        let icon = try #require(ComputerUseRuntimeService.resolvePresentationIcon(
+            helperAppURL: helperAppURL,
+            loadArtwork: { url in
+                artworkRequests.append(url)
+                return artwork
+            },
+            loadFallbackIcon: { url in
+                fallbackRequests.append(url)
+                return nil
+            }
+        ))
 
-        #expect(center.redComponent > 0.9)
-        #expect(center.greenComponent < 0.2)
-        #expect(center.blueComponent > 0.9)
+        #expect(icon === artwork)
+        #expect(artworkRequests == [expectedArtworkURL])
+        #expect(fallbackRequests.isEmpty)
     }
 
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
@@ -2295,21 +2224,6 @@ struct ComputerUseUXTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: object)
         try data.write(to: url, options: .atomic)
-    }
-
-    @MainActor
-    private static func accessibilityDescendants(
-        of root: (any NSAccessibilityProtocol)?
-    ) -> [any NSAccessibilityProtocol] {
-        guard let root else { return [] }
-        var result: [any NSAccessibilityProtocol] = [root]
-        for child in root.accessibilityChildren() ?? [] {
-            guard let accessibleChild = child as? any NSAccessibilityProtocol else {
-                continue
-            }
-            result.append(contentsOf: accessibilityDescendants(of: accessibleChild))
-        }
-        return result
     }
 
     private func withStateDirectory(_ body: (URL) throws -> Void) throws {
