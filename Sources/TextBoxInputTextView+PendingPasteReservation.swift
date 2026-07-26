@@ -40,7 +40,8 @@ extension TextBoxInputTextView {
         pendingPasteReservations[id] = TextBoxPendingPasteReservation(
             originalAttributedSelection: originalSelection,
             replacementRange: originalRange,
-            usesMarker: usesMarker
+            usesMarker: usesMarker,
+            sequence: reservePendingPasteSequence()
         )
         setSelectedRange(stagedSelection)
         normalizeTextBaselineOffsets()
@@ -65,6 +66,11 @@ extension TextBoxInputTextView {
 
         let insertedLength = (insertedText as NSString).length
         insertText(insertedText, replacementRange: restored.replacementRange)
+        advanceLaterMarkerlessPasteReservations(
+            after: restored.sequence,
+            anchoredAt: restored.replacementRange.location,
+            insertedLength: insertedLength
+        )
         restoreSelection(
             restored.selection,
             replacing: restored.replacementRange,
@@ -95,6 +101,11 @@ extension TextBoxInputTextView {
         )
         let insertedLength = attributedString().length
             - (lengthBeforeInsertion - restored.replacementRange.length)
+        advanceLaterMarkerlessPasteReservations(
+            after: restored.sequence,
+            anchoredAt: restored.replacementRange.location,
+            insertedLength: insertedLength
+        )
         restoreSelection(
             restored.selection,
             replacing: restored.replacementRange,
@@ -297,14 +308,22 @@ extension TextBoxInputTextView {
     @MainActor
     private func restorePendingPasteReservationForCommit(
         id: UUID
-    ) -> (replacementRange: NSRange, selection: NSRange)? {
+    ) -> (
+        replacementRange: NSRange,
+        selection: NSRange,
+        sequence: UInt64
+    )? {
         guard let reservation = pendingPasteReservations[id] else {
             return nil
         }
         breakUndoCoalescing()
         guard reservation.usesMarker else {
             pendingPasteReservations[id] = nil
-            return (reservation.replacementRange, selectedRange())
+            return (
+                reservation.replacementRange,
+                selectedRange(),
+                reservation.sequence
+            )
         }
         guard let textStorage else { return nil }
         guard let markerRange = pendingAttachmentUploadPlaceholderRange(
@@ -333,7 +352,8 @@ extension TextBoxInputTextView {
                 location: markerRange.location,
                 length: reservation.originalAttributedSelection.length
             ),
-            restoredSelection
+            restoredSelection,
+            reservation.sequence
         )
     }
 
@@ -399,7 +419,7 @@ extension TextBoxInputTextView {
     ) -> Bool {
         if lhs.length == 0 {
             return rhs.length == 0
-                ? lhs.location == rhs.location
+                ? false
                 : lhs.location >= rhs.location
                     && lhs.location < NSMaxRange(rhs)
         }

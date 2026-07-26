@@ -90,8 +90,13 @@ struct TerminalPastePreparationWorkerClient: Sendable {
               ) else {
             throw TerminalPastePreparationWorkerError.invalidWorkerResponse
         }
+        let result = try resolveResult(
+            from: response,
+            workingDirectory: workingDirectory
+        )
         return try adoptWorkerFiles(
-            in: response,
+            in: result,
+            ownedTemporaryImageNames: response.ownedTemporaryImageNames,
             workingDirectory: workingDirectory
         )
     }
@@ -126,17 +131,18 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     }
 
     private nonisolated func adoptWorkerFiles(
-        in response: TerminalPastePreparationWorkerResponse,
+        in result: TerminalPastePreparationResult,
+        ownedTemporaryImageNames: [String],
         workingDirectory: URL
     ) throws -> TerminalPastePreparationResult {
-        let workerFileURLs = response.result.transferredFileURLs.filter {
+        let workerFileURLs = result.transferredFileURLs.filter {
             $0.standardizedFileURL.deletingLastPathComponent()
                 == workingDirectory.standardizedFileURL
         }
         let workerFileNames = Set(workerFileURLs.map(\.lastPathComponent))
-        let claimedNames = Set(response.ownedTemporaryImageNames)
+        let claimedNames = Set(ownedTemporaryImageNames)
         guard claimedNames.count
-                == response.ownedTemporaryImageNames.count,
+                == ownedTemporaryImageNames.count,
               claimedNames == workerFileNames,
               claimedNames.allSatisfy(isSafeFilename) else {
             throw TerminalPastePreparationWorkerError.invalidWorkerResponse
@@ -145,7 +151,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         var adoptedURLs: [URL] = []
         do {
             var replacementsByPath: [String: URL] = [:]
-            for name in response.ownedTemporaryImageNames {
+            for name in ownedTemporaryImageNames {
                 let sourceURL = workingDirectory.appendingPathComponent(name)
                 let adoptedURL = try pasteboardService
                     .adoptTemporaryImageFile(
@@ -157,7 +163,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
                     sourceURL.standardizedFileURL.path
                 ] = adoptedURL
             }
-            return response.result.replacingTransferredFileURLs(
+            return result.replacingTransferredFileURLs(
                 replacementsByPath
             )
         } catch {
@@ -165,6 +171,53 @@ struct TerminalPastePreparationWorkerClient: Sendable {
                 adoptedURLs
             )
             throw error
+        }
+    }
+
+    private nonisolated func resolveResult(
+        from response: TerminalPastePreparationWorkerResponse,
+        workingDirectory: URL
+    ) throws -> TerminalPastePreparationResult {
+        switch (response.result, response.textPayload) {
+        case (.some(let result), nil):
+            return result
+        case (nil, .some(let payload)):
+            guard payload.filename
+                    == TerminalPastePreparationWorkerTextPayload.filename,
+                  isSafeFilename(payload.filename),
+                  !response.ownedTemporaryImageNames.contains(
+                    payload.filename
+                  ) else {
+                throw TerminalPastePreparationWorkerError
+                    .invalidWorkerResponse
+            }
+            let textURL = workingDirectory.appendingPathComponent(
+                payload.filename
+            )
+            let values = try textURL.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+            )
+            guard values.isRegularFile == true,
+                  values.isSymbolicLink != true else {
+                throw TerminalPastePreparationWorkerError
+                    .invalidWorkerResponse
+            }
+            let textData = try Data(
+                contentsOf: textURL,
+                options: [.mappedIfSafe]
+            )
+            guard let text = String(data: textData, encoding: .utf8) else {
+                throw TerminalPastePreparationWorkerError
+                    .invalidWorkerResponse
+            }
+            switch payload.destination {
+            case .terminal:
+                return .terminal(.insertText(text))
+            case .composer:
+                return .composer(.insertText(text))
+            }
+        default:
+            throw TerminalPastePreparationWorkerError.invalidWorkerResponse
         }
     }
 

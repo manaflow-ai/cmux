@@ -2011,6 +2011,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B8835800000000000000000B /* TerminalPastePreparationWorkerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */; };
 		B88358000000000000000005 /* TerminalPastePreparationWorkerError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000006 /* TerminalPastePreparationWorkerError.swift */; };
 		B88358000000000000000003 /* TerminalPastePreparationWorkerResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */; };
+		2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */; };
 		C7261F010000000000000001 /* TerminalPointerFocusActivationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */; };
 		C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
@@ -2060,6 +2061,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B88351000000000000000011 /* TextBoxInputContainer+Paste.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */; };
 		B8835100000000000000000F /* TextBoxInputTextView+AsyncPastePreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */; };
 		B8835800000000000000000F /* TextBoxInputTextView+ExternalTextSynchronization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000010 /* TextBoxInputTextView+ExternalTextSynchronization.swift */; };
+		F058A6127002001DDA608C0A /* TextBoxInputTextView+PendingPasteOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD654E63907F6413905BA2E2 /* TextBoxInputTextView+PendingPasteOrdering.swift */; };
 		B88353000000000000000001 /* TextBoxInputTextView+PendingPasteReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88353000000000000000002 /* TextBoxInputTextView+PendingPasteReservation.swift */; };
 		C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */; };
 		C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */; };
@@ -4284,6 +4286,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerClient.swift; sourceTree = "<group>"; };
 		B88358000000000000000006 /* TerminalPastePreparationWorkerError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerError.swift; sourceTree = "<group>"; };
 		B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerResponse.swift; sourceTree = "<group>"; };
+		B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerTextPayload.swift; sourceTree = "<group>"; };
 		C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicy.swift; sourceTree = "<group>"; };
 		C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicyTests.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
@@ -4333,6 +4336,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputContainer+Paste.swift"; sourceTree = "<group>"; };
 		B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+AsyncPastePreparation.swift"; sourceTree = "<group>"; };
 		B88358000000000000000010 /* TextBoxInputTextView+ExternalTextSynchronization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+ExternalTextSynchronization.swift"; sourceTree = "<group>"; };
+		DD654E63907F6413905BA2E2 /* TextBoxInputTextView+PendingPasteOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+PendingPasteOrdering.swift"; sourceTree = "<group>"; };
 		B88353000000000000000002 /* TextBoxInputTextView+PendingPasteReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+PendingPasteReservation.swift"; sourceTree = "<group>"; };
 		C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/TextBoxInputTextViewDebug.swift; sourceTree = "<group>"; };
 		C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCachedIndex.swift; sourceTree = "<group>"; };
@@ -5241,6 +5245,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */,
 				B88358000000000000000010 /* TextBoxInputTextView+ExternalTextSynchronization.swift */,
 				B88353000000000000000002 /* TextBoxInputTextView+PendingPasteReservation.swift */,
+				DD654E63907F6413905BA2E2 /* TextBoxInputTextView+PendingPasteOrdering.swift */,
 				B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */,
 				B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */,
 				B88357000000000000000006 /* TerminalClipboardInputSequencer.swift */,
@@ -5629,6 +5634,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */,
 				B88358000000000000000006 /* TerminalPastePreparationWorkerError.swift */,
 				B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */,
+				B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */,
 				B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */,
 				B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */,
 				A5001545 /* TerminalSSHSessionDetector.swift */,
@@ -8696,6 +8702,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8835800000000000000000B /* TerminalPastePreparationWorkerClient.swift in Sources */,
 				B88358000000000000000005 /* TerminalPastePreparationWorkerError.swift in Sources */,
 				B88358000000000000000003 /* TerminalPastePreparationWorkerResponse.swift in Sources */,
+				2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */,
 				C7261F010000000000000001 /* TerminalPointerFocusActivationPolicy.swift in Sources */,
 				D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */,
 				C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */,
@@ -8731,6 +8738,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B88351000000000000000011 /* TextBoxInputContainer+Paste.swift in Sources */,
 				B8835100000000000000000F /* TextBoxInputTextView+AsyncPastePreparation.swift in Sources */,
 				B8835800000000000000000F /* TextBoxInputTextView+ExternalTextSynchronization.swift in Sources */,
+				F058A6127002001DDA608C0A /* TextBoxInputTextView+PendingPasteOrdering.swift in Sources */,
 				B88353000000000000000001 /* TextBoxInputTextView+PendingPasteReservation.swift in Sources */,
 				C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */,
 				C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */,

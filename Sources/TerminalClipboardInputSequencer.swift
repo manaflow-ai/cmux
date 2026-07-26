@@ -6,7 +6,6 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
     enum Routing: Equatable {
         case dispatchNow
         case queued
-        case rejected
     }
 
     private let maximumBufferedEvents: Int
@@ -31,11 +30,18 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         confirmationRequestIDs.insert(id)
     }
 
-    func route(_ event: Event) -> Routing {
+    func route(
+        _ event: Event,
+        replay: (Event) -> Void = { _ in }
+    ) -> Routing {
         guard !isReplaying else { return .dispatchNow }
         guard !activeRequestIDs.isEmpty else { return .dispatchNow }
         guard bufferedEventCount < maximumBufferedEvents else {
-            return .rejected
+            replayBufferedEvents(
+                replay,
+                whileRequestsAreActive: true
+            )
+            return .dispatchNow
         }
         bufferedEvents.append(event)
         return .queued
@@ -63,15 +69,21 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         confirmationRequestIDs.remove(id)
         initialCompletionRequestIDs.remove(id)
         confirmedRequestIDs.remove(id)
-        replayBufferedEventsIfPossible(replay)
+        replayBufferedEvents(replay)
     }
 
     private var bufferedEventCount: Int {
         bufferedEvents.count - nextBufferedEventIndex
     }
 
-    private func replayBufferedEventsIfPossible(_ replay: (Event) -> Void) {
-        guard activeRequestIDs.isEmpty, !isReplaying else { return }
+    private func replayBufferedEvents(
+        _ replay: (Event) -> Void,
+        whileRequestsAreActive: Bool = false
+    ) {
+        guard (whileRequestsAreActive || activeRequestIDs.isEmpty),
+              !isReplaying else {
+            return
+        }
         isReplaying = true
         defer {
             isReplaying = false
@@ -81,7 +93,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
             }
         }
 
-        while activeRequestIDs.isEmpty,
+        while (whileRequestsAreActive || activeRequestIDs.isEmpty),
               nextBufferedEventIndex < bufferedEvents.count {
             let event = bufferedEvents[nextBufferedEventIndex]
             nextBufferedEventIndex += 1

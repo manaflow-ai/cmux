@@ -42,10 +42,16 @@ struct TerminalPastePreparationWorker {
             }
             return fileURL.lastPathComponent
         }
-        let response = TerminalPastePreparationWorkerResponse(
-            result: result,
-            ownedTemporaryImageNames: ownedNames
-        )
+        let response: TerminalPastePreparationWorkerResponse
+        do {
+            response = try workerResponse(
+                for: result,
+                ownedTemporaryImageNames: ownedNames,
+                workingDirectory: workingDirectory
+            )
+        } catch {
+            return 74
+        }
         guard let responseData = try? JSONEncoder().encode(response) else {
             return 66
         }
@@ -61,6 +67,45 @@ struct TerminalPastePreparationWorker {
 
         shouldCleanupImages = false
         return 0
+    }
+
+    private func workerResponse(
+        for result: TerminalPastePreparationResult,
+        ownedTemporaryImageNames: [String],
+        workingDirectory: URL
+    ) throws -> TerminalPastePreparationWorkerResponse {
+        let text: String
+        let destination: TerminalPastePreparationDestination
+        switch result {
+        case .terminal(.insertText(let preparedText)):
+            text = preparedText
+            destination = .terminal
+        case .composer(.insertText(let preparedText)):
+            text = preparedText
+            destination = .composer
+        default:
+            return TerminalPastePreparationWorkerResponse(
+                result: result,
+                textPayload: nil,
+                ownedTemporaryImageNames: ownedTemporaryImageNames
+            )
+        }
+
+        let filename = TerminalPastePreparationWorkerTextPayload.filename
+        let textURL = workingDirectory.appendingPathComponent(filename)
+        try Data(text.utf8).write(to: textURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: textURL.path
+        )
+        return TerminalPastePreparationWorkerResponse(
+            result: nil,
+            textPayload: TerminalPastePreparationWorkerTextPayload(
+                destination: destination,
+                filename: filename
+            ),
+            ownedTemporaryImageNames: ownedTemporaryImageNames
+        )
     }
 
     private func workingDirectory(from arguments: [String]) -> URL? {

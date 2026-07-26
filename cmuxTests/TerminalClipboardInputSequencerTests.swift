@@ -97,22 +97,28 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["suffix"])
     }
 
-    @Test("bounded input queue reports overflow and keeps accepted order")
-    func boundedInputQueueReportsOverflow() {
+    @Test("bounded input queue flushes instead of dropping overflow")
+    func boundedInputQueueFlushesOverflow() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
             maximumBufferedEvents: 2
         )
         var delivered: [String] = []
         sequencer.beginRequest(id: 1)
 
-        #expect(sequencer.route("first") == .queued)
-        #expect(sequencer.route("second") == .queued)
-        #expect(sequencer.route("overflow") == .rejected)
+        #expect(sequencer.route("first", replay: { _ in }) == .queued)
+        #expect(sequencer.route("second", replay: { _ in }) == .queued)
+        #expect(
+            sequencer.route(
+                "overflow",
+                replay: { delivered.append($0) }
+            ) == .dispatchNow
+        )
+        delivered.append("overflow")
         sequencer.completeRequest(id: 1, confirmed: false) {
             delivered.append($0)
         }
 
-        #expect(delivered == ["first", "second"])
+        #expect(delivered == ["first", "second", "overflow"])
     }
 
     private func makeReadRequest(

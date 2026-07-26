@@ -5,4 +5,5 @@ struct TextBoxPendingPasteReservation {
     let originalAttributedSelection: NSAttributedString
     var replacementRange: NSRange
     let usesMarker: Bool
+    let sequence: UInt64
 }

@@ -3282,7 +3282,6 @@ final class TextBoxInputTextView: NSTextView {
     var onLayoutCompleted: (TextBoxInputTextView, Int) -> Void = { _, _ in }
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
-
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
     static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
     static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
@@ -3307,6 +3306,7 @@ final class TextBoxInputTextView: NSTextView {
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
+    var nextPendingPasteReservationSequence: UInt64 = 0
     var activePastePreparationTasks: [UUID: Task<Void, Never>] = [:]
     var pendingPasteReservations: [UUID: TextBoxPendingPasteReservation] = [:]
     private var mentionCompletionPanel: TextBoxMentionCompletionPanel?

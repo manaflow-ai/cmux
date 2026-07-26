@@ -26,13 +26,16 @@ extension GhosttyNSView {
     }
 
     func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {
-        switch terminalClipboardInputSequencer.route(event) {
+        let routing = terminalClipboardInputSequencer.route(
+            event,
+            replay: { [weak self] event in
+                self?.replayClipboardDeferredInput(event)
+            }
+        )
+        switch routing {
         case .dispatchNow:
             return false
         case .queued:
-            return true
-        case .rejected:
-            NSSound.beep()
             return true
         }
     }
