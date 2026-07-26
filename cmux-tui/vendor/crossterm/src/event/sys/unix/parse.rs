@@ -1262,10 +1262,15 @@ mod tests {
         );
         assert_eq!(
             parse_csi_u_encoded_key_code(b"\x1B[97;7u").unwrap(),
-            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
-                KeyCode::Char('a'),
-                KeyModifiers::ALT | KeyModifiers::CONTROL
-            )))),
+            Some(InternalEvent::Event(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(
+                    KeyCode::Char('a'),
+                    KeyModifiers::ALT | KeyModifiers::CONTROL,
+                ),
+                shifted_key: None,
+                base_layout_key: None,
+                text: String::new(),
+            }))),
         );
     }
 
