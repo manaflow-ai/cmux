@@ -176,6 +176,9 @@ pub struct KeyInput {
     pub utf8: String,
     /// Codepoint of the key without shift applied, when known.
     pub unshifted_codepoint: u32,
+    /// Explicit PC-101 base-layout identity reported by an outer CSI-u
+    /// terminal, or zero when no identity was reported.
+    pub base_layout_codepoint: u32,
     pub action: Option<KeyAction>,
     /// Whether an Alt modifier is a logical terminal modifier. This is false
     /// when macOS Option was consumed to produce `utf8` for this event.
@@ -190,6 +193,7 @@ impl Default for KeyInput {
             consumed_mods: Mods::default(),
             utf8: String::new(),
             unshifted_codepoint: 0,
+            base_layout_codepoint: 0,
             action: None,
             macos_option_as_alt: true,
         }
@@ -227,6 +231,7 @@ impl KeyEncoder {
 
     /// Encode `input` and append the resulting bytes to `out`.
     pub fn encode(&mut self, input: &KeyInput, out: &mut Vec<u8>) -> Result<()> {
+        let encoded_start = out.len();
         let action = match input.action.unwrap_or(KeyAction::Press) {
             KeyAction::Press => sys::GHOSTTY_KEY_ACTION_PRESS,
             KeyAction::Release => sys::GHOSTTY_KEY_ACTION_RELEASE,
@@ -286,12 +291,37 @@ impl KeyEncoder {
                 )
             })?;
             out.extend_from_slice(&big[..written2]);
+            preserve_reported_base_layout(input, out, encoded_start);
             return Ok(());
         }
         check(result)?;
         out.extend_from_slice(&buf[..written]);
+        preserve_reported_base_layout(input, out, encoded_start);
         Ok(())
     }
+}
+
+/// Ghostty's public key-event ABI accepts the physical key but not an
+/// explicitly reported CSI-u base-layout codepoint. Its encoder can therefore
+/// omit a third alternate when it equals the shifted alternate. Restore that
+/// lossless identity only on CSI-u output that already reports one alternate.
+fn preserve_reported_base_layout(input: &KeyInput, out: &mut Vec<u8>, start: usize) {
+    if input.base_layout_codepoint == 0 {
+        return;
+    }
+    let encoded = &out[start..];
+    if !encoded.starts_with(b"\x1b[") || !encoded.ends_with(b"u") {
+        return;
+    }
+    let key_field_end = encoded.iter().position(|byte| *byte == b';').unwrap_or(encoded.len() - 1);
+    let key_field = &encoded[2..key_field_end];
+    if key_field.iter().filter(|byte| **byte == b':').count() != 1
+        || !key_field.iter().all(|byte| byte.is_ascii_digit() || *byte == b':')
+    {
+        return;
+    }
+    let base_layout = format!(":{}", input.base_layout_codepoint);
+    out.splice(start + key_field_end..start + key_field_end, base_layout.bytes());
 }
 
 impl Drop for KeyEncoder {

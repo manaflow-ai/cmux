@@ -4260,6 +4260,34 @@ fn restore_terminal(
     Ok(())
 }
 
+fn localized_clear_history_failure(error: &str) -> &'static str {
+    let messages = &localization::catalog().terminal;
+    match error {
+        CLEAR_HISTORY_UNSUPPORTED_ERROR => messages.clear_history_unsupported,
+        cmux_tui_core::CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
+            messages.clear_history_fallback_unrepresentable
+        }
+        "terminal host does not support clear-history" => messages.clear_history_host_unsupported,
+        "terminal host has exited" => messages.clear_history_host_exited,
+        "terminal host failed to apply clear-history" => messages.clear_history_host_failed,
+        "terminal host returned a malformed clear-history response" => {
+            messages.clear_history_host_malformed_response
+        }
+        "remote session did not respond" => messages.clear_history_remote_no_response,
+        "remote response wait canceled for shutdown" => messages.clear_history_remote_disconnected,
+        _ if error.starts_with("terminal host did not acknowledge ClearHistory:") => {
+            messages.clear_history_host_no_response
+        }
+        _ if error.starts_with("remote transport write failed:") => {
+            messages.clear_history_remote_disconnected
+        }
+        _ if error.starts_with("remote command rejected:") => {
+            messages.clear_history_remote_rejected
+        }
+        _ => messages.clear_history_unexpected,
+    }
+}
+
 impl App {
     pub fn session_available(&self) -> bool {
         self.machine_ui.as_ref().is_none_or(|machine| machine.session_available)
@@ -5098,11 +5126,7 @@ impl App {
                     failure.error
                 )
             } else if failure.label == "clear terminal history" {
-                let detail = if failure.error == CLEAR_HISTORY_UNSUPPORTED_ERROR {
-                    localization::catalog().terminal.clear_history_unsupported
-                } else {
-                    &failure.error
-                };
+                let detail = localized_clear_history_failure(&failure.error);
                 format!("{}: {}", localization::catalog().terminal.clear_history_failed, detail)
             } else {
                 format!("{} failed: {}", failure.label, failure.error)

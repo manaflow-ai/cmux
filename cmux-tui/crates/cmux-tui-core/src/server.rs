@@ -263,8 +263,8 @@ impl ProtocolModifiers {
     }
 }
 
-/// Lossless key input carried over the control protocol for authoritative
-/// terminal-mode encoding.
+/// Validated key input carried over the clear-history control protocol for
+/// authoritative terminal-mode encoding.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProtocolKeyInput {
@@ -344,6 +344,10 @@ impl TryFrom<ProtocolKeyInput> for KeyInput {
             consumed_mods,
             utf8: input.utf8,
             unshifted_codepoint: input.unshifted_codepoint.map_or(0, char::into),
+            // The clear-history fallback protocol predates nested CSI-u base
+            // identity and carries only Command-K, which does not need the
+            // duplicate third alternate.
+            base_layout_codepoint: 0,
             action: input.action.map(|action| match action {
                 ProtocolKeyAction::Press => KeyAction::Press,
                 ProtocolKeyAction::Release => KeyAction::Release,
@@ -6776,6 +6780,7 @@ mod tests {
             consumed_mods: Mods::SHIFT | Mods::ALT,
             utf8: "ß".to_string(),
             unshifted_codepoint: 's' as u32,
+            base_layout_codepoint: 0,
             action: Some(KeyAction::Repeat),
             macos_option_as_alt: false,
         };

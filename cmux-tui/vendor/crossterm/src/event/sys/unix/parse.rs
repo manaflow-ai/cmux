@@ -1081,7 +1081,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_csi_u_preserves_empty_option_character_provenance() {
+    fn test_parse_csi_u_preserves_empty_alt_character_provenance() {
         assert_eq!(
             parse_csi_u_encoded_key_code(b"\x1B[110;3u").unwrap(),
             Some(InternalEvent::Event(Event::EnhancedKey(EnhancedKeyEvent {

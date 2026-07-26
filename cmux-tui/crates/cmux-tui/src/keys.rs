@@ -50,17 +50,13 @@ impl From<EnhancedKeyEvent> for KeyboardInput {
 impl KeyboardInput {
     pub fn from_enhanced(event: EnhancedKeyEvent) -> Self {
         // Kitty reports generated text per event, but no consumed-modifier
-        // mask. Exact active-layout text proves that Alt remains available as
-        // a shortcut modifier. Other Alt+character events may be dead-key or
-        // composed-text input, so they fail closed for cmux shortcuts.
+        // mask. Nonempty text that differs from the active layout means macOS
+        // Option produced text and consumed Alt. Ghostty suppresses composing
+        // key events, so empty text leaves Alt active as a terminal modifier.
         let alt_pressed = event.key_event.modifiers.contains(KeyModifiers::ALT);
         let text_matches_layout = text_matches_active_layout(&event);
         let alt_generated_text = alt_pressed && !event.text.is_empty() && !text_matches_layout;
-        let suppress_alt_shortcut = alt_pressed
-            && match event.key_event.code {
-                KeyCode::Char(_) => !text_matches_layout,
-                _ => !event.text.is_empty(),
-            };
+        let suppress_alt_shortcut = alt_generated_text;
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
@@ -433,6 +429,7 @@ fn key_input_from_parts(
             && let Some(base_layout_key) = base_layout_key
         {
             input.key = physical_key_for_char(base_layout_key);
+            input.base_layout_codepoint = base_layout_key as u32;
         }
         input.unshifted_codepoint = unshifted as u32;
     }
@@ -584,7 +581,7 @@ mod tests {
 
         encoder.encode(&input, &mut encoded).unwrap();
 
-        assert_eq!(encoded, b"\x1b[38:49:49;4;49u");
+        assert_eq!(encoded, b"\x1b[38:49:49;4u");
     }
 
     #[test]
