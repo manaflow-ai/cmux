@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxFoundation
+import CmuxRemoteSession
 import CmuxTerminalCore
 import XCTest
 @testable import CmuxTerminal
@@ -2781,6 +2782,220 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #if DEBUG
         XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
 #endif
+    }
+
+    func testRemovingFailedRemoteTmuxPaneWakesParkedRequest() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let outerPanelId = workspace.focusedPanelId,
+              let outerPanel =
+                workspace.terminalPanel(for: outerPanelId) else {
+            XCTFail("Expected an initial workspace terminal")
+            return
+        }
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "font-size-removal"
+        )
+        let initialLayout = RemoteTmuxLayoutNode(
+            width: 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(
+                    width: 40,
+                    height: 24,
+                    x: 0,
+                    y: 0,
+                    content: .pane(11)
+                ),
+                RemoteTmuxLayoutNode(
+                    width: 39,
+                    height: 24,
+                    x: 41,
+                    y: 0,
+                    content: .pane(22)
+                ),
+            ])
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: outerPanelId,
+            connection: connection,
+            layout: initialLayout,
+            makePanel: { _ in
+                workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
+            }
+        )
+        workspace.setRemoteTmuxWindowMirror(
+            mirror,
+            forPanelId: outerPanelId
+        )
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var failedPanel: TerminalPanel?
+        var failedAttemptCount = 0
+        var successfulPanelIds: Set<UUID> = []
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, candidate, _ in
+                if candidate === outerPanel {
+                    successfulPanelIds.insert(candidate.id)
+                    return .alreadySatisfied
+                }
+                if failedPanel == nil {
+                    failedPanel = candidate
+                }
+                if candidate === failedPanel {
+                    failedAttemptCount += 1
+                    return .failed
+                }
+                successfulPanelIds.insert(candidate.id)
+                return .alreadySatisfied
+            }
+        )
+        defer {
+            workspace.setRemoteTmuxWindowMirror(
+                nil,
+                forPanelId: outerPanelId
+            )
+            mirror.teardown()
+            coordinator.cancelAll()
+        }
+
+        coordinator.enqueue(
+            .relative([-1]),
+            workspaceId: workspace.id,
+            deferFlush: true
+        )
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        scheduler.fire(at: 1)
+        XCTAssertEqual(failedAttemptCount, 2)
+        XCTAssertEqual(scheduler.delays.count, 2)
+
+        guard let failedPanel,
+              let failedPaneId = mirror.panelsByPaneId.first(
+                where: { $0.value === failedPanel }
+              )?.key,
+              let survivingPaneId = mirror.panelsByPaneId.keys.first(
+                where: { $0 != failedPaneId }
+              ) else {
+            XCTFail("Expected failed and surviving remote panes")
+            return
+        }
+        mirror.reconcile(
+            layout: RemoteTmuxLayoutNode(
+                width: 80,
+                height: 24,
+                x: 0,
+                y: 0,
+                content: .pane(survivingPaneId)
+            )
+        )
+
+        XCTAssertGreaterThan(
+            scheduler.delays.count,
+            2,
+            "Removing a failed remote pane must wake the parked request"
+        )
+        if scheduler.delays.count > 2 {
+            scheduler.fire(at: 2)
+        }
+        guard let survivingPanel =
+                mirror.panel(forPane: survivingPaneId) else {
+            XCTFail("Expected the surviving remote pane")
+            return
+        }
+        XCTAssertTrue(successfulPanelIds.contains(survivingPanel.id))
+#if DEBUG
+        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+#endif
+    }
+
+    func testClosingWindowCancelsRequestsOwnedByForeignCoordinator() {
+        let sourceManager = TabManager()
+        let closingManager = TabManager()
+        guard let movedWorkspace = sourceManager.selectedWorkspace,
+              let movedPanelId = movedWorkspace.focusedPanelId,
+              let movedPanel =
+                movedWorkspace.terminalPanel(for: movedPanelId) else {
+            XCTFail("Expected a movable workspace terminal")
+            return
+        }
+        let closingDock = closingManager.makeWindowDockStore(
+            windowId: UUID()
+        )
+        let closingDockPanel = TerminalPanel(
+            workspaceId: closingDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        closingDock.panels[closingDockPanel.id] = closingDockPanel
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        var mutatedPanelIds: Set<UUID> = []
+        let sourceCoordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: sourceManager,
+            arbiter: arbiter,
+            schedule: ManualWorkspaceFontSizeDrainScheduler()
+                .schedule(delay:action:),
+            applyChange: { _, candidate, _ in
+                mutatedPanelIds.insert(candidate.id)
+                return .alreadySatisfied
+            }
+        )
+        let closingCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: closingManager,
+                arbiter: arbiter,
+                schedule: ManualWorkspaceFontSizeDrainScheduler()
+                    .schedule(delay:action:),
+                applyChange: { _, candidate, _ in
+                    mutatedPanelIds.insert(candidate.id)
+                    return .alreadySatisfied
+                }
+            )
+        closingCoordinator.attachWindowDock(closingDock)
+        defer {
+            sourceCoordinator.cancelAll()
+            closingCoordinator.cancelAll()
+            closingDock.closeAllPanels()
+        }
+
+        sourceCoordinator.enqueue(
+            .relative([-1]),
+            workspaceId: movedWorkspace.id,
+            deferFlush: true
+        )
+        guard let detached =
+                sourceManager.detachWorkspace(
+                    tabId: movedWorkspace.id
+                ) else {
+            XCTFail("Expected the workspace to detach")
+            return
+        }
+        closingManager.attachWorkspace(detached, select: true)
+        closingCoordinator.enqueue(
+            .relative([-1]),
+            workspaceId: movedWorkspace.id,
+            deferFlush: true
+        )
+
+        closingCoordinator.cancelWindowOwnedWork()
+#if DEBUG
+        sourceCoordinator.debugDrainAll()
+        closingCoordinator.debugDrainAll()
+#endif
+
+        XCTAssertFalse(mutatedPanelIds.contains(movedPanel.id))
+        XCTAssertFalse(
+            mutatedPanelIds.contains(closingDockPanel.id),
+            "Window close must cancel work even when a foreign coordinator owns it"
+        )
     }
 
     func testHibernatedFontFollowerPredictsFromConfiguredBaseline() {
