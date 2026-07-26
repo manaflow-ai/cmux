@@ -10191,6 +10191,90 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_browser_close_terminates_the_owner_staged_during_removal() {
+        fn read_ws_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+            loop {
+                match ws.read().unwrap() {
+                    tungstenite::Message::Text(text) => {
+                        return serde_json::from_str(&text).unwrap();
+                    }
+                    tungstenite::Message::Binary(bytes) => {
+                        return serde_json::from_slice(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (query_tx, query_rx) = std::sync::mpsc::sync_channel(1);
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({"id": discover["id"], "result": {}}).to_string().into(),
+            ))
+            .unwrap();
+
+            let query = read_ws_json(&mut ws);
+            assert_eq!(query["method"], "Target.getTargets");
+            query_tx.send(()).unwrap();
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({
+                    "id": query["id"],
+                    "result": {"targetInfos": []}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+        });
+        let runtime = BrowserRuntime::connect_external_for_test(&format!(
+            "ws://{address}/devtools/browser/fake"
+        ))
+        .unwrap();
+        let mux = test_mux();
+        let options = mux.surface_options.lock().unwrap().clone();
+        let surface = browser::new_surface(
+            999,
+            "about:blank".to_string(),
+            (80, 24),
+            (8, 16),
+            &options,
+            Arc::downgrade(&mux),
+        );
+        surface.as_browser().unwrap().install_shutdown_session_for_test(
+            runtime.clone(),
+            "target-1",
+            "session-1",
+        );
+        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+
+        let removed =
+            take_surface_for_retirement(&mux, &mut mux.state.lock().unwrap(), surface.id).unwrap();
+        mux.retire_surface_runtime(removed);
+        let attempted_during_close = query_rx.recv_timeout(Duration::from_millis(200)).is_ok();
+
+        if !attempted_during_close {
+            mux.terminate_staged_shutdown_owners_until(Instant::now() + Duration::from_secs(1));
+            query_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("cleanup retry did not reach the staged browser owner");
+        }
+        runtime.shutdown();
+        server.join().unwrap();
+
+        assert!(
+            attempted_during_close,
+            "ordinary close lost the consume-once browser owner staged during removal"
+        );
+        assert!(mux.shutdown_owners.is_empty());
+    }
+
+    #[test]
     fn server_shutdown_cannot_pass_an_in_flight_surface_retirement() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();

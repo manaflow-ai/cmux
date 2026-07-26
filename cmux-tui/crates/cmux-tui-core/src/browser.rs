@@ -404,6 +404,11 @@ impl BrowserRuntime {
         Self::connect_to_endpoint(&web_socket_url, chrome, source)
     }
 
+    #[cfg(test)]
+    pub(crate) fn connect_external_for_test(web_socket_url: &str) -> anyhow::Result<Arc<Self>> {
+        Self::connect_to_endpoint(web_socket_url, None, BrowserSource::External)
+    }
+
     fn connect_to_endpoint(
         web_socket_url: &str,
         chrome: Option<Chrome>,
@@ -1248,6 +1253,20 @@ fn emit_browser_failure(mux: &Weak<Mux>, id: SurfaceId, message: String) {
 }
 
 impl BrowserSurface {
+    #[cfg(test)]
+    pub(crate) fn install_shutdown_session_for_test(
+        &self,
+        runtime: Arc<BrowserRuntime>,
+        target_id: &str,
+        session_id: &str,
+    ) {
+        *self.session.lock().unwrap() = Some(BrowserSession {
+            runtime,
+            target_id: target_id.to_string(),
+            session_id: session_id.to_string(),
+        });
+    }
+
     pub(crate) fn shutdown_owner(&self) -> Option<BrowserShutdownOwner> {
         if !self.dead.swap(true, Ordering::AcqRel) {
             self.close_taps();

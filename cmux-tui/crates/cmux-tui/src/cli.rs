@@ -1718,6 +1718,7 @@ fn atom(value: Option<&Value>) -> String {
 mod tests {
     use std::collections::VecDeque;
     use std::net::Shutdown;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -1725,6 +1726,7 @@ mod tests {
         reads: VecDeque<Result<Vec<u8>, io::ErrorKind>>,
         current: io::Cursor<Vec<u8>>,
         writes: Vec<u8>,
+        read_timeouts: Arc<Mutex<Vec<Option<Duration>>>>,
     }
 
     impl Read for ScriptedStream {
@@ -1759,7 +1761,8 @@ mod tests {
             Err(io::Error::new(io::ErrorKind::Unsupported, "test stream is not cloneable"))
         }
 
-        fn set_read_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+        fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+            self.read_timeouts.lock().unwrap().push(timeout);
             Ok(())
         }
 
@@ -1774,6 +1777,7 @@ mod tests {
 
     #[test]
     fn capability_probe_tolerates_polling_timeouts() {
+        let read_timeouts = Arc::new(Mutex::new(Vec::new()));
         let stream = ScriptedStream {
             reads: VecDeque::from([
                 Err(io::ErrorKind::WouldBlock),
@@ -1783,6 +1787,7 @@ mod tests {
             ]),
             current: io::Cursor::new(Vec::new()),
             writes: Vec::new(),
+            read_timeouts,
         };
         let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
 
@@ -1794,6 +1799,7 @@ mod tests {
 
     #[test]
     fn capability_probe_preserves_partial_line_across_timeout() {
+        let read_timeouts = Arc::new(Mutex::new(Vec::new()));
         let stream = ScriptedStream {
             reads: VecDeque::from([
                 Ok(b"{\"id\":0,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",".to_vec()),
@@ -1802,12 +1808,36 @@ mod tests {
             ]),
             current: io::Cursor::new(Vec::new()),
             writes: Vec::new(),
+            read_timeouts,
         };
         let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
 
         assert_eq!(
             server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
             Ok(true)
+        );
+    }
+
+    #[test]
+    fn streaming_probe_restores_the_polling_read_timeout() {
+        let read_timeouts = Arc::new(Mutex::new(Vec::new()));
+        let stream = ScriptedStream {
+            reads: VecDeque::from([Ok(
+                b"{\"id\":0,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[]}}\n"
+                    .to_vec(),
+            )]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+            read_timeouts: read_timeouts.clone(),
+        };
+        transport::Stream::set_read_timeout(&stream, Some(Duration::from_millis(250))).unwrap();
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert!(server_supports_capability(&mut reader, "unused").is_ok());
+        assert_eq!(
+            read_timeouts.lock().unwrap().last().copied().flatten(),
+            Some(Duration::from_millis(250)),
+            "identity probing replaced the stream's short shutdown polling timeout"
         );
     }
 

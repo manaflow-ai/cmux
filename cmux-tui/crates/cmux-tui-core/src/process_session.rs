@@ -10,6 +10,11 @@ use std::time::{Duration, Instant};
 
 const SESSION_KILL_POLL: Duration = Duration::from_millis(5);
 
+#[cfg(test)]
+thread_local! {
+    static PROCESS_TABLE_SCAN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) fn signal(session: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
     validate_session_target(session)?;
     for pid in members(session)? {
@@ -165,6 +170,8 @@ fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
 }
 
 fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    #[cfg(test)]
+    PROCESS_TABLE_SCAN_COUNT.set(PROCESS_TABLE_SCAN_COUNT.get() + 1);
     let mut members = Vec::new();
     for pid in all_process_ids()? {
         if pid <= 1 {
@@ -186,6 +193,25 @@ fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
     members.sort_unstable();
     members.dedup();
     Ok(members)
+}
+
+#[cfg(test)]
+fn shutdown_batch_members_for_test(
+    sessions: &[libc::pid_t],
+    deadline: Instant,
+) -> io::Result<Vec<Vec<libc::pid_t>>> {
+    sessions
+        .iter()
+        .map(|session| {
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "process-session snapshot deadline expired",
+                ));
+            }
+            members(*session)
+        })
+        .collect()
 }
 
 #[cfg(all(target_os = "macos", test))]
@@ -259,17 +285,16 @@ fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     use std::os::unix::process::CommandExt;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     use std::process::{Command, Stdio};
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     use super::*;
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_session_query_is_scoped_to_the_owned_session() {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn spawn_session_child() -> std::process::Child {
         let mut command = Command::new("sleep");
         command.arg("60").stdout(Stdio::null()).stderr(Stdio::null());
         unsafe {
@@ -280,7 +305,13 @@ mod tests {
                 Ok(())
             });
         }
-        let mut child = command.spawn().unwrap();
+        command.spawn().unwrap()
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_session_query_is_scoped_to_the_owned_session() {
+        let mut child = spawn_session_child();
         let session = libc::pid_t::try_from(child.id()).unwrap();
 
         let members = macos_session_process_ids(session).unwrap();
@@ -290,5 +321,33 @@ mod tests {
         assert!(!members.contains(&current));
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn shutdown_batch_reuses_one_process_table_snapshot() {
+        let mut children = [spawn_session_child(), spawn_session_child()];
+        let sessions = children
+            .iter()
+            .map(|child| libc::pid_t::try_from(child.id()).unwrap())
+            .collect::<Vec<_>>();
+        PROCESS_TABLE_SCAN_COUNT.set(0);
+
+        let snapshots =
+            shutdown_batch_members_for_test(&sessions, Instant::now() + Duration::from_secs(1));
+        let scan_count = PROCESS_TABLE_SCAN_COUNT.get();
+
+        for child in &mut children {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        let snapshots = snapshots.unwrap();
+        assert!(
+            snapshots.iter().zip(&sessions).all(|(members, session)| members.contains(session))
+        );
+        assert_eq!(
+            scan_count, 1,
+            "one shutdown batch scanned the global process table more than once"
+        );
     }
 }
