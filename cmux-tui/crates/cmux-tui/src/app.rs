@@ -18202,6 +18202,7 @@ mod tests {
             dispatcher.sender(),
             app.app_events.clone(),
             generation,
+            None,
         )
         .unwrap();
         let tree = session.tree();
