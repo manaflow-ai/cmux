@@ -31,6 +31,8 @@ canonical distribution identity.
 Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.
+The runtime requires Linux 5.1 or newer, a mounted `/proc`, and permission to
+call `pidfd_send_signal`.
 
 ## One-time registry setup
 

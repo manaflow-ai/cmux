@@ -3092,9 +3092,9 @@ fn advertised_capabilities() -> Vec<&'static str> {
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
     ];
     // Atomic shutdown is advertised only where PTY session descendants can
-    // be enumerated and confirmed dead.
+    // be enumerated and signaled through exact process handles.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
+    if crate::process_session::require_stable_process_signaling().is_ok() {
         capabilities.push(SERVER_SHUTDOWN_CAPABILITY);
     }
     capabilities

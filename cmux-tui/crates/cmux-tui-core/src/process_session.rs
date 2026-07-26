@@ -573,7 +573,7 @@ unsafe extern "C" {
 #[derive(Debug)]
 /// An OS-backed reference to one process instance that cannot retarget after PID reuse.
 pub struct StableProcessHandle {
-    pidfd: std::os::fd::OwnedFd,
+    process_fd: std::os::fd::OwnedFd,
 }
 
 #[cfg(target_os = "linux")]
@@ -584,14 +584,32 @@ impl StableProcessHandle {
 
         // SAFETY: pidfd_open receives a validated integer PID and zero flags.
         let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
-        if descriptor < 0 {
-            let error = io::Error::last_os_error();
-            return if error.raw_os_error() == Some(libc::ESRCH) { Ok(None) } else { Err(error) };
+        if descriptor >= 0 {
+            let descriptor = i32::try_from(descriptor)
+                .map_err(|_| io::Error::other("pidfd descriptor is out of range"))?;
+            // SAFETY: a successful pidfd_open returns one newly owned descriptor.
+            return Ok(Some(Self {
+                process_fd: unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor) },
+            }));
         }
-        let descriptor = i32::try_from(descriptor)
-            .map_err(|_| io::Error::other("pidfd descriptor is out of range"))?;
-        // SAFETY: a successful pidfd_open returns one newly owned descriptor.
-        Ok(Some(Self { pidfd: unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor) } }))
+        let pidfd_error = io::Error::last_os_error();
+        if pidfd_error.raw_os_error() == Some(libc::ESRCH) {
+            return Ok(None);
+        }
+
+        // Linux 5.1 and 5.2 predate pidfd_open but pidfd_send_signal accepts
+        // an open /proc/PID directory as the same exact process reference.
+        match std::fs::File::open(format!("/proc/{pid}")) {
+            Ok(process_directory) => Ok(Some(Self { process_fd: process_directory.into() })),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(io::Error::new(
+                error.kind(),
+                format!(
+                    "cannot acquire stable process identity: pidfd_open failed ({pidfd_error}); \
+                     /proc fallback failed ({error})"
+                ),
+            )),
+        }
     }
 
     /// Return whether this exact process instance is still alive.
@@ -615,7 +633,7 @@ impl StableProcessHandle {
         let result = unsafe {
             libc::syscall(
                 libc::SYS_pidfd_send_signal,
-                self.pidfd.as_raw_fd(),
+                self.process_fd.as_raw_fd(),
                 signal,
                 std::ptr::null::<libc::siginfo_t>(),
                 0,
@@ -626,6 +644,26 @@ impl StableProcessHandle {
         }
         let error = io::Error::last_os_error();
         if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) }
+    }
+}
+
+/// Verify that this runtime can signal exact process instances before any PTY is spawned.
+pub fn require_stable_process_signaling() -> io::Result<()> {
+    let pid = libc::pid_t::try_from(std::process::id())
+        .map_err(|_| io::Error::new(io::ErrorKind::Unsupported, "invalid process id"))?;
+    let process = StableProcessHandle::capture(pid)?.ok_or_else(|| {
+        io::Error::new(io::ErrorKind::Unsupported, "current process identity is unavailable")
+    })?;
+    match process.matches_current() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "stable process signaling did not retain the current process",
+        )),
+        Err(error) => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("stable process signaling is unavailable: {error}"),
+        )),
     }
 }
 
@@ -820,6 +858,74 @@ mod tests {
         command.spawn().unwrap()
     }
 
+    #[cfg(target_os = "linux")]
+    fn enter_syscall_blocked_subprocess(
+        child_env: &str,
+        test_name: &str,
+        syscalls: &[libc::c_long],
+    ) -> bool {
+        if std::env::var_os(child_env).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test_name])
+                .env(child_env, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "pidfd compatibility subprocess failed: {status}");
+            return false;
+        }
+
+        let mut filter = vec![libc::sock_filter {
+            code: u16::try_from(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS).unwrap(),
+            jt: 0,
+            jf: 0,
+            k: 0,
+        }];
+        for syscall in syscalls {
+            filter.extend([
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K).unwrap(),
+                    jt: 0,
+                    jf: 1,
+                    k: u32::try_from(*syscall).unwrap(),
+                },
+                libc::sock_filter {
+                    code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
+                    jt: 0,
+                    jf: 0,
+                    k: libc::SECCOMP_RET_ERRNO | u32::try_from(libc::ENOSYS).unwrap(),
+                },
+            ]);
+        }
+        filter.push(libc::sock_filter {
+            code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
+            jt: 0,
+            jf: 0,
+            k: libc::SECCOMP_RET_ALLOW,
+        });
+        let program = libc::sock_fprog {
+            len: u16::try_from(filter.len()).unwrap(),
+            filter: filter.as_mut_ptr(),
+        };
+        // SAFETY: this one-test subprocess opts into a filter whose backing
+        // instructions remain live for the prctl call.
+        assert_eq!(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) }, 0);
+        // SAFETY: `program` describes the initialized filter above.
+        let installed = unsafe {
+            libc::prctl(
+                libc::PR_SET_SECCOMP,
+                libc::SECCOMP_MODE_FILTER,
+                std::ptr::from_ref(&program),
+            )
+        };
+        assert_eq!(
+            installed,
+            0,
+            "could not install pidfd test filter: {}",
+            io::Error::last_os_error()
+        );
+        true
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_session_query_is_scoped_to_the_owned_session() {
@@ -860,70 +966,33 @@ mod tests {
     #[test]
     fn pidfd_open_denial_uses_an_exact_proc_handle() {
         const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PIDFD_OPEN";
-        if std::env::var_os(CHILD_ENV).is_some() {
-            let mut filter = [
-                libc::sock_filter {
-                    code: u16::try_from(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS).unwrap(),
-                    jt: 0,
-                    jf: 0,
-                    k: 0,
-                },
-                libc::sock_filter {
-                    code: u16::try_from(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K).unwrap(),
-                    jt: 0,
-                    jf: 1,
-                    k: u32::try_from(libc::SYS_pidfd_open).unwrap(),
-                },
-                libc::sock_filter {
-                    code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
-                    jt: 0,
-                    jf: 0,
-                    k: libc::SECCOMP_RET_ERRNO | u32::try_from(libc::ENOSYS).unwrap(),
-                },
-                libc::sock_filter {
-                    code: u16::try_from(libc::BPF_RET | libc::BPF_K).unwrap(),
-                    jt: 0,
-                    jf: 0,
-                    k: libc::SECCOMP_RET_ALLOW,
-                },
-            ];
-            let program = libc::sock_fprog {
-                len: u16::try_from(filter.len()).unwrap(),
-                filter: filter.as_mut_ptr(),
-            };
-            // SAFETY: this one-test subprocess opts into a filter whose
-            // backing instructions remain live for the prctl call.
-            assert_eq!(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) }, 0);
-            // SAFETY: `program` describes the initialized filter above.
-            let installed = unsafe {
-                libc::prctl(
-                    libc::PR_SET_SECCOMP,
-                    libc::SECCOMP_MODE_FILTER,
-                    std::ptr::from_ref(&program),
-                )
-            };
-            assert_eq!(
-                installed,
-                0,
-                "could not install pidfd test filter: {}",
-                io::Error::last_os_error()
-            );
-
-            let pid = libc::pid_t::try_from(std::process::id()).unwrap();
-            let process = StableProcessHandle::capture(pid).unwrap().unwrap();
-            assert!(process.matches_current().unwrap());
+        if !enter_syscall_blocked_subprocess(
+            CHILD_ENV,
+            "process_session::tests::pidfd_open_denial_uses_an_exact_proc_handle",
+            &[libc::SYS_pidfd_open],
+        ) {
             return;
         }
 
-        let status = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "process_session::tests::pidfd_open_denial_uses_an_exact_proc_handle",
-            ])
-            .env(CHILD_ENV, "1")
-            .status()
-            .unwrap();
-        assert!(status.success(), "pidfd compatibility subprocess failed: {status}");
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+        let process = StableProcessHandle::capture(pid).unwrap().unwrap();
+        assert!(process.matches_current().unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn missing_exact_signal_support_fails_the_runtime_preflight() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_BLOCK_PIDFD_SIGNALING";
+        if !enter_syscall_blocked_subprocess(
+            CHILD_ENV,
+            "process_session::tests::missing_exact_signal_support_fails_the_runtime_preflight",
+            &[libc::SYS_pidfd_open, libc::SYS_pidfd_send_signal],
+        ) {
+            return;
+        }
+
+        let error = require_stable_process_signaling().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]

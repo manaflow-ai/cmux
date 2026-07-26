@@ -1183,6 +1183,8 @@ impl Surface {
         terminal_id: Option<crate::terminal_host::TerminalId>,
     ) -> anyhow::Result<Arc<Surface>> {
         #[cfg(unix)]
+        crate::process_session::require_stable_process_signaling()?;
+        #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let launch_cancelled = || mux.upgrade().is_none_or(|mux| mux.is_shutting_down());

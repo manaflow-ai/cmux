@@ -1053,6 +1053,10 @@ fn run_server(
         }
     }
 
+    #[cfg(unix)]
+    cmux_tui_core::process_session::require_stable_process_signaling()
+        .map_err(|_| anyhow::anyhow!(localization::catalog().server.process_cleanup_unsupported))?;
+
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
