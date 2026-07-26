@@ -145,6 +145,37 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(probeRegistrationStatus(showHideRegistration) == noErr)
     }
 
+    @Test func controllerMigratesLegacyShowHideShortcutBeforeRegistration() throws {
+        SystemWideHotkeyController.shared.start()
+        SystemWideHotkeySettings.setEnabled(false)
+        notifyHotkeyControllerOfDefaultsChange()
+
+        let shortcut = try #require(availableSyntheticShortcuts().first)
+        let registration = try #require(shortcut.carbonHotKeyRegistration)
+        let encodedShortcut = try JSONEncoder().encode(shortcut)
+        UserDefaults.standard.set(
+            encodedShortcut,
+            forKey: SystemWideHotkeySettings.legacyShortcutKey
+        )
+        UserDefaults.standard.removeObject(
+            forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey
+        )
+        defer {
+            SystemWideHotkeySettings.setEnabled(false)
+            notifyHotkeyControllerOfDefaultsChange()
+        }
+
+        SystemWideHotkeySettings.setEnabled(true)
+        notifyHotkeyControllerOfDefaultsChange()
+
+        #expect(probeRegistrationStatus(registration) == eventHotKeyExistsErr)
+        #expect(
+            UserDefaults.standard.object(
+                forKey: SystemWideHotkeySettings.legacyShortcutKey
+            ) == nil
+        )
+    }
+
     private func availableSyntheticShortcuts() -> [StoredShortcut] {
         [
             ("f13", 105),
