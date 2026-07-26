@@ -144,6 +144,13 @@ pub struct NavigationResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdpEvent {
     ScreencastFrame(ScreencastFrame),
+    ScreencastFrameCaptureRequested {
+        session_id: String,
+        frame_id: String,
+        loader_id: String,
+        frame_epoch: u64,
+        navigation_epoch: u64,
+    },
     FrameNavigated {
         params: Value,
         session_id: String,
@@ -316,6 +323,10 @@ fn same_replaceable(queued: &CdpEvent, incoming: &CdpEvent) -> bool {
         (CdpEvent::ScreencastFrame(queued), CdpEvent::ScreencastFrame(incoming)) => {
             queued.session_id == incoming.session_id
         }
+        (
+            CdpEvent::ScreencastFrameCaptureRequested { session_id: queued, .. },
+            CdpEvent::ScreencastFrameCaptureRequested { session_id: incoming, .. },
+        ) => queued == incoming,
         (CdpEvent::TargetInfoChanged(queued), CdpEvent::TargetInfoChanged(incoming)) => {
             queued.target_id == incoming.target_id
         }
@@ -337,6 +348,13 @@ pub fn event_retained_bytes(event: &CdpEvent) -> usize {
             .len()
             .saturating_add(frame.session_id.len())
             .saturating_add(size_of::<ScreencastFrame>()),
+        CdpEvent::ScreencastFrameCaptureRequested { session_id, frame_id, loader_id, .. } => {
+            session_id
+                .len()
+                .saturating_add(frame_id.len())
+                .saturating_add(loader_id.len())
+                .saturating_add(size_of::<u64>().saturating_mul(2))
+        }
         CdpEvent::FrameNavigated { params, session_id, .. } => session_id
             .len()
             .saturating_add(json_retained_bytes(params))
@@ -1025,22 +1043,55 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     return;
                 };
                 ack_screencast_frame(inner, target_session, ack_id);
-                let (frame_epoch, minimum_screencast_timestamp) = inner
-                    .frame_epochs
-                    .lock()
-                    .unwrap()
-                    .get(target_session)
-                    .map_or((0, None), |frame_session| {
-                        (frame_session.epoch.current(), frame_session.minimum_screencast_timestamp)
-                    });
-                let Some(frame) = screencast_frame(
-                    &params,
-                    target_session,
+                let (
                     frame_epoch,
+                    navigation_epoch,
                     minimum_screencast_timestamp,
-                ) else {
+                    frame_id,
+                    loader_id,
+                ) = inner.frame_epochs.lock().unwrap().get(target_session).map_or(
+                    (0, 0, None, None, None),
+                    |frame_session| {
+                        (
+                            frame_session.epoch.current(),
+                            frame_session.epoch.latest_navigation(),
+                            frame_session.minimum_screencast_timestamp,
+                            frame_session.main_frame_id.clone(),
+                            frame_session.main_loader_id.clone(),
+                        )
+                    },
+                );
+                let Some(frame) = screencast_frame(&params, target_session, frame_epoch, None)
+                else {
                     return;
                 };
+                if let Some(minimum_timestamp) = minimum_screencast_timestamp {
+                    let capture_timestamp = params
+                        .get("metadata")
+                        .and_then(|metadata| metadata.get("timestamp"))
+                        .and_then(Value::as_f64)
+                        .filter(|value| value.is_finite());
+                    match capture_timestamp {
+                        Some(timestamp) if timestamp < minimum_timestamp => return,
+                        Some(_) => {}
+                        None => {
+                            let (Some(frame_id), Some(loader_id)) = (frame_id, loader_id) else {
+                                return;
+                            };
+                            dispatch_event(
+                                inner,
+                                CdpEvent::ScreencastFrameCaptureRequested {
+                                    session_id: target_session.to_string(),
+                                    frame_id,
+                                    loader_id,
+                                    frame_epoch,
+                                    navigation_epoch,
+                                },
+                            );
+                            return;
+                        }
+                    }
+                }
                 dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
             }
         }
@@ -1056,8 +1107,20 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
         }
         "Page.frameNavigated" if session_id.is_some() => {
             let session_id = session_id.expect("guarded above");
-            if let Some(frame_epoch) = main_frame_navigation_epoch(inner, &params, &session_id) {
-                dispatch_event(inner, CdpEvent::FrameNavigated { params, session_id, frame_epoch });
+            if let Some((frame_epoch, restored_document)) =
+                main_frame_navigation_epoch(inner, &params, &session_id)
+            {
+                dispatch_event(
+                    inner,
+                    CdpEvent::FrameNavigated {
+                        params,
+                        session_id: session_id.clone(),
+                        frame_epoch,
+                    },
+                );
+                if let Some(restored_document) = restored_document {
+                    dispatch_event(inner, restored_document);
+                }
             }
         }
         "Page.lifecycleEvent" if session_id.is_some() => {
@@ -1081,7 +1144,11 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     }
 }
 
-fn main_frame_navigation_epoch(inner: &Inner, params: &Value, session_id: &str) -> Option<u64> {
+fn main_frame_navigation_epoch(
+    inner: &Inner,
+    params: &Value,
+    session_id: &str,
+) -> Option<(u64, Option<CdpEvent>)> {
     let mut frame_epochs = inner.frame_epochs.lock().unwrap();
     let frame_session = frame_epochs.get_mut(session_id)?;
     let frame = params.get("frame")?;
@@ -1095,7 +1162,16 @@ fn main_frame_navigation_epoch(inner: &Inner, params: &Value, session_id: &str) 
     frame_session.main_loader_id = loader_id.clone();
     frame_session.pending_document =
         loader_id.map(|loader_id| PendingDocument { frame_id, loader_id, navigation_epoch });
-    Some(navigation_epoch)
+    let restored_document =
+        if params.get("type").and_then(Value::as_str) == Some("BackForwardCacheRestore") {
+            frame_session
+                .pending_document
+                .as_ref()
+                .map(|pending| pending_document_paint_event(pending, session_id))
+        } else {
+            None
+        };
+    Some((navigation_epoch, restored_document))
 }
 
 fn main_frame_document_paint(inner: &Inner, params: &Value, session_id: &str) -> Option<CdpEvent> {
@@ -1114,12 +1190,16 @@ fn main_frame_document_paint(inner: &Inner, params: &Value, session_id: &str) ->
     {
         return None;
     }
-    Some(CdpEvent::DocumentPainted {
+    Some(pending_document_paint_event(pending, session_id))
+}
+
+fn pending_document_paint_event(pending: &PendingDocument, session_id: &str) -> CdpEvent {
+    CdpEvent::DocumentPainted {
         session_id: session_id.to_string(),
         frame_id: pending.frame_id.clone(),
         loader_id: pending.loader_id.clone(),
         navigation_epoch: pending.navigation_epoch,
-    })
+    }
 }
 
 fn main_frame_same_document_navigation(
@@ -1886,10 +1966,18 @@ mod tests {
         let recovery = event_rx
             .try_recv()
             .expect("a timestamp-less frame must request a loader-verified replacement");
-        assert!(
-            !matches!(recovery, CdpEvent::ScreencastFrame(_)),
-            "timestamp-less pixels must not cross the restart authority barrier"
-        );
+        assert!(matches!(
+            recovery,
+            CdpEvent::ScreencastFrameCaptureRequested {
+                session_id,
+                frame_id,
+                loader_id,
+                frame_epoch: 0,
+                navigation_epoch: 0,
+            } if session_id == "session-1"
+                && frame_id == "main-frame"
+                && loader_id == "loader-1"
+        ));
     }
 
     #[test]
