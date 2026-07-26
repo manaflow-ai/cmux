@@ -341,6 +341,29 @@ struct WindowKeyDownReplayGuardTests {
     }
 
     @Test
+    func unavailableCopyPolicyPreservesConfiguredGhosttyBinding() {
+        let consumed = GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue
+        let performable = GHOSTTY_BINDING_FLAGS_PERFORMABLE.rawValue
+
+        #expect(GhosttyNSView.shouldConsumeUnavailableCopy(
+            hasCopyableSelection: false,
+            bindingFlagsRawValue: nil
+        ))
+        #expect(GhosttyNSView.shouldConsumeUnavailableCopy(
+            hasCopyableSelection: false,
+            bindingFlagsRawValue: consumed | performable
+        ))
+        #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
+            hasCopyableSelection: false,
+            bindingFlagsRawValue: consumed
+        ))
+        #expect(!GhosttyNSView.shouldConsumeUnavailableCopy(
+            hasCopyableSelection: true,
+            bindingFlagsRawValue: consumed | performable
+        ))
+    }
+
+    @Test
     func terminalUndoRedoCommandEquivalentsBypassAppKitUndoMenu() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
