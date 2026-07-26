@@ -13653,6 +13653,12 @@ mod tests {
         app.apply_pty_failures();
 
         assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "Could not clear terminal history: terminal output did not reach a safe clear-history boundary"
+            )
+        );
+        assert_eq!(
             surface.with_terminal(|term| term.scrollbar().unwrap().offset).unwrap(),
             offset_before
         );
@@ -20492,7 +20498,12 @@ mod tests {
     }
 
     fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
-        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let pty_failures = Arc::new(PtyFailureIngress::default());
+        let failure_ingress = pty_failures.clone();
+        let pty_input = PtyInputDispatcher::spawn(move |failure| {
+            failure_ingress.push(failure);
+        })
+        .unwrap();
         let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
         let session = OrderedSession::new(session, pty_input.sender(), events.clone());
         let app = App {
@@ -20584,7 +20595,7 @@ mod tests {
             applied_routing_generation: 0,
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),
-            pty_failures: Arc::new(PtyFailureIngress::default()),
+            pty_failures,
             mux_recovery_generation: Arc::new(AtomicU64::new(0)),
             drag: None,
             ignored_pty_mouse_buttons: HashSet::new(),
