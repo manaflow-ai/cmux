@@ -11365,6 +11365,84 @@ mod tests {
     }
 
     #[test]
+    fn server_shutdown_uses_launched_runtime_when_target_confirmation_is_unreachable() {
+        fn read_ws_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+            loop {
+                match ws.read().unwrap() {
+                    tungstenite::Message::Text(text) => {
+                        return serde_json::from_str(&text).unwrap();
+                    }
+                    tungstenite::Message::Binary(bytes) => {
+                        return serde_json::from_slice(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let version = read_ws_json(&mut ws);
+            assert_eq!(version["method"], "Browser.getVersion");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({
+                    "id": version["id"],
+                    "error": {"code": -32000, "message": "unavailable"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({"id": discover["id"], "result": {}}).to_string().into(),
+            ))
+            .unwrap();
+        });
+        let runtime = BrowserRuntime::connect_launched_for_test(&format!(
+            "ws://{address}/devtools/browser/fake"
+        ))
+        .unwrap();
+        server.join().unwrap();
+        let disconnect_deadline = Instant::now() + Duration::from_secs(1);
+        while !runtime.is_closed() && Instant::now() < disconnect_deadline {
+            std::thread::yield_now();
+        }
+        assert!(runtime.is_closed(), "fixture did not make target confirmation unreachable");
+
+        let mux = test_mux();
+        let options = mux.surface_options.lock().unwrap().clone();
+        let surface = browser::new_surface(
+            999,
+            "about:blank".to_string(),
+            (80, 24),
+            (8, 16),
+            &options,
+            Arc::downgrade(&mux),
+        );
+        surface.as_browser().unwrap().install_shutdown_session_for_test(
+            runtime.clone(),
+            "target-1",
+            "session-1",
+        );
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface).unwrap();
+        *mux.browser_runtime.lock().unwrap() = Some(runtime);
+
+        let result = mux.close_all_surfaces_for_shutdown();
+
+        assert!(
+            result.is_ok(),
+            "owned launched browser was not used as the authoritative shutdown fallback: {result:?}"
+        );
+        assert!(mux.shutdown_owners.is_empty());
+        assert!(mux.browser_runtime.lock().unwrap().is_none());
+    }
+
+    #[test]
     fn server_shutdown_cannot_pass_an_in_flight_surface_retirement() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();

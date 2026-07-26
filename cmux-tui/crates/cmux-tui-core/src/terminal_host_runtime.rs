@@ -3492,6 +3492,43 @@ mod unix {
         }
 
         #[test]
+        fn terminate_only_handshake_uses_one_absolute_deadline() {
+            let (record_path, record, lease) = record_fixture("terminate-deadline");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            let stalled = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                for _ in 0..crate::terminal_host_protocol::HEADER_LEN {
+                    if stream.write_all(&[0]).is_err() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+            });
+
+            let started = Instant::now();
+            let result = terminate_terminal_host_with_timeout(
+                &record,
+                &record_path,
+                Duration::from_millis(40),
+            );
+            let elapsed = started.elapsed();
+            stalled.join().unwrap();
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+
+            assert!(result.is_err());
+            assert!(
+                elapsed < Duration::from_millis(250),
+                "partial host frames restarted the shutdown timeout: {elapsed:?}"
+            );
+        }
+
+        #[test]
         fn host_tap_byte_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();

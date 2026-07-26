@@ -410,6 +410,11 @@ impl BrowserRuntime {
         Self::connect_to_endpoint(web_socket_url, None, BrowserSource::External)
     }
 
+    #[cfg(test)]
+    pub(crate) fn connect_launched_for_test(web_socket_url: &str) -> anyhow::Result<Arc<Self>> {
+        Self::connect_to_endpoint(web_socket_url, None, BrowserSource::Launched)
+    }
+
     fn connect_to_endpoint(
         web_socket_url: &str,
         chrome: Option<Chrome>,

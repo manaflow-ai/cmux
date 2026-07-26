@@ -233,6 +233,15 @@ struct LegacyServerProcess {
 #[cfg(unix)]
 impl LegacyServerProcess {
     fn start(name: &str, scenario: &str, reported_pid: Option<u32>) -> Self {
+        Self::start_with_surface_pid(name, scenario, reported_pid, None)
+    }
+
+    fn start_with_surface_pid(
+        name: &str,
+        scenario: &str,
+        reported_pid: Option<u32>,
+        surface_pid: Option<u32>,
+    ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -247,6 +256,9 @@ impl LegacyServerProcess {
             .stderr(Stdio::piped());
         if let Some(reported_pid) = reported_pid {
             command.env("CMUX_TUI_TEST_LEGACY_REPORTED_PID", reported_pid.to_string());
+        }
+        if let Some(surface_pid) = surface_pid {
+            command.env("CMUX_TUI_TEST_LEGACY_SURFACE_PID", surface_pid.to_string());
         }
         let child = command.spawn().unwrap();
         let mut server = Self { child, socket, dir, descendant_pid_file };
@@ -294,6 +306,9 @@ fn legacy_server_process_helper() {
         .ok()
         .map(|value| value.parse::<u32>().unwrap())
         .unwrap_or_else(std::process::id);
+    let reported_surface_pid = std::env::var("CMUX_TUI_TEST_LEGACY_SURFACE_PID")
+        .ok()
+        .map(|value| value.parse::<u32>().unwrap());
     let mut reparent_on_close = None;
     if matches!(
         scenario.as_str(),
@@ -481,6 +496,7 @@ fn legacy_server_process_helper() {
                 | "persistent-close-error"
                 | "zombie-child"
                 | "reparent-on-close"
+                | "unowned-surface"
                 | "browser-surface"
                 | "dead-surface"
         ));
@@ -532,6 +548,8 @@ fn legacy_server_process_helper() {
                 assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
                 let pid = if scenario == "dead-surface" {
                     None
+                } else if let Some(pid) = reported_surface_pid {
+                    Some(pid)
                 } else {
                     Some(
                         fs::read_to_string(
@@ -1724,6 +1742,50 @@ fn server_stop_refuses_a_legacy_server_that_spoofs_another_process_id() {
     assert!(server.child.try_wait().unwrap().is_none());
     victim.kill().unwrap();
     victim.wait().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_never_signals_an_unowned_legacy_surface_pid() {
+    let mut command = Command::new("yes");
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut victim = command.spawn().unwrap();
+    let mut server = LegacyServerProcess::start_with_surface_pid(
+        "legacy-server-unowned-surface",
+        "unowned-surface",
+        None,
+        Some(victim.id()),
+    );
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    let victim_survived = victim.try_wait().unwrap().is_none();
+    let server_survived = server.child.try_wait().unwrap().is_none();
+    if victim_survived {
+        victim.kill().unwrap();
+        victim.wait().unwrap();
+    }
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(victim_survived, "legacy cleanup signaled a process outside the server tree");
+    assert!(server_survived, "legacy cleanup stopped the server after ownership proof failed");
 }
 
 #[cfg(unix)]
