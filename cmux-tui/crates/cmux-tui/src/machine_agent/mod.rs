@@ -9,7 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_tui_machine_agent_protocol::SessionName;
@@ -64,6 +64,7 @@ pub(super) fn run(raw_args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_agent(args: Args) -> anyhow::Result<()> {
+    let reporter = StderrReporter::new()?;
     let session = SessionName::new(args.session.clone())?;
     let socket =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
@@ -82,7 +83,7 @@ fn run_agent(args: Args) -> anyhow::Result<()> {
         session,
         cloud,
         local,
-        Arc::new(StderrReporter),
+        Arc::new(reporter),
         Arc::new(SystemWait),
         Arc::new(ProcessStop),
     )
@@ -160,7 +161,9 @@ impl StopSignal for ProcessStop {
     }
 }
 
-struct StderrReporter;
+struct StderrReporter {
+    pairing_terminal: Mutex<File>,
+}
 
 fn open_pairing_terminal() -> Option<File> {
     let terminal = OpenOptions::new().write(true).open("/dev/tty").ok()?;
@@ -168,6 +171,30 @@ fn open_pairing_terminal() -> Option<File> {
         return None;
     }
     Some(terminal)
+}
+
+fn require_pairing_terminal<T>(
+    terminal: Option<T>,
+    diagnostics: &mut dyn Write,
+    messages: &crate::localization::MachineAgentMessages,
+) -> io::Result<T> {
+    match terminal {
+        Some(terminal) => Ok(terminal),
+        None => {
+            writeln!(diagnostics, "{}", messages.pairing_code_unavailable)?;
+            Err(io::Error::new(io::ErrorKind::NotConnected, messages.pairing_code_unavailable))
+        }
+    }
+}
+
+impl StderrReporter {
+    fn new() -> io::Result<Self> {
+        let messages = &crate::localization::catalog().machine_agent;
+        let mut diagnostics = io::stderr().lock();
+        let pairing_terminal =
+            require_pairing_terminal(open_pairing_terminal(), &mut diagnostics, messages)?;
+        Ok(Self { pairing_terminal: Mutex::new(pairing_terminal) })
+    }
 }
 
 fn write_pairing_code(
@@ -185,16 +212,15 @@ fn write_pairing_code(
 impl Reporter for StderrReporter {
     fn pairing_code(&self, code: &str) {
         let messages = &crate::localization::catalog().machine_agent;
-        let mut terminal = open_pairing_terminal();
         let mut diagnostics = io::stderr().lock();
-        if write_pairing_code(
-            terminal.as_mut().map(|terminal| terminal as &mut dyn Write),
-            &mut diagnostics,
-            messages,
-            code,
-        )
-        .is_err()
-        {
+        let written = self
+            .pairing_terminal
+            .lock()
+            .map_err(|_| io::Error::other("pairing terminal lock poisoned"))
+            .and_then(|mut terminal| {
+                write_pairing_code(Some(&mut *terminal), &mut diagnostics, messages, code)
+            });
+        if written.is_err() {
             let _ = writeln!(diagnostics, "{}", messages.pairing_code_unavailable);
         }
     }
@@ -290,5 +316,18 @@ mod tests {
         let diagnostics = String::from_utf8(diagnostics).unwrap();
         assert!(!diagnostics.contains("secret-code"));
         assert!(diagnostics.contains(messages.pairing_code_unavailable));
+    }
+
+    #[test]
+    fn missing_pairing_terminal_fails_before_agent_start_without_exposing_a_code() {
+        let messages = &crate::localization::catalog_for_locale("en_US.UTF-8").machine_agent;
+        let mut diagnostics = Vec::new();
+
+        let error = require_pairing_terminal::<File>(None, &mut diagnostics, messages).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::NotConnected);
+        let diagnostics = String::from_utf8(diagnostics).unwrap();
+        assert!(diagnostics.contains(messages.pairing_code_unavailable));
+        assert!(!diagnostics.contains("secret-code"));
     }
 }
