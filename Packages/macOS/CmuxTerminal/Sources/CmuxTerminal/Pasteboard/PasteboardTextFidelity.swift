@@ -44,7 +44,12 @@ public enum PasteboardTextFidelity {
     }
 
     public static func htmlHasNoVisibleText(_ html: String) -> Bool {
-        HTMLPlainTextParser().plainText(from: html) == nil
+        guard let parsed = HTMLPlainTextParser().plainText(from: html) else {
+            return true
+        }
+        return parsed.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty
     }
 
     private static func textFidelityMetrics(
