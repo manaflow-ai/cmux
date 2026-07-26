@@ -1496,6 +1496,129 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testSourceWindowCloseCancelsLaterRequestBehindTransferredWork() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace,
+              let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId,
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace,
+              let destinationPane =
+                destinationWorkspace.bonsplitController
+                    .focusedPaneId else {
+            XCTFail("Expected source and destination panes")
+            return
+        }
+        let minimum =
+            TerminalFontSizePolicy.minimumRuntimePoints
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(
+            minimum,
+            isExplicitOverride: true
+        )
+        let movedPanel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            configTemplate: template,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        guard sourceWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: movedPanel,
+                sourceWorkspaceId: sourceWorkspace.id
+            ),
+            inPane: sourcePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a movable source terminal")
+            return
+        }
+
+        var allowMovedPanelMutation = false
+        var movedPanelChanges:
+            [WorkspaceTerminalFontSizeChange] = []
+        let coordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:),
+                applyChange: {
+                    change,
+                    candidate,
+                    configuredRuntimePoints,
+                    magnificationPercent in
+                    guard candidate === movedPanel else {
+                        return .alreadySatisfied
+                    }
+                    movedPanelChanges.append(change)
+                    guard allowMovedPanelMutation else {
+                        return .failed
+                    }
+                    return cmuxApplyTerminalFontSizeChange(
+                        change,
+                        to: candidate,
+                        configuredRuntimePoints:
+                            configuredRuntimePoints,
+                        magnificationPercent:
+                            magnificationPercent
+                    )
+                }
+            )
+        defer { coordinator.cancelAll() }
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([1]),
+                workspaceId: sourceWorkspace.id,
+                deferFlush: true
+            )
+        )
+        guard let detached = sourceWorkspace.detachSurface(
+            panelId: movedPanel.id
+        ),
+        destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected an unvisited cross-window terminal")
+            return
+        }
+        XCTAssertTrue(
+            movedPanelChanges.isEmpty,
+            "The transferred terminal must remain queued before teardown"
+        )
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([1]),
+                workspaceId: sourceWorkspace.id,
+                deferFlush: true
+            )
+        )
+        coordinator.cancelWindowOwnedWork()
+#if DEBUG
+        XCTAssertEqual(coordinator.debugOutstandingRequestCount, 1)
+        allowMovedPanelMutation = true
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+
+        XCTAssertEqual(
+            movedPanelChanges,
+            [.relative([1])],
+            "Closing the source window must cancel the later request without discarding the staged transfer"
+        )
+        XCTAssertEqual(
+            movedPanel.surface.fontSizeLineageSnapshot()?
+                .basePoints,
+            minimum + 1
+        )
+    }
+
     func testForwardedWorkspaceFontSizeShortcutUsesDestinationWindowDock() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
