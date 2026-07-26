@@ -321,6 +321,87 @@ private func endFontState()
     }
 
     @Test
+    func configurationReloadPreservesExplicitBaseAcrossRuntimeClamp()
+        throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(200, isExplicitOverride: true)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        registry.registerRuntimeSurface(
+            runtimeSurface,
+            ownerId: surface.id
+        )
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        beginFontState(runtimeSurface, 200, true, 24)
+        defer {
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        let magnifiedState =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 100
+            )
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: magnifiedState,
+                configuredRuntimePoints: 24,
+                magnificationPercent: 200
+            ) == .applied
+        )
+        #expect(
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) == TerminalFontSizePolicy.maximumRuntimePoints
+        )
+        #expect(
+            try #require(
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent: 200
+                )
+            ) == TerminalFontSizeLineage(
+                basePoints: 200,
+                isExplicitOverride: true
+            )
+        )
+
+        let restoredState =
+            surface.captureFontSizeConfigurationReloadState(
+                magnificationPercent: 200
+            )
+        #expect(
+            surface.reconcileFontSizeAfterConfigurationReload(
+                from: restoredState,
+                configuredRuntimePoints: 12,
+                magnificationPercent: 100
+            ) == .applied
+        )
+        #expect(
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) == 200
+        )
+        #expect(
+            try #require(
+                surface.fontSizeLineageSnapshot(
+                    magnificationPercent: 100
+                )
+            ) == TerminalFontSizeLineage(
+                basePoints: 200,
+                isExplicitOverride: true
+            )
+        )
+    }
+
+    @Test
     func configurationReloadRebasesFollowerWhilePreservingMobileFit()
         throws {
         let registry = FakeSurfaceRegistry()

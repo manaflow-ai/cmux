@@ -853,6 +853,83 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testMatchedWorkspaceFontShortcutIsConsumedWhenQueueRejects() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let event = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber
+                  ) else {
+                XCTFail("Expected a window and Cmd+Ctrl+- event")
+                return
+            }
+
+#if DEBUG
+            appDelegate
+                .debugWorkspaceTerminalFontSizeEnqueueResultOverride = false
+            defer {
+                appDelegate
+                    .debugWorkspaceTerminalFontSizeEnqueueResultOverride = nil
+            }
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "A matched cmux shortcut must not leak into AppKit or Ghostty when its bounded queue rejects the request"
+            )
+#else
+            XCTFail("Workspace font-size shortcut hooks require DEBUG")
+#endif
+        }
+    }
+
+    func testDefaultTerminalDependenciesUseAppliedMagnificationDuringQueuedReload() {
+        let defaults = UserDefaults.standard
+        let originalValue =
+            defaults.object(forKey: GlobalFontMagnification.percentKey)
+        let appliedPercent =
+            GhosttyApp.shared.appliedGlobalFontMagnificationPercent
+        let queuedPercent =
+            appliedPercent == GlobalFontMagnification.maximumPercent
+            ? GlobalFontMagnification.minimumPercent
+            : GlobalFontMagnification.maximumPercent
+        defaults.set(
+            queuedPercent,
+            forKey: GlobalFontMagnification.percentKey
+        )
+        defer {
+            if let originalValue {
+                defaults.set(
+                    originalValue,
+                    forKey: GlobalFontMagnification.percentKey
+                )
+            } else {
+                defaults.removeObject(
+                    forKey: GlobalFontMagnification.percentKey
+                )
+            }
+        }
+
+        XCTAssertEqual(
+            GlobalFontMagnification.storedPercent,
+            queuedPercent
+        )
+        XCTAssertEqual(
+            GhosttyApp.terminalSurfaceRuntimeDependencies
+                .globalFontMagnificationPercent(),
+            appliedPercent,
+            "New surfaces must use the runtime-applied scale until the serialized config reload commits"
+        )
+    }
+
     func testWorkspaceTerminalFontSizeDrainBudgetCapsLiveActionsAndPanelVisits() {
         var liveBudget = WorkspaceTerminalFontSizeDrainBudget()
         for _ in 0..<4 {
@@ -895,6 +972,57 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             XCTAssertTrue(requestBudget.reserveRequestVisit())
         }
         XCTAssertFalse(requestBudget.reserveRequestVisit())
+    }
+
+    func testWorkspaceTerminalFontSizeDiscoveryConstructionDoesNotScanPanels() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected an initial workspace")
+            return
+        }
+        for _ in 0..<64 {
+            let panel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspace.panels[panel.id] = panel
+        }
+
+        let scheduler = ManualWorkspaceFontSizeDrainScheduler()
+        var applyAttemptCount = 0
+        let coordinator = WorkspaceTerminalFontSizeCoordinator(
+            tabManager: manager,
+            schedule: scheduler.schedule(delay:action:),
+            applyChange: { _, _, _, _ in
+                applyAttemptCount += 1
+                return .alreadySatisfied
+            }
+        )
+        defer { coordinator.cancelAll() }
+
+        XCTAssertTrue(
+            coordinator.enqueue(
+                .relative([-1]),
+                workspaceId: workspace.id,
+                deferFlush: true
+            )
+        )
+
+#if DEBUG
+        coordinator.debugFlushOneDrain()
+        XCTAssertEqual(
+            coordinator.debugLastPanelDiscoveryConstructionVisitCount,
+            0,
+            "Activating a request must not snapshot or scan its owner's panel dictionaries before the visit budget"
+        )
+        XCTAssertLessThanOrEqual(
+            applyAttemptCount,
+            WorkspaceTerminalFontSizeDrainBudget
+                .maximumPanelVisitsPerDrain
+        )
+#else
+        XCTFail("Workspace font-size discovery hooks require DEBUG")
+#endif
     }
 
     func testPendingWorkspaceTerminalFontSizeChangeBoundsAlternatingStorage() {
