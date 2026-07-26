@@ -31,6 +31,10 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func performExplicitInputBindingAction(_ action: String) -> Bool {
+        beginFontSizeExplicitInputObservation()
+        defer {
+            finishFontSizeExplicitInputObservation()
+        }
         didReceiveExplicitInput()
         return performBindingAction(action)
     }

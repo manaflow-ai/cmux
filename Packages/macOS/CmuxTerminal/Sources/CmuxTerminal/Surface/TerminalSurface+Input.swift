@@ -15,6 +15,71 @@ extension TerminalSurface {
         paneHost.terminalSurfaceDidReceiveExplicitInput()
     }
 
+    /// Begins a synchronous user-input observation while a configuration
+    /// reload owns this surface's font lineage.
+    @MainActor
+    public func beginFontSizeExplicitInputObservation() {
+        guard pendingFontSizeConfigurationReloadState != nil,
+              pendingFontSizeExplicitInputBaseline == nil,
+              let runtimeSurface = liveSurfaceForGhosttyAccess(
+                reason: "fontSize.configReload.explicitInput.begin"
+              ),
+              let runtimePoints =
+                GhosttySurfaceRuntimeProbe
+                    .currentSurfaceFontSizePoints(
+                        runtimeSurface
+                    ) else {
+            return
+        }
+        pendingFontSizeExplicitInputBaseline = (
+            runtimePoints,
+            ghostty_surface_font_size_adjusted(runtimeSurface)
+        )
+    }
+
+    /// Records the exact native font delta produced by the observed input.
+    ///
+    /// The delta is replayed against the new configuration after reload, so a
+    /// local Ghostty zoom or reset cannot be overwritten by reconciliation.
+    @MainActor
+    public func finishFontSizeExplicitInputObservation() {
+        guard let baseline =
+                pendingFontSizeExplicitInputBaseline else {
+            return
+        }
+        pendingFontSizeExplicitInputBaseline = nil
+        guard var reloadState =
+                pendingFontSizeConfigurationReloadState,
+              let runtimeSurface = liveSurfaceForGhosttyAccess(
+                reason: "fontSize.configReload.explicitInput.finish"
+              ),
+              let runtimePoints =
+                GhosttySurfaceRuntimeProbe
+                    .currentSurfaceFontSizePoints(
+                        runtimeSurface
+                    ) else {
+            return
+        }
+        let isAdjusted =
+            ghostty_surface_font_size_adjusted(runtimeSurface)
+        let delta = runtimePoints - baseline.runtimePoints
+        if baseline.isAdjusted, !isAdjusted {
+            reloadState.recordLocalFontInput(
+                runtimePointDelta: 0,
+                usesConfiguredBase: true
+            )
+        } else if isAdjusted, abs(delta) > 0.000_1 {
+            reloadState.recordLocalFontInput(
+                runtimePointDelta: delta,
+                usesConfiguredBase: !baseline.isAdjusted
+            )
+        } else {
+            return
+        }
+        pendingFontSizeConfigurationReloadState =
+            reloadState
+    }
+
     /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.
     @MainActor
     public func closeSearchFromExplicitInput() {

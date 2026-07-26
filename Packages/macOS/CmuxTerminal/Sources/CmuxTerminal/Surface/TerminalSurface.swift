@@ -153,6 +153,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     var pendingFontSizeConfigurationReloadState:
         TerminalFontSizeConfigurationReloadState?
+    var pendingFontSizeExplicitInputBaseline:
+        (runtimePoints: Float32, isAdjusted: Bool)?
     var lastAppliedFontSizeChangeToken: UUID?
     var transferReconciledFontSizeChangeTokens: Set<UUID> = []
     var lastPrunedFontSizeTransferRetirementGeneration: UInt64 = 0

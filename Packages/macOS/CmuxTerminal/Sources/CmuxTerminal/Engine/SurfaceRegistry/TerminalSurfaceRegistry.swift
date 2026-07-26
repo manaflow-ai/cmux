@@ -2,6 +2,94 @@ public import CmuxTerminalCore
 public import Foundation
 public import GhosttyKit
 
+fileprivate final class TerminalSurfaceRegistryWeakNode {
+    let identity: ObjectIdentifier
+    weak var surface: (any TerminalSurfacing)?
+    weak var previous: TerminalSurfaceRegistryWeakNode?
+    var next: TerminalSurfaceRegistryWeakNode?
+    var isRegistered = true
+
+    init(
+        surface: any TerminalSurfacing,
+        next: TerminalSurfaceRegistryWeakNode?
+    ) {
+        identity = ObjectIdentifier(surface)
+        self.surface = surface
+        self.next = next
+    }
+}
+
+fileprivate final class TerminalSurfaceRegistryPendingVisit {
+    let node: TerminalSurfaceRegistryWeakNode
+    var next: TerminalSurfaceRegistryPendingVisit?
+
+    init(node: TerminalSurfaceRegistryWeakNode) {
+        self.node = node
+    }
+}
+
+/// A weak, incremental view of registered surfaces.
+///
+/// Each call retains only the returned surface for that call. Surfaces
+/// registered before traversal finishes are queued, while closed or
+/// deallocated surfaces are skipped without materializing the registry.
+public final class TerminalSurfaceRegistryIncrementalTraversal {
+    fileprivate let registry: TerminalSurfaceRegistry
+    fileprivate var cursor: TerminalSurfaceRegistryWeakNode?
+    fileprivate var pendingVisitHead:
+        TerminalSurfaceRegistryPendingVisit?
+    fileprivate var pendingVisitTail:
+        TerminalSurfaceRegistryPendingVisit?
+    fileprivate var isFinished = false
+
+    fileprivate init(
+        registry: TerminalSurfaceRegistry,
+        cursor: TerminalSurfaceRegistryWeakNode?
+    ) {
+        self.registry = registry
+        self.cursor = cursor
+    }
+
+    /// Visits exactly one registry node, including a released weak node.
+    public func nextVisit()
+        -> TerminalSurfaceRegistryIncrementalVisit? {
+        registry.nextVisit(for: self)
+    }
+
+    fileprivate func enqueueRegistration(
+        _ node: TerminalSurfaceRegistryWeakNode
+    ) {
+        let visit = TerminalSurfaceRegistryPendingVisit(
+            node: node
+        )
+        if let pendingVisitTail {
+            pendingVisitTail.next = visit
+        } else {
+            pendingVisitHead = visit
+        }
+        pendingVisitTail = visit
+    }
+
+    /// Convenience iteration over live surfaces.
+    public func next() -> (any TerminalSurfacing)? {
+        while let visit = nextVisit() {
+            if let surface = visit.surface {
+                return surface
+            }
+        }
+        return nil
+    }
+}
+
+/// One bounded registry visit. `surface` is nil when its weak owner closed.
+public struct TerminalSurfaceRegistryIncrementalVisit {
+    public let surface: (any TerminalSurfacing)?
+
+    fileprivate init(surface: (any TerminalSurfacing)?) {
+        self.surface = surface
+    }
+}
+
 /// The process-wide registry of live terminal surfaces and the runtime
 /// surface pointers they own.
 ///
@@ -19,9 +107,15 @@ public import GhosttyKit
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
     private let lock = NSLock()
-    // SAFETY: all five are guarded by `lock`; callers arrive on the main
+    // SAFETY: all registry collections are guarded by `lock`; callers arrive on the main
     // actor and from nonisolated `deinit` paths.
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
+    nonisolated(unsafe) private var incrementalTraversalHead:
+        TerminalSurfaceRegistryWeakNode?
+    nonisolated(unsafe) private var incrementalTraversalNodes:
+        [ObjectIdentifier: TerminalSurfaceRegistryWeakNode] = [:]
+    nonisolated(unsafe) private weak var activeIncrementalTraversal:
+        TerminalSurfaceRegistryIncrementalTraversal?
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every read and write is guarded by `lock`.
@@ -51,6 +145,31 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         defer { lock.unlock() }
         surfaces.add(surface)
+        let identity = ObjectIdentifier(surface)
+        if let existingNode =
+                incrementalTraversalNodes[identity],
+           existingNode.isRegistered,
+           existingNode.surface === surface {
+            surfaceFocusPlacements[surface.id] =
+                surface.focusPlacement
+            generation &+= 1
+            return
+        }
+        if let replacedNode =
+            incrementalTraversalNodes.removeValue(
+                forKey: identity
+            ) {
+            unlinkIncrementalTraversalNode(replacedNode)
+        }
+        let node = TerminalSurfaceRegistryWeakNode(
+            surface: surface,
+            next: incrementalTraversalHead
+        )
+        incrementalTraversalHead?.previous = node
+        incrementalTraversalHead = node
+        incrementalTraversalNodes[identity] = node
+        activeIncrementalTraversal?
+            .enqueueRegistration(node)
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
         generation &+= 1
     }
@@ -62,6 +181,11 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.lock()
         let surfaceId = surface.id
         surfaces.remove(surface)
+        if let node = incrementalTraversalNodes.removeValue(
+            forKey: ObjectIdentifier(surface)
+        ) {
+            unlinkIncrementalTraversalNode(node)
+        }
         let stillRegistered = surfaces.allObjects
             .compactMap { $0 as? any TerminalSurfacing }
             .contains { $0 !== surface && $0.id == surfaceId }
@@ -165,5 +289,100 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return objects.sorted { lhs, rhs in
             lhs.id.uuidString < rhs.id.uuidString
         }
+    }
+
+    /// Begins a weak traversal without materializing or sorting every surface.
+    public func makeIncrementalTraversal()
+        -> TerminalSurfaceRegistryIncrementalTraversal {
+        lock.lock()
+        precondition(
+            activeIncrementalTraversal == nil,
+            "Incremental terminal registry traversal must remain serialized"
+        )
+        let traversal =
+            TerminalSurfaceRegistryIncrementalTraversal(
+                registry: self,
+                cursor: incrementalTraversalHead
+            )
+        activeIncrementalTraversal = traversal
+        lock.unlock()
+        return traversal
+    }
+
+    /// Constant-time identity check for work captured by an incremental walk.
+    public func isRegistered(
+        _ surface: any TerminalSurfacing
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let node =
+                incrementalTraversalNodes[
+                    ObjectIdentifier(surface)
+                ],
+              node.isRegistered else {
+            return false
+        }
+        return node.surface === surface
+    }
+
+    fileprivate func nextVisit(
+        for traversal:
+            TerminalSurfaceRegistryIncrementalTraversal
+    ) -> TerminalSurfaceRegistryIncrementalVisit? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeIncrementalTraversal === traversal,
+              !traversal.isFinished else {
+            return nil
+        }
+        let node: TerminalSurfaceRegistryWeakNode
+        if let current = traversal.cursor {
+            node = current
+            traversal.cursor = current.next
+        } else if let pendingVisit =
+                    traversal.pendingVisitHead {
+            node = pendingVisit.node
+            traversal.pendingVisitHead = pendingVisit.next
+            if traversal.pendingVisitHead == nil {
+                traversal.pendingVisitTail = nil
+            }
+        } else {
+            traversal.isFinished = true
+            activeIncrementalTraversal = nil
+            return nil
+        }
+        guard node.isRegistered, let surface = node.surface else {
+            if node.isRegistered {
+                if incrementalTraversalNodes[node.identity] === node {
+                    incrementalTraversalNodes.removeValue(
+                        forKey: node.identity
+                    )
+                }
+                unlinkIncrementalTraversalNode(node)
+            }
+            return TerminalSurfaceRegistryIncrementalVisit(
+                surface: nil
+            )
+        }
+        return TerminalSurfaceRegistryIncrementalVisit(
+            surface: surface
+        )
+    }
+
+    private func unlinkIncrementalTraversalNode(
+        _ node: TerminalSurfaceRegistryWeakNode
+    ) {
+        guard node.isRegistered else { return }
+        node.isRegistered = false
+        let previous = node.previous
+        let next = node.next
+        if let previous {
+            previous.next = next
+        } else if incrementalTraversalHead === node {
+            incrementalTraversalHead = next
+        }
+        next?.previous = previous
+        node.previous = nil
+        // Preserve `next` for traversals already parked on this node.
     }
 }

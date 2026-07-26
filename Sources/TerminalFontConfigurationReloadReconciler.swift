@@ -41,21 +41,62 @@ struct TerminalFontConfigurationReloadTransaction {
 @MainActor
 final class TerminalFontConfigurationReloadReconciler {
     typealias Work = @MainActor () -> Void
+    typealias CaptureNextWork =
+        @MainActor () -> ReconciliationWork?
     typealias Scheduler =
         @MainActor (@escaping @MainActor () -> Void) -> Void
 
+    struct ReconciliationWork {
+        let attempt: @MainActor () -> Bool
+        let abandon: Work
+
+        init(
+            attempt: @escaping @MainActor () -> Bool,
+            abandon: @escaping Work = {}
+        ) {
+            self.attempt = attempt
+            self.abandon = abandon
+        }
+    }
+
+    private final class WorkNode {
+        let work: ReconciliationWork
+        var attemptCount = 0
+        var next: WorkNode?
+
+        init(_ work: ReconciliationWork) {
+            self.work = work
+        }
+    }
+
+    private enum Phase {
+        case idle
+        case capturing
+        case reconciling
+    }
+
     nonisolated static let defaultMaximumSurfaceVisitsPerDrain = 8
+    nonisolated static let defaultMaximumAttemptsPerWork = 3
 
     private let maximumSurfaceVisitsPerDrain: Int
+    private let maximumAttemptsPerWork: Int
     private let schedule: Scheduler
-    private var work: [Work] = []
-    private var workHead = 0
+    private var phase = Phase.idle
+    private var captureNextWork: CaptureNextWork?
+    private var applyConfiguration: Work?
+    private var capturedWorkHead: WorkNode?
+    private var capturedWorkTail: WorkNode?
+    private var activeWork: WorkNode?
+    private var retryWorkHead: WorkNode?
+    private var retryWorkTail: WorkNode?
     private var completion: Work?
     private var isDrainScheduled = false
 
     nonisolated init(
         maximumSurfaceVisitsPerDrain: Int =
             defaultMaximumSurfaceVisitsPerDrain,
+        maximumAttemptsPerWork: Int =
+            defaultMaximumAttemptsPerWork,
         schedule: @escaping Scheduler = { action in
             RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
@@ -65,31 +106,34 @@ final class TerminalFontConfigurationReloadReconciler {
         }
     ) {
         precondition(maximumSurfaceVisitsPerDrain > 0)
+        precondition(maximumAttemptsPerWork > 0)
         self.maximumSurfaceVisitsPerDrain =
             maximumSurfaceVisitsPerDrain
+        self.maximumAttemptsPerWork = maximumAttemptsPerWork
         self.schedule = schedule
     }
 
-    func reconcile(
-        _ work: [Work],
+    /// Captures pre-config state and reconciles post-config state in separately
+    /// bounded turns. Configuration is applied only after traversal reaches its
+    /// end, so every captured surface observes one coherent old configuration.
+    func reconcileIncrementally(
+        captureNextWork: @escaping CaptureNextWork,
+        applyConfiguration: @escaping Work,
         completion: @escaping Work
     ) {
         precondition(
             !isReconciling,
             "Configuration font reconciliation must remain serialized"
         )
-        guard !work.isEmpty else {
-            completion()
-            return
-        }
-        self.work = work
-        workHead = 0
+        phase = .capturing
+        self.captureNextWork = captureNextWork
+        self.applyConfiguration = applyConfiguration
         self.completion = completion
         scheduleDrain()
     }
 
     var isReconciling: Bool {
-        workHead < work.count || completion != nil
+        phase != .idle
     }
 
     private func scheduleDrain() {
@@ -102,22 +146,111 @@ final class TerminalFontConfigurationReloadReconciler {
 
     private func drain() {
         isDrainScheduled = false
-        let end = min(
-            work.count,
-            workHead + maximumSurfaceVisitsPerDrain
-        )
-        while workHead < end {
-            let action = work[workHead]
-            workHead += 1
-            action()
+        switch phase {
+        case .idle:
+            return
+        case .capturing:
+            drainCapture()
+        case .reconciling:
+            drainReconciliation()
         }
-        guard workHead == work.count else {
+    }
+
+    private func drainCapture() {
+        guard let captureNextWork else {
+            preconditionFailure(
+                "Capturing reconciliation requires a source"
+            )
+        }
+        var visits = 0
+        while visits < maximumSurfaceVisitsPerDrain {
+            guard let work = captureNextWork() else {
+                finishCapture()
+                return
+            }
+            appendCapturedWork(work)
+            visits += 1
+        }
+        scheduleDrain()
+    }
+
+    private func finishCapture() {
+        self.captureNextWork = nil
+        let applyConfiguration = self.applyConfiguration
+        self.applyConfiguration = nil
+        applyConfiguration?()
+        phase = .reconciling
+        activeWork = capturedWorkHead
+        capturedWorkHead = nil
+        capturedWorkTail = nil
+        guard activeWork != nil else {
+            finish()
+            return
+        }
+        scheduleDrain()
+    }
+
+    private func drainReconciliation() {
+        var visits = 0
+        while visits < maximumSurfaceVisitsPerDrain,
+              let node = activeWork {
+            activeWork = node.next
+            node.next = nil
+            node.attemptCount += 1
+            if !node.work.attempt() {
+                if node.attemptCount < maximumAttemptsPerWork {
+                    appendRetryWork(node)
+                } else {
+                    node.work.abandon()
+                }
+            }
+            visits += 1
+        }
+        if activeWork != nil {
             scheduleDrain()
             return
         }
 
-        work.removeAll(keepingCapacity: false)
-        workHead = 0
+        if let retryWorkHead {
+            activeWork = retryWorkHead
+            self.retryWorkHead = nil
+            retryWorkTail = nil
+            scheduleDrain()
+            return
+        }
+        finish()
+    }
+
+    private func appendCapturedWork(
+        _ work: ReconciliationWork
+    ) {
+        let node = WorkNode(work)
+        if let capturedWorkTail {
+            capturedWorkTail.next = node
+        } else {
+            capturedWorkHead = node
+        }
+        capturedWorkTail = node
+    }
+
+    private func appendRetryWork(_ node: WorkNode) {
+        if let retryWorkTail {
+            retryWorkTail.next = node
+        } else {
+            retryWorkHead = node
+        }
+        retryWorkTail = node
+    }
+
+    private func finish() {
+        phase = .idle
+        captureNextWork = nil
+        applyConfiguration = nil
+        capturedWorkHead = nil
+        capturedWorkTail = nil
+        activeWork = nil
+        retryWorkHead = nil
+        retryWorkTail = nil
         let completion = self.completion
         self.completion = nil
         completion?()

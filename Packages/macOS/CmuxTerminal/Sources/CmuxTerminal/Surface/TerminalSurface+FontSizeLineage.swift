@@ -26,11 +26,109 @@ public enum TerminalFontSizeMutationOutcome: Sendable, Equatable {
 /// native config update. This prevents post-reload runtime points from being
 /// mistaken for an externally adjusted durable base.
 public struct TerminalFontSizeConfigurationReloadState: Sendable {
+    fileprivate struct ResolvedTarget {
+        let lineage: TerminalFontSizeLineage
+        let durableRuntimePoints: Float32
+        let retainsExplicitBase: Bool
+    }
+
+    fileprivate let transactionId: UUID
     fileprivate let surfaceId: UUID
     fileprivate let lineage: TerminalFontSizeLineage?
-    fileprivate let inheritanceLineage:
+    fileprivate var inheritanceLineage:
         TerminalFontSizeLineage?
     fileprivate let followsConfiguredFontSize: Bool
+    fileprivate let targetConfiguredRuntimePoints: Float32?
+    fileprivate let targetMagnificationPercent: Int?
+    fileprivate var localRuntimePointDelta: Float32 = 0
+    fileprivate var localInputUsesConfiguredBase = false
+
+    mutating func recordLocalFontInput(
+        runtimePointDelta: Float32,
+        usesConfiguredBase: Bool
+    ) {
+        if usesConfiguredBase {
+            localInputUsesConfiguredBase = true
+            localRuntimePointDelta = 0
+        }
+        localRuntimePointDelta += runtimePointDelta
+        inheritanceLineage = resolvedTargetLineage()
+    }
+
+    fileprivate func resolvedTargetLineage()
+        -> TerminalFontSizeLineage? {
+        guard let targetConfiguredRuntimePoints,
+              targetConfiguredRuntimePoints.isFinite,
+              targetConfiguredRuntimePoints > 0,
+              let targetMagnificationPercent else {
+            return inheritanceLineage
+        }
+        return resolvedTarget(
+            configuredRuntimePoints:
+                targetConfiguredRuntimePoints,
+            magnificationPercent:
+                targetMagnificationPercent
+        ).lineage
+    }
+
+    fileprivate func resolvedTarget(
+        configuredRuntimePoints: Float32,
+        magnificationPercent: Int
+    ) -> ResolvedTarget {
+        let policy = TerminalFontSizePolicy()
+        let configuredRuntimePoints = policy.clampedRuntimePoints(
+            configuredRuntimePoints
+        )
+        let originallyRetainsExplicitBase =
+            lineage?.isExplicitOverride
+            ?? !followsConfiguredFontSize
+        let startsFromConfiguredBase =
+            localInputUsesConfiguredBase
+            || !originallyRetainsExplicitBase
+        let baselineRuntimePoints: Float32
+        if startsFromConfiguredBase {
+            baselineRuntimePoints = configuredRuntimePoints
+        } else if let lineage {
+            baselineRuntimePoints = policy.clampedRuntimePoints(
+                CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: lineage.basePoints,
+                    percent: magnificationPercent
+                )
+            )
+        } else {
+            baselineRuntimePoints = configuredRuntimePoints
+        }
+        let runtimePoints = policy.clampedRuntimePoints(
+            baselineRuntimePoints + localRuntimePointDelta
+        )
+        let isExplicitOverride =
+            !startsFromConfiguredBase
+            || abs(localRuntimePointDelta) > 0.000_1
+        let targetLineage: TerminalFontSizeLineage
+        if isExplicitOverride,
+           !localInputUsesConfiguredBase,
+           abs(localRuntimePointDelta) <= 0.000_1,
+           let lineage {
+            targetLineage = TerminalFontSizeLineage(
+                basePoints: lineage.basePoints,
+                isExplicitOverride: true
+            )
+        } else {
+            targetLineage = TerminalFontSizeLineage(
+                basePoints:
+                    CmuxSurfaceConfigTemplate.baseFontSize(
+                        fromRuntimePoints: runtimePoints,
+                        percent: magnificationPercent
+                    ),
+                isExplicitOverride: isExplicitOverride
+            )
+        }
+        return ResolvedTarget(
+            lineage: targetLineage,
+            durableRuntimePoints: runtimePoints,
+            retainsExplicitBase: isExplicitOverride
+        )
+    }
 }
 
 extension TerminalSurface {
@@ -533,31 +631,20 @@ extension TerminalSurface {
         let lineage = fontSizeLineageSnapshot(
             magnificationPercent: magnificationPercent
         )
-        let inheritanceLineage:
-            TerminalFontSizeLineage?
-        if followsConfiguredFontSize,
-           let targetConfiguredRuntimePoints,
-           targetConfiguredRuntimePoints.isFinite,
-           targetConfiguredRuntimePoints > 0,
-           let targetMagnificationPercent {
-            inheritanceLineage = TerminalFontSizeLineage(
-                basePoints:
-                    CmuxSurfaceConfigTemplate.baseFontSize(
-                        fromRuntimePoints:
-                            targetConfiguredRuntimePoints,
-                        percent: targetMagnificationPercent
-                    ),
-                isExplicitOverride: false
-            )
-        } else {
-            inheritanceLineage = lineage
-        }
-        let state = TerminalFontSizeConfigurationReloadState(
+        var state = TerminalFontSizeConfigurationReloadState(
+            transactionId: UUID(),
             surfaceId: id,
             lineage: lineage,
-            inheritanceLineage: inheritanceLineage,
-            followsConfiguredFontSize: followsConfiguredFontSize
+            inheritanceLineage: lineage,
+            followsConfiguredFontSize:
+                followsConfiguredFontSize,
+            targetConfiguredRuntimePoints:
+                targetConfiguredRuntimePoints,
+            targetMagnificationPercent:
+                targetMagnificationPercent
         )
+        state.inheritanceLineage =
+            state.resolvedTargetLineage()
         pendingFontSizeConfigurationReloadState = state
         return state
     }
@@ -574,67 +661,54 @@ extension TerminalSurface {
         configuredRuntimePoints: Float32,
         magnificationPercent: Int
     ) -> TerminalFontSizeMutationOutcome {
-        defer {
-            if pendingFontSizeConfigurationReloadState?
-                    .surfaceId == state.surfaceId {
-                pendingFontSizeConfigurationReloadState = nil
-            }
-        }
         guard state.surfaceId == id,
+              let activeState =
+                pendingFontSizeConfigurationReloadState,
+              activeState.transactionId == state.transactionId,
               configuredRuntimePoints.isFinite,
               configuredRuntimePoints > 0 else {
             return .failed
         }
 
-        let policy = TerminalFontSizePolicy()
-        let configuredRuntimePoints = policy.clampedRuntimePoints(
-            configuredRuntimePoints
+        let resolvedTarget = activeState.resolvedTarget(
+            configuredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent
         )
+        let durableRuntimePoints =
+            resolvedTarget.durableRuntimePoints
         let retainsExplicitBase =
-            state.lineage?.isExplicitOverride
-            ?? !state.followsConfiguredFontSize
-        let targetLineage: TerminalFontSizeLineage
-        let durableRuntimePoints: Float32
-        if retainsExplicitBase, let lineage = state.lineage {
-            targetLineage = TerminalFontSizeLineage(
-                basePoints: lineage.basePoints,
-                isExplicitOverride: true
-            )
-            durableRuntimePoints = policy.clampedRuntimePoints(
-                CmuxSurfaceConfigTemplate.runtimeFontSize(
-                    fromBasePoints: lineage.basePoints,
-                    percent: magnificationPercent
-                )
-            )
-        } else {
-            durableRuntimePoints = configuredRuntimePoints
-            targetLineage = TerminalFontSizeLineage(
-                basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
-                    fromRuntimePoints: configuredRuntimePoints,
-                    percent: magnificationPercent
-                ),
-                isExplicitOverride: false
-            )
-        }
+            resolvedTarget.retainsExplicitBase
+        let targetLineage = resolvedTarget.lineage
 
         let desiredLiveRuntimePoints: Float32
         let retainsMobileFit: Bool
+        let nextFitState: MobileViewportFontFitState?
         if var fitState = mobileViewportFontFitState {
             fitState.updateDurableBase(to: durableRuntimePoints)
-            mobileViewportFontFitState = fitState
+            nextFitState = fitState
             desiredLiveRuntimePoints = fitState.fittedRuntimePointSize
             retainsMobileFit = true
         } else {
+            nextFitState = nil
             desiredLiveRuntimePoints = durableRuntimePoints
             retainsMobileFit = false
         }
 
-        followsConfiguredFontSize = !retainsExplicitBase
-        recordCurrentFontSizeLineage(targetLineage)
+        func commitDurableState() {
+            mobileViewportFontFitState = nextFitState
+            followsConfiguredFontSize = !retainsExplicitBase
+            recordCurrentFontSizeLineage(targetLineage)
+            if pendingFontSizeConfigurationReloadState?
+                    .transactionId == state.transactionId {
+                pendingFontSizeConfigurationReloadState = nil
+                pendingFontSizeExplicitInputBaseline = nil
+            }
+        }
 
         guard let runtimeSurface = liveSurfaceForGhosttyAccess(
             reason: "fontSize.configReload"
         ) else {
+            commitDurableState()
             return .alreadySatisfied
         }
         let observedRuntimePoints =
@@ -649,6 +723,7 @@ extension TerminalSurface {
 
         if retainsExplicitBase || retainsMobileFit {
             guard !nativeMatchesTarget || !nativeIsAdjusted else {
+                commitDurableState()
                 return .alreadySatisfied
             }
             guard performMobileViewportFontPointSizeAction(
@@ -656,16 +731,67 @@ extension TerminalSurface {
             ) else {
                 return .failed
             }
+            commitDurableState()
             return .applied
         }
 
         guard !nativeMatchesTarget || nativeIsAdjusted else {
+            commitDurableState()
             return .alreadySatisfied
         }
         guard performInternalBindingAction("reset_font_size") else {
             return .failed
         }
+        commitDurableState()
         return .applied
+    }
+
+    /// Finishes a reconciliation that exhausted its native retries.
+    ///
+    /// The desired state was never committed. If the runtime remains live,
+    /// its observed post-config value becomes the fallback lineage so later
+    /// snapshots cannot reinterpret old points with the new magnification.
+    @MainActor
+    public func abandonFontSizeConfigurationReloadReconciliation(
+        from state: TerminalFontSizeConfigurationReloadState,
+        magnificationPercent: Int
+    ) {
+        guard pendingFontSizeConfigurationReloadState?
+                .transactionId == state.transactionId else {
+            return
+        }
+        if let runtimeSurface = liveSurfaceForGhosttyAccess(
+            reason: "fontSize.configReload.abandon"
+        ),
+        let runtimePoints =
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) {
+            let policy = TerminalFontSizePolicy()
+            let runtimePoints = policy.clampedRuntimePoints(
+                runtimePoints
+            )
+            let isExplicitOverride =
+                ghostty_surface_font_size_adjusted(runtimeSurface)
+            if var fitState = mobileViewportFontFitState {
+                fitState.rebase(to: runtimePoints)
+                mobileViewportFontFitState = fitState
+            }
+            followsConfiguredFontSize = !isExplicitOverride
+            recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints:
+                        CmuxSurfaceConfigTemplate.baseFontSize(
+                            fromRuntimePoints: runtimePoints,
+                            percent: magnificationPercent
+                        ),
+                    isExplicitOverride:
+                        isExplicitOverride
+                )
+            )
+        }
+        pendingFontSizeConfigurationReloadState = nil
+        pendingFontSizeExplicitInputBaseline = nil
     }
 
     /// Captures the current font size and its surface-local ownership state.

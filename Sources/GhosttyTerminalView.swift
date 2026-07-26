@@ -1985,84 +1985,114 @@ class GhosttyApp {
                 magnificationPercent:
                     reloadMagnificationPercent
             )
-        let terminalFontReloadStates =
+        let registryTraversal =
             Self.terminalSurfaceRegistry
-                .allTerminalSurfaces()
-                .map { surface in
-                    (
-                        surface,
-                        surface.captureFontSizeConfigurationReloadState(
-                            magnificationPercent:
-                                fontTransaction
-                                    .previousMagnificationPercent,
-                            targetConfiguredRuntimePoints:
-                                terminalFontConfiguration
-                                    .configuredRuntimePoints,
-                            targetMagnificationPercent:
-                                terminalFontConfiguration
-                                    .magnificationPercent
-                        )
-                    )
-                }
-        ghostty_app_update_config(app, newConfig)
-        appliedGlobalFontMagnificationPercent =
-            reloadMagnificationPercent
-        DispatchQueue.main.async {
-            self.applyBackgroundToKeyWindow()
-        }
-        if let oldConfig = config {
-            ghostty_config_free(oldConfig)
-        }
-        config = newConfig
-        let reconciliationWork:
-            [TerminalFontConfigurationReloadReconciler.Work] =
-            terminalFontReloadStates.map { surface, reloadState in
-                { [weak surface] in
-                    guard let surface,
-                          Self.terminalSurfaceRegistry
-                            .terminalSurface(id: surface.id)
-                            === surface else {
-                        return
+                .makeIncrementalTraversal()
+        terminalFontConfigurationReloadReconciler
+            .reconcileIncrementally(
+                captureNextWork: {
+                    guard let visit =
+                            registryTraversal.nextVisit() else {
+                        return nil
                     }
-                    let outcome =
+                    guard let surface =
+                            visit.surface as? TerminalSurface else {
+                        return .init(attempt: { true })
+                    }
+                    let reloadState =
                         surface
-                            .reconcileFontSizeAfterConfigurationReload(
-                                from: reloadState,
-                                configuredRuntimePoints:
+                            .captureFontSizeConfigurationReloadState(
+                                magnificationPercent:
+                                    fontTransaction
+                                        .previousMagnificationPercent,
+                                targetConfiguredRuntimePoints:
                                     terminalFontConfiguration
                                         .configuredRuntimePoints,
-                                magnificationPercent:
+                                targetMagnificationPercent:
                                     terminalFontConfiguration
                                         .magnificationPercent
                             )
-                    if outcome == .failed {
-                        Self.initializationLogger.error(
-                            "Terminal font reconciliation failed after config reload surface=\(surface.id.uuidString, privacy: .public)"
-                        )
+                    return .init(
+                        attempt: { [weak surface] in
+                            guard let surface else {
+                                return true
+                            }
+                            guard Self.terminalSurfaceRegistry
+                                    .isRegistered(surface) else {
+                                surface
+                                    .abandonFontSizeConfigurationReloadReconciliation(
+                                        from: reloadState,
+                                        magnificationPercent:
+                                            terminalFontConfiguration
+                                                .magnificationPercent
+                                    )
+                                return true
+                            }
+                            let outcome =
+                                surface
+                                    .reconcileFontSizeAfterConfigurationReload(
+                                        from: reloadState,
+                                        configuredRuntimePoints:
+                                            terminalFontConfiguration
+                                                .configuredRuntimePoints,
+                                        magnificationPercent:
+                                            terminalFontConfiguration
+                                                .magnificationPercent
+                                    )
+                            if outcome == .failed {
+                                Self.initializationLogger.error(
+                                    "Terminal font reconciliation attempt failed after config reload surface=\(surface.id.uuidString, privacy: .public)"
+                                )
+                            }
+                            return outcome.didSucceed
+                        },
+                        abandon: { [weak surface] in
+                            guard let surface else { return }
+                            surface
+                                .abandonFontSizeConfigurationReloadReconciliation(
+                                    from: reloadState,
+                                    magnificationPercent:
+                                        terminalFontConfiguration
+                                            .magnificationPercent
+                                )
+                            Self.initializationLogger.error(
+                                "Terminal font reconciliation rolled back after retry exhaustion surface=\(surface.id.uuidString, privacy: .public)"
+                            )
+                        }
+                    )
+                },
+                applyConfiguration: {
+                    ghostty_app_update_config(app, newConfig)
+                    self.appliedGlobalFontMagnificationPercent =
+                        reloadMagnificationPercent
+                    DispatchQueue.main.async {
+                        self.applyBackgroundToKeyWindow()
                     }
+                    if let oldConfig = self.config {
+                        ghostty_config_free(oldConfig)
+                    }
+                    self.config = newConfig
                 }
-            }
-        terminalFontConfigurationReloadReconciler.reconcile(
-            reconciliationWork
-        ) { [weak self] in
-            guard let self else {
+            ) { [weak self] in
+                guard let self else {
+                    completion()
+                    return
+                }
+                self.lastAppearanceColorScheme = reloadColorScheme
+                NotificationCenter.default.post(
+                    name: .ghosttyConfigDidReload,
+                    object: nil
+                )
+                self.refreshSurfacesAfterConfigurationReload(
+                    source: source,
+                    preferredColorScheme:
+                        effectiveReloadColorScheme
+                )
+                self.logThemeAction(
+                    "reload end source=\(source) soft=\(soft) mode=full"
+                )
                 completion()
-                return
             }
-            self.lastAppearanceColorScheme = reloadColorScheme
-            NotificationCenter.default.post(
-                name: .ghosttyConfigDidReload,
-                object: nil
-            )
-            self.refreshSurfacesAfterConfigurationReload(
-                source: source,
-                preferredColorScheme: effectiveReloadColorScheme
-            )
-            self.logThemeAction(
-                "reload end source=\(source) soft=\(soft) mode=full"
-            )
-            completion()
-        }
     }
 
     @MainActor
@@ -5634,6 +5664,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        terminalSurface?.beginFontSizeExplicitInputObservation()
+        defer {
+            terminalSurface?
+                .finishFontSizeExplicitInputObservation()
+        }
         terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
