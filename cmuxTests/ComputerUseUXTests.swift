@@ -617,7 +617,24 @@ struct ComputerUseUXTests {
         #expect(window.contentLayoutRect.size == companionSize)
     }
 
-    @Test func permissionRowsKeepOneRepeatableAllowFlowUntilGranted() {
+    @Test @MainActor func permissionCompanionKeepsStableWindowChromeDuringTransition() {
+        let companionSize = CGSize(width: 472, height: 112)
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let window = controller.makeWindow()
+        defer { window.close() }
+        let expandedStyle = window.styleMask
+
+        controller.configureForPermissionCompanion(
+            window,
+            frame: NSRect(origin: window.frame.origin, size: companionSize)
+        )
+
+        #expect(window.styleMask == expandedStyle)
+    }
+
+    @Test func permissionRowsOfferNativeRequestThenSettingsFallbackUntilGranted() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
             statusIsKnown: true,
@@ -627,7 +644,7 @@ struct ComputerUseUXTests {
             granted: false,
             statusIsKnown: true,
             nativeRequestAttempted: true
-        ) == .allow)
+        ) == .checkStatus)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: true,
             statusIsKnown: true,
