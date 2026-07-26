@@ -278,8 +278,40 @@ struct PromptSemanticTracker {
     primary: PromptSemantic,
     alternate: PromptSemantic,
     alternate_active: bool,
-    saved_screen_modes: [Option<bool>; 3],
+    screen_modes: [bool; 3],
+    saved_screen_modes: [bool; 3],
     revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ScreenModeSelection {
+    indices: [u8; 3],
+    len: u8,
+}
+
+impl ScreenModeSelection {
+    fn push(&mut self, mode: u16) {
+        let Some(index) = PromptSemanticTracker::screen_mode_index(mode) else {
+            return;
+        };
+        let index = index as u8;
+        let len = usize::from(self.len);
+        if let Some(position) = self.indices[..len].iter().position(|candidate| *candidate == index)
+        {
+            self.indices.copy_within(position + 1..len, position);
+            self.len -= 1;
+        }
+        self.indices[usize::from(self.len)] = index;
+        self.len += 1;
+    }
+
+    fn indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.indices[..usize::from(self.len)].iter().map(|index| usize::from(*index))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 }
 
 #[derive(Default)]
@@ -294,7 +326,7 @@ enum PromptTrackState {
         at_start: bool,
         parameter: u16,
         has_parameter: bool,
-        screen_modes: u8,
+        screen_modes: ScreenModeSelection,
     },
 }
 
@@ -362,7 +394,8 @@ impl PromptSemanticTracker {
                         self.primary = PromptSemantic::Unknown;
                         self.alternate = PromptSemantic::Unknown;
                         self.alternate_active = false;
-                        self.saved_screen_modes = [None; 3];
+                        self.screen_modes = [false; 3];
+                        self.saved_screen_modes = [false; 3];
                         PromptTrackState::Ground
                     }
                     0x1b => PromptTrackState::Escape,
@@ -423,7 +456,7 @@ impl PromptSemanticTracker {
                     }
                     b';' => {
                         if private && has_parameter {
-                            screen_modes |= Self::screen_mode_flag(parameter);
+                            screen_modes.push(parameter);
                         }
                         at_start = false;
                         parameter = 0;
@@ -438,7 +471,7 @@ impl PromptSemanticTracker {
                     }
                     0x40..=0x7e => {
                         if private && has_parameter {
-                            screen_modes |= Self::screen_mode_flag(parameter);
+                            screen_modes.push(parameter);
                         }
                         self.apply_screen_modes(byte, screen_modes);
                         PromptTrackState::Ground
@@ -456,36 +489,38 @@ impl PromptSemanticTracker {
             at_start: true,
             parameter: 0,
             has_parameter: false,
-            screen_modes: 0,
+            screen_modes: ScreenModeSelection::default(),
         }
     }
 
-    fn screen_mode_flag(mode: u16) -> u8 {
+    fn screen_mode_index(mode: u16) -> Option<usize> {
         match mode {
-            47 => 1 << 0,
-            1047 => 1 << 1,
-            1049 => 1 << 2,
-            _ => 0,
+            47 => Some(0),
+            1047 => Some(1),
+            1049 => Some(2),
+            _ => None,
         }
     }
 
-    fn apply_screen_modes(&mut self, action: u8, screen_modes: u8) {
+    fn apply_screen_modes(&mut self, action: u8, screen_modes: ScreenModeSelection) {
         match action {
-            b'h' | b'l' if screen_modes != 0 => self.alternate_active = action == b'h',
+            b'h' | b'l' if !screen_modes.is_empty() => {
+                let enabled = action == b'h';
+                for index in screen_modes.indices() {
+                    self.screen_modes[index] = enabled;
+                    self.alternate_active = enabled;
+                }
+            }
             b's' => {
-                for (index, saved) in self.saved_screen_modes.iter_mut().enumerate() {
-                    if screen_modes & (1 << index) != 0 {
-                        *saved = Some(self.alternate_active);
-                    }
+                for index in screen_modes.indices() {
+                    self.saved_screen_modes[index] = self.screen_modes[index];
                 }
             }
             b'r' => {
-                for (index, saved) in self.saved_screen_modes.iter().enumerate() {
-                    if screen_modes & (1 << index) != 0
-                        && let Some(alternate_active) = saved
-                    {
-                        self.alternate_active = *alternate_active;
-                    }
+                for index in screen_modes.indices() {
+                    let enabled = self.saved_screen_modes[index];
+                    self.screen_modes[index] = enabled;
+                    self.alternate_active = enabled;
                 }
             }
             _ => {}
@@ -2612,7 +2647,8 @@ mod tests {
 
         terminal.vt_write(b"\x1b[?1049;47r");
         assert_eq!(terminal.active_screen(), Screen::Alternate);
-        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        terminal.vt_write(b"\x1b]133;C\x07\x1b[?47l");
+        assert_eq!(terminal.active_screen(), Screen::Primary);
         assert!(terminal.cursor_is_at_prompt());
     }
 
