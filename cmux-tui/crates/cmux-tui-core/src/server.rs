@@ -5118,8 +5118,8 @@ mod tests {
     }
 
     #[test]
-    fn browser_pointer_commands_require_a_numeric_frame_guard() {
-        for cmd in ["browser-mouse", "browser-wheel"] {
+    fn guarded_browser_pointer_commands_require_a_numeric_frame_guard() {
+        for cmd in ["browser-mouse-guarded", "browser-wheel-guarded"] {
             let mut request = json!({
                 "id": 1,
                 "cmd": cmd,
@@ -5148,6 +5148,34 @@ mod tests {
             assert!(
                 serde_json::from_value::<Request>(request).is_err(),
                 "{cmd} must reject a null frame guard"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_browser_pointer_commands_remain_protocol_9_compatible() {
+        for cmd in ["browser-mouse", "browser-wheel"] {
+            let mut request = json!({
+                "id": 1,
+                "cmd": cmd,
+                "surface": 7,
+                "x_px": 1.0,
+                "y_px": 2.0,
+            });
+            if cmd == "browser-mouse" {
+                request["kind"] = json!("down");
+            } else {
+                request["delta_y_px"] = json!(3.0);
+            }
+            assert!(
+                serde_json::from_value::<Request>(request.clone()).is_ok(),
+                "protocol 9 {cmd} must keep accepting a missing frame guard"
+            );
+
+            request["frame_seq"] = Value::Null;
+            assert!(
+                serde_json::from_value::<Request>(request).is_ok(),
+                "protocol 9 {cmd} must keep accepting a null frame guard"
             );
         }
     }

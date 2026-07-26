@@ -2576,6 +2576,53 @@ mod tests {
         );
     }
 
+    #[test]
+    fn stale_frame_does_not_restore_failed_browser_pointer_admission() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        surface.update_browser_state(&json!({
+            "url": "https://failed.test",
+            "title": "browser failed: navigation failed",
+            "status": "failed",
+            "error": "navigation failed",
+            "frames_stalled": false,
+            "pointer_frame_seq": null,
+        }));
+
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "c3RhbGU=",
+            "status": "failed",
+            "error": "navigation failed",
+            "pointer_frame_seq": null,
+        }));
+
+        assert!(
+            matches!(surface.browser_status(), BrowserStatus::Failed(ref error) if error == "navigation failed"),
+            "a stale screencast frame must not hide the authoritative navigation failure"
+        );
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "a stale failed-navigation frame must remain pointer-ineligible"
+        );
+        assert_eq!(
+            surface.browser.lock().unwrap().frame.as_ref().map(|frame| frame.frame.seq),
+            Some(9),
+            "the stale frame may remain cached for a later explicit recovery"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn initial_attach_resolves_sparse_source_palette_before_rendering() {

@@ -15076,6 +15076,34 @@ mod tests {
     }
 
     #[test]
+    fn old_session_graphics_completion_preserves_current_terminal_generation() {
+        let mux = Mux::new("graphics-session-completion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session_generation = 2;
+        app.pending_graphics_submission = Some(8);
+        app.pointer_route_phase = PointerRoutePhase::GraphicsPresentationPending;
+        app.rendered_pane_content_generations.insert(11, PaneContentGeneration::Terminal(21));
+
+        app.commit_graphics_presentation(crate::ui::graphics_writer::GraphicsPresentation {
+            id: 7,
+            frames: vec![(11, 13)],
+            graphics: vec![crate::ui::graphics_writer::PresentedGraphic {
+                session_generation: 1,
+                surface: 11,
+                rect: Rect { x: 1, y: 2, width: 3, height: 4 },
+                seq: 13,
+            }],
+        });
+
+        assert_eq!(
+            app.rendered_pane_content_generations.get(&11),
+            Some(&PaneContentGeneration::Terminal(21)),
+            "an old machine's colliding surface id must not replace current terminal identity"
+        );
+        assert_eq!(app.pending_graphics_submission, Some(8));
+    }
+
+    #[test]
     fn pane_pointer_routes_bind_rendered_content_generation() {
         let pane_rect = Rect { x: 1, y: 2, width: 23, height: 10 };
         let content = Rect { x: 2, y: 3, width: 20, height: 8 };
