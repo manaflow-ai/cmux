@@ -5480,6 +5480,9 @@ final class BrowserPanel: Panel, ObservableObject {
         browserViewportHostRestorationTask = nil
         browserViewportHostRestorationPending = false
 
+        // Local inline hosting has no portal registry entry to detach.
+        webView.cmuxBrowserViewportPresentationView.removeFromSuperview()
+
         let replacement = makeReplacementWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore
