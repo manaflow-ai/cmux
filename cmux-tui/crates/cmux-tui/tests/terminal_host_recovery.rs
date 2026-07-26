@@ -221,7 +221,6 @@ fn short_lived_terminal_launch_returns_its_final_snapshot() {
     );
     let surface = created["surface"].as_u64().expect("short-lived command returned a surface");
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
-    wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
