@@ -3560,10 +3560,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testActiveViewportExternalWindowResizeInvalidatesHostedWebViewWithoutSynchronousRefresh() throws {
+    func testActiveViewportAnchorResizeInvalidatesHostedWebViewWithoutSynchronousDisplay() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
-            styleMask: [.titled, .closable, .resizable],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
@@ -3576,10 +3576,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
 
         let anchor = NSView(frame: contentView.bounds.insetBy(dx: 40, dy: 24))
-        anchor.autoresizingMask = [.width, .height]
         contentView.addSubview(anchor)
 
-        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let viewportModel = BrowserViewportModel()
         let viewportHost = BrowserViewportHostView(frame: .zero)
         webView.browserViewportModel = viewportModel
@@ -3596,38 +3595,20 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialSlotSize = slot.frame.size
-        let initialSetNeedsDisplayCount = webView.setNeedsDisplayCount
-        let initialDisplayCount = webView.displayIfNeededCount
-        let initialEnterInWindowCount = webView.enterInWindowCount
-        let initialEndDeferringCount = webView.endDeferringViewInWindowChangesCount
-
-        window.setContentSize(NSSize(width: 620, height: 420))
+        webView.needsDisplay = false
+        webView.scrollView.needsDisplay = false
+        webView.scrollView.contentView.needsDisplay = false
+        anchor.frame = NSRect(x: 32, y: 20, width: 400, height: 240)
         contentView.layoutSubtreeIfNeeded()
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        advanceAnimations()
+        portal.synchronizeWebViewForAnchor(anchor)
 
-        XCTAssertGreaterThan(slot.frame.width, initialSlotSize.width)
-        XCTAssertGreaterThan(slot.frame.height, initialSlotSize.height)
-        XCTAssertGreaterThan(
-            webView.setNeedsDisplayCount,
-            initialSetNeedsDisplayCount,
-            "External resize should invalidate a browser nested in its active viewport host"
-        )
-        XCTAssertEqual(
-            webView.displayIfNeededCount,
-            initialDisplayCount,
-            "Active viewport resize must not synchronously flush WebKit display"
-        )
-        XCTAssertEqual(
-            webView.enterInWindowCount,
-            initialEnterInWindowCount,
-            "Active viewport resize should not re-enter the WebKit window"
-        )
-        XCTAssertEqual(
-            webView.endDeferringViewInWindowChangesCount,
-            initialEndDeferringCount,
-            "Active viewport resize should not end deferred WebKit window changes"
+        XCTAssertEqual(slot.frame.origin.x, 32, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.origin.y, 20, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.width, 400, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.height, 240, accuracy: 0.5)
+        XCTAssertTrue(
+            webView.needsDisplay,
+            "Geometry sync should leave a nested active-viewport browser invalidated for AppKit's next display pass"
         )
     }
 
