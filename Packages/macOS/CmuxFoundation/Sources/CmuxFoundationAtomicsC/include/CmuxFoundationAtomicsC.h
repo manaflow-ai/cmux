@@ -25,6 +25,8 @@ typedef struct {
 
 void CmuxAtomicUInt64Initialize(CmuxAtomicUInt64Storage *storage, uint64_t initialValue);
 uint64_t CmuxAtomicUInt64LoadRelaxed(const CmuxAtomicUInt64Storage *storage);
+uint64_t CmuxAtomicUInt64LoadAcquire(const CmuxAtomicUInt64Storage *storage);
 uint64_t CmuxAtomicUInt64AdvanceRelaxed(CmuxAtomicUInt64Storage *storage);
+uint64_t CmuxAtomicUInt64AdvanceRelease(CmuxAtomicUInt64Storage *storage);
 
 #endif

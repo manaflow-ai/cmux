@@ -1,8 +1,12 @@
 import AppKit
 
 extension GhosttyNSView {
-    func beginClipboardRead(_ requestID: UInt) {
-        terminalClipboardInputSequencer.beginRequest(id: requestID)
+    nonisolated func reserveClipboardReadAdmission() {
+        terminalClipboardInputSequencer.reserveRequestAdmission()
+    }
+
+    func beginReservedClipboardRead(_ requestID: UInt) {
+        terminalClipboardInputSequencer.beginReservedRequest(id: requestID)
     }
 
     func clipboardReadRequiresConfirmation(

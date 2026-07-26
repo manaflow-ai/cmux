@@ -488,25 +488,17 @@ class GhosttyApp {
         guard let callbackContext = Self.callbackContext(from: userdata),
               let requestSurface = callbackContext.runtimeSurface else { return false }
         let clipboardRequestID = UInt(bitPattern: state)
-        let beginClipboardReadOnDispatch = !Thread.isMainThread
-        if !beginClipboardReadOnDispatch {
-            MainActor.assumeIsolated {
-                callbackContext.surfaceView?.beginClipboardRead(
-                    clipboardRequestID
-                )
-            }
-        }
+        let requestSurfaceView = callbackContext.surfaceView
+        requestSurfaceView?.reserveClipboardReadAdmission()
 
-        DispatchQueue.main.async {
-            if beginClipboardReadOnDispatch {
-                callbackContext.surfaceView?.beginClipboardRead(
-                    clipboardRequestID
-                )
-            }
+        DispatchQueue.main.async { [weak requestSurfaceView] in
+            requestSurfaceView?.beginReservedClipboardRead(
+                clipboardRequestID
+            )
             func completeClipboardRequest(with text: String) {
                 let finish = {
                     defer {
-                        callbackContext.surfaceView?.completeClipboardRead(
+                        requestSurfaceView?.completeClipboardRead(
                             clipboardRequestID,
                             confirmed: false
                         )
@@ -3352,7 +3344,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
-    let terminalClipboardInputSequencer =
+    nonisolated let terminalClipboardInputSequencer =
         TerminalClipboardInputSequencer<NSEvent, UInt>(
             maximumBufferedEvents: 256
         )

@@ -34,6 +34,34 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["paste", "suffix"])
     }
 
+    @Test("overlapping reservations hold input through every request")
+    func overlappingReservationsHoldInputThroughEveryRequest() async {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8
+        )
+        var delivered: [String] = []
+
+        await Task.detached {
+            sequencer.reserveRequestAdmission()
+            sequencer.reserveRequestAdmission()
+        }.value
+        #expect(sequencer.shouldDefer("suffix"))
+
+        sequencer.beginReservedRequest(id: 1)
+        delivered.append("paste-1")
+        sequencer.completeRequest(id: 1, confirmed: false) {
+            delivered.append($0)
+        }
+        #expect(delivered == ["paste-1"])
+
+        sequencer.beginReservedRequest(id: 2)
+        delivered.append("paste-2")
+        sequencer.completeRequest(id: 2, confirmed: false) {
+            delivered.append($0)
+        }
+        #expect(delivered == ["paste-1", "paste-2", "suffix"])
+    }
+
     @Test("blocked paste completes before queued suffix and return")
     func blockedPasteCompletesBeforeQueuedInput() async {
         let operation = ControlledPastePreparationOperation()

@@ -1,8 +1,13 @@
+import CmuxFoundation
 import Foundation
 
 /// Preserves terminal input order while Ghostty is resolving a clipboard read.
 @MainActor
 final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
+    private nonisolated let reservedRequestAdmissionCount =
+        AtomicUInt64Generation()
+    private nonisolated let admittedRequestAdmissionCount =
+        AtomicUInt64Generation()
     private let maximumBufferedEvents: Int
     private var activeRequestIDs: Set<RequestID> = []
     private var confirmationRequestIDs: Set<RequestID> = []
@@ -16,8 +21,19 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         self.maximumBufferedEvents = max(0, maximumBufferedEvents)
     }
 
+    /// Marks a callback-issued request before its main-actor admission can run.
+    nonisolated func reserveRequestAdmission() {
+        _ = reservedRequestAdmissionCount.advanceRelease()
+    }
+
     func beginRequest(id: RequestID) {
         activeRequestIDs.insert(id)
+    }
+
+    /// Admits a request previously marked by ``reserveRequestAdmission()``.
+    func beginReservedRequest(id: RequestID) {
+        activeRequestIDs.insert(id)
+        _ = admittedRequestAdmissionCount.advanceRelease()
     }
 
     func requireConfirmation(for id: RequestID) {
@@ -30,7 +46,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         replay: (Event) -> Void = { _ in }
     ) -> Bool {
         guard !isReplaying else { return false }
-        guard !activeRequestIDs.isEmpty else { return false }
+        guard hasRequestInFlight else { return false }
         guard bufferedEventCount < maximumBufferedEvents else {
             replayBufferedEvents(
                 replay,
@@ -71,11 +87,23 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         bufferedEvents.count - nextBufferedEventIndex
     }
 
+    private var hasRequestInFlight: Bool {
+        !activeRequestIDs.isEmpty || hasRequestAwaitingAdmission
+    }
+
+    private nonisolated var hasRequestAwaitingAdmission: Bool {
+        // Read admitted first so an admission racing these loads can only cause
+        // a harmless extra deferral, never let post-paste input overtake paste.
+        let admitted = admittedRequestAdmissionCount.loadAcquire()
+        let reserved = reservedRequestAdmissionCount.loadAcquire()
+        return admitted < reserved
+    }
+
     private func replayBufferedEvents(
         _ replay: (Event) -> Void,
         whileRequestsAreActive: Bool = false
     ) {
-        guard (whileRequestsAreActive || activeRequestIDs.isEmpty),
+        guard (whileRequestsAreActive || !hasRequestInFlight),
               !isReplaying else {
             return
         }
@@ -88,7 +116,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
             }
         }
 
-        while (whileRequestsAreActive || activeRequestIDs.isEmpty),
+        while (whileRequestsAreActive || !hasRequestInFlight),
               nextBufferedEventIndex < bufferedEvents.count {
             let event = bufferedEvents[nextBufferedEventIndex]
             nextBufferedEventIndex += 1

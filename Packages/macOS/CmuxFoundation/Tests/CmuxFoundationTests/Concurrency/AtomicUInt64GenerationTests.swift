@@ -9,6 +9,9 @@ struct AtomicUInt64GenerationTests {
         #expect(generation.loadRelaxed() == 41)
         #expect(generation.advanceRelaxed() == 42)
         #expect(generation.loadRelaxed() == 42)
+        #expect(generation.loadAcquire() == 42)
+        #expect(generation.advanceRelease() == 43)
+        #expect(generation.loadAcquire() == 43)
     }
 
     @Test func concurrentAdvancesReturnUniqueMonotonicIdentities() async {
