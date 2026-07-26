@@ -340,7 +340,7 @@ test("clearHistory rejects oversized fallback key text locally", async () => {
       ...commandKFallback,
       utf8: "x".repeat(TERMINAL_KEY_TEXT_MAX_BYTES + 1),
     }),
-    /terminal key text exceeds the 1 MiB protocol limit/,
+    /terminal key text exceeds the 4 KiB protocol limit/,
   );
   assert.equal(clearRequests, 0);
   await client.close();

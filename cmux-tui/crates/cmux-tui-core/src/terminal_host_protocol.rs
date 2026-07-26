@@ -44,6 +44,9 @@ pub const CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED: u8 = 4;
 /// `ClearHistoryAck` status: a PTY write or flush failed after delivery may
 /// have begun.
 pub const CLEAR_HISTORY_ACK_AMBIGUOUS: u8 = 5;
+/// `ClearHistoryAck` status: the PTY accepted no fallback bytes before the
+/// bounded write deadline expired.
+pub const CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT: u8 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -495,6 +498,7 @@ mod tests {
         assert_eq!(CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE, 3);
         assert_eq!(CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED, 4);
         assert_eq!(CLEAR_HISTORY_ACK_AMBIGUOUS, 5);
+        assert_eq!(CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, 6);
     }
 
     #[test]

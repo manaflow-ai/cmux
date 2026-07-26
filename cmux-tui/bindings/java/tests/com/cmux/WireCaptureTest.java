@@ -191,7 +191,7 @@ public final class WireCaptureTest {
                 client.clearHistory(9, fallback);
                 throw new AssertionError("oversized fallback key text must be rejected locally");
             } catch (IllegalArgumentException error) {
-                if (!error.getMessage().equals("terminal key text exceeds the 1 MiB protocol limit")) {
+                if (!error.getMessage().equals("terminal key text exceeds the 4 KiB protocol limit")) {
                     throw error;
                 }
             }

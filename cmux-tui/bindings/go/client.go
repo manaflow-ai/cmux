@@ -352,7 +352,7 @@ func (c *Client) ClearHistoryWithFallback(
 	}
 	if len(fallbackKey.UTF8) > TerminalKeyTextMaxBytes {
 		return fmt.Errorf(
-			"%w: terminal key text exceeds the 1 MiB protocol limit",
+			"%w: terminal key text exceeds the 4 KiB protocol limit",
 			ErrInvalidArgument,
 		)
 	}

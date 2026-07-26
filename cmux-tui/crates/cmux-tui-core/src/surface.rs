@@ -618,7 +618,11 @@ pub const CLEAR_HISTORY_PRESERVATION_ERROR: &str =
     "active terminal input extends into retained history";
 pub const CLEAR_HISTORY_STREAM_TIMEOUT_ERROR: &str =
     "terminal output did not reach a safe clear-history boundary";
+pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
+    "terminal input did not accept clear-history fallback before timeout";
 pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
+const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+const CLEAR_HISTORY_FALLBACK_MAX_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClearHistoryDelivery {
@@ -651,6 +655,155 @@ impl ClearHistoryFailure {
 
     pub fn into_error(self) -> anyhow::Error {
         self.error
+    }
+}
+
+#[cfg(unix)]
+struct NonblockingFdGuard {
+    fd: std::os::fd::RawFd,
+    original_flags: libc::c_int,
+    restored: bool,
+}
+
+#[cfg(unix)]
+impl NonblockingFdGuard {
+    fn install(fd: std::os::fd::RawFd) -> std::io::Result<Self> {
+        let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if original_flags < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Self { fd, original_flags, restored: false })
+    }
+
+    fn restore(&mut self) -> std::io::Result<()> {
+        if self.restored {
+            return Ok(());
+        }
+        if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        self.restored = true;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for NonblockingFdGuard {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
+#[cfg(unix)]
+fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
+    let error = anyhow::Error::from(error);
+    if delivered == 0 {
+        ClearHistoryFailure::known_not_delivered(error)
+    } else {
+        ClearHistoryFailure::ambiguous(error)
+    }
+}
+
+pub(crate) fn write_clear_history_fallback(
+    master: &dyn MasterPty,
+    writer: &mut dyn Write,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
+    if bytes.len() > CLEAR_HISTORY_FALLBACK_MAX_BYTES {
+        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+            "encoded clear-history fallback exceeds {CLEAR_HISTORY_FALLBACK_MAX_BYTES} bytes"
+        )));
+    }
+
+    #[cfg(unix)]
+    if let Some(fd) = master.as_raw_fd() {
+        let mut nonblocking = NonblockingFdGuard::install(fd)
+            .map_err(|error| clear_history_write_failure(error, 0))?;
+        let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
+        let mut delivered = 0;
+        while delivered < bytes.len() {
+            let written = unsafe {
+                libc::write(
+                    fd,
+                    bytes[delivered..].as_ptr().cast(),
+                    bytes.len().saturating_sub(delivered),
+                )
+            };
+            if written > 0 {
+                delivered = delivered.saturating_add(written as usize);
+                continue;
+            }
+            if written == 0 {
+                let error =
+                    std::io::Error::new(std::io::ErrorKind::WriteZero, "PTY write returned zero");
+                return Err(clear_history_write_failure(error, delivered));
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            if error.kind() != std::io::ErrorKind::WouldBlock {
+                return Err(clear_history_write_failure(error, delivered));
+            }
+
+            let now = Instant::now();
+            if now >= deadline {
+                let error = anyhow::anyhow!(CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR);
+                return Err(if delivered == 0 {
+                    ClearHistoryFailure::known_not_delivered(error)
+                } else {
+                    ClearHistoryFailure::ambiguous(error)
+                });
+            }
+            let remaining = deadline.saturating_duration_since(now);
+            let timeout_ms = remaining
+                .as_nanos()
+                .saturating_add(999_999)
+                .checked_div(1_000_000)
+                .unwrap_or(u128::MAX)
+                .clamp(1, i32::MAX as u128) as libc::c_int;
+            let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+            let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+            if ready > 0 {
+                if poll_fd.revents & libc::POLLNVAL != 0 {
+                    let error =
+                        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY fd is invalid");
+                    return Err(clear_history_write_failure(error, delivered));
+                }
+                continue;
+            }
+            if ready < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(clear_history_write_failure(error, delivered));
+            }
+        }
+        if let Err(error) = nonblocking.restore() {
+            return Err(ClearHistoryFailure::ambiguous(error.into()));
+        }
+        return Ok(());
+    }
+
+    #[cfg(test)]
+    {
+        writer
+            .write_all(bytes)
+            .and_then(|()| writer.flush())
+            .map_err(anyhow::Error::from)
+            .map_err(ClearHistoryFailure::ambiguous)
+    }
+
+    #[cfg(not(test))]
+    {
+        let _ = writer;
+        Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+            "bounded clear-history fallback writes are unavailable for this PTY"
+        )))
     }
 }
 
@@ -992,8 +1145,18 @@ impl Surface {
                 let mut buf = [0u8; 64 * 1024];
                 loop {
                     let n = match reader.read(&mut buf) {
-                        Ok(0) | Err(_) => break,
+                        Ok(0) => break,
                         Ok(n) => n,
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                            ) =>
+                        {
+                            std::thread::sleep(Duration::from_millis(1));
+                            continue;
+                        }
+                        Err(_) => break,
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
                     let mut scroll_changed = None;
@@ -2035,15 +2198,15 @@ impl Surface {
                 }
                 ClearHistoryTransition::EncodedFallback(encoded) => {
                     let mut runtime = pty.runtime.lock().unwrap();
-                    let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+                    let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
                         unreachable!("a local PTY runtime cannot become hosted")
                     };
                     drop(term);
-                    return writer
-                        .write_all(&encoded)
-                        .and_then(|()| writer.flush())
-                        .map_err(anyhow::Error::from)
-                        .map_err(ClearHistoryFailure::ambiguous);
+                    return write_clear_history_fallback(
+                        master.as_ref(),
+                        writer.as_mut(),
+                        &encoded,
+                    );
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {
@@ -3899,7 +4062,7 @@ mod tests {
             action: Some(ghostty_vt::KeyAction::Press),
             ..Default::default()
         };
-        let clear_surface = surface.clone();
+        let clear_surface = surface;
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = finished_tx
@@ -3919,6 +4082,10 @@ mod tests {
 
         assert!(completed_before_drain, "fallback write exceeded its deadline");
         assert!(result.is_err(), "a full PTY input queue unexpectedly accepted the fallback key");
+        assert_eq!(
+            result.as_ref().unwrap_err().delivery(),
+            ClearHistoryDelivery::KnownNotDelivered
+        );
         assert!(
             result.as_ref().is_err_and(|failure| failure.error().to_string().contains("timeout")),
             "fallback write did not return a stable timeout failure"

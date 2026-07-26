@@ -25,7 +25,7 @@ use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -67,7 +67,7 @@ pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
-const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = 1024 * 1024;
+const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 
 macro_rules! protocol_keys {
     ($($variant:ident => $constant:ident),+ $(,)?) => {
@@ -291,7 +291,7 @@ enum ProtocolKeyAction {
 
 fn validate_protocol_key_text(text: &str) -> anyhow::Result<()> {
     if text.len() > PROTOCOL_KEY_TEXT_MAX_BYTES {
-        anyhow::bail!("terminal key text exceeds the 1 MiB protocol limit");
+        anyhow::bail!("terminal key text exceeds the 4 KiB protocol limit");
     }
     if text.chars().any(char::is_control) {
         anyhow::bail!("terminal key text contains control characters");
@@ -1076,7 +1076,7 @@ struct ServerSurfaceOperationState {
 }
 
 #[derive(Default)]
-struct ServerSurfaceOperationAdmission {
+pub(crate) struct ServerSurfaceOperationAdmission {
     state: Mutex<ServerSurfaceOperationState>,
 }
 
@@ -1147,30 +1147,20 @@ impl ServerSurfaceOperationAdmission {
     }
 }
 
-fn server_surface_operation_admission() -> Arc<ServerSurfaceOperationAdmission> {
-    static ADMISSION: OnceLock<Arc<ServerSurfaceOperationAdmission>> = OnceLock::new();
-    ADMISSION.get_or_init(|| Arc::new(ServerSurfaceOperationAdmission::default())).clone()
-}
-
 struct PendingSurfaceRequest {
     request: Request,
     retained_bytes: usize,
     _bytes_permit: ServerSurfaceBytesPermit,
-}
-
-struct ConnectionSurfaceLane {
-    token: u64,
-    requests: VecDeque<PendingSurfaceRequest>,
-    queued_bytes: usize,
     _worker_permit: Option<ServerSurfaceWorkerPermit>,
 }
 
 #[derive(Default)]
 struct ConnectionSurfaceState {
-    lanes: HashMap<SurfaceId, ConnectionSurfaceLane>,
-    next_lane_token: u64,
-    queued_requests: usize,
+    requests: VecDeque<PendingSurfaceRequest>,
     queued_bytes: usize,
+    active_clear_surfaces: HashSet<SurfaceId>,
+    dispatcher_started: bool,
+    dispatcher_done: bool,
     closed: bool,
 }
 
@@ -1178,11 +1168,13 @@ struct ConnectionSurfaceScheduler {
     state: Mutex<ConnectionSurfaceState>,
     changed: Condvar,
     admission: Arc<ServerSurfaceOperationAdmission>,
+    cancelled: AtomicBool,
+    dispatcher: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
     fn default() -> Self {
-        Self::new(server_surface_operation_admission())
+        Self::new(Arc::new(ServerSurfaceOperationAdmission::default()))
     }
 }
 
@@ -1192,19 +1184,9 @@ impl ConnectionSurfaceScheduler {
             state: Mutex::new(ConnectionSurfaceState::default()),
             changed: Condvar::new(),
             admission,
+            cancelled: AtomicBool::new(false),
+            dispatcher: Mutex::new(None),
         }
-    }
-}
-
-struct ConnectionSurfaceLaneGuard {
-    scheduler: Arc<ConnectionSurfaceScheduler>,
-    surface: SurfaceId,
-    token: u64,
-}
-
-impl Drop for ConnectionSurfaceLaneGuard {
-    fn drop(&mut self) {
-        self.scheduler.finish_lane(self.surface, self.token);
     }
 }
 
@@ -1339,78 +1321,26 @@ impl ConnectionSurfaceScheduler {
         retained_bytes: usize,
         writer: MessageWriter,
     ) -> Option<bool> {
-        let ordering_surface = request.as_ref().unwrap().cmd.ordering_surface();
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return Some(false);
         }
-        let Some(surface) = ordering_surface else {
-            if state.lanes.is_empty() {
-                return None;
-            }
-            let deadline = Instant::now() + CONNECTION_SURFACE_SHUTDOWN_TIMEOUT;
-            while !state.lanes.is_empty()
-                && !state.closed
-                && writer.is_open()
-                && Instant::now() < deadline
-            {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
-                state = next;
-            }
-            if state.closed || !writer.is_open() {
-                return Some(false);
-            }
-            if state.lanes.is_empty() {
-                return None;
-            }
+        let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
+        let over_bytes = retained_bytes
+            > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
+        if over_count || over_bytes {
             drop(state);
             return Some(send_request_error(
                 &writer,
                 request.take().unwrap().id,
-                "prior surface operation did not settle; request was not executed",
+                "surface request queue is full; request was not executed",
             ));
-        };
-        if state.lanes.contains_key(&surface) {
-            let over_count = state.queued_requests >= CONNECTION_SURFACE_QUEUE_CAPACITY;
-            let over_bytes = retained_bytes
-                > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
-            if over_count || over_bytes {
-                drop(state);
-                return Some(send_request_error(
-                    &writer,
-                    request.take().unwrap().id,
-                    "surface request queue is full; request was not executed",
-                ));
-            }
-            let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
-                Ok(permit) => permit,
-                Err(_) => {
-                    drop(state);
-                    return Some(send_request_error(
-                        &writer,
-                        request.take().unwrap().id,
-                        "server surface-operation byte budget is full; request was not executed",
-                    ));
-                }
-            };
-            let lane = state.lanes.get_mut(&surface).unwrap();
-            lane.queued_bytes = lane.queued_bytes.saturating_add(retained_bytes);
-            lane.requests.push_back(PendingSurfaceRequest {
-                request: request.take().unwrap(),
-                retained_bytes,
-                _bytes_permit: bytes_permit,
-            });
-            state.queued_requests += 1;
-            state.queued_bytes += retained_bytes;
-            return Some(true);
         }
-        if !request.as_ref().unwrap().cmd.is_clear_history() {
-            return None;
-        }
-        let (worker_permit, bytes_permit) =
+        let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
+        let request_id = request.as_ref().unwrap().id.clone();
+        let (worker_permit, bytes_permit) = if is_clear_history {
             match self.admission.try_reserve_worker_and_bytes(retained_bytes) {
-                Ok(permits) => permits,
+                Ok((worker, bytes)) => (Some(worker), bytes),
                 Err(ServerSurfaceAdmissionError::WorkerCapacity) => {
                     drop(state);
                     return Some(send_request_error(
@@ -1427,142 +1357,231 @@ impl ConnectionSurfaceScheduler {
                         "server surface-operation byte budget is full; request was not executed",
                     ));
                 }
-            };
-        state.next_lane_token = state.next_lane_token.wrapping_add(1);
-        let token = state.next_lane_token;
-        state.lanes.insert(
-            surface,
-            ConnectionSurfaceLane {
-                token,
-                requests: VecDeque::new(),
-                queued_bytes: 0,
-                _worker_permit: Some(worker_permit),
-            },
-        );
-        drop(state);
-
-        let pending = Arc::new(Mutex::new(Some(PendingSurfaceRequest {
+            }
+        } else {
+            match self.admission.try_reserve_bytes(retained_bytes) {
+                Ok(bytes) => (None, bytes),
+                Err(_) => {
+                    drop(state);
+                    return Some(send_request_error(
+                        &writer,
+                        request.take().unwrap().id,
+                        "server surface-operation byte budget is full; request was not executed",
+                    ));
+                }
+            }
+        };
+        let start_dispatcher = !state.dispatcher_started;
+        state.dispatcher_started = true;
+        state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
+        state.requests.push_back(PendingSurfaceRequest {
             request: request.take().unwrap(),
             retained_bytes,
             _bytes_permit: bytes_permit,
-        })));
-        let worker_pending = pending.clone();
-        let worker_scheduler = self.clone();
-        let worker_mux = mux;
-        let worker_writer = writer.clone();
-        let spawn =
-            std::thread::Builder::new().name("mux-surface-control".into()).spawn(move || {
-                let request = worker_pending.lock().unwrap().take().unwrap();
-                run_connection_surface_lane(
-                    worker_scheduler,
-                    worker_mux,
-                    client,
-                    surface,
-                    token,
-                    request,
-                    worker_writer,
-                );
-            });
-        if let Err(error) = spawn {
-            let pending = pending.lock().unwrap().take().unwrap();
-            self.finish_lane(surface, token);
+            _worker_permit: worker_permit,
+        });
+        self.changed.notify_all();
+        drop(state);
+
+        if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
+            self.close();
             return Some(send_request_error(
                 &writer,
-                pending.request.id,
-                &format!("could not start clear-history worker: {error}"),
+                request_id,
+                &format!("could not start connection request dispatcher: {error}"),
             ));
         }
         Some(true)
     }
 
-    fn next_request(&self, surface: SurfaceId, token: u64) -> Option<PendingSurfaceRequest> {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            Self::remove_lane_locked(&mut state, surface, token);
-            self.changed.notify_all();
-            return None;
+    fn start_dispatcher(
+        self: &Arc<Self>,
+        mux: Arc<Mux>,
+        client: u64,
+        writer: MessageWriter,
+    ) -> std::io::Result<()> {
+        let scheduler = self.clone();
+        let handle = std::thread::Builder::new()
+            .name("mux-control-dispatch".into())
+            .spawn(move || run_connection_surface_dispatcher(scheduler, mux, client, writer))?;
+        *self.dispatcher.lock().unwrap() = Some(handle);
+        Ok(())
+    }
+
+    fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
+        for (index, pending) in state.requests.iter().enumerate() {
+            let Some(surface) = pending.request.cmd.ordering_surface() else {
+                return (index == 0 && state.active_clear_surfaces.is_empty()).then_some(0);
+            };
+            if state.active_clear_surfaces.contains(&surface) {
+                continue;
+            }
+            return Some(index);
         }
-        let lane = state
-            .lanes
-            .get_mut(&surface)
-            .filter(|lane| lane.token == token)
-            .expect("active surface lane token is registered");
-        if let Some(pending) = lane.requests.pop_front() {
-            lane.queued_bytes = lane.queued_bytes.saturating_sub(pending.retained_bytes);
-            state.queued_requests = state.queued_requests.saturating_sub(1);
-            state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
-            return Some(pending);
-        }
-        Self::remove_lane_locked(&mut state, surface, token);
-        self.changed.notify_all();
         None
     }
 
-    fn finish_lane(&self, surface: SurfaceId, token: u64) {
+    fn next_request(&self) -> Option<PendingSurfaceRequest> {
         let mut state = self.state.lock().unwrap();
-        Self::remove_lane_locked(&mut state, surface, token);
+        loop {
+            if state.closed {
+                state.dispatcher_done = true;
+                self.changed.notify_all();
+                return None;
+            }
+            if let Some(index) = Self::next_runnable_index(&state) {
+                let pending = state.requests.remove(index).unwrap();
+                state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
+                if pending.request.cmd.is_clear_history() {
+                    let surface = pending
+                        .request
+                        .cmd
+                        .ordering_surface()
+                        .expect("clear-history is ordered by surface");
+                    let inserted = state.active_clear_surfaces.insert(surface);
+                    assert!(inserted, "a clear worker cannot overlap its surface");
+                }
+                return Some(pending);
+            }
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    fn finish_clear(&self, surface: SurfaceId) {
+        let mut state = self.state.lock().unwrap();
+        state.active_clear_surfaces.remove(&surface);
         self.changed.notify_all();
     }
 
-    fn remove_lane_locked(state: &mut ConnectionSurfaceState, surface: SurfaceId, token: u64) {
-        if state.lanes.get(&surface).is_none_or(|lane| lane.token != token) {
-            return;
-        }
-        let Some(lane) = state.lanes.remove(&surface) else { return };
-        state.queued_requests = state.queued_requests.saturating_sub(lane.requests.len());
-        state.queued_bytes = state.queued_bytes.saturating_sub(lane.queued_bytes);
+    fn finish_dispatcher(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.dispatcher_done = true;
+        self.changed.notify_all();
     }
 
     fn close(&self) {
+        self.cancelled.store(true, Ordering::Release);
         let mut state = self.state.lock().unwrap();
         state.closed = true;
-        for lane in state.lanes.values_mut() {
-            lane.requests.clear();
-            lane.queued_bytes = 0;
-        }
-        state.queued_requests = 0;
+        state.requests.clear();
         state.queued_bytes = 0;
+        if !state.dispatcher_started {
+            state.dispatcher_done = true;
+        }
         self.changed.notify_all();
     }
 
     fn close_and_wait(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
+        self.cancelled.store(true, Ordering::Release);
         let mut state = self.state.lock().unwrap();
         state.closed = true;
-        for lane in state.lanes.values_mut() {
-            lane.requests.clear();
-            lane.queued_bytes = 0;
-        }
-        state.queued_requests = 0;
+        state.requests.clear();
         state.queued_bytes = 0;
-        while !state.lanes.is_empty() && Instant::now() < deadline {
+        if !state.dispatcher_started {
+            state.dispatcher_done = true;
+        }
+        self.changed.notify_all();
+        while (!state.dispatcher_done || !state.active_clear_surfaces.is_empty())
+            && Instant::now() < deadline
+        {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
             state = next;
         }
-        state.lanes.is_empty()
+        let drained = state.dispatcher_done && state.active_clear_surfaces.is_empty();
+        drop(state);
+        if drained && let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
+            let _ = dispatcher.join();
+        }
+        drained
     }
 }
 
-fn run_connection_surface_lane(
+struct ActiveClearGuard {
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    surface: SurfaceId,
+}
+
+impl Drop for ActiveClearGuard {
+    fn drop(&mut self) {
+        self.scheduler.finish_clear(self.surface);
+    }
+}
+
+struct ConnectionDispatcherGuard(Arc<ConnectionSurfaceScheduler>);
+
+impl Drop for ConnectionDispatcherGuard {
+    fn drop(&mut self) {
+        self.0.finish_dispatcher();
+    }
+}
+
+fn run_pending_request(
+    scheduler: &ConnectionSurfaceScheduler,
+    mux: &Arc<Mux>,
+    client: u64,
+    pending: PendingSurfaceRequest,
+    writer: &MessageWriter,
+) -> bool {
+    let PendingSurfaceRequest { request, _bytes_permit, _worker_permit, .. } = pending;
+    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+}
+
+fn run_connection_surface_dispatcher(
     scheduler: Arc<ConnectionSurfaceScheduler>,
     mux: Arc<Mux>,
     client: u64,
-    surface: SurfaceId,
-    token: u64,
-    mut pending: PendingSurfaceRequest,
     writer: MessageWriter,
 ) {
-    let _lane = ConnectionSurfaceLaneGuard { scheduler: scheduler.clone(), surface, token };
-    loop {
-        let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
-        if !handle_request(&mux, client, request, &writer) {
+    let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
+    while writer.is_open() {
+        let Some(pending) = scheduler.next_request() else { return };
+        if pending.request.cmd.is_clear_history() {
+            let surface = pending
+                .request
+                .cmd
+                .ordering_surface()
+                .expect("clear-history is ordered by surface");
+            let shared_pending = Arc::new(Mutex::new(Some(pending)));
+            let worker_pending = shared_pending.clone();
+            let worker_scheduler = scheduler.clone();
+            let worker_mux = mux.clone();
+            let worker_writer = writer.clone();
+            let spawn =
+                std::thread::Builder::new().name("mux-surface-control".into()).spawn(move || {
+                    let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
+                    let pending = worker_pending.lock().unwrap().take().unwrap();
+                    if !run_pending_request(
+                        &worker_scheduler,
+                        &worker_mux,
+                        client,
+                        pending,
+                        &worker_writer,
+                    ) {
+                        worker_scheduler.close();
+                    }
+                });
+            if let Err(error) = spawn {
+                let pending = shared_pending.lock().unwrap().take().unwrap();
+                let id = pending.request.id.clone();
+                drop(pending);
+                scheduler.finish_clear(surface);
+                if !send_request_error(
+                    &writer,
+                    id,
+                    &format!("could not start clear-history worker: {error}"),
+                ) {
+                    scheduler.close();
+                    return;
+                }
+            }
+        } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
             scheduler.close();
             return;
         }
-        let Some(next) = scheduler.next_request(surface, token) else { return };
-        pending = next;
     }
+    scheduler.close();
 }
 
 #[derive(Default)]
@@ -2499,7 +2518,8 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
         return;
     };
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::default());
+    let surface_scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(mut line) = line else { break };
@@ -2578,7 +2598,8 @@ fn handle_websocket_connection(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::default());
+    let surface_scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
 
     loop {
         if !writer.is_open() {
@@ -2724,10 +2745,20 @@ fn handle_connection_message(
 }
 
 fn handle_request(mux: &Arc<Mux>, client: u64, request: Request, writer: &MessageWriter) -> bool {
+    handle_request_with_cancellation(mux, client, request, writer, None)
+}
+
+fn handle_request_with_cancellation(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: Request,
+    writer: &MessageWriter,
+    cancellation: Option<&AtomicBool>,
+) -> bool {
     let Request { id, cmd } = request;
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
-    let response = match handle_command(mux, client, cmd, writer) {
+    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response { id, ok: true, data: Some(data), error: None },
         Err(error) => Response { id, ok: false, data: None, error: Some(error.to_string()) },
     };
@@ -3742,11 +3773,22 @@ fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u
     }
 }
 
+#[cfg(test)]
 fn handle_command(
     mux: &Arc<Mux>,
     client: u64,
     cmd: Command,
     writer: &MessageWriter,
+) -> anyhow::Result<Value> {
+    handle_command_with_cancellation(mux, client, cmd, writer, None)
+}
+
+fn handle_command_with_cancellation(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => {
@@ -4031,6 +4073,10 @@ fn handle_command(
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
+            let cancelled = || cancellation.is_some_and(|flag| flag.load(Ordering::Acquire));
+            if cancelled() {
+                anyhow::bail!("connection closed while waiting for pattern");
+            }
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
@@ -4059,12 +4105,15 @@ fn handle_command(
                 }));
             }
             loop {
+                if cancelled() {
+                    anyhow::bail!("connection closed while waiting for pattern");
+                }
                 let now = Instant::now();
                 if now >= deadline {
                     anyhow::bail!("timeout waiting for pattern");
                 }
                 let remaining = deadline.saturating_duration_since(now);
-                match attach.stream.recv_timeout(remaining) {
+                match attach.stream.recv_timeout(remaining.min(STREAM_DISCONNECT_POLL)) {
                     Ok(_) => {
                         if let Some(text) = check()? {
                             return Ok(json!({
@@ -4075,7 +4124,9 @@ fn handle_command(
                         }
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        anyhow::bail!("timeout waiting for pattern");
+                        if Instant::now() >= deadline {
+                            anyhow::bail!("timeout waiting for pattern");
+                        }
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         anyhow::bail!("timeout waiting for pattern");
@@ -5825,28 +5876,6 @@ mod tests {
         assert_eq!(response_ids, [1, 2]);
     }
 
-    #[test]
-    fn stale_surface_lane_guard_does_not_remove_replacement() {
-        let scheduler = Arc::new(ConnectionSurfaceScheduler::default());
-        let stale =
-            ConnectionSurfaceLaneGuard { scheduler: scheduler.clone(), surface: 7, token: 1 };
-        scheduler.state.lock().unwrap().lanes.insert(
-            7,
-            ConnectionSurfaceLane {
-                token: 2,
-                requests: VecDeque::new(),
-                queued_bytes: 0,
-                _worker_permit: None,
-            },
-        );
-
-        drop(stale);
-
-        assert_eq!(scheduler.state.lock().unwrap().lanes.get(&7).map(|lane| lane.token), Some(2));
-        scheduler.finish_lane(7, 2);
-        assert!(scheduler.state.lock().unwrap().lanes.is_empty());
-    }
-
     fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: usize) -> usize {
         let mux = test_mux();
         let writer = test_writer();
@@ -5876,8 +5905,10 @@ mod tests {
                 Some(true)
             );
         }
-        let active =
-            schedulers.iter().map(|scheduler| scheduler.state.lock().unwrap().lanes.len()).sum();
+        let active = schedulers
+            .iter()
+            .map(|scheduler| scheduler.state.lock().unwrap().active_clear_surfaces.len())
+            .sum();
 
         for scheduler in &schedulers {
             let _ = scheduler.close_and_wait(Duration::from_secs(1));
@@ -5889,9 +5920,10 @@ mod tests {
     }
 
     #[test]
-    fn connection_surface_schedulers_share_process_wide_admission() {
-        let first = ConnectionSurfaceScheduler::default();
-        let second = ConnectionSurfaceScheduler::default();
+    fn connection_surface_schedulers_for_one_mux_share_admission() {
+        let mux = test_mux();
+        let first = ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone());
+        let second = ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone());
         assert!(Arc::ptr_eq(&first.admission, &second.admission));
     }
 
@@ -5972,10 +6004,11 @@ mod tests {
 
     #[test]
     fn independent_muxes_do_not_share_surface_operation_admission() {
-        let _first_mux = test_mux();
-        let _second_mux = test_mux();
-        let first = ConnectionSurfaceScheduler::default();
-        let second = ConnectionSurfaceScheduler::default();
+        let first_mux = test_mux();
+        let second_mux = test_mux();
+        let first = ConnectionSurfaceScheduler::new(first_mux.surface_operation_admission.clone());
+        let second =
+            ConnectionSurfaceScheduler::new(second_mux.surface_operation_admission.clone());
         let permits = (0..SERVER_SURFACE_WORKER_CAPACITY)
             .map(|_| first.admission.try_reserve_worker_and_bytes(0).unwrap())
             .collect::<Vec<_>>();
@@ -5990,19 +6023,19 @@ mod tests {
     }
 
     #[test]
-    fn surface_worker_limit_is_process_wide_across_connections() {
+    fn surface_worker_limit_is_mux_wide_across_connections() {
         assert!(
             active_clear_lanes_across_connections(17, 0) <= 16,
-            "per-connection limits allowed more than 16 process-wide clear workers"
+            "per-connection limits allowed more than 16 mux-wide clear workers"
         );
     }
 
     #[test]
-    fn active_surface_request_bytes_count_toward_process_budget() {
+    fn active_surface_request_bytes_count_toward_mux_budget() {
         const FOUR_MIB: usize = 4 * 1024 * 1024;
         assert!(
             active_clear_lanes_across_connections(5, FOUR_MIB) <= 4,
-            "active first requests bypassed the 16 MiB process-wide byte budget"
+            "active first requests bypassed the 16 MiB mux-wide byte budget"
         );
     }
 
@@ -8045,10 +8078,12 @@ mod tests {
 
     #[test]
     fn protocol_key_text_limit_is_bounded_for_one_key_event() {
-        assert!(
-            PROTOCOL_KEY_TEXT_MAX_BYTES <= 4 * 1024,
-            "one key event may retain an unbounded fallback payload"
-        );
+        const {
+            assert!(
+                PROTOCOL_KEY_TEXT_MAX_BYTES <= 4 * 1024,
+                "one key event may retain an unbounded fallback payload"
+            );
+        }
         let input = KeyInput {
             key: sys::GHOSTTY_KEY_K,
             mods: Mods::SUPER,

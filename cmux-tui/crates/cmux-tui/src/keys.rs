@@ -51,19 +51,23 @@ impl KeyboardInput {
     pub fn from_enhanced(event: EnhancedKeyEvent) -> Self {
         // Kitty reports generated text per event, but no consumed-modifier
         // mask. Nonempty text that differs from the active layout means macOS
-        // Option produced text and consumed Alt. Empty text leaves the
-        // explicitly reported Alt modifier active, including when the host
-        // configures macOS Option to act as Alt.
+        // Option produced text and consumed Alt. An empty-text character is
+        // ambiguous because it may be a dead-key prefix, so it cannot
+        // authoritatively trigger a cmux Alt binding. Non-character keys keep
+        // their explicitly reported Alt modifier.
         let alt_pressed = event.key_event.modifiers.contains(KeyModifiers::ALT);
         let text_matches_layout = text_matches_active_layout(&event);
         let alt_generated_text = alt_pressed && !event.text.is_empty() && !text_matches_layout;
+        let ambiguous_alt_character = alt_pressed
+            && event.text.is_empty()
+            && matches!(event.key_event.code, KeyCode::Char(_));
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
             base_layout_key: event.base_layout_key,
             associated_text: event.text,
             alt_generated_text,
-            suppress_alt_shortcut: alt_generated_text,
+            suppress_alt_shortcut: alt_generated_text || ambiguous_alt_character,
             enhanced: true,
         }
     }

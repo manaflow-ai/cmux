@@ -25,4 +25,4 @@ then the default session socket path.
 
 `clear_history(surface, fallback_key=TerminalKeyInput(...))` preserves a shortcut
 for alternate-screen applications and requires `clear-history-key-v1`. It
-rejects fallback `utf8` fields above the 1 MiB protocol limit before sending.
+rejects fallback `utf8` fields above the 4 KiB protocol limit before sending.

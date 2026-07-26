@@ -2,7 +2,7 @@ package cmux
 
 import "encoding/json"
 
-const TerminalKeyTextMaxBytes = 1024 * 1024
+const TerminalKeyTextMaxBytes = 4 * 1024
 
 type IdentifyResult struct {
 	App      string `json:"app"`

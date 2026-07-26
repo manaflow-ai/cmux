@@ -4715,6 +4715,9 @@ fn localized_clear_history_failure(error: &str) -> &'static str {
             messages.clear_history_preservation_impossible
         }
         cmux_tui_core::CLEAR_HISTORY_STREAM_TIMEOUT_ERROR => messages.clear_history_stream_timeout,
+        cmux_tui_core::CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR => {
+            messages.clear_history_fallback_write_timeout
+        }
         "terminal host does not support clear-history" => messages.clear_history_host_unsupported,
         "terminal host has exited" => messages.clear_history_host_exited,
         "terminal host failed to apply clear-history" => messages.clear_history_host_failed,

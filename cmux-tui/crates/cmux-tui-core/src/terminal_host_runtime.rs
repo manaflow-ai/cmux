@@ -11,10 +11,11 @@ use ghostty_vt::{KeyInput, Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::{
-    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_PRESERVATION_ERROR,
-    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryDelivery,
-    ClearHistoryFailure, ClearHistoryTransition, DefaultColors, SurfaceOptions,
-    TerminalStreamProgress, apply_clear_history_transition, replace_ghostty_cursor_defaults,
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR,
+    CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryDelivery, ClearHistoryFailure,
+    ClearHistoryTransition, DefaultColors, SurfaceOptions, TerminalStreamProgress,
+    apply_clear_history_transition, replace_ghostty_cursor_defaults, write_clear_history_fallback,
 };
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
@@ -22,10 +23,10 @@ use crate::terminal_host::{
 };
 use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
-    CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED, CLEAR_HISTORY_ACK_OK,
-    CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT, FLAG_COLORS_FOLLOW,
-    FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
+    CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
+    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -606,6 +607,9 @@ mod unix {
                 CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
                     CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE
                 }
+                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR => {
+                    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT
+                }
                 _ => CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
             },
         }
@@ -622,6 +626,10 @@ mod unix {
             CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE => (
                 ClearHistoryDelivery::KnownNotDelivered,
                 CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+            ),
+            CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
             ),
             CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED => (
                 ClearHistoryDelivery::KnownNotDelivered,
@@ -1716,13 +1724,12 @@ mod unix {
                     ClearHistoryTransition::EncodedFallback(encoded) => {
                         drop(term);
                         let mut writer = self.writer.lock().unwrap();
-                        writer
-                            .write_all(&encoded)
-                            .map_err(|error| ClearHistoryFailure::ambiguous(error.into()))?;
-                        writer
-                            .flush()
-                            .map_err(|error| ClearHistoryFailure::ambiguous(error.into()))?;
-                        return Ok(());
+                        let master = self.master.lock().unwrap();
+                        return write_clear_history_fallback(
+                            master.as_ref(),
+                            writer.as_mut(),
+                            &encoded,
+                        );
                     }
                     ClearHistoryTransition::Noop => return Ok(()),
                 }
@@ -2378,6 +2385,14 @@ mod unix {
                 let count = match pty_reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => count,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                        ) =>
+                    {
+                        continue;
+                    }
                     Err(_) => break,
                 };
                 let bytes = &buffer[..count];
@@ -3159,6 +3174,10 @@ mod unix {
                 (
                     CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
                     CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
+                ),
+                (
+                    CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+                    CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT,
                 ),
                 ("other pre-execution failure", CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED),
             ] {

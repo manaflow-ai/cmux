@@ -346,7 +346,7 @@ func TestClearHistoryFallbackRejectsOversizedKeyTextLocally(t *testing.T) {
 	if err == nil || !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("ClearHistoryWithFallback() error = %v, want invalid argument", err)
 	}
-	if !strings.Contains(err.Error(), "terminal key text exceeds the 1 MiB protocol limit") {
+	if !strings.Contains(err.Error(), "terminal key text exceeds the 4 KiB protocol limit") {
 		t.Fatalf("ClearHistoryWithFallback() error = %v", err)
 	}
 }

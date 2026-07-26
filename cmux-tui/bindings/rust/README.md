@@ -35,7 +35,7 @@ so deserialization stays compatible with older servers.
 
 Use `clear_history_with_fallback(surface, &TerminalKeyInput { ... })` only when
 `IdentifyDetails.capabilities` contains `clear-history-key-v1`. The SDK rejects
-fallback `utf8` fields above the 1 MiB protocol limit before sending.
+fallback `utf8` fields above the 4 KiB protocol limit before sending.
 
 ## E2E
 

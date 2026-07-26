@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
-pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 1024 * 1024;
+pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 
 #[derive(Debug)]
 pub enum CmuxError {
@@ -731,7 +731,7 @@ impl CmuxClient {
         self.require_capability("clear-history-key-v1", "clear-history key fallback")?;
         if fallback_key.utf8.len() > TERMINAL_KEY_TEXT_MAX_BYTES {
             return Err(CmuxError::InvalidArgument(
-                "terminal key text exceeds the 1 MiB protocol limit".to_string(),
+                "terminal key text exceeds the 4 KiB protocol limit".to_string(),
             ));
         }
         let mut params = surface_params(surface);
@@ -1772,7 +1772,7 @@ mod tests {
         assert!(matches!(
             client.clear_history_with_fallback(7, &fallback),
             Err(CmuxError::InvalidArgument(message))
-                if message == "terminal key text exceeds the 1 MiB protocol limit"
+                if message == "terminal key text exceeds the 4 KiB protocol limit"
         ));
     }
 

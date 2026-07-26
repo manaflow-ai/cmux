@@ -244,7 +244,7 @@ class ProtocolTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(
-            ValueError, "terminal key text exceeds the 1 MiB protocol limit"
+            ValueError, "terminal key text exceeds the 4 KiB protocol limit"
         ):
             client.clear_history(7, fallback_key=fallback)
 
