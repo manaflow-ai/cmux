@@ -132,40 +132,51 @@ impl ShutdownOwnerLedger {
 struct ShutdownOwnerReconcilerState {
     pending: bool,
     stopping: bool,
+    worker_started: bool,
 }
 
 #[derive(Default)]
 struct ShutdownOwnerReconciler {
     state: Mutex<ShutdownOwnerReconcilerState>,
     wake: std::sync::Condvar,
-    #[cfg(test)]
-    worker_started: AtomicBool,
+    mux: std::sync::OnceLock<Weak<Mux>>,
 }
 
 impl ShutdownOwnerReconciler {
-    fn start(self: &Arc<Self>, mux: Weak<Mux>) -> anyhow::Result<()> {
-        let reconciler = self.clone();
-        std::thread::Builder::new()
-            .name("cmux-shutdown-owner-reconciler".into())
-            .spawn(move || reconciler.run(mux))
-            .context("start shutdown owner reconciler")?;
-        #[cfg(test)]
-        self.worker_started.store(true, Ordering::Release);
-        Ok(())
+    fn bind(&self, mux: Weak<Mux>) {
+        assert!(self.mux.set(mux).is_ok(), "shutdown owner reconciler was bound twice");
     }
 
     #[cfg(test)]
     fn worker_started(&self) -> bool {
-        self.worker_started.load(Ordering::Acquire)
+        self.state.lock().unwrap().worker_started
     }
 
-    fn schedule(&self) {
+    fn schedule(self: &Arc<Self>) {
         let mut state = self.state.lock().unwrap();
         if state.stopping {
             return;
         }
         state.pending = true;
-        self.wake.notify_one();
+        if state.worker_started {
+            self.wake.notify_one();
+            return;
+        }
+        state.worker_started = true;
+        drop(state);
+
+        let mux =
+            self.mux.get().cloned().expect("shutdown owner reconciler must bind before scheduling");
+        let reconciler = self.clone();
+        if std::thread::Builder::new()
+            .name("cmux-shutdown-owner-reconciler".into())
+            .spawn(move || reconciler.run(mux))
+            .is_err()
+        {
+            // Ownership remains in the ledger for full shutdown. A later
+            // retirement will retry worker creation if process pressure eases.
+            self.state.lock().unwrap().worker_started = false;
+        }
     }
 
     fn stop(&self) {
@@ -1371,7 +1382,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
-        mux.shutdown_owner_reconciler.start(Arc::downgrade(&mux))?;
+        mux.shutdown_owner_reconciler.bind(Arc::downgrade(&mux));
         #[cfg(unix)]
         mux.adopt_terminal_hosts()?;
         Ok(mux)
