@@ -61,9 +61,7 @@ struct GhosttyRuntimeActionTests {
         let bridge = try #require(
             GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(sourceSurface))
         )
-        let pendingDelivery = try #require(
-            GhosttyRuntime.scheduleRenderWakeup(for: sourceSurface)
-        )
+        let pendingDelivery = bridge.scheduleRenderWakeup()
 
         // Model the source surface being detached and its raw address being
         // reused before the queued MainActor continuation gets a turn.

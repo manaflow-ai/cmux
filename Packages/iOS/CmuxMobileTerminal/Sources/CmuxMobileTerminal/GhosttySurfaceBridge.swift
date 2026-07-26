@@ -48,6 +48,15 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Captures this bridge before hopping to the main actor, then re-checks
+    /// attachment when the renderer continuation is delivered.
+    @discardableResult
+    func scheduleRenderWakeup() -> Task<Bool, Never> {
+        Task { @MainActor [self] in
+            requestRenderWakeup()
+        }
+    }
+
     /// Delivers one renderer continuation only while the terminal is attached.
     /// The explicit result distinguishes a dropped detached continuation from
     /// one handed to the terminal without adding per-frame bookkeeping.
