@@ -17,7 +17,7 @@ final class SimulatorPanel: Panel {
 
     static func beginApplicationTerminationCleanup() -> [Task<Void, Never>] {
         for panel in livePanelsTable.allObjects {
-            _ = panel.beginClose()
+            _ = panel.beginApplicationTerminationClose()
         }
         return Array(pendingCleanupTasks.values)
     }
@@ -25,6 +25,9 @@ final class SimulatorPanel: Panel {
     static func cancelApplicationTerminationCleanup() {
         for task in pendingCleanupTasks.values {
             task.cancel()
+        }
+        for panel in livePanelsTable.allObjects {
+            panel.restoreAfterCancelledApplicationTermination()
         }
     }
 
@@ -42,6 +45,7 @@ final class SimulatorPanel: Panel {
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
     @ObservationIgnored private var featureEnableTask: Task<Void, Never>?
+    @ObservationIgnored private var isClosingForApplicationTermination = false
     @ObservationIgnored private weak var focusOwnershipView: NSView?
     @ObservationIgnored private var directVisibleInUI = false
     @ObservationIgnored private var visibleUIHostIDs: Set<UUID> = []
@@ -102,6 +106,13 @@ final class SimulatorPanel: Panel {
             preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier,
             requiresExplicitDeviceSelection: requiresExplicitDeviceSelection
         )
+        installFeatureFlagsObserver()
+        Self.livePanelsTable.add(self)
+        reconcileRemoteFeatureFlag()
+    }
+
+    private func installFeatureFlagsObserver() {
+        guard featureFlagsObserver == nil else { return }
         featureFlagsObserver = NotificationCenter.default.addObserver(
             forName: .cmuxFeatureFlagsDidChange,
             object: CmuxFeatureFlags.shared,
@@ -111,8 +122,6 @@ final class SimulatorPanel: Panel {
                 self?.reconcileRemoteFeatureFlag()
             }
         }
-        Self.livePanelsTable.add(self)
-        reconcileRemoteFeatureFlag()
     }
 
     convenience init(
@@ -205,6 +214,38 @@ final class SimulatorPanel: Panel {
 
     func closeAndWait() async {
         await beginClose().value
+    }
+
+    private func beginApplicationTerminationClose() -> Task<Void, Never> {
+        guard !isClosed else { return beginClose() }
+        rememberSelection()
+        isClosingForApplicationTermination = true
+        return beginClose()
+    }
+
+    private func restoreAfterCancelledApplicationTermination() {
+        guard isClosingForApplicationTermination else { return }
+        isClosingForApplicationTermination = false
+        let closingTask = shutdownTask
+        closingTask?.cancel()
+        let panelID = id
+        Task { @MainActor [weak self] in
+            await closingTask?.value
+            guard let self, self.isClosed else { return }
+            Self.pendingCleanupTasks.removeValue(forKey: panelID)
+            self.shutdownTask = nil
+            self.coordinator = SimulatorPaneCoordinator(
+                client: self.clientFactory(),
+                preferredDeviceID: self.preferredDeviceID,
+                preferredRuntimeIdentifier: self.preferredRuntimeIdentifier,
+                preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier,
+                requiresExplicitDeviceSelection: self.requiresExplicitDeviceSelection
+            )
+            self.isFeatureDisabled = !CmuxFeatureFlags.shared.isSimulatorEnabled
+            self.isClosed = false
+            self.installFeatureFlagsObserver()
+            self.applyEffectiveVisibility()
+        }
     }
 
     private func beginClose() -> Task<Void, Never> {

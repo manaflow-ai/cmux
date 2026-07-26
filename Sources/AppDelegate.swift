@@ -1963,6 +1963,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.simulatorCleanupFailed"
         )
+        SimulatorPanel.cancelApplicationTerminationCleanup()
         isTerminatingApp = false
         isQuitWarningConfirmed = false
         replyToTerminateOnce(false)

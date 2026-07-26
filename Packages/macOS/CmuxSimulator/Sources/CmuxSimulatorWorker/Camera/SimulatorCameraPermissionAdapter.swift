@@ -57,20 +57,25 @@ struct SimulatorCameraPermissionAdapter: Sendable {
     }
 
     func grant(deviceIdentifier: String, bundleIdentifier: String) async throws {
-        if try authorizationStore.authorization(
+        let savedAuthorization: SimulatorPrivacyAuthorization
+        if let existingAuthorization = try authorizationStore.authorization(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
-        ) == nil {
-            let priorAuthorization = try await authorization(
+        ) {
+            savedAuthorization = existingAuthorization
+        } else {
+            savedAuthorization = try await authorization(
                 deviceIdentifier,
                 bundleIdentifier
             )
-            try authorizationStore.save(
-                priorAuthorization,
-                deviceIdentifier: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-            )
         }
+        // Saving every grant preserves the original authorization while adopting
+        // this worker's live host identity before recovery can classify the journal.
+        try authorizationStore.save(
+            savedAuthorization,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
         try await mutation(deviceIdentifier, .grant, .camera, bundleIdentifier)
     }
 

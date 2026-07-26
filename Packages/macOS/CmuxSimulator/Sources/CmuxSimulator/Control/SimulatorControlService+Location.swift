@@ -337,13 +337,19 @@ extension SimulatorControlService {
     }
 
     func validate(route: SimulatorLocationRoute, deviceID: String) throws {
-        guard route.waypoints.count >= 2, route.speed.isFinite, route.speed > 0 else {
+        guard route.waypoints.count >= 2,
+              route.speed.isFinite,
+              route.speed > 0,
+              let duration = route.estimatedDuration,
+              duration.isFinite,
+              duration > 0 else {
             throw SimulatorControlError(
                 code: "invalid_location_route",
                 arguments: ["simctl", "location", deviceID, "start"],
                 message: String(
                     localized: "simulator.control.locationRouteInvalid",
-                    defaultValue: "A location route needs at least two waypoints and a positive speed."
+                    defaultValue:
+                        "A location route needs at least two distinct waypoints and a positive speed."
                 )
             )
         }
