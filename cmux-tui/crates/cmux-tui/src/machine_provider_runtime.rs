@@ -1,8 +1,9 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 #[cfg(test)]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -119,9 +120,10 @@ impl ProviderMachineController {
         connector: Arc<dyn MachineProviderConnector>,
         configured: Vec<MachineConfig>,
         connect_external: bool,
+        state_root: &Path,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            provider: ProviderMachineRuntime::connect_with(connector)?,
+            provider: ProviderMachineRuntime::connect_with(connector, state_root)?,
             local: MachineRuntime::external(configured, connect_external),
             active_local: None,
             pending_active_local: None,
@@ -335,16 +337,36 @@ impl ProviderMachineRuntime {
         socket_path: impl AsRef<Path>,
         token: protocol::BearerToken,
     ) -> anyhow::Result<Self> {
-        Self::connect_with(Arc::new(UnixProviderConnector::new(
-            socket_path.as_ref().to_path_buf(),
-            token,
-        )))
+        Self::connect_with_consumer_id(
+            Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
+            random_notice_consumer_id()?,
+        )
     }
 
     pub(crate) fn connect_with(
         connector: Arc<dyn MachineProviderConnector>,
+        state_root: &Path,
     ) -> anyhow::Result<Self> {
-        let notice_consumer_id = random_notice_consumer_id()?;
+        let notice_consumer_id = crate::provider_notice_identity::load_or_create(state_root)?;
+        Self::connect_with_consumer_id(connector, notice_consumer_id)
+    }
+
+    #[cfg(test)]
+    fn connect_in_state_root(
+        socket_path: impl AsRef<Path>,
+        token: protocol::BearerToken,
+        state_root: &Path,
+    ) -> anyhow::Result<Self> {
+        Self::connect_with(
+            Arc::new(UnixProviderConnector::new(socket_path.as_ref().to_path_buf(), token)),
+            state_root,
+        )
+    }
+
+    fn connect_with_consumer_id(
+        connector: Arc<dyn MachineProviderConnector>,
+        notice_consumer_id: protocol::OpaqueId,
+    ) -> anyhow::Result<Self> {
         let (client, snapshot, machine_lifecycle_snapshot, workspace_snapshot) =
             connect_client(Arc::clone(&connector), &notice_consumer_id)?;
         let client = Arc::new(client);
@@ -1623,6 +1645,7 @@ fn random_mutation_nonce() -> anyhow::Result<String> {
     Ok(encoded)
 }
 
+#[cfg(test)]
 fn random_notice_consumer_id() -> anyhow::Result<protocol::OpaqueId> {
     protocol::OpaqueId::new(format!("cmux-tui-{}", random_mutation_nonce()?))
         .map_err(anyhow::Error::from)
@@ -2081,8 +2104,7 @@ mod tests {
         socket_path: &Path,
         state_root: &Path,
     ) -> ProviderMachineRuntime {
-        let _ = state_root;
-        ProviderMachineRuntime::connect(socket_path, token()).unwrap()
+        ProviderMachineRuntime::connect_in_state_root(socket_path, token(), state_root).unwrap()
     }
 
     fn id(value: &str) -> protocol::OpaqueId {
@@ -4081,8 +4103,10 @@ mod tests {
             finished.recv_timeout(Duration::from_secs(2)).unwrap();
         });
         let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
+        let state_root = TestStateRoot::create("provider-reconnect");
         let mut controller =
-            ProviderMachineController::connect_with(connector, Vec::new(), false).unwrap();
+            ProviderMachineController::connect_with(connector, Vec::new(), false, &state_root.path)
+                .unwrap();
 
         let result = controller.perform_request(MachineRequest::ReconnectProvider).unwrap();
         assert!(result.replacement.is_some());
@@ -4189,8 +4213,10 @@ mod tests {
             );
         });
         let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
+        let state_root = TestStateRoot::create("provider-delete");
         let mut controller =
-            ProviderMachineController::connect_with(connector, Vec::new(), false).unwrap();
+            ProviderMachineController::connect_with(connector, Vec::new(), false, &state_root.path)
+                .unwrap();
         let machine = key_for_id(&controller.provider.keys, &id("machine-1")).unwrap();
         controller.provider.open = Some(OpenConnection {
             client: controller.provider.client.clone(),
