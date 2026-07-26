@@ -143,6 +143,9 @@ struct BrowserState {
     /// A targeted navigation may settle through a same-document event from
     /// the current main frame and loader.
     pending_same_document_navigation: bool,
+    /// Frame epoch already backed by a loader-verified screenshot, so a
+    /// timestamp-less screencast frame needs no additional recovery capture.
+    verified_screencast_capture_epoch: Option<u64>,
     pending_frame: Option<(u64, BrowserFrame)>,
     /// Frame that may currently receive guarded pointer input. Navigation and
     /// geometry changes invalidate it before the next screencast frame lands.
@@ -709,6 +712,7 @@ pub(crate) fn new_surface(
             pending_navigation_epoch: None,
             pending_document_epoch: None,
             pending_same_document_navigation: false,
+            verified_screencast_capture_epoch: None,
             pending_frame: None,
             pointer_frame_seq: None,
             pointer_frame_revision: 0,
@@ -2231,6 +2235,7 @@ impl BrowserSurface {
             && self.frame_epoch.latest_navigation() == navigation_epoch
             && self.frame_epoch.current() == frame_epoch
             && state.accepted_frame_epoch <= frame_epoch
+            && state.verified_screencast_capture_epoch != Some(frame_epoch)
     }
 
     fn needs_same_document_paint(&self) -> bool {
@@ -2259,6 +2264,7 @@ impl BrowserSurface {
         state.pending_frame = None;
         state.accepted_navigation_epoch = navigation_epoch;
         state.accepted_frame_epoch = frame_epoch;
+        state.verified_screencast_capture_epoch = Some(frame_epoch);
         Self::store_frame_locked(&mut state, frame);
         Self::mark_state_dirty_locked(&mut state);
         true
@@ -2278,6 +2284,7 @@ impl BrowserSurface {
         state.pending_same_document_navigation = false;
         state.pending_frame = None;
         state.accepted_frame_epoch = frame_epoch;
+        state.verified_screencast_capture_epoch = Some(frame_epoch);
         Self::store_frame_locked(&mut state, frame);
         Self::mark_state_dirty_locked(&mut state);
         true
@@ -2304,6 +2311,7 @@ impl BrowserSurface {
         }
         state.pending_frame = None;
         state.accepted_frame_epoch = frame_epoch;
+        state.verified_screencast_capture_epoch = Some(frame_epoch);
         Self::store_frame_locked(&mut state, frame);
         Self::mark_state_dirty_locked(&mut state);
         true
@@ -4744,7 +4752,7 @@ mod tests {
             );
 
             let mut authority_calls = 0;
-            while authority_calls < 5 {
+            while authority_calls < 7 {
                 let request = read_ws_json(&mut ws);
                 match request["method"].as_str().unwrap() {
                     "Page.screencastFrameAck" => {}
@@ -4766,6 +4774,28 @@ mod tests {
                                             "url": "https://next.test"
                                         }
                                     }
+                                }
+                            }),
+                        );
+                    }
+                    "Page.createIsolatedWorld" => {
+                        authority_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {"executionContextId": 41}
+                            }),
+                        );
+                    }
+                    "Runtime.evaluate" => {
+                        authority_calls += 1;
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": request["id"],
+                                "result": {
+                                    "result": {"type": "number", "value": 10_000.0}
                                 }
                             }),
                         );
@@ -4921,6 +4951,16 @@ mod tests {
                     | "Page.startScreencast" => {
                         json!({"id": request["id"], "result": {}})
                     }
+                    "Page.createIsolatedWorld" => json!({
+                        "id": request["id"],
+                        "result": {"executionContextId": 41}
+                    }),
+                    "Runtime.evaluate" => json!({
+                        "id": request["id"],
+                        "result": {
+                            "result": {"type": "number", "value": 10_000.0}
+                        }
+                    }),
                     "Page.getFrameTree" => json!({
                         "id": request["id"],
                         "result": {
@@ -4958,6 +4998,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        runtime.client.seed_main_frame("session-1").unwrap();
         *browser.session.lock().unwrap() = Some(BrowserSession {
             runtime: runtime.clone(),
             target_id: "target-1".to_string(),
@@ -5713,6 +5754,24 @@ mod tests {
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
             write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
 
+            let frame_tree = read_ws_json(&mut ws);
+            assert_eq!(frame_tree["method"], "Page.getFrameTree");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": frame_tree["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test"
+                            }
+                        }
+                    }
+                }),
+            );
+
             let metrics = read_ws_json(&mut ws);
             assert_eq!(metrics["method"], "Emulation.setDeviceMetricsOverride");
             write_ws_json(&mut ws, json!({"id": metrics["id"], "result": {}}));
@@ -5720,6 +5779,28 @@ mod tests {
             let stop = read_ws_json(&mut ws);
             assert_eq!(stop["method"], "Page.stopScreencast");
             write_ws_json(&mut ws, json!({"id": stop["id"], "result": {}}));
+
+            let isolated_world = read_ws_json(&mut ws);
+            assert_eq!(isolated_world["method"], "Page.createIsolatedWorld");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": isolated_world["id"],
+                    "result": {"executionContextId": 41}
+                }),
+            );
+
+            let wall_time = read_ws_json(&mut ws);
+            assert_eq!(wall_time["method"], "Runtime.evaluate");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": wall_time["id"],
+                    "result": {
+                        "result": {"type": "number", "value": 10_000.0}
+                    }
+                }),
+            );
 
             let start = read_ws_json(&mut ws);
             assert_eq!(start["method"], "Page.startScreencast");
@@ -5737,6 +5818,7 @@ mod tests {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        runtime.client.seed_main_frame("session-1").unwrap();
         *browser.session.lock().unwrap() = Some(BrowserSession {
             runtime: runtime.clone(),
             target_id: "target-1".to_string(),

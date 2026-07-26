@@ -5,7 +5,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
@@ -678,22 +678,36 @@ impl CdpClient {
         max_width: u32,
         max_height: u32,
     ) -> anyhow::Result<u64> {
-        let minimum_screencast_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| anyhow::anyhow!("system clock precedes Unix epoch: {error}"))?
-            .as_secs_f64();
-        let frame_epoch = {
+        let (frame_epoch, main_frame_id) = {
+            let frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let frame_session = frame_sessions.get(session_id).ok_or_else(|| {
+                anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
+            })?;
+            let main_frame_id = frame_session.main_frame_id.clone().ok_or_else(|| {
+                anyhow::anyhow!("missing main frame for CDP session {session_id}")
+            })?;
+            (frame_session.epoch.clone(), main_frame_id)
+        };
+        let minimum_screencast_timestamp =
+            self.chrome_wall_time_upper_bound(session_id, &main_frame_id)?;
+        {
             let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
             let frame_session = frame_sessions.get_mut(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
+            if !Arc::ptr_eq(&frame_session.epoch, &frame_epoch)
+                || frame_session.main_frame_id.as_deref() != Some(main_frame_id.as_str())
+            {
+                anyhow::bail!(
+                    "main frame changed while establishing screencast barrier for {session_id}"
+                );
+            }
             // Chromium records this timestamp when pixels enter the screencast
             // pipeline, before asynchronous encoding. A frame captured before
             // stopScreencast may otherwise be emitted after this restart with
             // the new Chromium session id.
             frame_session.minimum_screencast_timestamp = Some(minimum_screencast_timestamp);
-            frame_session.epoch.clone()
-        };
+        }
         self.call_with_frame_barrier(
             "Page.startScreencast",
             json!({
@@ -706,6 +720,52 @@ impl CdpClient {
             frame_epoch.clone(),
         )?;
         Ok(frame_epoch.current())
+    }
+
+    fn chrome_wall_time_upper_bound(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+    ) -> anyhow::Result<f64> {
+        let world = self.call(
+            "Page.createIsolatedWorld",
+            json!({
+                "frameId": frame_id,
+                "worldName": "cmux-screencast-barrier",
+                "grantUniveralAccess": false,
+            }),
+            Some(session_id),
+        )?;
+        let context_id =
+            world.get("executionContextId").and_then(Value::as_u64).ok_or_else(|| {
+                anyhow::anyhow!("Page.createIsolatedWorld response missing executionContextId")
+            })?;
+        let evaluated = self.call(
+            "Runtime.evaluate",
+            json!({
+                "expression": "globalThis.Date.now()",
+                "contextId": context_id,
+                "returnByValue": true,
+                "silent": true,
+            }),
+            Some(session_id),
+        )?;
+        if evaluated.get("exceptionDetails").is_some() {
+            anyhow::bail!("Runtime.evaluate failed while reading Chrome wall time");
+        }
+        let milliseconds = evaluated
+            .get("result")
+            .and_then(|result| result.get("value"))
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Runtime.evaluate returned an invalid Chrome wall time")
+            })?;
+        // Date.now() has millisecond resolution. Adding one millisecond makes
+        // this an upper bound on the evaluation instant, so no pre-stop
+        // capture can slip through a truncated value. A first post-start
+        // capture inside this millisecond may be skipped; later frames pass.
+        Ok(milliseconds / 1_000.0 + 0.001)
     }
 
     pub fn stop_screencast(&self, session_id: &str) -> anyhow::Result<()> {
@@ -2014,6 +2074,12 @@ mod tests {
                 let Message::Text(request) = request else { panic!("expected text request") };
                 let request: Value = serde_json::from_str(&request).unwrap();
                 assert_eq!(request["method"], expected);
+                if expected == "Page.createIsolatedWorld" {
+                    assert_eq!(request["params"]["frameId"], "main-frame");
+                } else if expected == "Runtime.evaluate" {
+                    assert_eq!(request["params"]["contextId"], 41);
+                    assert_eq!(request["params"]["expression"], "globalThis.Date.now()");
+                }
                 let result = match expected {
                     "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
                     "Runtime.evaluate" => {
@@ -2048,6 +2114,28 @@ mod tests {
             let Message::Text(ack) = ack else { panic!("expected text ack") };
             let ack: Value = serde_json::from_str(&ack).unwrap();
             assert_eq!(ack["method"], "Page.screencastFrameAck");
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "AQ==",
+                        "sessionId": 8,
+                        "metadata": {
+                            "deviceWidth": 80,
+                            "deviceHeight": 24,
+                            "timestamp": 10.002
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let ack = ws.read().unwrap();
+            let Message::Text(ack) = ack else { panic!("expected text ack") };
+            let ack: Value = serde_json::from_str(&ack).unwrap();
+            assert_eq!(ack["method"], "Page.screencastFrameAck");
         });
         let (event_tx, event_rx) = sync_channel(2);
         let client =
@@ -2059,11 +2147,18 @@ mod tests {
         client.stop_screencast("session-1").unwrap();
         client.start_screencast_with_frame_barrier("session-1", 80, 24).unwrap();
 
-        let delayed = event_rx.recv_timeout(Duration::from_millis(200));
+        let first = event_rx.recv_timeout(Duration::from_millis(200));
         assert!(
-            !matches!(delayed, Ok(CdpEvent::ScreencastFrame(_))),
-            "a pre-restart capture emitted by a delayed encoder crossed the authority barrier: \
-             {delayed:?}"
+            matches!(
+                first,
+                Ok(CdpEvent::ScreencastFrame(ScreencastFrame {
+                    ref data_b64,
+                    frame_epoch: 1,
+                    ..
+                })) if data_b64 == "AQ=="
+            ),
+            "the Chrome-domain barrier did not reject the delayed capture and admit the new one: \
+             {first:?}"
         );
         server.join().unwrap();
     }
