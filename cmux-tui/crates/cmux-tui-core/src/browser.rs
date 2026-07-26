@@ -214,6 +214,7 @@ struct BrowserReconfigureCommandError {
 #[derive(Clone)]
 struct PointerFrameInvalidation {
     previous: Option<u64>,
+    previous_latest_frame_seq: Option<u64>,
     previous_capture_generation: u64,
     previous_pending_frame_epoch: Option<u64>,
     previous_pending_navigation_epoch: Option<u64>,
@@ -606,9 +607,9 @@ impl BrowserRuntime {
         if let Some(user_agent) = self.stealth_user_agent.as_deref() {
             let _ = self.client.set_user_agent(session_id, user_agent);
         }
-        self.client.seed_main_frame(session_id)?;
         self.client.page_enable(session_id)?;
         self.client.set_lifecycle_events_enabled(session_id)?;
+        self.client.seed_main_frame(session_id)?;
         let (pixel_w, pixel_h) = browser.pixel_size();
         self.client.set_device_metrics(session_id, pixel_w, pixel_h)?;
         self.client.start_screencast(session_id, pixel_w, pixel_h)?;
@@ -2108,6 +2109,7 @@ impl BrowserSurface {
         revoke_capture: bool,
     ) -> PointerFrameInvalidation {
         let previous = state.pointer_frame_seq;
+        let previous_latest_frame_seq = state.latest_frame.as_ref().map(|frame| frame.seq);
         let previous_capture_generation = state.pointer_capture_generation;
         let previous_pending_frame_epoch = state.pending_frame_epoch;
         let previous_pending_navigation_epoch = state.pending_navigation_epoch;
@@ -2120,6 +2122,7 @@ impl BrowserSurface {
         }
         PointerFrameInvalidation {
             previous,
+            previous_latest_frame_seq,
             previous_capture_generation,
             previous_pending_frame_epoch,
             previous_pending_navigation_epoch,
@@ -2156,15 +2159,48 @@ impl BrowserSurface {
         {
             anyhow::bail!("browser navigation is still committing");
         }
+        Ok(self.reserve_navigation_frame_transition_locked(&mut state, may_be_same_document))
+    }
+
+    fn reserve_navigation_frame_transition_locked(
+        &self,
+        state: &mut BrowserState,
+        may_be_same_document: bool,
+    ) -> PointerFrameInvalidation {
         let pending_frame_epoch = self.frame_epoch.current().wrapping_add(1);
-        let mut invalidation = Self::invalidate_pointer_frame_locked(&mut state, true);
+        let mut invalidation = Self::invalidate_pointer_frame_locked(state, true);
         state.pending_frame_epoch = Some(pending_frame_epoch);
         state.pending_navigation_epoch = Some(pending_frame_epoch);
         state.pending_same_document_navigation = may_be_same_document;
         state.pending_frame = None;
         invalidation.expected_frame_epoch = Some(pending_frame_epoch);
-        Self::mark_state_dirty_locked(&mut state);
-        Ok(invalidation)
+        Self::mark_state_dirty_locked(state);
+        invalidation
+    }
+
+    fn navigation_transition_pending(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        state.pending_navigation_epoch.is_some()
+            || state.pending_document_epoch.is_some()
+            || state.pending_same_document_navigation
+    }
+
+    fn begin_superseding_targeted_navigation_frame_transition(
+        &self,
+    ) -> anyhow::Result<PointerFrameInvalidation> {
+        let mut state = self.state.lock().unwrap();
+        let navigation_pending = state.pending_navigation_epoch.is_some()
+            || state.pending_document_epoch.is_some()
+            || state.pending_same_document_navigation;
+        if !navigation_pending && state.pending_frame_epoch.is_some() {
+            anyhow::bail!("browser frame reconfiguration is still committing");
+        }
+        state.pending_frame_epoch = None;
+        state.pending_navigation_epoch = None;
+        state.pending_document_epoch = None;
+        state.pending_same_document_navigation = false;
+        state.pending_frame = None;
+        Ok(self.reserve_navigation_frame_transition_locked(&mut state, true))
     }
 
     #[cfg(test)]
@@ -2377,7 +2413,8 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         if state.pointer_frame_revision != invalidation.revision
             || !matches!(state.status, BrowserStatus::Live)
-            || state.latest_frame.as_ref().map(|frame| frame.seq) != invalidation.previous
+            || state.latest_frame.as_ref().map(|frame| frame.seq)
+                != invalidation.previous_latest_frame_seq
         {
             return;
         }
@@ -3019,25 +3056,65 @@ impl BrowserSurface {
         self.enqueue_latest_nav(BrowserCommand::Navigate(url.to_string()))
     }
 
+    fn begin_latest_navigation_frame_transition(
+        &self,
+        session: &BrowserSession,
+    ) -> anyhow::Result<PointerFrameInvalidation> {
+        match self.begin_targeted_navigation_frame_transition() {
+            Ok(invalidation) => Ok(invalidation),
+            Err(_) if self.navigation_transition_pending() => {
+                // Page.stopLoading is ordered on the same CDP session. By the
+                // time it responds, ingress has assigned epochs to every old
+                // navigation event Chrome emitted, so a fresh current + 1
+                // reservation rejects any old event still queued to the
+                // surface while allowing the latest-wins URL to proceed.
+                session.runtime.client.stop_loading(&session.session_id)?;
+                self.begin_superseding_targeted_navigation_frame_transition()
+            }
+            Err(first_error) => {
+                // The previous transition may have settled between the first
+                // reservation attempt and the state check.
+                self.begin_targeted_navigation_frame_transition().map_err(|_| first_error)
+            }
+        }
+    }
+
+    fn reconcile_loaderless_navigation(&self, session: &BrowserSession) -> anyhow::Result<()> {
+        if !self.needs_same_document_paint() {
+            return Ok(());
+        }
+        // CDP omits loaderId for same-document Page.navigate results. If the
+        // corresponding event was delayed or absent, snapshot the subscribed
+        // session and authorize freshly captured pixels for that loader.
+        let (frame_id, loader_id) =
+            session.runtime.client.snapshot_main_frame(&session.session_id)?;
+        self.authorize_same_document_paint_blocking(&session.session_id, &frame_id, &loader_id)
+    }
+
     fn navigate_blocking(&self, url: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         let normalized = normalize_url(url);
-        let invalidation = self.begin_targeted_navigation_frame_transition()?;
+        let invalidation = self.begin_latest_navigation_frame_transition(&session)?;
         match session.runtime.client.navigate(&session.session_id, &normalized) {
-            Ok(result) if result.error_text.is_some() => {
-                let error = result.error_text.expect("guarded above");
-                self.abandon_frame_transition();
-                self.mark_failed(error.clone());
-                anyhow::bail!("browser failed: {error}");
+            Ok(result) => {
+                if let Some(error) = result.error_text {
+                    self.abandon_frame_transition();
+                    self.mark_failed(error.clone());
+                    anyhow::bail!("browser failed: {error}");
+                }
+                if result.is_download {
+                    // Chrome explicitly confirmed that the response was handed
+                    // to the download manager, so the current document and its
+                    // presented frame remain authoritative.
+                    self.restore_pointer_frame_after_failed_command(invalidation);
+                    return Ok(());
+                }
+                let loaderless = result.loader_id.is_none();
+                self.finish_navigation_command(invalidation, Ok(()))?;
+                if loaderless {
+                    self.reconcile_loaderless_navigation(&session)?;
+                }
             }
-            Ok(result) if result.is_download => {
-                // Chrome explicitly confirmed that the response was handed
-                // to the download manager, so the current document and its
-                // presented frame remain authoritative.
-                self.restore_pointer_frame_after_failed_command(invalidation);
-                return Ok(());
-            }
-            Ok(_) => self.finish_navigation_command(invalidation, Ok(()))?,
             Err(error) => self.finish_navigation_command(invalidation, Err(error))?,
         }
         self.set_url_title(normalized.clone(), normalized);
@@ -5378,6 +5455,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (superseded_tx, superseded_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = accept(stream).unwrap();
@@ -5425,6 +5503,7 @@ mod tests {
                 }),
             );
             superseded_tx.send(true).unwrap();
+            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -5461,6 +5540,7 @@ mod tests {
             admitted =
                 browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2));
         }
+        stop_tx.send(()).unwrap();
         runtime.shutdown();
         server.join().unwrap();
 
@@ -5760,6 +5840,7 @@ mod tests {
 
     #[test]
     fn loaderless_navigation_response_reconciles_the_unchanged_document() {
+        const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -5774,6 +5855,37 @@ mod tests {
                 &mut ws,
                 json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
             );
+            for expected in [
+                "Page.getFrameTree",
+                "Page.stopScreencast",
+                "Page.createIsolatedWorld",
+                "Runtime.evaluate",
+                "Page.startScreencast",
+                "Page.getFrameTree",
+                "Page.captureScreenshot",
+                "Page.getFrameTree",
+            ] {
+                let request = read_ws_json(&mut ws);
+                assert_eq!(request["method"], expected);
+                let result = match expected {
+                    "Page.getFrameTree" => json!({
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test#same-document"
+                            }
+                        }
+                    }),
+                    "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
+                    "Runtime.evaluate" => {
+                        json!({"result": {"type": "number", "value": 10_000.0}})
+                    }
+                    "Page.captureScreenshot" => json!({"data": ONE_PIXEL_PNG}),
+                    _ => json!({}),
+                };
+                write_ws_json(&mut ws, json!({"id": request["id"], "result": result}));
+            }
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -5783,6 +5895,7 @@ mod tests {
         .unwrap();
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
         *browser.session.lock().unwrap() = Some(BrowserSession {
             runtime: runtime.clone(),
             target_id: "target-1".to_string(),
@@ -5807,8 +5920,8 @@ mod tests {
         assert_eq!(pending_navigation_epoch, None);
         assert_eq!(
             pointer_frame_seq,
-            Some(1),
-            "the unchanged document must regain its previously admitted pointer frame"
+            Some(2),
+            "the unchanged document must regain authority through freshly captured pixels"
         );
     }
 

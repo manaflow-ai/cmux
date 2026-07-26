@@ -68,6 +68,19 @@ def pointer_frame_seq_from_event(value: dict) -> int | None:
     return pointer_frame_seq
 
 
+def recovery_poke(surface: int, pointer_frame_seq: int | None) -> dict:
+    if pointer_frame_seq is None:
+        return {"cmd": "browser-activate", "surface": surface}
+    return {
+        "cmd": "browser-wheel-guarded",
+        "surface": surface,
+        "x_px": 10,
+        "y_px": 10,
+        "delta_y_px": 120,
+        "frame_seq": pointer_frame_seq,
+    }
+
+
 class LineReader:
     """Buffered line reader over a timeout socket. readline() returns None on
     timeout instead of raising: socket.makefile() readers are permanently
@@ -159,6 +172,7 @@ def main() -> int:
         last_frame_time = None
         gaps: list[float] = []
         last_seq = initial_seq
+        activation_sent_at = None
         wheel_sent_at = None
         wheel_after_seq = initial_seq
         wheel_latency = None
@@ -168,27 +182,20 @@ def main() -> int:
             now = time.monotonic()
             # Poke repeatedly until frames flow: the first interaction is what
             # un-throttles a hidden external-Chrome tab via the stall nudge.
-            need_poke = wheel_sent_at is None or (not frame_times and now - wheel_sent_at >= 2.0)
-            if (
-                need_poke
-                and pointer_frame_seq is not None
-                and now - start >= min(args.seconds / 2.0, 2.0)
-            ):
+            last_poke_at = activation_sent_at if pointer_frame_seq is None else wheel_sent_at
+            need_poke = last_poke_at is None or (
+                not frame_times and now - last_poke_at >= 2.0
+            )
+            if need_poke and now - start >= min(args.seconds / 2.0, 2.0):
                 try:
-                    rpc.request(
-                        {
-                            "cmd": "browser-wheel-guarded",
-                            "surface": surface,
-                            "x_px": 10,
-                            "y_px": 10,
-                            "delta_y_px": 120,
-                            "frame_seq": pointer_frame_seq,
-                        }
-                    )
+                    rpc.request(recovery_poke(surface, pointer_frame_seq))
                 except RuntimeError:
                     pass  # still starting; retry on the next poke cycle
-                wheel_sent_at = time.monotonic()
-                wheel_after_seq = last_seq
+                if pointer_frame_seq is None:
+                    activation_sent_at = time.monotonic()
+                else:
+                    wheel_sent_at = time.monotonic()
+                    wheel_after_seq = last_seq
             line = reader.readline()
             if line is None:
                 continue

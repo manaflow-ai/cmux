@@ -139,6 +139,7 @@ pub struct NavigationHistory {
 pub struct NavigationResult {
     pub error_text: Option<String>,
     pub is_download: bool,
+    pub loader_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -624,6 +625,10 @@ impl CdpClient {
     }
 
     pub fn seed_main_frame(&self, session_id: &str) -> anyhow::Result<()> {
+        self.snapshot_main_frame(session_id).map(|_| ())
+    }
+
+    pub fn snapshot_main_frame(&self, session_id: &str) -> anyhow::Result<(String, String)> {
         let result = self.call("Page.getFrameTree", json!({}), Some(session_id))?;
         let frame = result
             .get("frameTree")
@@ -643,7 +648,7 @@ impl CdpClient {
             .ok_or_else(|| anyhow::anyhow!("missing frame epoch for CDP session {session_id}"))?;
         frame_session.main_frame_id = Some(frame_id.to_string());
         frame_session.main_loader_id = Some(loader_id.to_string());
-        Ok(())
+        Ok((frame_id.to_string(), loader_id.to_string()))
     }
 
     pub fn set_user_agent(&self, session_id: &str, user_agent: &str) -> anyhow::Result<()> {
@@ -858,7 +863,16 @@ impl CdpClient {
             .filter(|error| !error.is_empty())
             .map(ToOwned::to_owned);
         let is_download = result.get("isDownload").and_then(Value::as_bool).unwrap_or(false);
-        Ok(NavigationResult { error_text, is_download })
+        let loader_id = result
+            .get("loaderId")
+            .and_then(Value::as_str)
+            .filter(|loader_id| !loader_id.is_empty())
+            .map(ToOwned::to_owned);
+        Ok(NavigationResult { error_text, is_download, loader_id })
+    }
+
+    pub fn stop_loading(&self, session_id: &str) -> anyhow::Result<()> {
+        self.call("Page.stopLoading", json!({}), Some(session_id)).map(|_| ())
     }
 
     pub fn navigation_history(&self, session_id: &str) -> anyhow::Result<NavigationHistory> {
@@ -1268,7 +1282,7 @@ fn main_frame_navigation_epoch(
 fn main_frame_document_paint(inner: &Inner, params: &Value, session_id: &str) -> Option<CdpEvent> {
     if !matches!(
         params.get("name").and_then(Value::as_str),
-        Some("firstPaint" | "firstContentfulPaint")
+        Some("firstPaint" | "firstContentfulPaint" | "load")
     ) {
         return None;
     }
