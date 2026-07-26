@@ -88,8 +88,8 @@ The inventory assigns each command to one disjoint authority group. Generated SD
 
 | Profile | Contents |
 | --- | --- |
-| `control` | The `control` group: ordinary commands, snapshots, durable terminal identity, subscriptions, and frontend projections |
-| `frontend` | `control` plus the `frontend` group: attach streams, browser input, and render data |
+| `control` | The `control` group: ordinary commands, snapshots, durable terminal identity, and frontend projections |
+| `frontend` | `control` plus the `frontend` group: subscriptions, attach streams, browser input, and render data |
 | `local-admin` | `control` plus the `local-admin` group on a trusted Unix-classified transport, including the current stdio relay |
 | `provider-authority` | `control` plus the `provider-authority` group after separate authority authentication |
 | `machine-provider` | Separate provider v0/v1 client and server types |

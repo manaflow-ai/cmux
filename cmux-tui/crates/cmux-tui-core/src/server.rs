@@ -733,7 +733,7 @@ impl Command {
         }
     }
 
-    fn provider_authority(&self) -> Option<&str> {
+    fn provider_authority_mut(&mut self) -> Option<&mut String> {
         match self {
             Command::MarkWorkspacesProviderManaged { authority }
             | Command::CloseProviderManagedWorkspace { authority, .. }
@@ -2245,7 +2245,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     difference == 0
 }
 
-fn authorize_command_profile(mux: &Mux, client: u64, command: &Command) -> anyhow::Result<()> {
+fn authorize_command_profile(mux: &Mux, client: u64, command: &mut Command) -> anyhow::Result<()> {
     match command.profile() {
         CommandProfile::Control | CommandProfile::Frontend => Ok(()),
         CommandProfile::LocalAdmin if mux.control_clients.is_unix(client) => Ok(()),
@@ -2260,9 +2260,13 @@ fn authorize_command_profile(mux: &Mux, client: u64, command: &Command) -> anyho
         },
         CommandProfile::ProviderAuthority => {
             let authority = command
-                .provider_authority()
+                .provider_authority_mut()
                 .expect("provider-authority command must expose its authority");
-            mux.authorize_provider_workspace_authority(authority)
+            let result = mux.authorize_provider_workspace_authority(authority);
+            if result.is_err() {
+                zeroize_string(authority);
+            }
+            result
         }
     }
 }
@@ -3221,10 +3225,10 @@ fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u
 fn handle_command(
     mux: &Arc<Mux>,
     client: u64,
-    cmd: Command,
+    mut cmd: Command,
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
-    authorize_command_profile(mux, client, &cmd)?;
+    authorize_command_profile(mux, client, &mut cmd)?;
     match cmd {
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
@@ -3880,6 +3884,7 @@ fn handle_command(
             terminal_id,
             mutation,
         } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -3895,7 +3900,6 @@ fn handle_command(
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let (registry_id, generation) = mux.registry_identity();
             if terminal_id.is_some() || mutation.mutation_id.is_some() {
-                let workspace_mutation = workspace_mutation(&mutation)?;
                 let result = mux.create_terminal_in_workspace_with_mutation(
                     workspace,
                     argv,
