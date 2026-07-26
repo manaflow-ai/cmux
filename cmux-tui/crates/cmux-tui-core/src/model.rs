@@ -39,8 +39,7 @@ pub(crate) struct ScreenLayoutSnapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayoutMutationKey {
-    Split { split: SplitId, client: u64, transaction: u64 },
-    Column { column: SplitId, client: u64, transaction: u64 },
+    Resize { client: u64, transaction: u64 },
 }
 
 #[derive(Debug, Clone)]
@@ -325,31 +324,33 @@ impl Node {
         dir: SplitDir,
         new_ratio: f32,
     ) -> bool {
-        fn walk(node: &mut Node, target: PaneId, dir: SplitDir, new_ratio: f32) -> (bool, bool) {
+        let Some(split) = self.deepest_split_for_pane(target, dir) else {
+            return false;
+        };
+        self.set_split_ratio(split, new_ratio)
+    }
+
+    pub(crate) fn deepest_split_for_pane(&self, target: PaneId, dir: SplitDir) -> Option<SplitId> {
+        fn walk(node: &Node, target: PaneId, dir: SplitDir) -> (bool, Option<SplitId>) {
             match node {
-                Node::Leaf(id) => (*id == target, false),
-                Node::Split { dir: split_dir, ratio, a, b, .. } => {
-                    let (a_contains, a_updated) = walk(a, target, dir, new_ratio);
-                    if a_updated {
-                        return (true, true);
+                Node::Leaf(id) => (*id == target, None),
+                Node::Split { id, dir: split_dir, a, b, .. } => {
+                    let (a_contains, a_split) = walk(a, target, dir);
+                    if a_split.is_some() {
+                        return (true, a_split);
                     }
-                    let (b_contains, b_updated) = walk(b, target, dir, new_ratio);
-                    if b_updated {
-                        return (true, true);
+                    let (b_contains, b_split) = walk(b, target, dir);
+                    if b_split.is_some() {
+                        return (true, b_split);
                     }
                     let contains = a_contains || b_contains;
-                    if contains && *split_dir == dir {
-                        *ratio = new_ratio;
-                        (true, true)
-                    } else {
-                        (contains, false)
-                    }
+                    if contains && *split_dir == dir { (true, Some(*id)) } else { (contains, None) }
                 }
-                Node::Stack { panes, .. } => (panes.contains(&target), false),
+                Node::Stack { panes, .. } => (panes.contains(&target), None),
             }
         }
 
-        walk(self, target, dir, new_ratio).1
+        walk(self, target, dir).1
     }
 
     pub(crate) fn set_split_ratio(&mut self, target: SplitId, new_ratio: f32) -> bool {
@@ -701,22 +702,23 @@ impl Screen {
         &mut self,
         split: SplitId,
         ratio: f32,
-    ) -> bool {
-        let Some(index) = self
+    ) -> Option<bool> {
+        let index = self
             .layout_columns
             .iter()
             .position(|column| column.id == split)
-            .filter(|index| *index > 0)
-        else {
-            return false;
-        };
+            .filter(|index| *index > 0)?;
         let width_before =
             self.layout_columns[..index].iter().map(|column| column.width).sum::<f32>();
-        let width = (width_before * (1.0 - ratio) / ratio)
-            .clamp(crate::MIN_VIEWPORT_PANE_WIDTH, crate::MAX_VIEWPORT_PANE_WIDTH);
+        let width = width_before * (1.0 - ratio) / ratio;
+        if !width.is_finite()
+            || !(crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
+        {
+            return Some(false);
+        }
         self.layout_columns[index].width = width;
         self.sync_layout_column_width_projection();
-        true
+        Some(true)
     }
 
     pub(crate) fn collapse_single_layout_column(&mut self) {

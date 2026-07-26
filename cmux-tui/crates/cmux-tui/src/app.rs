@@ -2375,8 +2375,13 @@ pub struct PaneArea {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PaneViewportClip {
+    /// First logical pane column represented by `rect`.
     pub rect_source_x: u16,
     pub full_rect_width: u16,
+    /// First logical browser-toolbar column represented by `omnibar`.
+    pub omnibar_source_x: u16,
+    pub full_omnibar_width: u16,
+    /// First logical terminal/browser-content column represented by `content`.
     pub content_source_x: u16,
     pub full_content_width: u16,
 }
@@ -2398,6 +2403,17 @@ impl PaneArea {
 
     pub(crate) fn content_source_x(&self) -> u16 {
         self.viewport.map_or(0, |clip| clip.content_source_x)
+    }
+
+    pub(crate) fn omnibar_source_x(&self) -> u16 {
+        self.viewport.map_or(0, |clip| clip.omnibar_source_x)
+    }
+
+    pub(crate) fn full_omnibar_width(&self) -> u16 {
+        self.viewport.map_or_else(
+            || self.omnibar.map_or(0, |rect| rect.width),
+            |clip| clip.full_omnibar_width,
+        )
     }
 
     pub(crate) fn logical_content_rect(&self) -> Rect {
@@ -6584,53 +6600,70 @@ impl App {
             else {
                 continue;
             };
-            let (rect, rect_source_x, bar, omnibar, content, content_source_x, track) =
-                if viewport_enabled {
-                    let Some((rect, rect_source_x)) =
-                        clip_horizontal_rect(full_rect, viewport_x, area.width, area.x)
-                    else {
-                        continue;
-                    };
-                    let bar = full_bar.and_then(|rect| {
-                        clip_horizontal_rect(rect, viewport_x, area.width, area.x)
-                            .map(|(rect, _)| rect)
-                    });
-                    let omnibar = full_omnibar.and_then(|rect| {
-                        clip_horizontal_rect(rect, viewport_x, area.width, area.x)
-                            .map(|(rect, _)| rect)
-                    });
-                    let (content, content_source_x) =
-                        clip_horizontal_rect(full_content, viewport_x, area.width, area.x)
-                            .unwrap_or((
-                                Rect {
-                                    x: rect.x,
-                                    y: full_content.y,
-                                    width: 0,
-                                    height: full_content.height,
-                                },
-                                0,
-                            ));
-                    let track = full_track.and_then(|rect| {
-                        clip_horizontal_rect(rect, viewport_x, area.width, area.x)
-                            .map(|(rect, _)| rect)
-                    });
-                    (rect, rect_source_x, bar, omnibar, content, content_source_x, track)
-                } else {
-                    let Some(rect) = terminal_rect_from_virtual(full_rect) else {
-                        continue;
-                    };
-                    let bar = full_bar.and_then(terminal_rect_from_virtual);
-                    let omnibar = full_omnibar.and_then(terminal_rect_from_virtual);
-                    let Some(content) = terminal_rect_from_virtual(full_content) else {
-                        continue;
-                    };
-                    let track = full_track.and_then(terminal_rect_from_virtual);
-                    (rect, 0, bar, omnibar, content, 0, track)
+            let (
+                rect,
+                rect_source_x,
+                bar,
+                omnibar,
+                omnibar_source_x,
+                content,
+                content_source_x,
+                track,
+            ) = if viewport_enabled {
+                let Some((rect, rect_source_x)) =
+                    clip_horizontal_rect(full_rect, viewport_x, area.width, area.x)
+                else {
+                    continue;
                 };
+                let bar = full_bar.and_then(|rect| {
+                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
+                });
+                let (omnibar, omnibar_source_x) = full_omnibar
+                    .and_then(|rect| clip_horizontal_rect(rect, viewport_x, area.width, area.x))
+                    .map_or((None, 0), |(rect, source_x)| (Some(rect), source_x));
+                let (content, content_source_x) = clip_horizontal_rect(
+                    full_content,
+                    viewport_x,
+                    area.width,
+                    area.x,
+                )
+                .unwrap_or((
+                    Rect { x: rect.x, y: full_content.y, width: 0, height: full_content.height },
+                    0,
+                ));
+                let track = full_track.and_then(|rect| {
+                    clip_horizontal_rect(rect, viewport_x, area.width, area.x).map(|(rect, _)| rect)
+                });
+                (
+                    rect,
+                    rect_source_x,
+                    bar,
+                    omnibar,
+                    omnibar_source_x,
+                    content,
+                    content_source_x,
+                    track,
+                )
+            } else {
+                let Some(rect) = terminal_rect_from_virtual(full_rect) else {
+                    continue;
+                };
+                let bar = full_bar.and_then(terminal_rect_from_virtual);
+                let omnibar = full_omnibar.and_then(terminal_rect_from_virtual);
+                let Some(content) = terminal_rect_from_virtual(full_content) else {
+                    continue;
+                };
+                let track = full_track.and_then(terminal_rect_from_virtual);
+                (rect, 0, bar, omnibar, 0, content, 0, track)
+            };
             let pane_viewport = viewport_enabled
                 .then_some(PaneViewportClip {
                     rect_source_x,
                     full_rect_width: u16::try_from(full_rect.width).unwrap_or(u16::MAX),
+                    omnibar_source_x,
+                    full_omnibar_width: full_omnibar
+                        .and_then(|rect| u16::try_from(rect.width).ok())
+                        .unwrap_or(0),
                     content_source_x,
                     full_content_width: u16::try_from(full_content.width).unwrap_or(u16::MAX),
                 })
@@ -10015,7 +10048,8 @@ impl App {
                 .omnibar
                 .as_ref()
                 .is_some_and(|state| state.pane == area.pane && state.surface == area.surface);
-            crate::ui::omnibar::hit(rect, x, y, editing).map(|hit| (area.pane, hit))
+            crate::ui::omnibar::hit(rect, area.omnibar_source_x(), x, y, editing)
+                .map(|hit| (area.pane, hit))
         })
     }
 
@@ -11185,16 +11219,17 @@ impl App {
             if let Some(state) = self.omnibar.as_mut() {
                 if state.pane == pane {
                     if hit == OmnibarHit::Edit
-                        && let Some(rect) = self
+                        && let Some(area) = self
                             .pane_areas
                             .iter()
                             .find(|area| area.pane == pane && area.surface == state.surface)
-                            .and_then(|area| area.omnibar)
+                        && let Some(rect) = area.omnibar
                     {
                         state.select_all = false;
                         state.input.set_cursor_from_visible_column(
-                            x.saturating_sub(rect.x) as usize,
-                            rect.width as usize,
+                            area.omnibar_source_x().saturating_add(x.saturating_sub(rect.x))
+                                as usize,
+                            area.full_omnibar_width() as usize,
                         );
                     }
                     return Ok(RenderAction::Draw);
@@ -12693,8 +12728,8 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
-        MuxTitleIngress, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
-        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        MuxTitleIngress, OmnibarHit, OrderedSession, OuterCursorSpec, PaneArea, PaneEdge,
+        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
         RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SessionEventSender, ShortcutHelp, SidebarLayout, SidebarPluginSyncClaim,
@@ -14711,6 +14746,34 @@ mod tests {
     }
 
     #[test]
+    fn clipped_browser_omnibar_keeps_logical_hit_coordinates() {
+        let mux = Mux::new("clipped-browser-omnibar-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(browser_completion_tree(41, 41));
+        app.pane_areas.push(PaneArea {
+            pane: 2,
+            surface: 41,
+            rect: Rect { x: 20, y: 4, width: 10, height: 8 },
+            bar: Some(Rect { x: 20, y: 4, width: 10, height: 1 }),
+            omnibar: Some(Rect { x: 20, y: 5, width: 8, height: 1 }),
+            content: Rect { x: 20, y: 6, width: 8, height: 5 },
+            track: None,
+            viewport: Some(PaneViewportClip {
+                rect_source_x: 4,
+                full_rect_width: 40,
+                omnibar_source_x: 4,
+                full_omnibar_width: 38,
+                content_source_x: 4,
+                full_content_width: 38,
+            }),
+        });
+
+        assert_eq!(app.omnibar_hit_at(21, 5), Some((2, OmnibarHit::Reload)));
+        assert_eq!(app.omnibar_hit_at(23, 5), Some((2, OmnibarHit::Edit)));
+        assert_eq!(app.omnibar_hit_at(20, 5), None);
+    }
+
+    #[test]
     fn browser_omnibar_degrades_gracefully_with_one_content_row() {
         let rect = Rect { x: 0, y: 0, width: 20, height: 3 };
         let (_bar, omnibar, content, _track) =
@@ -14985,6 +15048,8 @@ mod tests {
             viewport: Some(PaneViewportClip {
                 rect_source_x: 10,
                 full_rect_width: 23,
+                omnibar_source_x: 0,
+                full_omnibar_width: 0,
                 content_source_x: 10,
                 full_content_width: 20,
             }),
@@ -18042,6 +18107,8 @@ mod tests {
             viewport: Some(PaneViewportClip {
                 rect_source_x: 7,
                 full_rect_width: 20,
+                omnibar_source_x: 0,
+                full_omnibar_width: 0,
                 content_source_x: 7,
                 full_content_width: 20,
             }),

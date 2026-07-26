@@ -6,6 +6,7 @@ import type {
   CmuxStream,
   DecodedAttachEvent,
   KnownCmuxEvent,
+  NewPaneRightOptions,
   RenderAttachEvent,
   RenderDeltaEvent,
   RenderStateEvent,
@@ -28,6 +29,8 @@ const viewportScreen: Screen = {
   panes: [],
 };
 void viewportScreen;
+const browserViewportOptions: NewPaneRightOptions = { width: 2 / 3 };
+void browserViewportOptions;
 
 const requests = [
   { cmd: "identify" },

@@ -6409,17 +6409,23 @@ impl Mux {
                 }
                 let before = screen.layout_snapshot();
                 let changed = if screen.layout_columns_active() {
-                    let changed = screen.layout_column_for_pane_mut(pane).is_some_and(|column| {
-                        let changed = column.root.set_deepest_ratio(pane, dir, ratio);
-                        if changed {
-                            column.zellij_auto_layout = None;
+                    let split = screen.root.deepest_split_for_pane(pane, dir)?;
+                    match screen.set_projected_viewport_split_ratio(split, ratio) {
+                        Some(changed) => changed,
+                        None => {
+                            let changed = screen.layout_columns.iter_mut().any(|column| {
+                                let changed = column.root.set_split_ratio(split, ratio);
+                                if changed {
+                                    column.zellij_auto_layout = None;
+                                }
+                                changed
+                            });
+                            if changed {
+                                screen.sync_layout_column_projection();
+                            }
+                            changed
                         }
-                        changed
-                    });
-                    if changed {
-                        screen.sync_layout_column_projection();
                     }
-                    changed
                 } else {
                     let changed = screen.root.set_deepest_ratio(pane, dir, ratio);
                     if changed {
@@ -6474,58 +6480,54 @@ impl Mux {
             else {
                 return false;
             };
-            let changed = state
+            if state
                 .workspaces
-                .get_mut(workspace_index)
-                .and_then(|workspace| workspace.screens.get_mut(screen_index))
-                .filter(|screen| screen.id == owner)
-                .and_then(|screen| {
-                    let coalesce = transaction.map(|(client, transaction)| {
-                        LayoutMutationKey::Split { split, client, transaction }
-                    });
-                    let before = screen.layout_snapshot_for_coalescing_change(coalesce);
-                    let changed = if screen.layout_columns_active() {
-                        if screen.set_projected_viewport_split_ratio(split, ratio) {
-                            true
-                        } else {
-                            let changed = screen.layout_columns.iter_mut().any(|column| {
-                                let changed = column.root.set_split_ratio(split, ratio);
-                                if changed {
-                                    column.zellij_auto_layout = None;
-                                }
-                                changed
-                            });
+                .get(workspace_index)
+                .and_then(|workspace| workspace.screens.get(screen_index))
+                .is_none_or(|screen| screen.id != owner)
+            {
+                state.split_screens.remove(&split);
+                return false;
+            }
+            let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+            let coalesce = transaction
+                .map(|(client, transaction)| LayoutMutationKey::Resize { client, transaction });
+            let before = screen.layout_snapshot_for_coalescing_change(coalesce);
+            let changed = if screen.layout_columns_active() {
+                match screen.set_projected_viewport_split_ratio(split, ratio) {
+                    Some(true) => true,
+                    Some(false) => return false,
+                    None => {
+                        let changed = screen.layout_columns.iter_mut().any(|column| {
+                            let changed = column.root.set_split_ratio(split, ratio);
                             if changed {
-                                let projection_changed = screen.root.set_split_ratio(split, ratio);
-                                debug_assert!(projection_changed);
+                                column.zellij_auto_layout = None;
                             }
                             changed
-                        }
-                    } else {
-                        let changed = screen.root.set_split_ratio(split, ratio);
+                        });
                         if changed {
-                            screen.zellij_auto_layout = None;
+                            let projection_changed = screen.root.set_split_ratio(split, ratio);
+                            debug_assert!(projection_changed);
                         }
                         changed
-                    };
-                    if changed {
-                        screen.record_prepared_layout_change(before, Vec::new(), coalesce);
-                        Some(screen.id)
-                    } else {
-                        None
                     }
-                });
-            if changed.is_none() {
+                }
+            } else {
+                let changed = screen.root.set_split_ratio(split, ratio);
+                if changed {
+                    screen.zellij_auto_layout = None;
+                }
+                changed
+            };
+            if !changed {
                 state.split_screens.remove(&split);
+                return false;
             }
-            changed
+            screen.record_prepared_layout_change(before, Vec::new(), coalesce);
+            screen.id
         };
-        if let Some(screen) = changed_screen {
-            self.emit(MuxEvent::LayoutChanged(screen));
-            true
-        } else {
-            false
-        }
+        self.emit(MuxEvent::LayoutChanged(changed_screen));
+        true
     }
 
     /// Set the width of the horizontal viewport column containing `pane`.
@@ -6569,15 +6571,11 @@ impl Mux {
             else {
                 return false;
             };
-            let column_id = screen.layout_columns[column_index].id;
             if (screen.layout_columns[column_index].width - width).abs() < f32::EPSILON {
                 return true;
             }
-            let coalesce = transaction.map(|(client, transaction)| LayoutMutationKey::Column {
-                column: column_id,
-                client,
-                transaction,
-            });
+            let coalesce = transaction
+                .map(|(client, transaction)| LayoutMutationKey::Resize { client, transaction });
             let before = screen.layout_snapshot_for_coalescing_change(coalesce);
             screen.layout_columns[column_index].width = width;
             screen.sync_layout_column_width_projection();
@@ -10039,6 +10037,7 @@ mod tests {
 
         assert!(mux.set_split_ratio(split, 0.5));
         assert!(mux.set_split_ratio(split, 0.5));
+        assert!(!mux.set_split_ratio(split, 0.25));
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.viewport_splits[&split], 1.0);
@@ -10056,6 +10055,25 @@ mod tests {
                     if *id == split && (*ratio - 0.5).abs() < f32::EPSILON
             ));
             assert!(state.split_screens.contains_key(&split));
+        });
+    }
+
+    #[test]
+    fn set_ratio_resizes_a_projected_viewport_split() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+
+        assert!(mux.set_ratio(first_pane, SplitDir::Right, 0.5));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let Node::Split { id, ratio, .. } = &screen.root else {
+                panic!("viewport layout must expose a compatibility split");
+            };
+            assert!((*ratio - 0.5).abs() < f32::EPSILON);
+            assert_eq!(screen.viewport_splits[id], 1.0);
+            assert!(screen.layout_column_projection_is_consistent());
         });
     }
 
@@ -10198,11 +10216,9 @@ mod tests {
         assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 7, 11));
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            let column = screen.layout_columns[1].id;
             assert!(
                 screen
-                    .layout_snapshot_for_coalescing_change(Some(LayoutMutationKey::Column {
-                        column,
+                    .layout_snapshot_for_coalescing_change(Some(LayoutMutationKey::Resize {
                         client: 7,
                         transaction: 11,
                     }))
@@ -10251,6 +10267,45 @@ mod tests {
             assert!(screen.viewport_splits.is_empty());
             assert_eq!(screen.root.pane_ids_vec(), vec![first_pane]);
             assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn layout_undo_coalesces_every_target_in_one_resize_transaction() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let bottom = mux.split(right_pane, SplitDir::Down, Some((38, 10))).unwrap();
+        let bottom_pane = mux.with_state(|state| state.pane_of(bottom.id).unwrap());
+        let (split, initial_ratio, initial_undo_len) = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let Node::Split { id, ratio, .. } = &screen.layout_columns[1].root else {
+                panic!("right viewport column must contain the vertical split");
+            };
+            (*id, *ratio, screen.layout_undo.len())
+        });
+
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 9, 41));
+        assert!(mux.set_split_ratio_in_transaction(split, 0.7, 9, 41));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_undo.len(), initial_undo_len + 1);
+        });
+
+        assert!(matches!(
+            mux.undo_layout(bottom_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_columns[1].width, 0.5);
+            let Node::Split { ratio, .. } = &screen.layout_columns[1].root else {
+                panic!("right viewport column must retain the vertical split");
+            };
+            assert!((*ratio - initial_ratio).abs() < f32::EPSILON);
+            assert_eq!(screen.layout_undo.len(), initial_undo_len);
         });
     }
 
