@@ -105,7 +105,7 @@ struct BrowserSession {
 }
 
 struct BrowserState {
-    latest_frame: Option<BrowserFrame>,
+    latest_frame: Option<Arc<BrowserFrame>>,
     // Latest-wins attach frame taps. Broadcast overwrites each slot and
     // sends one wakeup; a slow client skips old frames but stays attached.
     taps: Vec<BrowserFrameTap>,
@@ -1143,13 +1143,18 @@ fn emit_browser_failure(mux: &Weak<Mux>, id: SurfaceId, message: String) {
 }
 
 impl BrowserSurface {
-    pub fn latest_frame(&self) -> Option<BrowserFrame> {
+    pub fn latest_frame(&self) -> Option<Arc<BrowserFrame>> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
             None
         } else {
             state.latest_frame.clone()
         }
+    }
+
+    pub fn has_latest_frame(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        !matches!(state.status, BrowserStatus::Failed(_)) && state.latest_frame.is_some()
     }
 
     pub fn title(&self) -> String {
@@ -1477,9 +1482,10 @@ impl BrowserSurface {
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
+        let frame = Arc::new(frame);
         state.latest_frame = Some(frame.clone());
         state.taps.retain(|tap| {
-            tap.slot.lock().unwrap().frame = Some(frame.clone());
+            tap.slot.lock().unwrap().frame = Some(frame.as_ref().clone());
             match tap.notify.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => true,
                 Err(TrySendError::Disconnected(())) => false,
@@ -1988,7 +1994,7 @@ fn browser_attach_state_locked(
         cols: state.size.0,
         rows: state.size.1,
         status: state.status.clone(),
-        frame: include_frame.then(|| state.latest_frame.clone()).flatten(),
+        frame: include_frame.then(|| state.latest_frame.as_deref().cloned()).flatten(),
         frames_stalled: frames_stalled_locked(state, now, dead),
     }
 }

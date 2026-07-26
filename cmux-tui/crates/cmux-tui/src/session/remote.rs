@@ -115,7 +115,7 @@ impl std::fmt::Display for RemoteRequestError {
 impl std::error::Error for RemoteRequestError {}
 #[derive(Clone)]
 struct RemoteBrowserFrame {
-    frame: BrowserFrame,
+    frame: Arc<BrowserFrame>,
 }
 
 #[derive(Clone)]
@@ -362,13 +362,18 @@ impl RemoteSurface {
         *self.reported_size.lock().unwrap() = None;
     }
 
-    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+    pub fn browser_frame(&self) -> Option<Arc<BrowserFrame>> {
         let browser = self.browser.lock().unwrap();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             None
         } else {
             browser.frame.as_ref().map(|frame| frame.frame.clone())
         }
+    }
+
+    pub fn has_browser_frame(&self) -> bool {
+        let browser = self.browser.lock().unwrap();
+        !matches!(browser.status, BrowserStatus::Failed(_)) && browser.frame.is_some()
     }
 
     pub fn browser_url(&self) -> Option<String> {
@@ -1718,13 +1723,13 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
     let width = value.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     let height = value.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     Some(RemoteBrowserFrame {
-        frame: BrowserFrame {
+        frame: Arc::new(BrowserFrame {
             session_id: String::new(),
             data_b64,
             css_width: width,
             css_height: height,
             seq,
-        },
+        }),
     })
 }
 

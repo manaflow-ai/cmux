@@ -484,7 +484,7 @@ fn draw_browser_content(
         Some("browser panes are not supported over attach yet".to_string())
     } else if !app.graphics_supported {
         Some("terminal has no kitty graphics support".to_string())
-    } else if surface.browser_frame().is_none() {
+    } else if !surface.has_browser_frame() {
         let url = surface
             .browser_url()
             .or_else(|| {

@@ -66,10 +66,14 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) -> Option<(u16, u
         return None;
     }
 
+    let visible_width = rect
+        .width
+        .min(full_width.saturating_sub(source_x))
+        .min(screen_right.saturating_sub(rect.x));
     let logical_rect = Rect { x: 0, y: 0, width: full_width, height: 1 };
     let mut logical = Buffer::empty(RatatuiRect::new(0, 0, full_width, 1));
     let cursor = if editing {
-        draw_editing(app, &mut logical, logical_rect)
+        draw_editing(app, &mut logical, Rect { x: source_x, width: visible_width, ..logical_rect })
     } else {
         let hover_x = app.hover.and_then(|(x, y)| {
             rect.contains(x, y).then(|| source_x.saturating_add(x.saturating_sub(rect.x)))
@@ -78,10 +82,6 @@ pub fn draw(app: &mut App, frame: &mut Frame, area: &PaneArea) -> Option<(u16, u
         None
     };
 
-    let visible_width = rect
-        .width
-        .min(full_width.saturating_sub(source_x))
-        .min(screen_right.saturating_sub(rect.x));
     copy_buffer_row_cropped(
         &logical,
         0,
@@ -129,7 +129,7 @@ fn draw_idle(
     });
     let loading = matches!(surface.browser_status(), Some(BrowserStatus::Starting))
         || (matches!(surface.browser_status(), Some(BrowserStatus::Live))
-            && surface.browser_frame().is_none());
+            && !surface.has_browser_frame());
     if loading {
         label.push('…');
     }

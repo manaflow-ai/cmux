@@ -6279,7 +6279,7 @@ impl App {
             return false;
         };
         surface.kind() == SurfaceKind::Browser
-            && surface.browser_frame().is_some()
+            && surface.has_browser_frame()
             && area.content.width > 0
             && area.content.height > 0
     }
@@ -6330,8 +6330,7 @@ impl App {
                 surface: area.surface,
                 rect: area.content,
                 source_crop_px,
-                seq: frame.seq,
-                data_b64: frame.data_b64,
+                frame,
             });
         }
         placements
@@ -11233,9 +11232,8 @@ impl App {
                     {
                         state.select_all = false;
                         state.input.set_cursor_from_visible_column(
-                            area.omnibar_source_x().saturating_add(x.saturating_sub(rect.x))
-                                as usize,
-                            area.full_omnibar_width() as usize,
+                            x.saturating_sub(rect.x) as usize,
+                            rect.width as usize,
                         );
                     }
                     return Ok(RenderAction::Draw);
@@ -14825,7 +14823,7 @@ mod tests {
         app.handle_left_down(22, 5, KeyModifiers::NONE).unwrap();
         assert_eq!(
             app.omnibar.as_mut().unwrap().input.visible_text_and_cursor(38).1,
-            4,
+            2,
             "a click must use the visible editor column, not the cropped logical column"
         );
         mux.shutdown();

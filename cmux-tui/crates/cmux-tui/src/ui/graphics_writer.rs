@@ -109,7 +109,17 @@ impl Drop for DoneOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_tui_core::Rect;
+    use cmux_tui_core::{BrowserFrame, Rect};
+
+    fn test_frame(seq: u64, data_b64: &str) -> Arc<BrowserFrame> {
+        Arc::new(BrowserFrame {
+            session_id: "test".to_string(),
+            data_b64: data_b64.to_string(),
+            css_width: 10,
+            css_height: 5,
+            seq,
+        })
+    }
 
     #[test]
     fn snapshot_slot_is_latest_wins_and_shutdown_is_clean() {
@@ -122,8 +132,7 @@ mod tests {
                 surface: 1,
                 rect: Rect { x: 0, y: 0, width: 10, height: 5 },
                 source_crop_px: None,
-                seq: 1,
-                data_b64: "AAAA".to_string(),
+                frame: test_frame(1, "AAAA"),
             }],
         );
         submit_snapshot(
@@ -133,14 +142,13 @@ mod tests {
                 surface: 1,
                 rect: Rect { x: 1, y: 1, width: 11, height: 6 },
                 source_crop_px: None,
-                seq: 2,
-                data_b64: "BBBB".to_string(),
+                frame: test_frame(2, "BBBB"),
             }],
         );
 
         let latest = slot.lock().unwrap().take().expect("latest snapshot");
         assert_eq!(latest.len(), 1);
-        assert_eq!(latest[0].seq, 2);
+        assert_eq!(latest[0].frame.seq, 2);
         assert_eq!(latest[0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());

@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
 
-use cmux_tui_core::{Rect, SurfaceId};
+use cmux_tui_core::{BrowserFrame, Rect, SurfaceId};
 
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
@@ -15,8 +16,7 @@ pub struct GraphicPlacement {
     pub surface: SurfaceId,
     pub rect: Rect,
     pub source_crop_px: Option<(u32, u32)>,
-    pub seq: u64,
-    pub data_b64: String,
+    pub frame: Arc<BrowserFrame>,
 }
 
 #[derive(Default)]
@@ -41,11 +41,13 @@ impl GraphicsState {
 
         for placement in visible_placements {
             let mut batch = Vec::new();
-            let already_sent =
-                self.transmitted.get(&placement.surface).is_some_and(|seq| *seq == placement.seq);
+            let already_sent = self
+                .transmitted
+                .get(&placement.surface)
+                .is_some_and(|seq| *seq == placement.frame.seq);
             if !already_sent {
-                batch.extend(transmit_png(placement.surface, &placement.data_b64));
-                self.transmitted.insert(placement.surface, placement.seq);
+                batch.extend(transmit_png(placement.surface, &placement.frame.data_b64));
+                self.transmitted.insert(placement.surface, placement.frame.seq);
             }
             batch.extend(place_image_cropped(
                 placement.surface,
@@ -301,8 +303,13 @@ mod tests {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
             source_crop_px: None,
-            seq: 1,
-            data_b64: "frame".to_string(),
+            frame: Arc::new(BrowserFrame {
+                session_id: "test".to_string(),
+                data_b64: "frame".to_string(),
+                css_width: 80,
+                css_height: 24,
+                seq: 1,
+            }),
         };
         let collapsed =
             GraphicPlacement { rect: Rect { height: 0, ..visible.rect }, ..visible.clone() };

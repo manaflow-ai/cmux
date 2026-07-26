@@ -1556,13 +1556,23 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+    pub fn browser_frame(&self) -> Option<Arc<BrowserFrame>> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.browser_frame(),
+            SurfaceHandle::Local(surface, _) => surface.browser_frame_shared(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
                 surface.browser_frame()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn has_browser_frame(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.has_browser_frame(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.has_browser_frame()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
         }
     }
 
