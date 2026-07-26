@@ -52,16 +52,24 @@ if arguments_require_bun_discovery "$@"; then
   exec bun test --isolate "$@"
 fi
 
-test_files=()
-while IFS= read -r test_file; do
-  test_files+=("$test_file")
-done < <(
+discovered_test_files=""
+if ! discovered_test_files="$(
   find . \
     \( -type d \( -name node_modules -o -name '.*' \) ! -path . -prune \) -o \
     -type f -print |
     awk '/(\.test|_test|\.spec|_spec)\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/' |
     LC_ALL=C sort
-)
+)"; then
+  echo "Web test discovery failed" >&2
+  exit 1
+fi
+
+test_files=()
+if [[ -n "$discovered_test_files" ]]; then
+  while IFS= read -r test_file; do
+    test_files+=("$test_file")
+  done <<< "$discovered_test_files"
+fi
 
 if (( ${#test_files[@]} == 0 )); then
   echo "No web test files found" >&2

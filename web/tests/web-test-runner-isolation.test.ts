@@ -171,6 +171,10 @@ function runChild(
     cwd,
     encoding: "utf8",
     env: environment,
+    // This bounds only a non-terminating child; normal completion is asserted
+    // causally below rather than against elapsed time.
+    timeout: 300_000,
+    killSignal: "SIGKILL",
   });
   const output = [result.stdout, result.stderr].join("\n");
 

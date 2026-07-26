@@ -946,6 +946,35 @@ EOF
     fi
   done
 
+  cat > "$fixture_dir/bin/find" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "./tests/beta.test.ts"
+exit 1
+EOF
+  chmod +x "$fixture_dir/bin/find"
+  rm -f "$args_log"
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" \
+    >"$fixture_dir/discovery.stdout" 2>"$fixture_dir/discovery.stderr"; then
+    echo "FAIL: shared web test runner must reject partial discovery results"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  if ! grep -Fq "Web test discovery failed" "$fixture_dir/discovery.stderr"; then
+    echo "FAIL: shared web test runner must explain discovery failures"
+    cat "$fixture_dir/discovery.stderr"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  if [[ -e "$args_log" ]]; then
+    echo "FAIL: shared web test runner must not execute Bun after discovery fails"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  rm -f "$fixture_dir/bin/find"
+
   mkdir -p "$fixture_dir/empty/scripts"
   cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"
   if PATH="$fixture_dir/bin:/usr/bin:/bin" \
