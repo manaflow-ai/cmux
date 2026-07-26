@@ -54,6 +54,7 @@ rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"
 fs4 = "1.1.0"
 sha2 = "0.10"
 zeroize = "1.9"
+parking_lot = "0.12"
 
 [patch.crates-io]
 # Crossterm 0.29 discards Kitty's shifted key, base-layout key, and associated
