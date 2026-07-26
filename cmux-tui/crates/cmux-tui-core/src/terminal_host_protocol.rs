@@ -28,8 +28,22 @@ pub const RESIZE_ACK_CANONICAL_CHANGED: u32 = 1 << 0;
 /// `ClearHistoryAck` status: the host applied the emulator clear or wrote the
 /// alternate-screen fallback key before acknowledging the request.
 pub const CLEAR_HISTORY_ACK_OK: u8 = 0;
-/// `ClearHistoryAck` status: the authoritative transition or PTY write failed.
-pub const CLEAR_HISTORY_ACK_FAILED: u8 = 1;
+/// `ClearHistoryAck` status: active input reached retained history, so the host
+/// made no emulator or PTY change.
+pub const CLEAR_HISTORY_ACK_PRESERVATION_FAILED: u8 = 1;
+/// Backward source alias for the original undifferentiated failure status.
+pub const CLEAR_HISTORY_ACK_FAILED: u8 = CLEAR_HISTORY_ACK_PRESERVATION_FAILED;
+/// `ClearHistoryAck` status: output did not reach a safe parser boundary before
+/// the bounded wait expired, so the host made no emulator or PTY change.
+pub const CLEAR_HISTORY_ACK_STREAM_TIMEOUT: u8 = 2;
+/// `ClearHistoryAck` status: the alternate-screen fallback key could not be
+/// encoded, so the host made no emulator or PTY change.
+pub const CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE: u8 = 3;
+/// `ClearHistoryAck` status: another validated pre-execution failure occurred.
+pub const CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED: u8 = 4;
+/// `ClearHistoryAck` status: a PTY write or flush failed after delivery may
+/// have begun.
+pub const CLEAR_HISTORY_ACK_AMBIGUOUS: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -470,6 +484,17 @@ mod tests {
         assert_eq!(MessageKind::try_from(17).unwrap(), MessageKind::ClearHistoryAck);
         assert_eq!(MessageKind::ClearHistory as u16, 107);
         assert_eq!(MessageKind::try_from(107).unwrap(), MessageKind::ClearHistory);
+    }
+
+    #[test]
+    fn clear_history_ack_statuses_are_stable() {
+        assert_eq!(CLEAR_HISTORY_ACK_OK, 0);
+        assert_eq!(CLEAR_HISTORY_ACK_PRESERVATION_FAILED, 1);
+        assert_eq!(CLEAR_HISTORY_ACK_FAILED, CLEAR_HISTORY_ACK_PRESERVATION_FAILED);
+        assert_eq!(CLEAR_HISTORY_ACK_STREAM_TIMEOUT, 2);
+        assert_eq!(CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE, 3);
+        assert_eq!(CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED, 4);
+        assert_eq!(CLEAR_HISTORY_ACK_AMBIGUOUS, 5);
     }
 
     #[test]

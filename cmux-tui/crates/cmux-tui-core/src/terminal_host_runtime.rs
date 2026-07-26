@@ -11,18 +11,21 @@ use ghostty_vt::{KeyInput, Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::{
-    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryFailure,
-    ClearHistoryTransition, DefaultColors, SurfaceOptions, TerminalStreamProgress,
-    apply_clear_history_transition, replace_ghostty_cursor_defaults,
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_PRESERVATION_ERROR,
+    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryDelivery,
+    ClearHistoryFailure, ClearHistoryTransition, DefaultColors, SurfaceOptions,
+    TerminalStreamProgress, apply_clear_history_transition, replace_ghostty_cursor_defaults,
 };
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
-    CLEAR_HISTORY_ACK_FAILED, CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS,
-    Frame, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
-    read_frame, write_frame,
+    CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
+    CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED, CLEAR_HISTORY_ACK_OK,
+    CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT, FLAG_COLORS_FOLLOW,
+    FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -591,6 +594,54 @@ mod unix {
         }
     }
 
+    fn clear_history_ack_status(result: Result<(), ClearHistoryFailure>) -> u8 {
+        match result {
+            Ok(()) => CLEAR_HISTORY_ACK_OK,
+            Err(failure) if failure.delivery() == ClearHistoryDelivery::Ambiguous => {
+                CLEAR_HISTORY_ACK_AMBIGUOUS
+            }
+            Err(failure) => match failure.error().to_string().as_str() {
+                CLEAR_HISTORY_PRESERVATION_ERROR => CLEAR_HISTORY_ACK_PRESERVATION_FAILED,
+                CLEAR_HISTORY_STREAM_TIMEOUT_ERROR => CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
+                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
+                    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE
+                }
+                _ => CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
+            },
+        }
+    }
+
+    fn clear_history_ack_failure(status: u8) -> Option<ClearHistoryFailure> {
+        let (delivery, message) = match status {
+            CLEAR_HISTORY_ACK_PRESERVATION_FAILED => {
+                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_PRESERVATION_ERROR)
+            }
+            CLEAR_HISTORY_ACK_STREAM_TIMEOUT => {
+                (ClearHistoryDelivery::KnownNotDelivered, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR)
+            }
+            CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+            ),
+            CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED => (
+                ClearHistoryDelivery::KnownNotDelivered,
+                "terminal host rejected clear-history before execution",
+            ),
+            CLEAR_HISTORY_ACK_AMBIGUOUS => (
+                ClearHistoryDelivery::Ambiguous,
+                "terminal host may have partially applied clear-history",
+            ),
+            _ => return None,
+        };
+        let error = anyhow::anyhow!(message);
+        Some(match delivery {
+            ClearHistoryDelivery::KnownNotDelivered => {
+                ClearHistoryFailure::known_not_delivered(error)
+            }
+            ClearHistoryDelivery::Ambiguous => ClearHistoryFailure::ambiguous(error),
+        })
+    }
+
     impl HostAttachment {
         pub fn take_reader(&mut self) -> anyhow::Result<UnixStream> {
             self.reader.take().ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))
@@ -636,10 +687,14 @@ mod unix {
             )?;
             match response.as_slice() {
                 [CLEAR_HISTORY_ACK_OK] => {}
-                [CLEAR_HISTORY_ACK_FAILED] => {
-                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                        "terminal host failed to apply clear-history"
-                    )));
+                [status] => {
+                    let Some(failure) = clear_history_ack_failure(*status) else {
+                        self.disconnect();
+                        return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                            "terminal host returned an unknown clear-history status"
+                        )));
+                    };
+                    return Err(failure);
                 }
                 _ => {
                     self.disconnect();
@@ -1625,12 +1680,14 @@ mod unix {
         fn clear_history_or_encode_key(
             &self,
             fallback_key: Option<&KeyInput>,
-        ) -> anyhow::Result<()> {
+        ) -> Result<(), ClearHistoryFailure> {
             let mut observed_progress = self.stream_progress.revision();
             let mut stream_wait = None;
             loop {
                 let mut term = self.term.lock().unwrap();
-                match apply_clear_history_transition(&mut term, fallback_key)? {
+                match apply_clear_history_transition(&mut term, fallback_key)
+                    .map_err(ClearHistoryFailure::known_not_delivered)?
+                {
                     ClearHistoryTransition::Cleared(clear) => {
                         // Keep the authoritative parser lock through sequence
                         // publication so child output cannot overtake the
@@ -1650,15 +1707,21 @@ mod unix {
                             self.stream_progress.wait_for_change(observed_progress, deadline)
                         else {
                             stream_wait.as_mut().unwrap().mark_timed_out();
-                            anyhow::bail!(CLEAR_HISTORY_STREAM_TIMEOUT_ERROR);
+                            return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                                CLEAR_HISTORY_STREAM_TIMEOUT_ERROR
+                            )));
                         };
                         observed_progress = progress;
                     }
                     ClearHistoryTransition::EncodedFallback(encoded) => {
                         drop(term);
                         let mut writer = self.writer.lock().unwrap();
-                        writer.write_all(&encoded)?;
-                        writer.flush()?;
+                        writer
+                            .write_all(&encoded)
+                            .map_err(|error| ClearHistoryFailure::ambiguous(error.into()))?;
+                        writer
+                            .flush()
+                            .map_err(|error| ClearHistoryFailure::ambiguous(error.into()))?;
                         return Ok(());
                     }
                     ClearHistoryTransition::Noop => return Ok(()),
@@ -2601,14 +2664,9 @@ mod unix {
                         else {
                             break;
                         };
-                        let status = if command_host
-                            .clear_history_or_encode_key(fallback_key.as_ref())
-                            .is_ok()
-                        {
-                            CLEAR_HISTORY_ACK_OK
-                        } else {
-                            CLEAR_HISTORY_ACK_FAILED
-                        };
+                        let status = clear_history_ack_status(
+                            command_host.clear_history_or_encode_key(fallback_key.as_ref()),
+                        );
                         let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
                         response.request_id = frame.request_id;
                         let _broadcast = command_host.broadcast_lock.lock().unwrap();
@@ -3075,8 +3133,10 @@ mod unix {
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
                 assert_eq!(request.kind, MessageKind::ClearHistory);
-                let mut response =
-                    Frame::new(MessageKind::ClearHistoryAck, vec![CLEAR_HISTORY_ACK_FAILED]);
+                let mut response = Frame::new(
+                    MessageKind::ClearHistoryAck,
+                    vec![crate::terminal_host_protocol::CLEAR_HISTORY_ACK_FAILED],
+                );
                 response.request_id = request.request_id;
                 assert!(control_responses.resolve(&response));
             });
@@ -3084,11 +3144,37 @@ mod unix {
             let failure = attachment.send_clear_history(None).unwrap_err();
             responder.join().unwrap();
 
-            assert_eq!(failure.delivery(), crate::surface::ClearHistoryDelivery::KnownNotDelivered);
-            assert_eq!(failure.into_error().to_string(), crate::CLEAR_HISTORY_PRESERVATION_ERROR);
+            assert_eq!(failure.delivery(), ClearHistoryDelivery::KnownNotDelivered);
+            assert_eq!(failure.into_error().to_string(), CLEAR_HISTORY_PRESERVATION_ERROR);
             drop(attachment);
             drop(lease);
             let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn clear_history_ack_status_preserves_reason_and_delivery() {
+            for (message, expected) in [
+                (CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_ACK_PRESERVATION_FAILED),
+                (CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, CLEAR_HISTORY_ACK_STREAM_TIMEOUT),
+                (
+                    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
+                    CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
+                ),
+                ("other pre-execution failure", CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED),
+            ] {
+                assert_eq!(
+                    clear_history_ack_status(Err(ClearHistoryFailure::known_not_delivered(
+                        anyhow::anyhow!(message)
+                    ))),
+                    expected
+                );
+            }
+            assert_eq!(
+                clear_history_ack_status(Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
+                    "partial PTY write"
+                )))),
+                CLEAR_HISTORY_ACK_AMBIGUOUS
+            );
         }
 
         #[test]

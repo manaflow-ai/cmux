@@ -645,6 +645,10 @@ impl ClearHistoryFailure {
         self.delivery
     }
 
+    pub fn error(&self) -> &anyhow::Error {
+        &self.error
+    }
+
     pub fn into_error(self) -> anyhow::Error {
         self.error
     }
