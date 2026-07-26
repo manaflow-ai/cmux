@@ -3595,7 +3595,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        viewportHost.needsDisplay = false
+        let initialPresentationInvalidationCount =
+            viewportHost.browserPortalInvalidationCountForTesting
         anchor.frame = NSRect(x: 32, y: 20, width: 400, height: 240)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3604,9 +3605,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.origin.y, 20, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.width, 400, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 240, accuracy: 0.5)
-        XCTAssertTrue(
-            viewportHost.needsDisplay,
-            "Geometry sync should invalidate the active viewport presentation host for AppKit's next display pass"
+        XCTAssertGreaterThan(
+            viewportHost.browserPortalInvalidationCountForTesting,
+            initialPresentationInvalidationCount,
+            "Geometry sync should request a redraw from the active viewport presentation host"
         )
     }
 
