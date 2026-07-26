@@ -343,3 +343,52 @@ jobs:
           name: pypi-wheels
           path: dist/pypi-wheels/*.whl
           if-no-files-found: error
+
+  verify-linux-packages:
+    name: verify Linux package entrypoints
+    needs: package
+    if: ${{ inputs.package_npm && inputs.package_pypi }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Download npm package archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: npm-packages
+          path: dist
+
+      - name: Restore npm package directories
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
+
+      - name: Download PyPI wheels
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist/pypi-wheels
+
+      - name: Test Linux distributions
+        run: |
+          python3 cmux-tui/dist/scripts/test_linux_packages.py \
+            --npm-packages dist/npm-packages \
+            --pypi-wheels dist/pypi-wheels \
+            --version "$PYPI_VERSION"
