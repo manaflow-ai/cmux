@@ -4,6 +4,34 @@ set -euo pipefail
 WEB_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$WEB_ROOT"
 
+MINIMUM_BUN_VERSION="1.3.14"
+
+bun_version_is_supported() {
+  awk -v actual="$1" -v required="$2" '
+    BEGIN {
+      split(actual, actual_parts, ".")
+      split(required, required_parts, ".")
+      for (part_index = 1; part_index <= 3; part_index++) {
+        actual_part = actual_parts[part_index] + 0
+        required_part = required_parts[part_index] + 0
+        if (actual_part > required_part) {
+          exit 0
+        }
+        if (actual_part < required_part) {
+          exit 1
+        }
+      }
+      exit 0
+    }
+  '
+}
+
+bun_version="$(bun --version)"
+if ! bun_version_is_supported "$bun_version" "$MINIMUM_BUN_VERSION"; then
+  echo "Web tests require Bun $MINIMUM_BUN_VERSION or newer; found $bun_version" >&2
+  exit 1
+fi
+
 arguments_require_bun_discovery() {
   local expects_value=0
   local positional_only=0
