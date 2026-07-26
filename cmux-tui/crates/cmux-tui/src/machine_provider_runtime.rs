@@ -1974,7 +1974,9 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
                 };
                 Some(ProviderActionDescriptor {
                     id: action.id.as_str().to_string(),
-                    label: localization::provider_action_label(action.id.as_str())
+                    label: localization::catalog()
+                        .sidebar
+                        .provider_action_label(action.id.as_str())
                         .unwrap_or(&action.label)
                         .to_string(),
                     target,
@@ -1984,12 +1986,11 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
                         .iter()
                         .map(|field| ProviderActionFieldDescriptor {
                             id: field.id.clone(),
-                            label: localization::provider_action_field_label(
-                                action.id.as_str(),
-                                &field.id,
-                            )
-                            .unwrap_or(&field.label)
-                            .to_string(),
+                            label: localization::catalog()
+                                .sidebar
+                                .provider_action_field_label(action.id.as_str(), &field.id)
+                                .unwrap_or(&field.label)
+                                .to_string(),
                             kind: match field.kind {
                                 protocol::ActionFieldKind::Text => ProviderActionFieldKind::Text,
                                 protocol::ActionFieldKind::Email => ProviderActionFieldKind::Email,

@@ -1328,6 +1328,7 @@ mod tests {
             destructive: false,
             fields: Vec::new(),
         };
+        assert_eq!(serde_json::to_value(&targeted).unwrap()["target"], json!("selected_workspace"));
         let mut snapshot = empty_snapshot();
         snapshot.actions = vec![scope.clone(), targeted.clone()];
         snapshot.retain_actions_for_client_capabilities(&[]);

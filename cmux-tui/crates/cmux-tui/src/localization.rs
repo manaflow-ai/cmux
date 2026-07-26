@@ -183,6 +183,41 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_target_missing: &'static str,
 }
 
+impl SidebarMessages {
+    pub(crate) fn provider_action_label(&self, action_id: &str) -> Option<&'static str> {
+        match action_id {
+            provider_action_id::LIST_WORKSPACE_PORTS => Some(self.action_list_workspace_ports),
+            provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC => {
+                Some(self.action_make_workspace_port_public)
+            }
+            provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE => {
+                Some(self.action_make_workspace_port_private)
+            }
+            provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT => {
+                Some(self.action_open_private_workspace_port)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn provider_action_field_label(
+        &self,
+        action_id: &str,
+        field_id: &str,
+    ) -> Option<&'static str> {
+        matches!(
+            (action_id, field_id),
+            (
+                provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC
+                    | provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE
+                    | provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT,
+                "port"
+            )
+        )
+        .then_some(self.action_workspace_port)
+    }
+}
+
 impl ForeignViewportMessages {
     pub fn hint(&self, cols: u16, rows: u16) -> Option<ForeignViewportHint> {
         let mut bytes = [0_u8; FOREIGN_VIEWPORT_HINT_CAPACITY];
@@ -543,36 +578,6 @@ pub(crate) fn catalog() -> &'static Catalog {
     CATALOG.get_or_init(|| catalog_for_locale(&system_locale()))
 }
 
-pub(crate) fn provider_action_label(action_id: &str) -> Option<&'static str> {
-    let messages = &catalog().sidebar;
-    match action_id {
-        provider_action_id::LIST_WORKSPACE_PORTS => Some(messages.action_list_workspace_ports),
-        provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC => {
-            Some(messages.action_make_workspace_port_public)
-        }
-        provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE => {
-            Some(messages.action_make_workspace_port_private)
-        }
-        provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT => {
-            Some(messages.action_open_private_workspace_port)
-        }
-        _ => None,
-    }
-}
-
-pub(crate) fn provider_action_field_label(action_id: &str, field_id: &str) -> Option<&'static str> {
-    matches!(
-        (action_id, field_id),
-        (
-            provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC
-                | provider_action_id::MAKE_WORKSPACE_PORT_PRIVATE
-                | provider_action_id::OPEN_PRIVATE_WORKSPACE_PORT,
-            "port"
-        )
-    )
-    .then_some(catalog().sidebar.action_workspace_port)
-}
-
 pub(crate) fn catalog_for_locale(locale: &str) -> &'static Catalog {
     if locale.to_ascii_lowercase().starts_with("ja") { &JAPANESE } else { &ENGLISH }
 }
@@ -729,14 +734,17 @@ mod tests {
     #[test]
     fn workspace_port_provider_actions_use_localized_labels() {
         assert_eq!(
-            provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
+            catalog().sidebar.provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
             Some(catalog().sidebar.action_list_workspace_ports)
         );
         assert_eq!(
-            provider_action_field_label(provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC, "port"),
+            catalog().sidebar.provider_action_field_label(
+                provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC,
+                "port"
+            ),
             Some(catalog().sidebar.action_workspace_port)
         );
-        assert_eq!(provider_action_label("external.action"), None);
+        assert_eq!(catalog().sidebar.provider_action_label("external.action"), None);
     }
 
     #[test]
