@@ -11474,6 +11474,108 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn blocked_terminal_adoption_does_not_stall_an_unrelated_terminal() {
+        let options = SurfaceOptions::default();
+        let mux = Mux::new_for_test("adoption-parallel-progress", options.clone());
+        let workspace =
+            mux.create_empty_workspace(Some("parallel-progress".into()), None, None).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "cmux-adoption-parallel-progress-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mut records = Vec::new();
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            for index in 0..2 {
+                let terminal_id = TerminalId::random().unwrap().to_hex();
+                let incarnation = crate::terminal_host::HostIncarnation::random().unwrap().to_hex();
+                let record_path = root.join(format!("{terminal_id}.json"));
+                commit_terminal_transition(
+                    &mut registry,
+                    "terminal-reserved",
+                    &format!("parallel-adoption-reserve-{index}"),
+                    &RegistryTerminal {
+                        terminal_id: terminal_id.clone(),
+                        workspace_key: workspace.key.clone(),
+                        incarnation: None,
+                        lifecycle: TerminalLifecycle::Launching,
+                        launch_spec: serde_json::json!({}),
+                        exit: None,
+                    },
+                )
+                .unwrap();
+                commit_terminal_lifecycle(
+                    &mut registry,
+                    "terminal-adopting",
+                    &format!("parallel-adoption-start-{index}"),
+                    &terminal_id,
+                    TerminalLifecycle::Adopting,
+                    Some(&incarnation),
+                    None,
+                )
+                .unwrap();
+                records.push((
+                    crate::terminal_host_runtime::TerminalHostRecord {
+                        record_version: 2,
+                        terminal_id,
+                        incarnation,
+                        endpoint: record_path.with_extension("sock").to_string_lossy().into_owned(),
+                        owner_token: "00".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+                        host_pid: 0,
+                        host_start_nonce: String::new(),
+                        workspace_key: workspace.key.clone(),
+                        supports_set_defaults: true,
+                        supports_terminate_only: true,
+                    },
+                    record_path,
+                ));
+            }
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (first_started_tx, first_started_rx) = std::sync::mpsc::sync_channel(1);
+        let (second_started_tx, second_started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.terminal_adoption_surface_factory.lock().unwrap() = Some(Arc::new({
+            let mux = Arc::downgrade(&mux);
+            let options = options.clone();
+            let calls = calls.clone();
+            move |id| {
+                let call = calls.fetch_add(1, Ordering::AcqRel);
+                if call == 0 {
+                    first_started_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().recv().unwrap();
+                } else {
+                    second_started_tx.send(()).unwrap();
+                }
+                Surface::spawn_for_test(id, options.clone(), mux.clone())
+            }
+        }));
+
+        let (first_record, first_path) = records.remove(0);
+        mux.schedule_terminal_adoption(options.clone(), first_record, first_path);
+        first_started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (second_record, second_path) = records.remove(0);
+        mux.schedule_terminal_adoption(options, second_record, second_path);
+        let second_progressed = second_started_rx.recv_timeout(Duration::from_millis(300)).is_ok();
+        release_tx.send(()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !mux.terminal_adoptions.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        mux.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(
+            second_progressed,
+            "one blocked terminal adoption stalled an unrelated queued terminal"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_handoff_does_not_terminate_an_in_flight_terminal_adoption() {
         let options = SurfaceOptions::default();
         let mux = Mux::new_for_test("adoption-handoff", options.clone());
@@ -11646,6 +11748,114 @@ mod tests {
             "ordinary close lost the consume-once browser owner staged during removal"
         );
         assert!(mux.shutdown_owners.is_empty());
+    }
+
+    #[test]
+    fn shutdown_batches_target_discovery_per_browser_runtime() {
+        fn read_ws_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+            loop {
+                match ws.read().unwrap() {
+                    tungstenite::Message::Text(text) => {
+                        return serde_json::from_str(&text).unwrap();
+                    }
+                    tungstenite::Message::Binary(bytes) => {
+                        return serde_json::from_slice(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (query_count_tx, query_count_rx) = std::sync::mpsc::sync_channel(1);
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({"id": discover["id"], "result": {}}).to_string().into(),
+            ))
+            .unwrap();
+
+            let mut query_count = 0;
+            let mut closed_targets = HashSet::new();
+            while closed_targets.len() < 2 {
+                let request = read_ws_json(&mut ws);
+                match request["method"].as_str().unwrap() {
+                    "Target.getTargets" => {
+                        query_count += 1;
+                        ws.send(tungstenite::Message::Text(
+                            serde_json::json!({
+                                "id": request["id"],
+                                "result": {
+                                    "targetInfos": [
+                                        {"targetId": "target-1"},
+                                        {"targetId": "target-2"}
+                                    ]
+                                }
+                            })
+                            .to_string()
+                            .into(),
+                        ))
+                        .unwrap();
+                    }
+                    "Target.closeTarget" => {
+                        closed_targets
+                            .insert(request["params"]["targetId"].as_str().unwrap().to_string());
+                        ws.send(tungstenite::Message::Text(
+                            serde_json::json!({
+                                "id": request["id"],
+                                "result": {"success": true}
+                            })
+                            .to_string()
+                            .into(),
+                        ))
+                        .unwrap();
+                    }
+                    method => panic!("unexpected browser shutdown request: {method}"),
+                }
+            }
+            query_count_tx.send(query_count).unwrap();
+        });
+        let runtime = BrowserRuntime::connect_external_for_test(&format!(
+            "ws://{address}/devtools/browser/fake"
+        ))
+        .unwrap();
+        let mux = test_mux();
+        let options = mux.surface_options.lock().unwrap().clone();
+        for (id, target_id, session_id) in
+            [(999, "target-1", "session-1"), (1000, "target-2", "session-2")]
+        {
+            let surface = browser::new_surface(
+                id,
+                "about:blank".to_string(),
+                (80, 24),
+                (8, 16),
+                &options,
+                Arc::downgrade(&mux),
+            );
+            surface.as_browser().unwrap().install_shutdown_session_for_test(
+                runtime.clone(),
+                target_id,
+                session_id,
+            );
+            assert!(mux.shutdown_owners.stage_surface(&surface).is_some());
+        }
+
+        let failed =
+            mux.terminate_staged_shutdown_owners_until(Instant::now() + Duration::from_secs(1));
+        let query_count = query_count_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        runtime.shutdown();
+        server.join().unwrap();
+        assert!(!failed);
+        assert!(mux.shutdown_owners.is_empty());
+        assert_eq!(
+            query_count, 1,
+            "shutdown repeated full target discovery for each browser surface"
+        );
     }
 
     #[test]

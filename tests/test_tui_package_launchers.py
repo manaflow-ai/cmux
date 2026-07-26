@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import runpy
 import shutil
 import subprocess
 import sys
@@ -35,6 +36,12 @@ RUST_TARGETS = (
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
 )
+
+
+def test_pypi_fixture_targets_match_packager() -> None:
+    packager = runpy.run_path(str(PYPI_PACKAGER))
+    declared = tuple(target.rust_target for target in packager["TARGETS"])
+    assert RUST_TARGETS == declared
 
 
 def normalized_platform() -> tuple[str, str]:
@@ -187,6 +194,7 @@ def test_pypi_launcher_preserves_uvx_invocation(tmp_path: Path) -> None:
 def main() -> None:
     import tempfile
 
+    test_pypi_fixture_targets_match_packager()
     with tempfile.TemporaryDirectory() as directory:
         test_identity_verifier_executes_artifact_and_rejects_mismatch(
             Path(directory)
