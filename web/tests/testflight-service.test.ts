@@ -122,7 +122,7 @@ describe("TestFlight ASC service", () => {
     );
   });
 
-  test("double-enroll is a no-op when the group relationship already exists", async () => {
+  test("retries the invitation when the group relationship already exists", async () => {
     mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
       if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
         throw new MockAscApiError("exists", 409);
@@ -144,11 +144,13 @@ describe("TestFlight ASC service", () => {
     });
 
     await expect(enrollTester("exists@example.com")).resolves.toBeUndefined();
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaTesterInvitations",
+      expect.objectContaining({ method: "POST" }),
+    );
     expect(
       (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
-        ([path]) =>
-          path === "/v1/betaTesterInvitations" ||
-          String(path).includes("/relationships/betaTesters"),
+        ([path]) => String(path).includes("/relationships/betaTesters"),
       ),
     ).toBe(false);
   });
