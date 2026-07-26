@@ -2399,10 +2399,7 @@ impl Surface {
                     PtyRuntime::ExitedHosted => true,
                 }
             }
-            Surface::Browser(browser) => {
-                browser.kill();
-                true
-            }
+            Surface::Browser(browser) => browser.terminate_for_server_shutdown(deadline),
         }
     }
 

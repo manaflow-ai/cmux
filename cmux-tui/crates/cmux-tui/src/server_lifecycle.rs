@@ -14,8 +14,10 @@ use serde_json::{Value, json};
 
 #[cfg(unix)]
 mod legacy_process;
+#[cfg(all(unix, test))]
+use legacy_process::terminate_process_tree;
 #[cfg(unix)]
-use legacy_process::{ProcessIdentity, terminate_process_tree};
+use legacy_process::{CapturedProcessTree, ProcessIdentity, capture_process_tree};
 
 const PROBE_REQUEST_ID: u64 = 0;
 const SHUTDOWN_REQUEST_ID: u64 = 1;
@@ -388,11 +390,12 @@ pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
     if actual != expected {
         anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
     }
+    let captured = capture_legacy_process_tree(actual)?;
 
     lifecycle.close_legacy_surfaces_until_stable(actual).map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
-    terminate_legacy_process_tree(actual)?;
+    terminate_captured_legacy_process_tree(captured)?;
     wait_for_disconnect(&mut lifecycle.reader)
 }
 
@@ -417,9 +420,22 @@ fn verified_legacy_process(
         .ok_or_else(|| anyhow::anyhow!(messages.legacy_peer_mismatch))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn terminate_legacy_process_tree(process: ProcessIdentity) -> anyhow::Result<()> {
     terminate_process_tree(process)
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
+}
+
+#[cfg(unix)]
+fn capture_legacy_process_tree(process: ProcessIdentity) -> anyhow::Result<CapturedProcessTree> {
+    capture_process_tree(process)
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
+}
+
+#[cfg(unix)]
+fn terminate_captured_legacy_process_tree(process: CapturedProcessTree) -> anyhow::Result<()> {
+    process
+        .terminate()
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
 }
 

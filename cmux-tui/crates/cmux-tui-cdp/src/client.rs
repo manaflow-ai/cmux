@@ -335,6 +335,16 @@ impl CdpClient {
         params: Value,
         session_id: Option<&str>,
     ) -> anyhow::Result<Value> {
+        self.call_with_timeout(method, params, session_id, self.inner.timeout)
+    }
+
+    pub fn call_with_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        session_id: Option<&str>,
+        timeout: Duration,
+    ) -> anyhow::Result<Value> {
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.inner.pending.lock().unwrap().insert(id, tx);
@@ -353,7 +363,7 @@ impl CdpClient {
             return Err(e);
         }
 
-        match rx.recv_timeout(self.inner.timeout) {
+        match rx.recv_timeout(timeout) {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => anyhow::bail!("{e}"),
             Err(_) => {
@@ -400,6 +410,20 @@ impl CdpClient {
 
     pub fn close_target(&self, target_id: &str) -> anyhow::Result<()> {
         self.call("Target.closeTarget", json!({ "targetId": target_id }), None).map(|_| ())
+    }
+
+    pub fn close_target_with_timeout(
+        &self,
+        target_id: &str,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        self.call_with_timeout(
+            "Target.closeTarget",
+            json!({ "targetId": target_id }),
+            None,
+            timeout,
+        )
+        .map(|_| ())
     }
 
     pub fn close_target_detached(&self, target_id: &str) -> anyhow::Result<()> {

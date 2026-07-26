@@ -16,8 +16,8 @@ use crate::terminal_host::{
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_TERMINATE_ONLY, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD,
+    MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -74,6 +74,10 @@ pub struct TerminalHostRecord {
     /// hosts and must never receive the unknown SetDefaults message.
     #[serde(default)]
     pub supports_set_defaults: bool,
+    /// Additive handshake capability. Missing/false records require the
+    /// compatibility adoption path, which materializes a full Snapshot.
+    #[serde(default)]
+    pub supports_terminate_only: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -88,6 +92,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("host_start_nonce", &self.host_start_nonce)
             .field("workspace_key", &self.workspace_key)
             .field("supports_set_defaults", &self.supports_set_defaults)
+            .field("supports_terminate_only", &self.supports_terminate_only)
             .finish()
     }
 }
@@ -1075,6 +1080,53 @@ mod unix {
         connect_record_with_timeout(record, record_path, timeout)
     }
 
+    pub(crate) fn terminate_terminal_host_with_timeout(
+        record: &TerminalHostRecord,
+        record_path: &Path,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        validate_terminal_host_record(record_path, record)?;
+        if !record.supports_terminate_only {
+            anyhow::bail!("terminal host does not advertise terminate-only handshakes");
+        }
+        let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
+        let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
+        let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
+        let mut stream = connect_with_timeout(Path::new(&record.endpoint), timeout)?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
+        let hello = ClientHello {
+            min_version: PROTOCOL_VERSION,
+            max_version: PROTOCOL_VERSION,
+            role: ClientRole::Admin,
+            requested_rights: CapabilityRights::TERMINATE,
+            terminal_id,
+            token: owner_token,
+        };
+        let mut hello = hello.into_frame(1);
+        hello.flags = FLAG_TERMINATE_ONLY;
+        write_frame(&mut stream, &hello)?;
+        let response = read_required_frame(&mut stream, "terminate-only host hello")?;
+        if response.kind != MessageKind::HostHello
+            || response.flags != FLAG_TERMINATE_ONLY
+            || response.request_id != 1
+            || response.sequence != 0
+        {
+            anyhow::bail!("terminal host rejected terminate-only handshake");
+        }
+        let response = HostHello::decode(&response.payload)?;
+        if response.selected_version != PROTOCOL_VERSION
+            || response.granted_rights != CapabilityRights::TERMINATE
+            || response.terminal_id != terminal_id
+            || response.incarnation != incarnation
+        {
+            anyhow::bail!("terminate-only host identity or rights changed");
+        }
+        write_frame(&mut stream, &Frame::new(MessageKind::Terminate, Vec::new()))?;
+        stream.shutdown(std::net::Shutdown::Write)?;
+        Ok(())
+    }
+
     /// Validate a discovery record without trusting paths or alternate
     /// identity spellings supplied by its JSON payload.
     pub fn validate_terminal_host_record(
@@ -1100,6 +1152,7 @@ mod unix {
             if record.host_pid != 0
                 || !record.host_start_nonce.is_empty()
                 || record.supports_set_defaults
+                || record.supports_terminate_only
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
@@ -2170,6 +2223,7 @@ mod unix {
             host_start_nonce: encode_hex(start_nonce.as_bytes()),
             workspace_key: String::new(),
             supports_set_defaults: true,
+            supports_terminate_only: true,
         };
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
@@ -2450,14 +2504,19 @@ mod unix {
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
-            || hello_frame.flags & !FLAG_VIEWER_SIZE_ACKS != 0
+            || hello_frame.flags & !(FLAG_VIEWER_SIZE_ACKS | FLAG_TERMINATE_ONLY) != 0
+            || hello_frame.flags == (FLAG_VIEWER_SIZE_ACKS | FLAG_TERMINATE_ONLY)
         {
             anyhow::bail!("terminal-host client did not send ClientHello");
         }
         let hello = ClientHello::decode(&hello_frame.payload)?;
         let response = authenticate_client(&host, &hello)?;
+        let terminate_only = hello_frame.flags == FLAG_TERMINATE_ONLY;
         if hello_frame.version != response.selected_version
-            || !response.granted_rights.contains(CapabilityRights::READ)
+            || (!terminate_only && !response.granted_rights.contains(CapabilityRights::READ))
+            || (terminate_only
+                && (hello.role != ClientRole::Admin
+                    || response.granted_rights != CapabilityRights::TERMINATE))
         {
             anyhow::bail!("terminal-host capability denied");
         }
@@ -2467,9 +2526,26 @@ mod unix {
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
             hello_response.flags = FLAG_VIEWER_SIZE_ACKS;
+        } else if terminate_only {
+            hello_response.flags = FLAG_TERMINATE_ONLY;
         }
         hello_response.request_id = hello_frame.request_id;
         write_frame(&mut stream, &hello_response)?;
+
+        if terminate_only {
+            stream.set_read_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
+            let terminate = read_required_frame(&mut stream, "terminate-only request")?;
+            if terminate.kind != MessageKind::Terminate
+                || terminate.flags != 0
+                || terminate.sequence != 0
+                || terminate.request_id != 0
+                || !terminate.payload.is_empty()
+            {
+                anyhow::bail!("terminate-only client sent an unexpected request");
+            }
+            host.request_termination();
+            return Ok(());
+        }
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(256);
@@ -2977,6 +3053,7 @@ mod unix {
                 host_start_nonce: encode_hex(nonce.as_bytes()),
                 workspace_key: String::new(),
                 supports_set_defaults: true,
+                supports_terminate_only: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -3095,6 +3172,7 @@ mod unix {
             legacy.host_pid = 0;
             legacy.host_start_nonce.clear();
             legacy.supports_set_defaults = false;
+            legacy.supports_terminate_only = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 
@@ -3549,7 +3627,7 @@ pub use unix::{
 #[cfg(unix)]
 pub(crate) use unix::{
     adopt_terminal_host_with_timeout, launch_terminal_host_cancellable,
-    launch_terminal_host_with_identity_cancellable,
+    launch_terminal_host_with_identity_cancellable, terminate_terminal_host_with_timeout,
 };
 
 #[cfg(not(unix))]

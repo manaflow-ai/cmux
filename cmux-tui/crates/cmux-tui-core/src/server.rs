@@ -1938,9 +1938,12 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
         disconnect_client(mux, client, true);
         return false;
     }
-    if shutdown && response_ok && sent {
+    if shutdown && response_ok {
+        // Cleanup is irreversible once the registry and runtimes have been
+        // drained. A peer that disconnects before the best-effort ACK must
+        // not leave an empty, permanently fenced daemon behind.
         mux.request_shutdown();
-        return true;
+        return sent;
     }
     sent
 }

@@ -48,6 +48,33 @@ impl ProcessIdentity {
             Err(error)
         }
     }
+
+    fn signal_in_session(
+        self,
+        session: libc::pid_t,
+        signal: libc::c_int,
+    ) -> io::Result<ExactSignalResult> {
+        let Some(current) = Self::capture(self.pid)? else {
+            return Ok(ExactSignalResult::Gone);
+        };
+        if current != self {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "process identity changed"));
+        }
+        // SAFETY: getsid only queries the exact process revalidated above.
+        let current_session = unsafe { libc::getsid(self.pid) };
+        if current_session < 0 {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ESRCH) {
+                Ok(ExactSignalResult::Gone)
+            } else {
+                Err(error)
+            };
+        }
+        if current_session != session {
+            return Ok(ExactSignalResult::Gone);
+        }
+        self.signal(signal)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -63,14 +90,34 @@ enum ExactSignalResult {
 }
 
 pub(super) fn terminate_process_tree(process: ProcessIdentity) -> io::Result<()> {
+    match freeze_process_tree(process) {
+        Ok(tree) => tree.kill(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+pub(super) fn capture_process_tree(process: ProcessIdentity) -> io::Result<CapturedProcessTree> {
+    let tree = freeze_process_tree(process)?;
+    let sessions = tree.captured_sessions()?;
+    drop(tree);
+    Ok(CapturedProcessTree { root: process, sessions })
+}
+
+fn freeze_process_tree(process: ProcessIdentity) -> io::Result<FrozenProcessTree> {
     let deadline = Instant::now() + PROCESS_TREE_RETRY_TIMEOUT;
     loop {
         let error = match FrozenProcessTree::freeze(process) {
-            Ok(tree) => return tree.kill(),
+            Ok(tree) => return Ok(tree),
             Err(error) => error,
         };
         match ProcessIdentity::capture(process.pid) {
-            Ok(None) => return Ok(()),
+            Ok(None) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "server exited before its process tree was fenced",
+                ));
+            }
             Ok(Some(current)) if current != process => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -83,6 +130,91 @@ pub(super) fn terminate_process_tree(process: ProcessIdentity) -> io::Result<()>
             return Err(error);
         }
         std::thread::sleep(PROCESS_TREE_RETRY_INTERVAL);
+    }
+}
+
+pub(super) struct CapturedProcessTree {
+    root: ProcessIdentity,
+    sessions: Vec<CapturedSession>,
+}
+
+impl CapturedProcessTree {
+    pub(super) fn terminate(self) -> io::Result<()> {
+        let deadline = Instant::now() + PROCESS_TREE_RETRY_TIMEOUT;
+        for session in &self.sessions {
+            if !session.kill_until_empty(deadline)? {
+                return Err(io::Error::other(
+                    "captured PTY session did not exit before the legacy shutdown deadline",
+                ));
+            }
+        }
+        terminate_process_tree(self.root)
+    }
+}
+
+struct CapturedSession {
+    id: libc::pid_t,
+    members: Vec<ProcessIdentity>,
+}
+
+impl CapturedSession {
+    fn kill_until_empty(&self, deadline: Instant) -> io::Result<bool> {
+        let Some(mut probe) = SessionProbe::acquire(self)? else {
+            if cmux_tui_core::process_session::session_is_empty(self.id)? {
+                return Ok(true);
+            }
+            return Err(io::Error::other(
+                "captured PTY session lost every exact process before termination",
+            ));
+        };
+        if !cmux_tui_core::process_session::kill_until_only_reserved(
+            self.id,
+            probe.process.pid,
+            deadline,
+        )? {
+            return Ok(false);
+        }
+        probe.kill()?;
+        Ok(true)
+    }
+}
+
+struct SessionProbe {
+    process: ProcessIdentity,
+    session: libc::pid_t,
+    armed: bool,
+}
+
+impl SessionProbe {
+    fn acquire(session: &CapturedSession) -> io::Result<Option<Self>> {
+        for process in &session.members {
+            if ProcessIdentity::capture(process.pid)? != Some(*process) {
+                continue;
+            }
+            if process.signal_in_session(session.id, libc::SIGSTOP)? != ExactSignalResult::Signaled
+            {
+                continue;
+            }
+            if ProcessIdentity::capture(process.pid)? == Some(*process) {
+                return Ok(Some(Self { process: *process, session: session.id, armed: true }));
+            }
+            let _ = process.signal(libc::SIGCONT);
+        }
+        Ok(None)
+    }
+
+    fn kill(&mut self) -> io::Result<()> {
+        let _ = self.process.signal_in_session(self.session, libc::SIGKILL)?;
+        self.armed = false;
+        Ok(())
+    }
+}
+
+impl Drop for SessionProbe {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.process.signal_in_session(self.session, libc::SIGCONT);
+        }
     }
 }
 
@@ -146,6 +278,43 @@ impl FrozenProcessTree {
             }
         }
         Err(io::Error::other("legacy process tree did not stabilize"))
+    }
+
+    fn captured_sessions(&self) -> io::Result<Vec<CapturedSession>> {
+        // SAFETY: getsid only queries live, exact processes held stopped by
+        // this FrozenProcessTree.
+        let root_session = unsafe { libc::getsid(self.root.pid) };
+        if root_session < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: getsid(0) only queries the detached helper.
+        let helper_session = unsafe { libc::getsid(0) };
+        if helper_session < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut sessions = Vec::<CapturedSession>::new();
+        for process in &self.descendants {
+            // SAFETY: every descendant remains stopped and exact until this
+            // FrozenProcessTree is dropped.
+            let session = unsafe { libc::getsid(process.pid) };
+            if session < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if session > 1 && session != root_session && session != helper_session {
+                if let Some(captured) = sessions.iter_mut().find(|captured| captured.id == session)
+                {
+                    captured.members.push(*process);
+                } else {
+                    sessions.push(CapturedSession { id: session, members: vec![*process] });
+                }
+            }
+        }
+        sessions.sort_by_key(|session| session.id);
+        for session in &mut sessions {
+            session.members.sort_by_key(|process| process.pid);
+            session.members.dedup();
+        }
+        Ok(sessions)
     }
 
     fn kill(mut self) -> io::Result<()> {

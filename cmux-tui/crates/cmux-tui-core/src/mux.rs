@@ -43,7 +43,7 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
-const SHUTDOWN_FANOUT_WORKERS: usize = 128;
+const SHUTDOWN_FANOUT_WORKERS: usize = 32;
 
 /// An opaque per-mux credential provisioned by the external machine
 /// provider. Debug output is deliberately redacted.
@@ -3749,7 +3749,7 @@ impl Mux {
             surface.disconnect_for_daemon_shutdown();
         }
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
-            runtime.shutdown();
+            let _ = runtime.shutdown_until(deadline);
         }
     }
 
@@ -3848,9 +3848,25 @@ impl Mux {
         });
         let mut failed_surfaces = failed_surfaces.into_inner().unwrap();
         failed_surfaces.sort_by_key(|surface| surface.id);
+        let browser_surface_failed =
+            failed_surfaces.iter().any(|surface| surface.as_browser().is_some());
         let failed_surface_ids =
             failed_surfaces.iter().map(|surface| surface.id).collect::<Vec<_>>();
         *self.shutdown_surfaces.lock().unwrap() = failed_surfaces;
+
+        let browser_runtime = (!browser_surface_failed)
+            .then(|| self.browser_runtime.lock().unwrap().take())
+            .flatten();
+        let browser_runtime_failed = if let Some(runtime) = browser_runtime {
+            if runtime.shutdown_until(deadline) {
+                false
+            } else {
+                *self.browser_runtime.lock().unwrap() = Some(runtime);
+                true
+            }
+        } else {
+            false
+        };
 
         #[cfg(unix)]
         let failed_hosts = {
@@ -3880,6 +3896,9 @@ impl Mux {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
+        }
+        if browser_runtime_failed {
+            failures.push("could not terminate the owned browser before the deadline".to_string());
         }
         #[cfg(unix)]
         if !failed_hosts.is_empty() {
@@ -7631,6 +7650,14 @@ fn terminate_host_record_with_timeout(
     record_path: std::path::PathBuf,
     timeout: Duration,
 ) -> bool {
+    if record.supports_terminate_only {
+        return crate::terminal_host_runtime::terminate_terminal_host_with_timeout(
+            &record,
+            &record_path,
+            timeout,
+        )
+        .is_ok();
+    }
     if let Ok(host) =
         crate::terminal_host_runtime::adopt_terminal_host_with_timeout(record, record_path, timeout)
     {

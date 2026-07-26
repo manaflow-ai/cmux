@@ -517,12 +517,40 @@ impl BrowserRuntime {
         }
     }
 
-    pub fn shutdown(&self) {
-        close_browser_runtime(self, "browser runtime shut down".to_string());
-        let _ = self.client.flush_outbound(Duration::from_secs(1));
-        if let Some(chrome) = &self.chrome {
-            chrome.kill();
+    fn close_surface_for_shutdown(
+        &self,
+        target_id: &str,
+        session_id: &str,
+        deadline: Instant,
+    ) -> bool {
+        self.unregister(target_id, session_id);
+        if self.source == BrowserSource::Launched {
+            if !self.is_closed() {
+                let _ = self.client.close_target_detached(target_id);
+            }
+            // The shared runtime confirms the owned browser process itself
+            // exited before shutdown can succeed.
+            return true;
         }
+        if self.is_closed() {
+            return false;
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        self.client.close_target_with_timeout(target_id, remaining).is_ok()
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.shutdown_until(Instant::now() + Duration::from_secs(1));
+    }
+
+    pub(crate) fn shutdown_until(&self, deadline: Instant) -> bool {
+        close_browser_runtime(self, "browser runtime shut down".to_string());
+        if let Some(chrome) = &self.chrome {
+            return chrome.kill_until(deadline);
+        }
+        true
     }
 }
 
@@ -1174,6 +1202,22 @@ impl BrowserSurface {
             session.runtime.close_surface_detached(&session.target_id, &session.session_id);
         }
         self.close_command_sender();
+    }
+
+    pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
+        if self.dead.swap(true, Ordering::AcqRel) {
+            return true;
+        }
+        self.close_taps();
+        let terminated = self.session.lock().unwrap().take().is_none_or(|session| {
+            session.runtime.close_surface_for_shutdown(
+                &session.target_id,
+                &session.session_id,
+                deadline,
+            )
+        });
+        self.close_command_sender();
+        terminated
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {

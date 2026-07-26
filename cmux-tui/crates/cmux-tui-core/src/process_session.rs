@@ -28,15 +28,24 @@ pub(crate) fn kill_until_only_leader(
     leader_exited: impl Fn() -> bool,
 ) -> io::Result<bool> {
     validate_session_target(session)?;
+    let mut known_members = members(session)?;
+    signal_members(&known_members, session, None)?;
     loop {
-        let session_members = members(session)?;
-        for pid in &session_members {
-            signal_if_still_member(*pid, session, libc::SIGKILL)?;
-        }
-        // Once WNOWAIT has observed the leader's exit, no process can fork a
-        // new member between this complete session scan and success.
-        if leader_exited() && session_members.iter().all(|pid| *pid == leader) {
-            return Ok(true);
+        let known_drained = known_members
+            .iter()
+            .copied()
+            .filter(|pid| *pid != leader)
+            .map(|pid| still_member(pid, session))
+            .collect::<io::Result<Vec<_>>>()?
+            .into_iter()
+            .all(|alive| !alive);
+        if leader_exited() && known_drained {
+            let current = members(session)?;
+            if current.iter().all(|pid| *pid == leader) {
+                return Ok(true);
+            }
+            signal_members(&current, session, None)?;
+            known_members = current;
         }
         if Instant::now() >= deadline {
             return Ok(false);
@@ -45,6 +54,64 @@ pub(crate) fn kill_until_only_leader(
             deadline.saturating_duration_since(Instant::now()).min(SESSION_KILL_POLL),
         );
     }
+}
+
+/// Drain a captured session while the caller keeps one exact member stopped.
+/// The reserved process prevents session-id reuse and cannot fork, so global
+/// membership is reconciled only after each known generation has exited.
+pub fn kill_until_only_reserved(
+    session: libc::pid_t,
+    reserved: libc::pid_t,
+    deadline: Instant,
+) -> io::Result<bool> {
+    validate_session_target(session)?;
+    if !still_member(reserved, session)? {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "reserved PTY session process exited"));
+    }
+    let mut known_members = members(session)?;
+    signal_members(&known_members, session, Some(reserved))?;
+    loop {
+        let known_drained = known_members
+            .iter()
+            .copied()
+            .filter(|pid| *pid != reserved)
+            .map(|pid| still_member(pid, session))
+            .collect::<io::Result<Vec<_>>>()?
+            .into_iter()
+            .all(|alive| !alive);
+        if known_drained {
+            let current = members(session)?;
+            if current.iter().all(|pid| *pid == reserved) {
+                return Ok(true);
+            }
+            signal_members(&current, session, Some(reserved))?;
+            known_members = current;
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()).min(SESSION_KILL_POLL),
+        );
+    }
+}
+
+/// Read-only proof used after every pre-close process identity in a captured
+/// legacy PTY session has already disappeared.
+pub fn session_is_empty(session: libc::pid_t) -> io::Result<bool> {
+    validate_session_target(session)?;
+    members(session).map(|members| members.is_empty())
+}
+
+fn signal_members(
+    members: &[libc::pid_t],
+    session: libc::pid_t,
+    reserved: Option<libc::pid_t>,
+) -> io::Result<()> {
+    for pid in members.iter().copied().filter(|pid| Some(*pid) != reserved) {
+        signal_if_still_member(pid, session, libc::SIGKILL)?;
+    }
+    Ok(())
 }
 
 fn validate_session_target(session: libc::pid_t) -> io::Result<()> {
@@ -68,13 +135,7 @@ fn signal_if_still_member(
 ) -> io::Result<()> {
     // Revalidate membership immediately before signaling. The reserved
     // session leader prevents the session id itself from being recycled.
-    // SAFETY: getsid only queries process metadata.
-    let current_session = unsafe { libc::getsid(pid) };
-    if current_session < 0 {
-        let error = io::Error::last_os_error();
-        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
-    }
-    if current_session != session {
+    if !still_member(pid, session)? {
         return Ok(());
     }
     // SAFETY: membership was revalidated above and `signal` is a platform
@@ -84,6 +145,16 @@ fn signal_if_still_member(
     }
     let error = io::Error::last_os_error();
     if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) }
+}
+
+fn still_member(pid: libc::pid_t, session: libc::pid_t) -> io::Result<bool> {
+    // SAFETY: getsid only queries process metadata.
+    let current_session = unsafe { libc::getsid(pid) };
+    if current_session >= 0 {
+        return Ok(current_session == session);
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) { Ok(false) } else { Err(error) }
 }
 
 fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
@@ -110,11 +181,18 @@ fn members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
     Ok(members)
 }
 
+#[cfg(all(target_os = "macos", test))]
+fn macos_session_process_ids(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+    members(session)
+}
+
 #[cfg(target_os = "macos")]
 fn all_process_ids() -> io::Result<Vec<libc::pid_t>> {
     use std::ffi::c_void;
     use std::mem::size_of;
 
+    // Callers retain this snapshot and poll its members directly. A new full
+    // process-table scan happens only after that generation has drained.
     // SAFETY: a null buffer asks libproc for the current process count.
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if count < 0 {

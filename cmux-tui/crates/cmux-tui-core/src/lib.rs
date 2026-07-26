@@ -14,7 +14,7 @@ mod model;
 mod mux;
 mod pairing;
 #[cfg(unix)]
-mod process_session;
+pub mod process_session;
 pub mod provider_management;
 mod short_id;
 mod surface;

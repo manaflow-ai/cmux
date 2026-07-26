@@ -5,7 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -85,8 +85,7 @@ impl Chrome {
         let web_socket_url = match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(url) => url,
             Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                let _ = kill_child_until(&mut child, Instant::now() + Duration::from_secs(1));
                 if profile_ephemeral {
                     let _ = std::fs::remove_dir_all(&profile_dir);
                 }
@@ -110,10 +109,18 @@ impl Chrome {
     }
 
     pub fn kill(&self) {
-        if let Some(mut child) = self.child.lock().unwrap().take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        let _ = self.kill_until(Instant::now() + Duration::from_secs(1));
+    }
+
+    pub fn kill_until(&self, deadline: Instant) -> bool {
+        let mut slot = self.child.lock().unwrap();
+        let Some(mut child) = slot.take() else { return true };
+        drop(slot);
+        if kill_child_until(&mut child, deadline) {
+            return true;
         }
+        *self.child.lock().unwrap() = Some(child);
+        false
     }
 }
 
@@ -123,6 +130,21 @@ impl Drop for Chrome {
         if self.profile_ephemeral {
             let _ = std::fs::remove_dir_all(&self.profile_dir);
         }
+    }
+}
+
+fn kill_child_until(child: &mut Child, deadline: Instant) -> bool {
+    let _ = child.kill();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
     }
 }
 
@@ -278,7 +300,7 @@ mod tests {
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
         };
 
-        assert!(chrome.kill_until(std::time::Instant::now() + Duration::from_secs(1)));
+        assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
         assert!(chrome.child.lock().unwrap().is_none());
     }
 }
