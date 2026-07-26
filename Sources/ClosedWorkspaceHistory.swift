@@ -31,7 +31,7 @@ extension AppDelegate {
         shouldActivate: Bool = true
     ) -> Bool {
         let historyStore = historyStore ?? .shared
-        historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
+        return historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
             let manager =
                 preferredTabManager
                 ?? workspaceEntry.windowId.flatMap { self.tabManagerFor(windowId: $0) }
@@ -64,7 +64,7 @@ extension TabManager {
         from historyStore: ClosedItemHistoryStore? = nil
     ) -> Bool {
         let historyStore = historyStore ?? .shared
-        historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
+        return historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
             restoreClosedWorkspace(workspaceEntry)
         }
     }
