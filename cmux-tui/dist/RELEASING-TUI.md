@@ -21,6 +21,10 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
 - npm `cmux-tui-linux-arm64`: Linux arm64 binary package.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
 
+Linux packages contain static musl binaries that run on both glibc and musl
+distributions. PyPI publishes each Linux binary under matching manylinux and
+musllinux wheel tags so installers on both runtime families can resolve it.
+
 ## One-time registry setup
 
 Add npm Trusted Publishers for all five npm package names:

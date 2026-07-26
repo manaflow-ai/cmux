@@ -93,7 +93,7 @@ while [ ! -S "$socket" ]; do
     exit 1
   fi
   attempt=$((attempt + 1))
-  if [ "$attempt" -ge 100 ]; then
+  if [ "$attempt" -ge 600 ]; then
     cat /tmp/cmux-server.log >&2
     echo "timed out waiting for $socket" >&2
     exit 1
