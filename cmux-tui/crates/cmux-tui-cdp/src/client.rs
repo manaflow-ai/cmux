@@ -2152,6 +2152,45 @@ mod tests {
     }
 
     #[test]
+    fn rejected_timestampless_epoch_stops_recovery_at_ingress() {
+        let (inner, _outbound_rx) = test_inner();
+        inner.frame_epochs.lock().unwrap().insert(
+            "session-1".to_string(),
+            FrameSession {
+                epoch: Arc::new(FrameEpoch::default()),
+                main_frame_id: Some("main-frame".to_string()),
+                main_loader_id: Some("loader-1".to_string()),
+                pending_document: None,
+                minimum_screencast_timestamp: Some(1.0),
+                timestampless_authority_epoch: None,
+            },
+        );
+        let client = CdpClient { inner: inner.clone() };
+        assert!(client.suppress_timestampless_screencast_epoch("session-1", 0));
+
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "AAAA",
+                    "sessionId": 8,
+                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+                }
+            })
+            .to_string(),
+        );
+
+        let (event_tx, event_rx) = sync_channel(1);
+        inner.events.drain_into(&event_tx).unwrap();
+        assert!(
+            event_rx.try_recv().is_err(),
+            "a rejected epoch must not materialize or route another recovery request"
+        );
+    }
+
+    #[test]
     fn successful_response_advances_frame_barrier_before_waking_caller() {
         let (inner, _outbound_rx) = test_inner();
         let frame_epoch = Arc::new(FrameEpoch::default());
