@@ -34,7 +34,7 @@ import Testing
             transcriptPath: transcript.path
         )
 
-        let inputs = Workspace.sessionRestoreInputsForTesting(
+        let inputs = Workspace.verifiedSessionRestoreInputs(
             binding: poisonedBinding,
             restorableAgent: verifiedAgent
         )
@@ -55,7 +55,7 @@ import Testing
             autoResume: true
         )
 
-        let inputs = Workspace.sessionRestoreInputsForTesting(
+        let inputs = Workspace.verifiedSessionRestoreInputs(
             binding: binding,
             restorableAgent: nil
         )
@@ -82,7 +82,7 @@ import Testing
             autoResume: true
         )
 
-        let inputs = Workspace.sessionRestoreInputsForTesting(
+        let inputs = Workspace.verifiedSessionRestoreInputs(
             binding: binding,
             restorableAgent: nil
         )
@@ -120,7 +120,7 @@ import Testing
             autoResume: true
         )
 
-        let inputs = Workspace.sessionRestoreInputsForTesting(
+        let inputs = Workspace.verifiedSessionRestoreInputs(
             binding: binding,
             restorableAgent: nil
         )

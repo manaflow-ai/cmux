@@ -922,22 +922,44 @@ extension Workspace {
     }
 
     nonisolated static func resumeBindingForSessionRestore(
-        _ binding: SurfaceResumeBindingSnapshot?,
+        _ savedBinding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?,
         codexResumeVerifier: CodexSessionResumeVerifier
     ) -> SurfaceResumeBindingSnapshot? {
-        if let binding,
-           binding.isAgentHookBinding,
-           binding.kind.flatMap(RestorableAgentKind.init(rawValue:)) == .codex,
-           let checkpointId = normalizedResumeBindingValue(binding.checkpointId),
-           !codexResumeVerifierOwnsSession(
-               checkpointId,
-               environment: binding.environment,
-               verifier: codexResumeVerifier
-           ) {
-            return nil
+        guard var binding = savedBinding else { return nil }
+        if binding.isAgentHookBinding {
+            let declaredKind = binding.kind.flatMap(RestorableAgentKind.init(rawValue:))
+            let commandSessionId = SurfaceResumeCommandCanonicalizer.codexResumeSessionId(
+                in: binding.command,
+                kind: binding.kind
+            )
+            let requiresCodexVerification =
+                declaredKind == .codex ||
+                restorableAgent?.kind == .codex ||
+                commandSessionId != nil
+            if requiresCodexVerification {
+                guard let checkpointId = normalizedResumeBindingValue(binding.checkpointId),
+                      commandSessionId == checkpointId,
+                      let evidence = codexResumeEvidence(
+                        checkpointId,
+                        environment: binding.environment,
+                        transcriptPath: restorableAgent?.transcriptPath,
+                        verifier: codexResumeVerifier
+                      ),
+                      let retargetedCommand = SurfaceResumeCommandCanonicalizer.replacingCodexResumeSession(
+                        in: binding.command,
+                        kind: binding.kind,
+                        expectedSessionId: checkpointId,
+                        replacementSessionId: evidence.sessionId
+                      ) else {
+                    return nil
+                }
+                binding.kind = RestorableAgentKind.codex.rawValue
+                binding.command = retargetedCommand
+                binding.checkpointId = evidence.sessionId
+            }
         }
-        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
+        guard binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
@@ -1012,18 +1034,6 @@ extension Workspace {
         )
     }
 
-#if DEBUG
-    nonisolated static func sessionRestoreInputsForTesting(
-        binding: SurfaceResumeBindingSnapshot?,
-        restorableAgent: SessionRestorableAgentSnapshot?
-    ) -> (binding: SurfaceResumeBindingSnapshot?, restorableAgent: SessionRestorableAgentSnapshot?) {
-        verifiedSessionRestoreInputs(
-            binding: binding,
-            restorableAgent: restorableAgent
-        )
-    }
-#endif
-
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -1048,23 +1058,6 @@ extension Workspace {
         restorableAgent.sessionId = evidence.sessionId
         restorableAgent.transcriptPath = evidence.rolloutPath
         return restorableAgent
-    }
-
-    nonisolated private static func codexResumeVerifierOwnsSession(
-        _ sessionId: String,
-        environment: [String: String]?,
-        transcriptPath: String? = nil,
-        verifier: CodexSessionResumeVerifier
-    ) -> Bool {
-        guard let sessionId = normalizedResumeBindingValue(sessionId) else {
-            return false
-        }
-        return codexResumeEvidence(
-            sessionId,
-            environment: environment,
-            transcriptPath: transcriptPath,
-            verifier: verifier
-        )?.sessionId == sessionId
     }
 
     nonisolated private static func codexResumeEvidence(

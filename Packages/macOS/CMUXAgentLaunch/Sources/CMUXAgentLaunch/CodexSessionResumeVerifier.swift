@@ -87,25 +87,23 @@ public struct CodexSessionResumeVerifier: Sendable {
                 return nil
             }
 
-            let metadata = sessionMetadata(
+            guard let metadata = sessionMetadata(
                 atPath: currentThread.rolloutPath,
                 fileManager: fileManager
-            )
-            if let metadataSessionId = metadata?.sessionId,
-               metadataSessionId != currentSessionId {
+            ), metadata.sessionId == currentSessionId else {
                 return nil
             }
 
             let threadSource = normalized(currentThread.threadSource)?.lowercased()
             if threadSource == "automation" ||
-                metadata?.isAutomation == true ||
-                metadata?.isExec == true {
+                metadata.isAutomation ||
+                metadata.isExec {
                 return nil
             }
 
-            let isSubagent = threadSource == "subagent" || metadata?.isSubagent == true
+            let isSubagent = threadSource == "subagent" || metadata.isSubagent
             if isSubagent {
-                guard let parentSessionId = metadata?.parentSessionId,
+                guard let parentSessionId = metadata.parentSessionId,
                       parentSessionId != currentSessionId,
                       let parentThread = indexedThread(
                         sessionId: parentSessionId,
@@ -222,35 +220,57 @@ public struct CodexSessionResumeVerifier: Sendable {
         }
         defer { try? handle.close() }
 
-        let prefix = handle.readData(ofLength: 256 * 1024)
-        guard let text = String(data: prefix, encoding: .utf8) else { return nil }
-        for line in text.split(whereSeparator: \Character.isNewline).prefix(32) {
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["type"] as? String == "session_meta",
-                  let payload = object["payload"] as? [String: Any],
-                  let sessionId = normalized(payload["id"] as? String) else {
-                continue
+        let maximumMetadataBytes = 4 * 1_024 * 1_024
+        let readChunkBytes = 4 * 1_024
+        var pending = Data()
+        var totalBytes = 0
+        var lineCount = 0
+
+        while totalBytes <= maximumMetadataBytes, lineCount < 32 {
+            let remainingBytes = maximumMetadataBytes + 1 - totalBytes
+            guard let chunk = try? handle.read(upToCount: min(readChunkBytes, remainingBytes)),
+                  !chunk.isEmpty else {
+                return pending.isEmpty ? nil : parsedSessionMetadata(from: pending)
             }
-            let source = payload["source"]
-            let sourceIsSubagent = sourceContainsKind("subagent", value: source)
-            let sourceKind = normalized(source as? String)?.lowercased()
-            let originator = normalized(payload["originator"] as? String)?.lowercased()
-            let parentSessionId = normalized(payload["parent_thread_id"] as? String)
-                ?? normalized(payload["forked_from_id"] as? String)
-                ?? nestedNormalizedString(forKey: "parent_thread_id", value: source)
-                ?? (sourceIsSubagent
-                    ? normalized(payload["session_id"] as? String)
-                    : nil)
-            return SessionMetadata(
-                sessionId: sessionId,
-                parentSessionId: parentSessionId,
-                isSubagent: sourceIsSubagent,
-                isAutomation: sourceContainsKind("automation", value: source),
-                isExec: sourceKind == "exec" || originator == "codex_exec"
-            )
+            totalBytes += chunk.count
+            guard totalBytes <= maximumMetadataBytes else { return nil }
+            pending.append(chunk)
+
+            while let newlineIndex = pending.firstIndex(of: 0x0A), lineCount < 32 {
+                let line = Data(pending[..<newlineIndex])
+                pending.removeSubrange(...newlineIndex)
+                lineCount += 1
+                if let metadata = parsedSessionMetadata(from: line) {
+                    return metadata
+                }
+            }
         }
         return nil
+    }
+
+    private func parsedSessionMetadata(from data: Data) -> SessionMetadata? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "session_meta",
+              let payload = object["payload"] as? [String: Any],
+              let sessionId = normalized(payload["id"] as? String) else {
+            return nil
+        }
+        let source = payload["source"]
+        let sourceIsSubagent = sourceContainsKind("subagent", value: source)
+        let originator = normalized(payload["originator"] as? String)?.lowercased()
+        let parentSessionId = normalized(payload["parent_thread_id"] as? String)
+            ?? normalized(payload["forked_from_id"] as? String)
+            ?? nestedNormalizedString(forKey: "parent_thread_id", value: source)
+            ?? (sourceIsSubagent
+                ? normalized(payload["session_id"] as? String)
+                : nil)
+        return SessionMetadata(
+            sessionId: sessionId,
+            parentSessionId: parentSessionId,
+            isSubagent: sourceIsSubagent,
+            isAutomation: sourceContainsKind("automation", value: source),
+            isExec: sourceContainsKind("exec", value: source) || originator == "codex_exec"
+        )
     }
 
     private func sourceContainsKind(_ kind: String, value: Any?) -> Bool {
