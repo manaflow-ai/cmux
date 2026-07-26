@@ -12,6 +12,7 @@ use std::fmt;
 use serde::de::Error as _;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
@@ -28,6 +29,7 @@ pub const MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES: usize = 32;
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
 const MAX_ERROR_CODE_BYTES: usize = 64;
+const MAX_EXTERNAL_MACHINE_SPECIFIER_BYTES: usize = 512;
 
 /// A provider-owned identifier. Its contents have no meaning to cmux.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,8 +92,84 @@ impl fmt::Display for InvalidOpaqueId {
 
 impl std::error::Error for InvalidOpaqueId {}
 
+/// An address or one-use pairing code interpreted only by the provider.
+///
+/// Debug output is redacted because a pairing code can be a bearer
+/// credential. Internal whitespace is retained so providers can define their
+/// own human-readable pairing-code format.
+#[derive(Clone)]
+pub struct ExternalMachineSpecifier(String);
+
+impl ExternalMachineSpecifier {
+    pub fn new(value: impl Into<String>) -> Result<Self, InvalidExternalMachineSpecifier> {
+        let mut value = value.into();
+        if valid_external_machine_specifier(&value) {
+            Ok(Self(value))
+        } else {
+            value.zeroize();
+            Err(InvalidExternalMachineSpecifier)
+        }
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ExternalMachineSpecifier {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ExternalMachineSpecifier([redacted])")
+    }
+}
+
+impl Drop for ExternalMachineSpecifier {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl PartialEq for ExternalMachineSpecifier {
+    fn eq(&self, other: &Self) -> bool {
+        bool::from(self.0.as_bytes().ct_eq(other.0.as_bytes()))
+    }
+}
+
+impl Eq for ExternalMachineSpecifier {}
+
+impl Serialize for ExternalMachineSpecifier {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ExternalMachineSpecifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(D::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidExternalMachineSpecifier;
+
+impl fmt::Display for InvalidExternalMachineSpecifier {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            "external machine addresses and pairing codes must be non-empty, bounded strings without surrounding whitespace or control bytes",
+        )
+    }
+}
+
+impl std::error::Error for InvalidExternalMachineSpecifier {}
+
 /// A bearer credential. Debug output is deliberately redacted.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct BearerToken(String);
 
 impl BearerToken {
@@ -124,6 +202,14 @@ impl Drop for BearerToken {
     }
 }
 
+impl PartialEq for BearerToken {
+    fn eq(&self, other: &Self) -> bool {
+        bool::from(self.0.as_bytes().ct_eq(other.0.as_bytes()))
+    }
+}
+
+impl Eq for BearerToken {}
+
 impl Serialize for BearerToken {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -145,6 +231,13 @@ impl<'de> Deserialize<'de> for BearerToken {
 
 fn validate_opaque(value: &str) -> bool {
     !value.is_empty() && value.len() <= MAX_OPAQUE_ID_BYTES && !value.chars().any(char::is_control)
+}
+
+fn valid_external_machine_specifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_EXTERNAL_MACHINE_SPECIFIER_BYTES
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
 }
 
 fn is_false(value: &bool) -> bool {
@@ -228,6 +321,7 @@ pub enum ProviderRequest {
     OpenMachine(OpenMachineParams),
     SelectScope(SelectScopeParams),
     CreateMachine(CreateMachineParams),
+    ConnectExternalMachine(ConnectExternalMachineParams),
     MachineLifecycleSnapshot(MachineLifecycleSnapshotParams),
     RenameMachine(RenameMachineParams),
     DeleteMachine(MachineMutationParams),
@@ -573,6 +667,25 @@ pub struct CreateMachineParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateMachineResult {
+    pub machine_id: OpaqueId,
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<ProviderNotice>,
+}
+
+/// Enrolls and selects one machine from an address or pairing code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectExternalMachineParams {
+    pub scope_id: OpaqueId,
+    pub specifier: ExternalMachineSpecifier,
+    pub mutation_id: OpaqueId,
+}
+
+/// The durable, idempotently replayable result of external-machine enrollment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectExternalMachineResult {
     pub machine_id: OpaqueId,
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -955,6 +1068,18 @@ mod tests {
         BearerToken::new(value).unwrap()
     }
 
+    fn specifier(value: &str) -> ExternalMachineSpecifier {
+        ExternalMachineSpecifier::new(value).unwrap()
+    }
+
+    #[test]
+    fn credential_wrappers_compare_without_exposing_values() {
+        assert_eq!(token("single-use-ticket"), token("single-use-ticket"));
+        assert_ne!(token("single-use-ticket"), token("different-ticket"));
+        assert_eq!(specifier("PAIR 4J7K"), specifier("PAIR 4J7K"));
+        assert_ne!(specifier("PAIR 4J7K"), specifier("PAIR 9Q2M"));
+    }
+
     fn empty_snapshot() -> SnapshotResult {
         SnapshotResult {
             revision: 21,
@@ -1047,6 +1172,69 @@ mod tests {
         let encoded = serde_json::to_value(&request).unwrap();
         assert_eq!(encoded, expected);
         assert_eq!(serde_json::from_value::<RequestEnvelope>(expected).unwrap(), request);
+    }
+
+    #[test]
+    fn connect_external_machine_request_matches_the_v1_golden_document() {
+        let request = RequestEnvelope::new(
+            id("connect-17"),
+            ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
+                scope_id: id("team"),
+                specifier: specifier("PAIR 4J7K"),
+                mutation_id: id("mutation-connect-17"),
+            }),
+        );
+        let expected = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "connect-17",
+            "method": "connect_external_machine",
+            "params": {
+                "scope_id": "team",
+                "specifier": "PAIR 4J7K",
+                "mutation_id": "mutation-connect-17"
+            }
+        });
+
+        let encoded = serde_json::to_value(&request).unwrap();
+        assert_eq!(encoded, expected);
+        assert_eq!(serde_json::from_value::<RequestEnvelope>(expected).unwrap(), request);
+        let debug = format!("{request:?}");
+        assert!(debug.contains("ExternalMachineSpecifier([redacted])"));
+        assert!(!debug.contains("PAIR 4J7K"));
+    }
+
+    #[test]
+    fn external_machine_specifiers_are_bounded_and_unambiguous() {
+        assert!(ExternalMachineSpecifier::new("mini.local").is_ok());
+        assert!(ExternalMachineSpecifier::new("PAIR 4J7K").is_ok());
+        for invalid in [
+            String::new(),
+            " ".to_string(),
+            " mini.local".to_string(),
+            "mini.local ".to_string(),
+            "PAIR\n4J7K".to_string(),
+            "x".repeat(MAX_EXTERNAL_MACHINE_SPECIFIER_BYTES + 1),
+        ] {
+            assert!(
+                ExternalMachineSpecifier::new(invalid).is_err(),
+                "invalid external-machine specifier was accepted"
+            );
+        }
+
+        let unknown = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "id": "connect-17",
+            "method": "connect_external_machine",
+            "params": {
+                "scope_id": "team",
+                "specifier": "mini.local",
+                "mutation_id": "mutation-connect-17",
+                "shell": "ssh"
+            }
+        });
+        assert!(serde_json::from_value::<RequestEnvelope>(unknown).is_err());
     }
 
     #[test]
@@ -1260,6 +1448,11 @@ mod tests {
                 scope_id: id("team"),
                 mutation_id: id("mutation-machine"),
             }),
+            ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
+                scope_id: id("team"),
+                specifier: specifier("PAIR 4J7K"),
+                mutation_id: id("mutation-connect-machine"),
+            }),
             ProviderRequest::MachineLifecycleSnapshot(MachineLifecycleSnapshotParams {
                 scope_id: id("team"),
                 known_revision: Some(22),
@@ -1349,6 +1542,14 @@ mod tests {
             notice: Some(ProviderNotice {
                 level: NoticeLevel::Info,
                 message: "VM provisioning".into(),
+            }),
+        });
+        assert_response_round_trip(ConnectExternalMachineResult {
+            machine_id: id("paired-machine"),
+            revision: 23,
+            notice: Some(ProviderNotice {
+                level: NoticeLevel::Info,
+                message: "Machine connected".into(),
             }),
         });
         assert_response_round_trip(MachineLifecycleSnapshotResult {

@@ -267,6 +267,12 @@ impl MachineSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineConnectRoute {
+    Local,
+    Provider,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineRequest {
     Switch(MachineKey),
@@ -275,7 +281,10 @@ pub enum MachineRequest {
     /// before reopening the selected machine.
     ReconnectProvider,
     Create,
-    Connect(String),
+    Connect {
+        target: String,
+        route: MachineConnectRoute,
+    },
     SelectProviderScope(String),
     InvokeProviderAction {
         action_id: String,
@@ -441,6 +450,7 @@ pub struct MachineUiState {
     pub notice: Option<String>,
     pub session_available: bool,
     pub provider: Option<ProviderPresentation>,
+    pub connect_accepts_pairing_code: bool,
     pub rail_selection: MachineRailSelection,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     managed_machines: Vec<ManagedMachineDescriptor>,
@@ -505,6 +515,7 @@ impl MachineUiState {
             notice: None,
             session_available,
             provider: None,
+            connect_accepts_pairing_code: false,
             rail_selection: MachineRailSelection::Machine,
             workspace_creation: HashMap::new(),
             managed_machines: Vec::new(),
