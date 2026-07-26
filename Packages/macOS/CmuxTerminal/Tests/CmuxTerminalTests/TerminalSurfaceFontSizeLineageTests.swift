@@ -462,6 +462,30 @@ private func endFontState()
     }
 
     @Test
+    func mobileViewportFitOwnershipSurvivesDurableEquality() {
+        var state = MobileViewportFontFitState(
+            baseRuntimePointSize: 13,
+            fittedRuntimePointSize: 8
+        )
+
+        state.updateDurableBase(to: 8)
+        #expect(
+            state == MobileViewportFontFitState(
+                baseRuntimePointSize: 8,
+                fittedRuntimePointSize: 8
+            )
+        )
+
+        state.updateDurableBase(to: 9)
+        #expect(
+            state == MobileViewportFontFitState(
+                baseRuntimePointSize: 9,
+                fittedRuntimePointSize: 8
+            )
+        )
+    }
+
+    @Test
     func configurationReloadRebasesNeverRealizedFollower() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: false)

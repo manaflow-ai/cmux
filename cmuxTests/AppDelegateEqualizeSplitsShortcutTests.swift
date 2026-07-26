@@ -3261,6 +3261,60 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertTrue(didRefreshConfiguration)
     }
 
+    func testExtendedConfigurationBarrierWaitsForAsyncReconciliation() {
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        var releaseReconciliation: (@MainActor () -> Void)?
+        var observedOrder: [String] = []
+
+        arbiter.performWhenFontSizeWorkIsIdle {
+            observedOrder.append("config")
+            releaseReconciliation =
+                arbiter.extendCurrentFontSizeWorkIdleBarrier()
+        }
+        arbiter.performWhenFontSizeWorkIsIdle {
+            observedOrder.append("next")
+        }
+
+        XCTAssertEqual(observedOrder, ["config"])
+        releaseReconciliation?()
+        XCTAssertEqual(observedOrder, ["config", "next"])
+    }
+
+    func testConfigurationFontReconcilerBoundsWorkPerMainTurn() {
+        let scheduler =
+            ManualTerminalFontConfigurationReloadScheduler()
+        let reconciler =
+            TerminalFontConfigurationReloadReconciler(
+                maximumSurfaceVisitsPerDrain: 3,
+                schedule: scheduler.schedule(action:)
+            )
+        var visits: [Int] = []
+        var didComplete = false
+        let work = (0..<8).map { index in
+            { @MainActor in
+                visits.append(index)
+            }
+        }
+
+        reconciler.reconcile(work) {
+            didComplete = true
+        }
+        XCTAssertTrue(visits.isEmpty)
+        XCTAssertFalse(didComplete)
+
+        scheduler.fire(at: 0)
+        XCTAssertEqual(visits, [0, 1, 2])
+        XCTAssertFalse(didComplete)
+
+        scheduler.fire(at: 1)
+        XCTAssertEqual(visits, [0, 1, 2, 3, 4, 5])
+        XCTAssertFalse(didComplete)
+
+        scheduler.fire(at: 2)
+        XCTAssertEqual(visits, [0, 1, 2, 3, 4, 5, 6, 7])
+        XCTAssertTrue(didComplete)
+    }
+
     func testConfigurationRefreshWakesParkedFontMutation() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -5225,5 +5279,21 @@ private final class ManualWorkspaceFontSizeDrainScheduler {
             return
         }
         scheduledDrains[index].action()
+    }
+}
+
+@MainActor
+private final class ManualTerminalFontConfigurationReloadScheduler {
+    private var actions: [@MainActor () -> Void] = []
+
+    func schedule(
+        action: @escaping @MainActor () -> Void
+    ) {
+        actions.append(action)
+    }
+
+    func fire(at index: Int) {
+        guard actions.indices.contains(index) else { return }
+        actions[index]()
     }
 }
