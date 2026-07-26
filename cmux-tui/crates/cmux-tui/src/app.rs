@@ -11157,10 +11157,6 @@ fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
                 | Action::RenameTab
                 | Action::ScrollUp
                 | Action::ScrollDown
-                | Action::BrowserBack
-                | Action::BrowserForward
-                | Action::BrowserReload
-                | Action::BrowserEditUrl
                 | Action::ShowShortcuts
                 | Action::Detach
         )
