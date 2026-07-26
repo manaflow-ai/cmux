@@ -645,6 +645,10 @@ impl MachineUiState {
             .then(|| self.workspace_creation.get(&active).cloned().unwrap_or_default())
     }
 
+    pub fn is_provider_machine(&self, machine: MachineKey) -> bool {
+        self.workspace_creation.contains_key(&machine)
+    }
+
     pub fn set_managed_machines(&mut self, machines: Vec<ManagedMachineDescriptor>) {
         self.managed_machines = machines;
     }

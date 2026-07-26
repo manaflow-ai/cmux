@@ -626,6 +626,8 @@ pub enum ProviderActionTarget {
     Scope,
     SelectedMachine,
     SelectedWorkspace,
+    #[serde(other)]
+    Unsupported,
 }
 
 fn provider_action_target_is_scope(target: &ProviderActionTarget) -> bool {

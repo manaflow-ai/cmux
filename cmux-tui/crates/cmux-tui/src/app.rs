@@ -7708,19 +7708,25 @@ impl App {
     }
 
     fn provider_action_context(&self) -> ProviderActionContext {
-        let machine_id = self.machine_ui.as_ref().and_then(|ui| {
-            let active = ui.snapshot.active?;
-            ui.snapshot
-                .machines
-                .iter()
-                .find(|machine| machine.key == active)
-                .map(|machine| machine.id.clone())
-        });
+        let Some(ui) = self.machine_ui.as_ref() else {
+            return ProviderActionContext::default();
+        };
+        let Some(active) = ui.snapshot.active.filter(|active| ui.is_provider_machine(*active))
+        else {
+            return ProviderActionContext::default();
+        };
+        let machine_id = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.key == active)
+            .map(|machine| machine.id.clone());
         let workspace_id = self
             .tree
             .active_workspace()
             .map(|workspace| workspace.key.clone())
-            .filter(|id| !id.is_empty());
+            .filter(|id| !id.is_empty())
+            .filter(|id| ui.managed_workspace(id).is_some());
         ProviderActionContext { machine_id, workspace_id }
     }
 
@@ -17778,6 +17784,18 @@ mod tests {
                 placeholder: None,
             }],
         });
+        ui.set_managed_workspaces(
+            MachineKey(41),
+            vec![ManagedWorkspaceDescriptor {
+                id: workspace_key.into(),
+                name: "ports".into(),
+                mode: WorkspaceCreationMode::Isolated,
+                status: ManagedWorkspaceStatus::Active,
+                version: 1,
+                recoverable_until: None,
+                capabilities: ManagedWorkspaceCapabilities::default(),
+            }],
+        );
         app.machine_ui = Some(ui);
 
         app.begin_provider_action(2);

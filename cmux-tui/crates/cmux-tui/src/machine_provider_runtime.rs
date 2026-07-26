@@ -1906,12 +1906,8 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
         actions: snapshot
             .actions
             .iter()
-            .map(|action| ProviderActionDescriptor {
-                id: action.id.as_str().to_string(),
-                label: localization::provider_action_label(action.id.as_str())
-                    .unwrap_or(&action.label)
-                    .to_string(),
-                target: match action.target {
+            .filter_map(|action| {
+                let target = match action.target {
                     protocol::ProviderActionTarget::Scope => ProviderActionTarget::Scope,
                     protocol::ProviderActionTarget::SelectedMachine => {
                         ProviderActionTarget::SelectedMachine
@@ -1919,31 +1915,41 @@ fn provider_presentation(snapshot: &protocol::SnapshotResult) -> ProviderPresent
                     protocol::ProviderActionTarget::SelectedWorkspace => {
                         ProviderActionTarget::SelectedWorkspace
                     }
-                },
-                destructive: action.destructive,
-                fields: action
-                    .fields
-                    .iter()
-                    .map(|field| ProviderActionFieldDescriptor {
-                        id: field.id.clone(),
-                        label: localization::provider_action_field_label(
-                            action.id.as_str(),
-                            &field.id,
-                        )
-                        .unwrap_or(&field.label)
+                    protocol::ProviderActionTarget::Unsupported => return None,
+                };
+                Some(ProviderActionDescriptor {
+                    id: action.id.as_str().to_string(),
+                    label: localization::provider_action_label(action.id.as_str())
+                        .unwrap_or(&action.label)
                         .to_string(),
-                        kind: match field.kind {
-                            protocol::ActionFieldKind::Text => ProviderActionFieldKind::Text,
-                            protocol::ActionFieldKind::Email => ProviderActionFieldKind::Email,
-                            protocol::ActionFieldKind::Integer => ProviderActionFieldKind::Integer,
-                        },
-                        required: field.required,
-                        max_length: field.max_length,
-                        minimum: field.minimum,
-                        maximum: field.maximum,
-                        placeholder: field.placeholder.clone(),
-                    })
-                    .collect(),
+                    target,
+                    destructive: action.destructive,
+                    fields: action
+                        .fields
+                        .iter()
+                        .map(|field| ProviderActionFieldDescriptor {
+                            id: field.id.clone(),
+                            label: localization::provider_action_field_label(
+                                action.id.as_str(),
+                                &field.id,
+                            )
+                            .unwrap_or(&field.label)
+                            .to_string(),
+                            kind: match field.kind {
+                                protocol::ActionFieldKind::Text => ProviderActionFieldKind::Text,
+                                protocol::ActionFieldKind::Email => ProviderActionFieldKind::Email,
+                                protocol::ActionFieldKind::Integer => {
+                                    ProviderActionFieldKind::Integer
+                                }
+                            },
+                            required: field.required,
+                            max_length: field.max_length,
+                            minimum: field.minimum,
+                            maximum: field.maximum,
+                            placeholder: field.placeholder.clone(),
+                        })
+                        .collect(),
+                })
             })
             .collect(),
     }
@@ -3137,28 +3143,38 @@ mod tests {
                 create_machine: true,
                 connect_external_machine: false,
             },
-            actions: vec![protocol::ProviderAction {
-                id: id("invite"),
-                label: "Invite member".into(),
-                target: protocol::ProviderActionTarget::Scope,
-                destructive: false,
-                fields: vec![protocol::ActionField {
-                    id: "email".into(),
-                    kind: protocol::ActionFieldKind::Email,
-                    label: "Email".into(),
-                    required: true,
-                    max_length: Some(254),
-                    minimum: None,
-                    maximum: None,
-                    placeholder: Some("person@example.com".into()),
-                }],
-            }],
+            actions: vec![
+                protocol::ProviderAction {
+                    id: id("invite"),
+                    label: "Invite member".into(),
+                    target: protocol::ProviderActionTarget::Scope,
+                    destructive: false,
+                    fields: vec![protocol::ActionField {
+                        id: "email".into(),
+                        kind: protocol::ActionFieldKind::Email,
+                        label: "Email".into(),
+                        required: true,
+                        max_length: Some(254),
+                        minimum: None,
+                        maximum: None,
+                        placeholder: Some("person@example.com".into()),
+                    }],
+                },
+                protocol::ProviderAction {
+                    id: id("future-action"),
+                    label: "Future action".into(),
+                    target: protocol::ProviderActionTarget::Unsupported,
+                    destructive: false,
+                    fields: Vec::new(),
+                },
+            ],
             notice: None,
         };
 
         let presentation = provider_presentation(&snapshot);
         assert!(presentation.scopes[0].can_admin);
         assert_eq!(presentation.selected_scope().unwrap().name, "Acme");
+        assert_eq!(presentation.actions.len(), 1);
         assert_eq!(presentation.actions[0].fields[0].kind, ProviderActionFieldKind::Email);
     }
 
