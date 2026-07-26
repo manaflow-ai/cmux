@@ -1503,6 +1503,63 @@ mod tests {
     }
 
     #[test]
+    fn screencast_restart_rejects_delayed_frame_captured_before_barrier() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            for expected in ["Page.stopScreencast", "Page.startScreencast"] {
+                let request = ws.read().unwrap();
+                let Message::Text(request) = request else { panic!("expected text request") };
+                let request: Value = serde_json::from_str(&request).unwrap();
+                assert_eq!(request["method"], expected);
+                ws.send(Message::Text(
+                    json!({"id": request["id"], "result": {}}).to_string().into(),
+                ))
+                .unwrap();
+            }
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "AAAA",
+                        "sessionId": 7,
+                        "metadata": {
+                            "deviceWidth": 80,
+                            "deviceHeight": 24,
+                            "timestamp": 1.0
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let ack = ws.read().unwrap();
+            let Message::Text(ack) = ack else { panic!("expected text ack") };
+            let ack: Value = serde_json::from_str(&ack).unwrap();
+            assert_eq!(ack["method"], "Page.screencastFrameAck");
+        });
+        let (event_tx, event_rx) = sync_channel(2);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        client.register_frame_epoch("session-1", Arc::new(FrameEpoch::default()));
+
+        client.stop_screencast("session-1").unwrap();
+        client.start_screencast_with_frame_barrier("session-1", 80, 24).unwrap();
+
+        let delayed = event_rx.recv_timeout(Duration::from_millis(200));
+        assert!(
+            delayed.is_err(),
+            "a pre-restart capture emitted by a delayed encoder crossed the authority barrier: \
+             {delayed:?}"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
     fn http_discovery_rejects_response_over_limit() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
