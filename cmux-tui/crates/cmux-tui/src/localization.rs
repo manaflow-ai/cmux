@@ -200,12 +200,12 @@ OPTIONS:
 The agent opens one outbound connection. It never opens a public listener or
 edits shell files. Authenticate with the configured host before retrying.
 ",
-        usage: "cmux-tui machine-agent       Share one local session through the configured host",
+        usage: "cmux machine-agent           Share one local session through the configured host",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
         migration_failed: "Could not reconnect the machine; please try again",
-        pairing_code_unavailable: "Pairing code was not displayed because no verified terminal is available",
+        pairing_code_unavailable: "Pairing code could not be displayed securely. Run this command from an interactive terminal and retry",
         runtime_failed: "The machine agent could not start or continue; check its configuration",
         argument_needs_value: "Option {argument} needs a value",
         invalid_cloud_port: "Invalid --cloud-port value: {value}",
@@ -313,12 +313,12 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
 を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
-        usage: "cmux-tui machine-agent       設定したホスト経由でローカルセッションを共有",
+        usage: "cmux machine-agent           設定したホスト経由でローカルセッションを共有",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
         migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
-        pairing_code_unavailable: "確認済みの端末を利用できないため、ペアリングコードを表示しませんでした",
+        pairing_code_unavailable: "ペアリングコードを安全に表示できませんでした。対話型端末でこのコマンドを実行して再試行してください",
         runtime_failed: "machine-agent を開始または続行できませんでした。設定を確認してください",
         argument_needs_value: "オプション {argument} には値が必要です",
         invalid_cloud_port: "--cloud-port の値が無効です: {value}",

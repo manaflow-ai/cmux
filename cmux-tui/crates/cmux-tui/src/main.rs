@@ -319,7 +319,15 @@ PLUGIN VERBS (local; no socket protocol command)
 ";
 
 fn usage_for(messages: &localization::MachineAgentMessages) -> String {
-    USAGE.replace("{machine_agent_usage}", messages.usage)
+    usage_for_platform(messages, cfg!(unix))
+}
+
+fn usage_for_platform(
+    messages: &localization::MachineAgentMessages,
+    supports_machine_agent: bool,
+) -> String {
+    let machine_agent_usage = if supports_machine_agent { messages.usage } else { "" };
+    USAGE.replace("{machine_agent_usage}", machine_agent_usage)
 }
 
 fn usage() -> String {
@@ -1561,6 +1569,14 @@ mod tests {
         assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
         assert!(!japanese.contains("Share one local session"));
+    }
+
+    #[test]
+    fn startup_help_omits_machine_agent_on_unsupported_platforms() {
+        let english = &localization::catalog_for_locale("en_US.UTF-8").machine_agent;
+        let usage = usage_for_platform(english, false);
+        assert!(!usage.contains("machine-agent"));
+        assert!(usage.contains("cmux-tui relay"));
     }
 
     #[test]

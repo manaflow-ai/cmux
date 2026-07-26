@@ -320,7 +320,6 @@ impl MachineAgent {
         let connection = self.cloud.connect()?;
         let DuplexConnection { reader, mut writer, control } = connection;
         let connection_nonce = random_connection_nonce()?;
-        let migration_generation = migration.as_ref().map(|proof| proof.generation);
         let hello = Envelope::new(Message::Hello(Hello {
             machine_id: self.identity.machine_id.clone(),
             secret: self.identity.secret.clone(),
@@ -356,9 +355,7 @@ impl MachineAgent {
             control.close();
             anyhow::bail!("machine-agent registration supplied an invalid heartbeat interval");
         }
-        if registered.generation < minimum_generation
-            || migration_generation.is_some_and(|expected| registered.generation != expected)
-        {
+        if registered.generation < minimum_generation {
             control.close();
             anyhow::bail!("machine-agent registration attempted a generation downgrade");
         }
