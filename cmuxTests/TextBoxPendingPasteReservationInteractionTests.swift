@@ -46,25 +46,31 @@ struct TextBoxPendingPasteReservationInteractionTests {
         let (window, textView) = makeTextView()
         defer { close(window) }
         selectMiddleWord(in: textView)
+        let undoManager = textView.undoManager
+        undoManager?.groupsByEvent = false
 
         let pasteID = UUID()
         #expect(textView.beginPendingPasteReservation(id: pasteID))
+        undoManager?.beginUndoGrouping()
         textView.insertText(
             " typed",
             replacementRange: textView.selectedRange()
         )
+        undoManager?.endUndoGrouping()
+        undoManager?.beginUndoGrouping()
         #expect(
             textView.commitPendingPasteReservation(
                 id: pasteID,
                 withText: "pasted"
             )
         )
+        undoManager?.endUndoGrouping()
         #expect(textView.string == "before pasted typed after")
 
-        textView.undoManager?.undo()
+        undoManager?.undo()
         #expect(textView.string == "before selected typed after")
 
-        textView.undoManager?.undo()
+        undoManager?.undo()
         #expect(textView.string == "before selected after")
     }
 
