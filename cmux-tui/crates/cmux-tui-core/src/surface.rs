@@ -621,8 +621,12 @@ pub const CLEAR_HISTORY_STREAM_TIMEOUT_ERROR: &str =
 pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
     "terminal input did not accept clear-history fallback before timeout";
 pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
+pub(crate) const CLEAR_HISTORY_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
-const CLEAR_HISTORY_FALLBACK_MAX_BYTES: usize = 8 * 1024;
+// Kitty associated-text encoding can expand each ASCII input byte to a
+// three-digit codepoint plus one separator. The extra key-text budget covers
+// the fixed CSI-u fields without making fallback writes unbounded.
+const CLEAR_HISTORY_FALLBACK_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES * 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClearHistoryDelivery {

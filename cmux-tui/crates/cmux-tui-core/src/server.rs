@@ -46,7 +46,7 @@ use zeroize::Zeroize;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
-use crate::surface::AttachLifecycle;
+use crate::surface::{AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
@@ -67,7 +67,7 @@ pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
-const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
+const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 macro_rules! protocol_keys {
     ($($variant:ident => $constant:ident),+ $(,)?) => {

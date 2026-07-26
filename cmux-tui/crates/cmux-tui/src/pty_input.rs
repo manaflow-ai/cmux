@@ -220,6 +220,7 @@ struct QueueState {
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
     in_flight_surface_operations: HashMap<SurfaceId, usize>,
+    failed_surfaces: HashSet<SurfaceId>,
     closed: bool,
     remote_failed: bool,
     shutdown_release_drain: bool,
@@ -400,6 +401,12 @@ impl PtyInputSender {
             return (PtyInputEnqueueResult::Saturated, None);
         }
         if state.remote_failed && event.remote {
+            return (PtyInputEnqueueResult::Failed, None);
+        }
+        if event
+            .ordering_surface_id()
+            .is_some_and(|surface| state.failed_surfaces.contains(&surface))
+        {
             return (PtyInputEnqueueResult::Failed, None);
         }
         if event.queued_byte_len() > MAX_QUEUED_BYTES {
@@ -900,6 +907,11 @@ fn process_event(
     let retry_ambiguous_release =
         ambiguous_release && event.remote_release_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
     let exhausted_ambiguous_release = ambiguous_release && !retry_ambiguous_release;
+    let ambiguous_surface_failure = result.is_err()
+        && ordering_surface.is_some()
+        && !known_not_delivered
+        && !remote_transport_failed
+        && !remote_timed_out;
     let failure = result.err().and_then(|error| {
         (!suppress_mutation_timeout && !retry_ambiguous_release).then(|| PtyOperationFailure {
             surface_id,
@@ -913,7 +925,9 @@ fn process_event(
             } else {
                 error.to_string()
             },
-            lane_failed: remote_transport_failed || exhausted_ambiguous_release,
+            lane_failed: remote_transport_failed
+                || exhausted_ambiguous_release
+                || ambiguous_surface_failure,
             delivery: if known_not_delivered {
                 PtyOperationDelivery::KnownNotDelivered
             } else {
@@ -975,6 +989,14 @@ fn process_event(
                 "canceled after a remote request timed out",
             ));
         }
+    } else if ambiguous_surface_failure {
+        let surface = ordering_surface.expect("ambiguous surface failure has an ordering surface");
+        state.failed_surfaces.insert(surface);
+        canceled.extend(prune_failed_surface(
+            &mut state,
+            surface,
+            "canceled after ambiguous surface delivery; detach and reconnect",
+        ));
     }
     if let Some(surface) = concurrent_surface.then_some(ordering_surface).flatten() {
         state.in_flight_surface_operations.remove(&surface);
@@ -1040,6 +1062,37 @@ fn prune_to_recovery_releases(
     }
     state.queued_bytes = releases.iter().map(PtyInputEvent::queued_byte_len).sum();
     state.events = releases;
+    canceled
+}
+
+fn prune_failed_surface(
+    state: &mut QueueState,
+    surface: SurfaceId,
+    error: &'static str,
+) -> Vec<PtyOperationFailure> {
+    let mut retained = VecDeque::new();
+    let mut canceled = Vec::new();
+    for event in state.events.drain(..) {
+        if event.ordering_surface_id() != Some(surface) {
+            retained.push_back(event);
+            continue;
+        }
+        canceled.push(PtyOperationFailure {
+            surface_id: Some(surface),
+            kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+            reservation_id: event.reservation_id,
+            label: event.label,
+            error: error.into(),
+            lane_failed: true,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+    }
+    state
+        .release_reservations
+        .outstanding
+        .retain(|_, reserved_surface| *reserved_surface != surface);
+    state.queued_bytes = retained.iter().map(PtyInputEvent::queued_byte_len).sum();
+    state.events = retained;
     canceled
 }
 
