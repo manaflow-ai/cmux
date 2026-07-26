@@ -2662,11 +2662,11 @@ mod tests {
     }
 
     #[test]
-    fn default_terminal_clear_shortcuts_clear_history() {
+    fn default_terminal_clear_shortcuts_keep_ctrl_l_child_owned() {
         let keys = Keys::default();
         let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
         assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
-        assert_eq!(action(KeyCode::Char('l'), KeyModifiers::CONTROL), Some(Action::ClearHistory));
+        assert_eq!(action(KeyCode::Char('l'), KeyModifiers::CONTROL), None);
         assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::CONTROL), None);
         assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::ALT), None);
         assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), None);

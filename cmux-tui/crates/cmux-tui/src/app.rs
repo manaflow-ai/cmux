@@ -11967,6 +11967,66 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_l_reaches_foreground_primary_screen_app() {
+        let mux = Mux::new(
+            "ctrl-l-primary-screen-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "stty raw -echo; printf ready; exec cat".to_string(),
+                ]),
+                cols: 20,
+                rows: 8,
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut output = attach.replay.clone();
+        while !output.windows(5).any(|window| window == b"ready") {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => panic!("foreground helper did not become ready: {error}"),
+            }
+        }
+
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        output.clear();
+        while !output.contains(&b'\x0c') {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => panic!("foreground app did not receive Ctrl-L: {error}"),
+            }
+        }
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn command_k_reaches_a_kitty_app_on_the_alternate_screen() {
         let mux = Mux::new(
             "command-k-alternate-screen-test",
