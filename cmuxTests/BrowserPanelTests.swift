@@ -4330,6 +4330,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugEntryCount(), 1)
 
         let displayCountBeforeRebind = webView.displayIfNeededCount
+        let redrawCountBeforeRebind = webView.setNeedsDisplayCount
         let enterInWindowCountBeforeRebind = webView.enterInWindowCount
         let endDeferringCountBeforeRebind = webView.endDeferringViewInWindowChangesCount
         let anchor2 = NSView(frame: anchorFrame)
@@ -4342,9 +4343,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(slot.isHidden)
         XCTAssertEqual(portal.debugEntryCount(), 1)
         XCTAssertGreaterThan(
+            webView.setNeedsDisplayCount,
+            redrawCountBeforeRebind,
+            "Anchor rebind should invalidate hosted browser presentation even when geometry is unchanged"
+        )
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             displayCountBeforeRebind,
-            "Anchor rebinds should refresh hosted browser presentation even when geometry is unchanged"
+            "Anchor rebind must not synchronously flush WebKit display"
         )
         XCTAssertEqual(
             enterInWindowCountAfterRebind - enterInWindowCountBeforeRebind,
