@@ -1,17 +1,21 @@
 /// The action shown by a Computer Use permission row for its current state.
 enum ComputerUsePermissionRowAction: Equatable, Sendable {
     case allow
-    case checkStatus
+    case openSystemSettings
     case done
 
     static func resolve(
         granted: Bool,
         statusIsKnown: Bool,
-        nativeRequestAttempted _: Bool
+        nativeRequestAttempted: Bool
     ) -> Self {
-        guard statusIsKnown else { return granted ? .checkStatus : .allow }
+        guard statusIsKnown else {
+            return granted || nativeRequestAttempted
+                ? .openSystemSettings
+                : .allow
+        }
         if granted { return .done }
-        return .allow
+        return nativeRequestAttempted ? .openSystemSettings : .allow
     }
 
     /// Helper installation happens independently when onboarding appears.

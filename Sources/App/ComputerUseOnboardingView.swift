@@ -3,9 +3,10 @@ import SwiftUI
 
 /// Two-card onboarding for the standalone local computer-use helper.
 ///
-/// Permissions belong to `cmux Computer Use`. Each Allow action opens the
-/// matching System Settings pane and presents the installed helper as a
-/// Finder-compatible drag source.
+/// Permissions belong to `cmux Computer Use`. Each initial Allow action asks
+/// that helper to raise the native macOS prompt. A repeat action opens the
+/// matching System Settings pane and presents the helper as a Finder-compatible
+/// drag source.
 @MainActor
 struct ComputerUseOnboardingView: View {
     static let initialStep = ComputerUseOnboardingStep.overview
@@ -13,7 +14,7 @@ struct ComputerUseOnboardingView: View {
     let runtimeService: ComputerUseRuntimeService
     @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
     let initialStep: ComputerUseOnboardingStep
-    let onSystemSettingsOpened: @MainActor () -> Void
+    let onPermissionSetupStarted: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
 
     @State private var step: ComputerUseOnboardingStep
@@ -24,25 +25,28 @@ struct ComputerUseOnboardingView: View {
     @State private var permissionCheckArmed = false
     @State private var helperAppURL: URL?
     @State private var helperIcon: NSImage?
-    @State private var isPermissionCompanionVisible: Bool
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
+    @State private var nativeRequestAttempted: Set<ComputerUseSystemPermission> = []
 
     init(
         runtimeService: ComputerUseRuntimeService,
         presentationState: ComputerUseOnboardingPresentationState,
         initialStep: ComputerUseOnboardingStep = .overview,
-        onSystemSettingsOpened: @escaping @MainActor () -> Void = {},
+        onPermissionSetupStarted: @escaping @MainActor () -> Void = {},
         onExpandedRequested: @escaping @MainActor () -> Void = {}
     ) {
         self.runtimeService = runtimeService
         self.presentationState = presentationState
         self.initialStep = initialStep
-        self.onSystemSettingsOpened = onSystemSettingsOpened
+        self.onPermissionSetupStarted = onPermissionSetupStarted
         self.onExpandedRequested = onExpandedRequested
         _step = State(initialValue: initialStep)
         _helperIcon = State(initialValue: runtimeService.presentationIcon)
-        _isPermissionCompanionVisible = State(initialValue: false)
+    }
+
+    private var isPermissionCompanionVisible: Bool {
+        presentationState.permissionCompanionVisible
     }
 
     var body: some View {
@@ -70,16 +74,13 @@ struct ComputerUseOnboardingView: View {
             refreshPermissions()
         }
         .onChange(of: presentationState.returnToOverviewGeneration) {
-            guard isPermissionCompanionVisible else { return }
-            isPermissionCompanionVisible = false
             step = .overview
             refreshPermissions()
         }
-        .task(id: isPermissionCompanionVisible) {
-            guard isPermissionCompanionVisible else { return }
+        .task {
             await refreshPermissionsNow()
             for await _ in runtimeService.permissionStatusEvents() {
-                guard !Task.isCancelled, isPermissionCompanionVisible else { return }
+                guard !Task.isCancelled else { return }
                 await refreshPermissionsNow()
             }
         }
@@ -129,7 +130,7 @@ struct ComputerUseOnboardingView: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 helperHeroIcon
-                    .padding(.top, 52)
+                    .padding(.top, 44)
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.title",
@@ -140,9 +141,9 @@ struct ComputerUseOnboardingView: View {
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.detail",
-                    defaultValue: "cmux Computer Use needs these permissions to use apps on your Mac.\nThese permissions are used when you ask cmux to perform tasks."
+                    defaultValue: "macOS may say “cmux Computer Use is asking for permission.” That is expected—the helper owns access.\nChoose the button shown: Allow, Open System Settings, or Allow for One Month.\n“Screen & System Audio Recording” and “Screen and Audio” are Apple’s labels; cmux only uses screenshots.\nIf no alert appears, you deny it, or see Quit & Reopen, click Open System Settings on that row; cmux stays open."
                 ))
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(overviewSecondaryText)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
@@ -298,10 +299,13 @@ struct ComputerUseOnboardingView: View {
         for permissionStep: ComputerUseOnboardingStep,
         granted: Bool
     ) -> some View {
+        let systemPermission = systemPermission(for: permissionStep)
         let action = ComputerUsePermissionRowAction.resolve(
             granted: granted,
             statusIsKnown: permissionStatusIsKnown,
-            nativeRequestAttempted: false
+            nativeRequestAttempted: systemPermission.map {
+                nativeRequestAttempted.contains($0)
+            } ?? false
         )
         if action == .done {
             HStack(spacing: 7) {
@@ -324,11 +328,24 @@ struct ComputerUseOnboardingView: View {
                             .controlSize(.small)
                             .tint(.white)
                     } else {
-                        Text(String(localized: "computerUse.onboarding.allow", defaultValue: "Allow"))
-                            .font(.system(size: 14, weight: .medium))
+                        Text(
+                            action == .allow
+                                ? String(
+                                    localized: "computerUse.onboarding.allow",
+                                    defaultValue: "Allow"
+                                )
+                                : String(
+                                    localized: "computerUse.onboarding.openSystemSettings",
+                                    defaultValue: "Open System Settings"
+                                )
+                        )
+                        .font(.system(size: 13, weight: .medium))
                     }
                 }
-                .frame(width: 57, height: 24)
+                .frame(
+                    width: action == .allow ? 57 : 132,
+                    height: 24
+                )
                 .foregroundStyle(.white)
                 .background(
                     Color.accentColor.opacity(isButtonEnabled ? 1 : 0.55),
@@ -337,10 +354,17 @@ struct ComputerUseOnboardingView: View {
             }
             .buttonStyle(.plain)
             .disabled(!isButtonEnabled)
-            .accessibilityHint(String(
-                localized: "computerUse.onboarding.openSystemSettings",
-                defaultValue: "Open System Settings"
-            ))
+            .accessibilityHint(
+                action == .allow
+                    ? String(
+                        localized: "computerUse.onboarding.requestNativePermission",
+                        defaultValue: "Ask cmux Computer Use to show the macOS permission alert"
+                    )
+                    : String(
+                        localized: "computerUse.onboarding.openSystemSettings",
+                        defaultValue: "Open System Settings"
+                    )
+            )
         }
     }
 
@@ -364,7 +388,6 @@ struct ComputerUseOnboardingView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    isPermissionCompanionVisible = false
                     onExpandedRequested()
                     refreshPermissions()
                 } label: {
@@ -536,16 +559,55 @@ struct ComputerUseOnboardingView: View {
         step = permissionStep
         permissionSetupInFlight = true
         permissionCheckArmed = true
+        onPermissionSetupStarted()
         Task { @MainActor in
             defer { permissionSetupInFlight = false }
             _ = await runtimeService.ensureStandaloneHelperInstalled()
+            let status = await runtimeService.refreshHelperStatus()
+            guard !Task.isCancelled else { return }
             refreshHelperPresentation()
-            guard helperAppURL != nil else { return }
-            await presentPermissionCompanion(for: permissionStep)
+            applyPermissions(
+                statusIsKnown: runtimeService.permissionStatusIsKnown,
+                accessibilityGranted: status.accessibility,
+                screenRecordingGranted: status.screenRecording
+            )
+            guard
+                !Task.isCancelled,
+                let systemPermission = systemPermission(for: permissionStep)
+            else {
+                return
+            }
+
+            // Helper installation and the native request both suspend. Re-read
+            // the permission after that boundary instead of using the button's
+            // captured value, because a grant can arrive while setup is in
+            // flight (for example after Quit & Reopen).
+            let currentlyGranted = permissionStep == .accessibility
+                ? accessibilityGranted
+                : screenRecordingGranted
+            guard !permissionStatusIsKnown || !currentlyGranted else { return }
+            let action = ComputerUsePermissionRowAction.resolve(
+                granted: currentlyGranted,
+                statusIsKnown: permissionStatusIsKnown,
+                nativeRequestAttempted: nativeRequestAttempted.contains(
+                    systemPermission
+                )
+            )
+            if action == .allow {
+                let outcome = await runtimeService.requestSystemPermission(
+                    systemPermission
+                )
+                guard !Task.isCancelled else { return }
+                nativeRequestAttempted.insert(systemPermission)
+                if outcome == .accepted {
+                    return
+                }
+            }
+            await openSystemSettings(for: permissionStep)
         }
     }
 
-    private func presentPermissionCompanion(
+    private func openSystemSettings(
         for permissionStep: ComputerUseOnboardingStep
     ) async {
         step = permissionStep
@@ -555,9 +617,19 @@ struct ComputerUseOnboardingView: View {
         } else {
             _ = await runtimeService.openScreenRecordingSettings()
         }
-        guard !Task.isCancelled else { return }
-        isPermissionCompanionVisible = true
-        onSystemSettingsOpened()
+    }
+
+    private func systemPermission(
+        for permissionStep: ComputerUseOnboardingStep
+    ) -> ComputerUseSystemPermission? {
+        switch permissionStep {
+        case .accessibility:
+            .accessibility
+        case .screenRecording:
+            .screenRecording
+        case .overview:
+            nil
+        }
     }
 
     private func refreshHelperPresentation() {
@@ -576,9 +648,8 @@ struct ComputerUseOnboardingView: View {
         screenRecordingGranted = newScreenRecordingGranted
 
         if statusIsKnown, newAccessibilityGranted, newScreenRecordingGranted {
-            step = .overview
-            if isPermissionCompanionVisible {
-                isPermissionCompanionVisible = false
+            if step != .overview || isPermissionCompanionVisible {
+                step = .overview
                 onExpandedRequested()
             }
             return
@@ -590,8 +661,8 @@ struct ComputerUseOnboardingView: View {
                     (step == .accessibility && newAccessibilityGranted)
                         || (step == .screenRecording && newScreenRecordingGranted)
                 )
-        if isPermissionCompanionVisible, activePermissionWasGranted {
-            isPermissionCompanionVisible = false
+        if activePermissionWasGranted {
+            step = .overview
             onExpandedRequested()
         }
     }

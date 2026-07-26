@@ -614,7 +614,8 @@ struct ComputerUseUXTests {
 
         #expect(window.frame.size == companionSize)
         #expect(window.contentView?.frame.size == companionSize)
-        #expect(window.contentLayoutRect.size == companionSize)
+        #expect(window.contentLayoutRect.width == companionSize.width)
+        #expect(window.contentLayoutRect.height < companionSize.height)
     }
 
     @Test @MainActor func permissionCompanionKeepsStableWindowChromeDuringTransition() {
@@ -634,6 +635,21 @@ struct ComputerUseUXTests {
         #expect(window.styleMask == expandedStyle)
     }
 
+    @Test func permissionCompanionAnimationHonorsReduceMotion() {
+        #expect(ComputerUseOnboardingWindowController.shouldAnimate(
+            windowIsVisible: true,
+            reduceMotion: false
+        ))
+        #expect(!ComputerUseOnboardingWindowController.shouldAnimate(
+            windowIsVisible: true,
+            reduceMotion: true
+        ))
+        #expect(!ComputerUseOnboardingWindowController.shouldAnimate(
+            windowIsVisible: false,
+            reduceMotion: false
+        ))
+    }
+
     @Test func permissionRowsOfferNativeRequestThenSettingsFallbackUntilGranted() {
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: false,
@@ -644,7 +660,7 @@ struct ComputerUseUXTests {
             granted: false,
             statusIsKnown: true,
             nativeRequestAttempted: true
-        ) == .checkStatus)
+        ) == .openSystemSettings)
         #expect(ComputerUsePermissionRowAction.resolve(
             granted: true,
             statusIsKnown: true,
@@ -654,7 +670,7 @@ struct ComputerUseUXTests {
             granted: true,
             statusIsKnown: false,
             nativeRequestAttempted: true
-        ) == .checkStatus)
+        ) == .openSystemSettings)
     }
 
     @Test
@@ -1144,6 +1160,133 @@ struct ComputerUseUXTests {
         #expect(envelope["host_auth_token"] == nil)
         responder.stop()
         runtime.stopForTermination()
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func nativePermissionRequestUsesBothCapabilitiesAndExactHelperPeer() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-host-permission-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-host-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "host-permission"],
+            authenticationToken: "agent-capability",
+            hostAuthenticationToken: "host-capability"
+        )
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"permission":"screen_recording","requested":true}}"#
+        )
+
+        let outcome = await ComputerUseRuntimeService.requestSystemPermission(
+            .screenRecording,
+            paths: paths,
+            expectedPeerIdentity: currentIdentity
+        )
+        let line = try #require(responder.receivedRequests.first)
+        let envelope = try #require(
+            try JSONSerialization.jsonObject(
+                with: Data(line.utf8)
+            ) as? [String: Any]
+        )
+        let request = try #require(envelope["request"] as? [String: Any])
+
+        #expect(outcome == .accepted)
+        #expect(envelope["auth_token"] as? String == "agent-capability")
+        #expect(envelope["host_auth_token"] as? String == "host-capability")
+        #expect(request["method"] as? String == "request_system_permission")
+        #expect(request["name"] as? String == "screen_recording")
+        responder.stop()
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func nativePermissionRequestRejectsAReusedHelperProcessIdentity() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-stale-permission-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-stale-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "stale-permission"],
+            authenticationToken: "agent-capability",
+            hostAuthenticationToken: "host-capability"
+        )
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let staleIdentity = AgentPIDProcessIdentity(
+            pid: currentIdentity.pid,
+            startSeconds: currentIdentity.startSeconds + 1,
+            startMicroseconds: currentIdentity.startMicroseconds
+        )
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"permission":"accessibility","requested":true}}"#
+        )
+
+        let outcome = await ComputerUseRuntimeService.requestSystemPermission(
+            .accessibility,
+            paths: paths,
+            expectedPeerIdentity: staleIdentity
+        )
+
+        #expect(outcome == .unknown)
+        #expect(responder.receivedRequests.isEmpty)
+        responder.stop()
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor

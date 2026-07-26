@@ -5,8 +5,15 @@ import SwiftUI
 @MainActor
 final class ComputerUseOnboardingPresentationState: ObservableObject {
     @Published private(set) var returnToOverviewGeneration = 0
+    @Published private(set) var permissionCompanionVisible = false
+
+    func showPermissionCompanion() {
+        guard !permissionCompanionVisible else { return }
+        permissionCompanionVisible = true
+    }
 
     func requestReturnToOverview() {
+        permissionCompanionVisible = false
         returnToOverviewGeneration &+= 1
     }
 }
@@ -45,6 +52,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var systemSettingsPlacementRetryTask: Task<Void, Never>?
     private var systemSettingsTrackingTask: Task<Void, Never>?
     private var pendingPlacementRequestID: UUID?
+    private var systemSettingsActivatedForPendingRequest = false
     private var presentationState: ComputerUseOnboardingPresentationState?
 
     init(runtimeService: ComputerUseRuntimeService) {
@@ -91,8 +99,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             runtimeService: runtimeService,
             presentationState: presentationState,
             initialStep: startingPoint.step,
-            onSystemSettingsOpened: { [weak self] in
-                self?.showPermissionCompanion()
+            onPermissionSetupStarted: { [weak self] in
+                self?.permissionSetupStarted()
             },
             onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() }
         )
@@ -117,7 +125,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         return window
     }
 
-    private func showPermissionCompanion() {
+    private func permissionSetupStarted() {
         guard let window else { return }
         permissionSettingsWillOpen()
         window.orderFrontRegardless()
@@ -146,6 +154,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         systemSettingsTrackingTask?.cancel()
         systemSettingsTrackingTask = nil
         pendingPlacementRequestID = nil
+        systemSettingsActivatedForPendingRequest = false
     }
 
     private func observeSystemSettingsActivation() {
@@ -162,24 +171,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private func permissionSettingsWillOpen() {
         systemSettingsPlacementRetryTask?.cancel()
         systemSettingsPlacementRetryTask = nil
+        systemSettingsTrackingTask?.cancel()
+        systemSettingsTrackingTask = nil
         let requestID = UUID()
         pendingPlacementRequestID = requestID
-        if positionInsideSystemSettingsIfNeeded(animate: true) {
-            pendingPlacementRequestID = nil
-            beginSystemSettingsTracking()
-            return
-        }
-        guard let window else { return }
-        let provisionalFrame = NSRect(
-            origin: window.frame.origin,
-            size: Self.permissionCompanionWindowSize
-        )
-        configureForPermissionCompanion(
-            window,
-            frame: provisionalFrame,
-            animate: shouldAnimate(window)
-        )
-        beginSystemSettingsPlacementRetry(requestID: requestID)
+        systemSettingsActivatedForPendingRequest = false
     }
 
     private func systemSettingsDidActivate() {
@@ -187,60 +183,102 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             == Self.systemSettingsBundleIdentifier
         else { return }
+        systemSettingsActivatedForPendingRequest = true
         beginSystemSettingsPlacementRetry(requestID: requestID)
     }
 
     private func beginSystemSettingsPlacementRetry(requestID: UUID) {
-        guard systemSettingsPlacementRetryTask == nil else { return }
+        guard
+            systemSettingsActivatedForPendingRequest,
+            systemSettingsPlacementRetryTask == nil
+        else {
+            return
+        }
         systemSettingsPlacementRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer {
-                if pendingPlacementRequestID == requestID {
-                    pendingPlacementRequestID = nil
-                    systemSettingsPlacementRetryTask = nil
-                }
-            }
             let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(3))
+            let deadline = clock.now.advanced(by: .seconds(5))
             while !Task.isCancelled,
                   pendingPlacementRequestID == requestID,
                   clock.now < deadline
             {
-                if positionInsideSystemSettingsIfNeeded(animate: true) {
+                if let frame = permissionCompanionFrameInSystemSettings()
+                {
+                    presentationState?.showPermissionCompanion()
+                    // Publish the compact SwiftUI content before beginning the
+                    // one AppKit-owned frame interpolation.
+                    await Task.yield()
+                    guard
+                        !Task.isCancelled,
+                        pendingPlacementRequestID == requestID
+                    else {
+                        return
+                    }
+                    positionPermissionCompanion(
+                        at: frame,
+                        animate: true
+                    )
+                    pendingPlacementRequestID = nil
+                    systemSettingsActivatedForPendingRequest = false
+                    systemSettingsPlacementRetryTask = nil
                     beginSystemSettingsTracking()
                     return
                 }
                 do {
-                    // CGWindowList has no window-created signal, so retry briefly after activation.
+                    // CGWindowList has no window-created signal. Once the
+                    // matching app activates, wait until its real window is
+                    // available rather than performing a provisional jump.
                     try await clock.sleep(for: .milliseconds(100))
                 } catch {
                     return
                 }
+            }
+            if pendingPlacementRequestID == requestID {
+                pendingPlacementRequestID = nil
+                systemSettingsActivatedForPendingRequest = false
+                systemSettingsPlacementRetryTask = nil
             }
         }
     }
 
     @discardableResult
     private func positionInsideSystemSettingsIfNeeded(animate: Bool) -> Bool {
-        guard let window, let systemSettingsFrame = systemSettingsWindowFrame() else { return false }
+        guard let frame = permissionCompanionFrameInSystemSettings() else {
+            return false
+        }
+        positionPermissionCompanion(at: frame, animate: animate)
+        return true
+    }
+
+    private func permissionCompanionFrameInSystemSettings() -> NSRect? {
+        guard let systemSettingsFrame = systemSettingsWindowFrame() else {
+            return nil
+        }
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         guard let permissionDisplay = permissionWindowPlacement.visibleFrame(
             containing: systemSettingsFrame,
             candidates: visibleFrames
-        ) else { return false }
+        ) else {
+            return nil
+        }
 
-        let frame = permissionWindowPlacement.frame(
+        return permissionWindowPlacement.frame(
             onboardingSize: Self.permissionCompanionWindowSize,
             beside: systemSettingsFrame,
             in: permissionDisplay
         )
-        guard window.frame != frame else { return true }
+    }
+
+    private func positionPermissionCompanion(
+        at frame: NSRect,
+        animate: Bool
+    ) {
+        guard let window, window.frame != frame else { return }
         configureForPermissionCompanion(
             window,
             frame: frame,
             animate: animate && shouldAnimate(window)
         )
-        return true
     }
 
     private func beginSystemSettingsTracking() {
@@ -257,12 +295,15 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             }
             var consecutiveMissingWindowChecks = 0
             while !Task.isCancelled {
+                // The initial move is the only animated transition. Repeated
+                // `setFrame(..., animate: true)` calls while System Settings is
+                // being dragged queue competing AppKit interpolations and make
+                // the companion visibly lag or snap backward.
                 if positionInsideSystemSettingsIfNeeded(animate: false) {
                     consecutiveMissingWindowChecks = 0
                 } else {
                     consecutiveMissingWindowChecks += 1
                     if consecutiveMissingWindowChecks >= 3 {
-                        presentationState?.requestReturnToOverview()
                         showExpandedOnboarding()
                         return
                     }
@@ -322,6 +363,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         systemSettingsTrackingTask?.cancel()
         systemSettingsTrackingTask = nil
         pendingPlacementRequestID = nil
+        systemSettingsActivatedForPendingRequest = false
+        presentationState?.requestReturnToOverview()
         let visibleFrame = window.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? window.frame
@@ -340,16 +383,19 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    /// Applies the compact permission presentation without changing its behavior.
+    /// Applies the compact permission presentation while preserving the
+    /// expanded window's chrome and layout model.
     ///
-    /// Kept as one shared path for provisional and System Settings-relative
-    /// placement so the real transition can be exercised by the app test target.
+    /// Changing style masks during a resize rebuilds AppKit's frame/content
+    /// relationship mid-animation. Keeping one style mask lets the move and
+    /// resize remain a single smooth transition.
     func configureForPermissionCompanion(
         _ window: ComputerUseOnboardingWindow,
         frame: NSRect,
         animate: Bool = false
     ) {
-        window.styleMask = [.borderless]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.hasShadow = true
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -397,8 +443,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             display: window.isVisible,
             animate: animate
         )
-        window.minSize = frame.size
-        window.maxSize = frame.size
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             let button = window.standardWindowButton(buttonType)
             button?.isHidden = !showsStandardButtons
@@ -407,8 +451,18 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     private func shouldAnimate(_ window: NSWindow) -> Bool {
-        window.isVisible
-            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        Self.shouldAnimate(
+            windowIsVisible: window.isVisible,
+            reduceMotion:
+                NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+    }
+
+    nonisolated static func shouldAnimate(
+        windowIsVisible: Bool,
+        reduceMotion: Bool
+    ) -> Bool {
+        windowIsVisible && !reduceMotion
     }
 
 }

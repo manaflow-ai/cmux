@@ -212,6 +212,79 @@ final class ComputerUseRuntimeService {
         )
     }
 
+    /// Asks the exact cmux-managed native helper generation to raise one native
+    /// macOS permission prompt.
+    ///
+    /// This uses the helper's host-only daemon method. It is deliberately not
+    /// part of the MCP or CLI tool registry, so an agent cannot bypass cmux's
+    /// explicit onboarding UI.
+    func requestSystemPermission(
+        _ permission: ComputerUseSystemPermission
+    ) async -> ComputerUsePermissionRequestOutcome {
+        await serializeHelperLifecycle(cancelledResult: .unknown) { [weak self] in
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                !Task.isCancelled
+            else {
+                return .unknown
+            }
+            await self.startIfNeededWithinLifecycle()
+            guard
+                !Task.isCancelled,
+                let expectedPeerIdentity = self.processIdentity(for: .native),
+                AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                    == expectedPeerIdentity
+            else {
+                return .unknown
+            }
+            return await Self.requestSystemPermission(
+                permission,
+                paths: self.paths,
+                transport: self.transport,
+                expectedPeerIdentity: expectedPeerIdentity
+            )
+        }
+    }
+
+    /// Socket-level host request kept internal so the app test target can prove
+    /// the normal bearer token, host capability, request shape, and peer
+    /// generation validation together.
+    nonisolated static func requestSystemPermission(
+        _ permission: ComputerUseSystemPermission,
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport = SocketTransport(),
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) async -> ComputerUsePermissionRequestOutcome {
+        guard
+            let response = await sendDaemonRequest(
+                [
+                    "method": "request_system_permission",
+                    "name": permission.rawValue,
+                ],
+                paths: paths,
+                transport: transport,
+                timeout: 3,
+                expectedPeerIdentity: expectedPeerIdentity,
+                socketURL: paths.daemonSocketURL
+            )
+        else {
+            return .unknown
+        }
+        guard response["ok"] as? Bool == true else {
+            return .rejected
+        }
+        guard
+            let result = response["result"] as? [String: Any],
+            result["requested"] as? Bool == true,
+            result["permission"] as? String == permission.rawValue
+        else {
+            return .unknown
+        }
+        return .accepted
+    }
+
     /// Ends one exact cmux-managed proxy generation through the authenticated
     /// helper that owns its lifecycle state.
     func endDriverSession(
