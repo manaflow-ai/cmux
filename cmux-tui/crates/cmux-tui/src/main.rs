@@ -334,8 +334,11 @@ fn usage_for_platform(
     messages: &localization::MachineAgentMessages,
     supports_machine_agent: bool,
 ) -> String {
-    let machine_agent_usage = if supports_machine_agent { messages.usage } else { "" };
-    USAGE.replace("{machine_agent_usage}", machine_agent_usage)
+    if supports_machine_agent {
+        USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", messages.usage))
+    } else {
+        USAGE.replace("  {machine_agent_usage}\n", "")
+    }
 }
 
 fn usage() -> String {
@@ -709,7 +712,9 @@ fn main() {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
             eprintln!("cmux-tui: {error}");
-            eprintln!("{}", localization::catalog().machine_agent.help);
+            if error.show_help() {
+                eprintln!("{}", localization::catalog().machine_agent.help);
+            }
             std::process::exit(1);
         }
         return;
@@ -1669,10 +1674,16 @@ mod tests {
 
     #[test]
     fn startup_help_localizes_the_machine_agent_entrypoint() {
-        let english = usage_for(&localization::catalog_for_locale("en_US.UTF-8").machine_agent);
+        let english = usage_for_platform(
+            &localization::catalog_for_locale("en_US.UTF-8").machine_agent,
+            true,
+        );
         assert!(english.contains("cmux machine-agent"));
         assert!(english.contains("Share one local session through the configured host"));
-        let japanese = usage_for(&localization::catalog_for_locale("ja_JP.UTF-8").machine_agent);
+        let japanese = usage_for_platform(
+            &localization::catalog_for_locale("ja_JP.UTF-8").machine_agent,
+            true,
+        );
         assert!(japanese.contains("cmux machine-agent"));
         assert!(japanese.contains("設定したホスト経由でローカルセッションを共有"));
         assert!(!japanese.contains("Share one local session"));
@@ -1684,6 +1695,7 @@ mod tests {
         let usage = usage_for_platform(english, false);
         assert!(!usage.contains("machine-agent"));
         assert!(usage.contains("cmux-tui relay"));
+        assert!(!usage.lines().any(|line| !line.is_empty() && line.trim().is_empty()));
     }
 
     #[test]
