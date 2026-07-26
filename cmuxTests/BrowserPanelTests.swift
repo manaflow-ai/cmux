@@ -2926,6 +2926,17 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
+    private final class TrackingPortalAnchorView: NSView {
+        private(set) var windowConversionCount = 0
+
+        override func convert(_ rect: NSRect, to view: NSView?) -> NSRect {
+            if view == nil {
+                windowConversionCount += 1
+            }
+            return super.convert(rect, to: view)
+        }
+    }
+
     private final class WKInspectorProbeView: NSView {}
 
     private func realizeWindowLayout(_ window: NSWindow) {
@@ -3449,6 +3460,40 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.frame.width,
             slot.bounds.width,
             "Side-docked inspector should still own part of the slot after pane resize"
+        )
+    }
+
+    func testSingleEntryAnchorResizeDoesNotScheduleRedundantFullSync() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = TrackingPortalAnchorView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        advanceAnimations()
+
+        let conversionCountBeforeResize = anchor.windowConversionCount
+        anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertEqual(
+            anchor.windowConversionCount - conversionCountBeforeResize,
+            1,
+            "A single hosted browser should synchronize its changed anchor once without a redundant deferred all-entry pass"
         )
     }
 
