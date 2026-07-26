@@ -1179,6 +1179,7 @@ fn error_code(value: &str) -> ErrorCode {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 
@@ -1240,6 +1241,69 @@ mod tests {
         fn close(&self) {
             self.0.store(true, Ordering::Release);
         }
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl RecordingWriter {
+        fn read_frame(&self) -> Envelope {
+            let bytes = self.0.lock().unwrap().clone();
+            protocol_io::read_frame(&mut BufReader::new(Cursor::new(bytes))).unwrap()
+        }
+
+        fn is_empty(&self) -> bool {
+            self.0.lock().unwrap().is_empty()
+        }
+    }
+
+    fn state_with_active_stream(
+        instance_id: u64,
+    ) -> (GenerationState, RecordingWriter, Receiver<DataPayload>) {
+        let writer = RecordingWriter::default();
+        let (inputs, _inputs_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        let (writes, write_rx) = mpsc::sync_channel(LOCAL_WRITE_QUEUE_CAPACITY);
+        let control = Arc::new(RecordingControl::default());
+        let erased_control: Arc<dyn ConnectionControl> = control;
+        let stream_control = Arc::new(RecordingControl::default());
+        let erased_stream_control: Arc<dyn ConnectionControl> = stream_control;
+        let state = GenerationState {
+            generation: 1,
+            writer: Box::new(writer.clone()),
+            control: erased_control,
+            local: Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) }),
+            inputs,
+            recent_opens: Arc::new(Mutex::new(RecentOpenIds::default())),
+            streams: HashMap::from([(
+                7,
+                ActiveStream {
+                    instance_id,
+                    writes,
+                    control: erased_stream_control,
+                    flow: Arc::new(StreamFlow::new(protocol::MAX_STREAM_WINDOW_BYTES)),
+                    receive_remaining: protocol::MAX_STREAM_WINDOW_BYTES,
+                },
+            )]),
+            next_stream_instance_id: instance_id + 1,
+            migration_pending: false,
+            draining: false,
+            heartbeat: Duration::from_secs(1),
+            last_received: Instant::now(),
+            last_ping: Instant::now(),
+            next_ping_nonce: 1,
+        };
+        (state, writer, write_rx)
     }
 
     #[test]
@@ -1329,6 +1393,43 @@ mod tests {
             MachineAgentDiagnostic::GenerationStart(generation_failure_kind(&transport)).code(),
             "generation_start.transport"
         );
+    }
+
+    #[test]
+    fn stale_local_reader_data_cannot_cross_a_reused_stream_id() {
+        let (mut state, writer, _write_rx) = state_with_active_stream(2);
+        state.handle_local_data(7, 1, DataPayload::new(b"stale".to_vec()).unwrap()).unwrap();
+        assert!(writer.is_empty());
+
+        state.handle_local_data(7, 2, DataPayload::new(b"current".to_vec()).unwrap()).unwrap();
+        assert!(matches!(
+            writer.read_frame().message,
+            Message::Data(StreamData { stream_id: 7, ref payload })
+                if payload.as_bytes() == b"current"
+        ));
+    }
+
+    #[test]
+    fn cloud_data_waits_for_async_local_write_before_reopening_window() {
+        let (mut state, writer, write_rx) = state_with_active_stream(2);
+        state
+            .write_local(StreamData {
+                stream_id: 7,
+                payload: DataPayload::new(b"cloud".to_vec()).unwrap(),
+            })
+            .unwrap();
+        assert_eq!(
+            state.streams.get(&7).unwrap().receive_remaining,
+            protocol::MAX_STREAM_WINDOW_BYTES - 5
+        );
+        assert!(writer.is_empty());
+        assert_eq!(write_rx.recv().unwrap().as_bytes(), b"cloud");
+
+        state.complete_local_write(7, 2, 5).unwrap();
+        assert!(matches!(
+            writer.read_frame().message,
+            Message::Window(StreamWindow { stream_id: 7, bytes: 5 })
+        ));
     }
 
     struct TestWait;
