@@ -13,15 +13,15 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
-    DefaultColors, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
-    NotificationLevel, PairingChallenge, Rgb, SurfaceId, SurfaceKind,
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
+    SurfaceKind,
     platform::transport,
     server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
+    Callbacks, CursorShape, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
     TerminalColorOverrides, parse_color,
 };
 use serde_json::{Value, json};
@@ -1141,29 +1141,11 @@ impl RemoteSession {
                 .clear_history_request(surface, Some(ProtocolKeyInput::try_from(fallback_key)?));
         }
 
-        // Plain clear-history remains available through clear_history(), but a
-        // shortcut needs the atomic capability because only the authoritative
-        // server can safely choose between clearing the primary screen and
-        // forwarding input to an alternate screen. Forward the original key
-        // for every non-atomic peer so replicated screen-state lag cannot
-        // swallow or misroute user input.
-        let surface =
-            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
-        if surface.kind != SurfaceKind::Pty {
-            anyhow::bail!("browser surface does not accept PTY bytes");
-        }
-        let encoded = {
-            let term = surface.term.lock().unwrap();
-            let mut encoder = KeyEncoder::new()?;
-            let mut encoded = Vec::new();
-            encoder.sync_from_terminal(&term);
-            encoder.encode(fallback_key, &mut encoded)?;
-            encoded
-        };
-        if encoded.is_empty() {
-            anyhow::bail!(CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR);
-        }
-        self.send_bytes(surface.id, &encoded)
+        // Plain clear-history remains available through clear_history(), but
+        // only an atomic-capability server can choose the active screen and
+        // encode the fallback from authoritative keyboard modes. A mirrored
+        // terminal is never safe for correctness-critical input routing.
+        anyhow::bail!(CLEAR_HISTORY_UNSUPPORTED_ERROR)
     }
 
     fn clear_history_request(

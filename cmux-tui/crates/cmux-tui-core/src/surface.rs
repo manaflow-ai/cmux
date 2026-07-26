@@ -1804,41 +1804,20 @@ impl Surface {
         };
         #[cfg(unix)]
         {
-            let legacy_host = {
+            {
                 let runtime = pty.runtime.lock().unwrap();
                 match &*runtime {
                     PtyRuntime::Hosted(host) => {
                         if host.send_clear_history(fallback_key)? {
                             return Ok(());
                         }
-                        true
+                        anyhow::bail!("terminal host does not support clear-history");
                     }
                     PtyRuntime::ExitedHosted => {
                         anyhow::bail!("terminal host has exited");
                     }
-                    PtyRuntime::Local { .. } => false,
+                    PtyRuntime::Local { .. } => {}
                 }
-            };
-            if legacy_host {
-                let input = fallback_key.ok_or_else(|| {
-                    anyhow::anyhow!("terminal host does not support clear-history")
-                })?;
-                let encoded = {
-                    let term = pty.term.lock().unwrap();
-                    encode_key_from_terminal(&term, input)?
-                };
-                let runtime = pty.runtime.lock().unwrap();
-                match &*runtime {
-                    PtyRuntime::Hosted(host) if host.supports_clear_history() => {
-                        host.send_clear_history(Some(input))?;
-                    }
-                    PtyRuntime::Hosted(host) => host.send(MessageKind::Input, &encoded)?,
-                    PtyRuntime::ExitedHosted => anyhow::bail!("terminal host has exited"),
-                    PtyRuntime::Local { .. } => {
-                        unreachable!("a hosted PTY runtime cannot become local")
-                    }
-                }
-                return Ok(());
             }
         }
 
