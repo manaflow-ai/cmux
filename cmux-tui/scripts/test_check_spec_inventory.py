@@ -173,6 +173,56 @@ impl Action {
             finally:
                 CHECKER.TUI = original_tui
 
+    def test_menu_action_contracts_come_from_rust_execution_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            app = tui / "crates/cmux-tui/src/app.rs"
+            app.parent.mkdir(parents=True)
+            app.write_text(
+                """\
+enum MenuAction {
+    RenameTab(u8),
+    DisconnectClient(u64),
+}
+
+impl MenuAction {
+    fn metadata(&self) -> MenuActionMetadata {
+        match self {
+            MenuAction::RenameTab(id) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "frontend prompt + rename-surface",
+                MenuActionExecution::RenameTab(*id),
+            ),
+            MenuAction::DisconnectClient(client) => MenuActionMetadata::new(
+                MenuActionClassification::Composite,
+                "self: close frontend transport; peer: detach-client",
+                MenuActionExecution::DisconnectClient(*client),
+            ),
+        }
+    }
+}
+"""
+            )
+
+            original_tui = CHECKER.TUI
+            CHECKER.TUI = tui
+            try:
+                self.assertEqual(
+                    CHECKER.menu_action_metadata(),
+                    {
+                        "RenameTab": {
+                            "classification": "composite",
+                            "route": "frontend prompt + rename-surface",
+                        },
+                        "DisconnectClient": {
+                            "classification": "composite",
+                            "route": "self: close frontend transport; peer: detach-client",
+                        },
+                    },
+                )
+            finally:
+                CHECKER.TUI = original_tui
+
 
 class DocumentationConsistencyTests(unittest.TestCase):
     def test_python_browser_attach_uses_the_protocol_six_floor(self) -> None:
@@ -328,6 +378,20 @@ impl TreeDeltaKind {
         self.assertEqual(new_workspace["classification"], "composite")
         self.assertIn("new-workspace", new_workspace["route"])
         self.assertIn("machine-provider create_workspace", new_workspace["route"])
+
+    def test_menu_action_route_drift_is_rejected(self) -> None:
+        inventory = copy.deepcopy(self.inventory())
+        disconnect = next(
+            action
+            for action in inventory["menu_actions"]
+            if action["variant"] == "DisconnectClient"
+        )
+        disconnect["classification"] = "direct"
+        disconnect["route"] = "detach-client"
+        errors = io.StringIO()
+        with redirect_stderr(errors), self.assertRaises(SystemExit):
+            CHECKER.validate_menu_actions(inventory)
+        self.assertIn("menu action metadata drift", errors.getvalue())
 
 
 if __name__ == "__main__":
