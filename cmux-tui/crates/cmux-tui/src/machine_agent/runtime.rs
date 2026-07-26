@@ -579,7 +579,7 @@ fn generation_worker(context: WorkerContext) {
         generation,
         heartbeat,
         writer,
-        mut reader,
+        reader,
         control,
         local,
         coordinator,
@@ -588,19 +588,19 @@ fn generation_worker(context: WorkerContext) {
         recent_opens,
     } = context;
     let cloud_sender = inputs_tx.clone();
-    let reader_control = Arc::clone(&control);
-    let _ = thread::Builder::new().name(format!("machine-agent-cloud-reader-{generation}")).spawn(
-        move || {
-            loop {
-                let frame = protocol_io::read_frame(&mut reader);
-                let terminal = frame.is_err();
-                if cloud_sender.send(WorkerInput::Cloud(frame)).is_err() || terminal {
-                    break;
-                }
-            }
-            reader_control.close();
-        },
-    );
+    if spawn_cloud_reader_with(
+        worker_id,
+        generation,
+        reader,
+        Arc::clone(&control),
+        cloud_sender,
+        coordinator.clone(),
+        |name, task| thread::Builder::new().name(name).spawn(task),
+    )
+    .is_err()
+    {
+        return;
+    }
 
     let mut state = GenerationState {
         generation,
@@ -621,6 +621,40 @@ fn generation_worker(context: WorkerContext) {
     state.close_all();
     control.close();
     let _ = coordinator.send(CoordinatorEvent::Closed { worker_id });
+}
+
+fn spawn_cloud_reader_with<R, S>(
+    worker_id: u64,
+    generation: u64,
+    mut reader: R,
+    control: Arc<dyn ConnectionControl>,
+    sender: SyncSender<WorkerInput>,
+    coordinator: SyncSender<CoordinatorEvent>,
+    spawn: S,
+) -> io::Result<JoinHandle<()>>
+where
+    R: Read + Send + 'static,
+    S: FnOnce(String, Box<dyn FnOnce() + Send>) -> io::Result<JoinHandle<()>>,
+{
+    let reader_control = Arc::clone(&control);
+    let task: Box<dyn FnOnce() + Send> = Box::new(move || {
+        loop {
+            let frame = protocol_io::read_frame(&mut reader);
+            let terminal = frame.is_err();
+            if sender.send(WorkerInput::Cloud(frame)).is_err() || terminal {
+                break;
+            }
+        }
+        reader_control.close();
+    });
+    match spawn(format!("machine-agent-cloud-reader-{generation}"), task) {
+        Ok(handle) => Ok(handle),
+        Err(error) => {
+            control.close();
+            let _ = coordinator.send(CoordinatorEvent::Closed { worker_id });
+            Err(error)
+        }
+    }
 }
 
 struct GenerationState {
