@@ -357,6 +357,20 @@ struct WindowKeyDownReplayGuardTests {
     }
 
     @Test
+    func unavailableCopyWithoutSurfaceDoesNotAssumeMenuOwnership() {
+        let terminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        guard let event = makeCommandCKeyDownEvent(windowNumber: 0) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(
+            !terminal.shouldConsumeUnavailableCopyKeyEquivalent(event),
+            Comment(rawValue: "A transient missing surface must fall through so Ghostty can recover it and resolve the live binding")
+        )
+    }
+
+    @Test
     func terminalUndoRedoCommandEquivalentsBypassAppKitUndoMenu() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
