@@ -4505,6 +4505,28 @@ mod tests {
     }
 
     #[test]
+    fn successful_navigation_without_commit_keeps_pointer_admission_blocked() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let invalidation = browser.invalidate_pointer_frame();
+        let expected_epoch = invalidation.expected_frame_epoch;
+
+        let result: anyhow::Result<()> = browser.finish_navigation_command(invalidation, Ok(()));
+
+        assert!(result.is_ok());
+        let state = browser.state.lock().unwrap();
+        assert_eq!(
+            state.pending_frame_epoch, expected_epoch,
+            "command acknowledgment must not settle navigation before its authoritative event"
+        );
+        assert_eq!(
+            state.pointer_frame_seq, None,
+            "the pre-navigation frame must remain non-interactive while commit is unresolved"
+        );
+    }
+
+    #[test]
     fn failed_reconfigure_restores_frame_admission_and_capture() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -4553,6 +4575,65 @@ mod tests {
             browser.scale_captured_input_point(capture_generation, 1.0, 1.0).is_some(),
             "a resize failure must preserve ownership of a balancing pointer release"
         );
+        runtime.shutdown();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn reconfigure_failure_after_metrics_commit_keeps_pointer_admission_blocked() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let metrics = read_ws_json(&mut ws);
+            assert_eq!(metrics["method"], "Emulation.setDeviceMetricsOverride");
+            write_ws_json(&mut ws, json!({"id": metrics["id"], "result": {}}));
+
+            let stop = read_ws_json(&mut ws);
+            assert_eq!(stop["method"], "Page.stopScreencast");
+            write_ws_json(&mut ws, json!({"id": stop["id"], "result": {}}));
+
+            let start = read_ws_json(&mut ws);
+            assert_eq!(start["method"], "Page.startScreencast");
+            write_ws_json(
+                &mut ws,
+                json!({"id": start["id"], "error": {"message": "injected capture failure"}}),
+            );
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+
+        assert!(browser.reconfigure_reserved_blocking(queued).is_err());
+
+        let state = browser.state.lock().unwrap();
+        assert!(
+            state.pending_frame_epoch.is_some(),
+            "a post-mutation failure must retain the frame-epoch reservation"
+        );
+        assert_eq!(
+            state.pointer_frame_seq, None,
+            "the pre-resize frame must not regain pointer authority after partial reconfiguration"
+        );
+        drop(state);
         runtime.shutdown();
         server.join().unwrap();
     }

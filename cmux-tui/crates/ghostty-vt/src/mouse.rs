@@ -355,6 +355,25 @@ mod tests {
     }
 
     #[test]
+    fn csi_controls_do_not_hide_mouse_format_changes_from_encoder() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1000h");
+        let mut encoder = MouseEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+
+        terminal.vt_write(b"\x1b[?1006\x07h");
+        assert!(terminal.mode(1006, false), "Ghostty must accept BEL inside CSI parameters");
+        encoder.sync_from_terminal(&terminal);
+
+        let mut out = Vec::new();
+        encoder.encode(input(MouseAction::Press, Some(MouseButton::Left)), &mut out).unwrap();
+        assert_eq!(
+            out, b"\x1b[<0;5;3M",
+            "encoder synchronization must follow Ghostty's authoritative SGR mouse mode"
+        );
+    }
+
+    #[test]
     fn restored_mouse_mode_resynchronizes_saved_precedence() {
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[?1000h\x1b[?1000s\x1b[?1002h\x1b[?1006h");
