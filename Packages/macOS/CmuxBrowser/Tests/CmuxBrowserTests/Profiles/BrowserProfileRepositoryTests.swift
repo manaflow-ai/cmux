@@ -233,6 +233,44 @@ struct BrowserProfileRepositoryTests {
         #expect(defaults.string(forKey: BrowserProfileRepository.lastUsedProfileDefaultsKey) == p.id.uuidString)
     }
 
+    @Test func profileSelectionResolvesUUIDBeforeDisplayName() {
+        let (repo, _) = makeRepository()
+        let defaultID = BrowserProfileRepository.builtInDefaultProfileID
+        let namedLikeDefaultID = repo.createProfile(named: defaultID.uuidString)!
+
+        #expect(repo.resolveProfileSelection(defaultID.uuidString) == .matched(
+            repo.profileDefinition(id: defaultID)!
+        ))
+        #expect(namedLikeDefaultID.id != defaultID)
+    }
+
+    @Test func profileSelectionFallsBackFromMissingUUIDToCaseInsensitiveDisplayName() {
+        let (repo, _) = makeRepository()
+        let missingID = UUID()
+        let namedLikeMissingID = repo.createProfile(named: missingID.uuidString)!
+        let work = repo.createProfile(named: "Work Profile")!
+
+        #expect(repo.resolveProfileSelection(missingID.uuidString.lowercased()) == .matched(namedLikeMissingID))
+        #expect(repo.resolveProfileSelection("  work profile  ") == .matched(work))
+    }
+
+    @Test func profileSelectionReportsEveryAmbiguousDisplayNameCandidate() {
+        let (repo, _) = makeRepository()
+        let first = repo.createProfile(named: "Shared")!
+        let second = repo.createProfile(named: "shared")!
+
+        guard case .ambiguous(let candidates) = repo.resolveProfileSelection("SHARED") else {
+            Issue.record("Expected ambiguous profile selection")
+            return
+        }
+        #expect(Set(candidates.map(\.id)) == [first.id, second.id])
+    }
+
+    @Test func profileSelectionReportsUnknownSelector() {
+        let (repo, _) = makeRepository()
+        #expect(repo.resolveProfileSelection("Missing Profile") == .notFound)
+    }
+
     @Test func effectiveLastUsedFallsBackWhenMissing() {
         let (_, defaults) = makeRepository()
         // Force lastUsed to a stale id via persistence, then reload.
