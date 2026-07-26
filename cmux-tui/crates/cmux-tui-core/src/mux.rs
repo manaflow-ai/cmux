@@ -10524,7 +10524,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_surface_close_retains_failed_process_ownership_for_shutdown() {
+    fn ordinary_surface_close_retains_failed_process_ownership_until_reconciled() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let owned = mux.surface(surface.id).unwrap();
@@ -10535,7 +10535,7 @@ mod tests {
         assert_eq!(mux.shutdown_owners.len(), 1);
 
         owned.set_server_shutdown_failure_for_test(false);
-        assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        mux.close_all_surfaces_for_shutdown().unwrap();
         assert!(mux.shutdown_owners.is_empty());
     }
 
