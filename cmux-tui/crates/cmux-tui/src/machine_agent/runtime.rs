@@ -24,6 +24,7 @@ use super::transport::{
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MIN_HEARTBEAT: Duration = Duration::from_millis(protocol::MIN_HEARTBEAT_INTERVAL_MS);
 const MAX_HEARTBEAT: Duration = Duration::from_millis(protocol::MAX_HEARTBEAT_INTERVAL_MS);
+const CLOUD_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const EVENT_QUEUE_CAPACITY: usize = 128;
 const LOCAL_OPEN_CONCURRENCY: usize = 4;
 const LOCAL_OPEN_QUEUE_CAPACITY: usize = 8;
@@ -155,6 +156,7 @@ impl MachineAgent {
 
     pub(super) fn run(&self) -> anyhow::Result<()> {
         self.local.verify_protocol()?;
+        let local_opens = spawn_local_connectors(Arc::clone(&self.local))?;
         let (events_tx, events_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
         let recent_opens = Arc::new(Mutex::new(RecentOpenIds::default()));
         let mut recent_migrations = VecDeque::new();
@@ -168,6 +170,7 @@ impl MachineAgent {
                 match self.start_generation(
                     highest_generation,
                     None,
+                    local_opens.clone(),
                     events_tx.clone(),
                     Arc::clone(&recent_opens),
                 ) {
@@ -225,6 +228,7 @@ impl MachineAgent {
                     match self.start_generation(
                         highest_generation,
                         Some(proof),
+                        local_opens.clone(),
                         events_tx.clone(),
                         Arc::clone(&recent_opens),
                     ) {
@@ -332,6 +336,7 @@ impl MachineAgent {
         &self,
         minimum_generation: u64,
         migration: Option<MigrationProof>,
+        local_opens: SyncSender<LocalOpenRequest>,
         coordinator: SyncSender<CoordinatorEvent>,
         recent_opens: Arc<Mutex<RecentOpenIds>>,
     ) -> anyhow::Result<StartedWorker> {
@@ -386,7 +391,6 @@ impl MachineAgent {
         let (inputs_tx, inputs_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
         let commands = inputs_tx.clone();
         let worker_control = Arc::clone(&control);
-        let local = Arc::clone(&self.local);
         let join = thread::Builder::new()
             .name(format!("machine-agent-generation-{generation}"))
             .spawn(move || {
@@ -397,7 +401,7 @@ impl MachineAgent {
                     writer,
                     reader,
                     control: worker_control,
-                    local,
+                    local_opens,
                     coordinator,
                     inputs_tx,
                     inputs_rx,
@@ -569,6 +573,49 @@ impl Drop for ReadDeadline {
     }
 }
 
+enum WriteDeadlineCommand {
+    Arm,
+    Disarm,
+}
+
+struct WriteDeadline {
+    commands: SyncSender<WriteDeadlineCommand>,
+}
+
+impl WriteDeadline {
+    fn start(control: Arc<dyn ConnectionControl>, timeout: Duration) -> io::Result<Self> {
+        let (commands, receiver) = mpsc::sync_channel(1);
+        thread::Builder::new().name("mx-write-watch".into()).spawn(move || {
+            while let Ok(WriteDeadlineCommand::Arm) = receiver.recv() {
+                match receiver.recv_timeout(timeout) {
+                    Ok(WriteDeadlineCommand::Disarm) => {}
+                    Ok(WriteDeadlineCommand::Arm) | Err(RecvTimeoutError::Timeout) => {
+                        control.close();
+                        break;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            }
+        })?;
+        Ok(Self { commands })
+    }
+
+    fn write(&self, writer: &mut dyn Write, envelope: &Envelope) -> io::Result<()> {
+        self.commands
+            .send(WriteDeadlineCommand::Arm)
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "write watchdog stopped"))?;
+        let result = protocol_io::write_frame(writer, envelope);
+        let disarmed = self.commands.send(WriteDeadlineCommand::Disarm);
+        match (result, disarmed) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+            (Ok(()), Err(_)) => {
+                Err(io::Error::new(io::ErrorKind::TimedOut, "cloud write timed out"))
+            }
+        }
+    }
+}
+
 enum CoordinatorEvent {
     MigrationRequested { worker_id: u64, generation: u64, request: ReconnectGeneration },
     Closed { worker_id: u64, stable: bool },
@@ -612,7 +659,7 @@ struct WorkerContext {
     writer: Box<dyn Write + Send>,
     reader: BufReader<Box<dyn Read + Send>>,
     control: Arc<dyn ConnectionControl>,
-    local: Arc<dyn LocalSessionConnector>,
+    local_opens: SyncSender<LocalOpenRequest>,
     coordinator: SyncSender<CoordinatorEvent>,
     inputs_tx: SyncSender<WorkerInput>,
     inputs_rx: Receiver<WorkerInput>,
@@ -627,7 +674,7 @@ fn generation_worker(context: WorkerContext) {
         writer,
         reader,
         control,
-        local,
+        local_opens,
         coordinator,
         inputs_tx,
         inputs_rx,
@@ -647,18 +694,19 @@ fn generation_worker(context: WorkerContext) {
     {
         return;
     }
-
-    let local_opens = match spawn_local_connectors(local, inputs_tx.clone()) {
-        Ok(local_opens) => local_opens,
+    let write_deadline = match WriteDeadline::start(Arc::clone(&control), CLOUD_WRITE_TIMEOUT) {
+        Ok(write_deadline) => write_deadline,
         Err(_) => {
             control.close();
             let _ = coordinator.send(CoordinatorEvent::Closed { worker_id, stable: false });
             return;
         }
     };
+
     let mut state = GenerationState {
         generation,
         writer,
+        write_deadline,
         control: Arc::clone(&control),
         local_opens,
         inputs: inputs_tx,
@@ -719,40 +767,35 @@ where
 struct LocalOpenRequest {
     stream_id: u32,
     instance_id: u64,
+    sender: SyncSender<WorkerInput>,
 }
 
 fn spawn_local_connectors(
     local: Arc<dyn LocalSessionConnector>,
-    sender: SyncSender<WorkerInput>,
 ) -> io::Result<SyncSender<LocalOpenRequest>> {
     let (requests, receiver) = mpsc::sync_channel::<LocalOpenRequest>(LOCAL_OPEN_QUEUE_CAPACITY);
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..LOCAL_OPEN_CONCURRENCY {
         let local = Arc::clone(&local);
         let receiver = Arc::clone(&receiver);
-        let sender = sender.clone();
-        thread::Builder::new().name(format!("machine-agent-local-connector-{index}")).spawn(
-            move || {
-                loop {
-                    let request = receiver.lock().unwrap().recv();
-                    let Ok(request) = request else { break };
-                    let connection = local.open();
-                    if let Err(error) = sender.send(WorkerInput::LocalOpenCompleted {
-                        stream_id: request.stream_id,
-                        instance_id: request.instance_id,
-                        connection,
-                    }) {
-                        if let WorkerInput::LocalOpenCompleted {
-                            connection: Ok(connection), ..
-                        } = error.0
-                        {
-                            connection.control.close();
-                        }
-                        break;
+        thread::Builder::new().name(format!("mx-local-open-{index}")).spawn(move || {
+            loop {
+                let request = receiver.lock().unwrap().recv();
+                let Ok(request) = request else { break };
+                let connection = local.open();
+                if let Err(error) = request.sender.send(WorkerInput::LocalOpenCompleted {
+                    stream_id: request.stream_id,
+                    instance_id: request.instance_id,
+                    connection,
+                }) {
+                    if let WorkerInput::LocalOpenCompleted { connection: Ok(connection), .. } =
+                        error.0
+                    {
+                        connection.control.close();
                     }
                 }
-            },
-        )?;
+            }
+        })?;
     }
     Ok(requests)
 }
@@ -760,6 +803,7 @@ fn spawn_local_connectors(
 struct GenerationState {
     generation: u64,
     writer: Box<dyn Write + Send>,
+    write_deadline: WriteDeadline,
     control: Arc<dyn ConnectionControl>,
     local_opens: SyncSender<LocalOpenRequest>,
     inputs: SyncSender<WorkerInput>,
@@ -933,7 +977,11 @@ impl GenerationState {
             return self.reject(open.stream_id, "stream_limit");
         };
         self.next_stream_instance_id = next_instance_id;
-        let request = LocalOpenRequest { stream_id: open.stream_id, instance_id };
+        let request = LocalOpenRequest {
+            stream_id: open.stream_id,
+            instance_id,
+            sender: self.inputs.clone(),
+        };
         if self.local_opens.try_send(request).is_err() {
             return self.reject(open.stream_id, "local_unavailable");
         }
@@ -1145,7 +1193,7 @@ impl GenerationState {
     }
 
     fn send(&mut self, message: Message) -> anyhow::Result<()> {
-        protocol_io::write_frame(&mut self.writer, &Envelope::new(message)).map_err(Into::into)
+        self.write_deadline.write(&mut self.writer, &Envelope::new(message)).map_err(Into::into)
     }
 
     fn close_all(&mut self) {
@@ -1467,6 +1515,21 @@ mod tests {
         }
     }
 
+    struct DeadlineBlockingWriter(Arc<RecordingControl>);
+
+    impl Write for DeadlineBlockingWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            while !self.0.0.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "test connection closed"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     fn state_with_active_stream(
         instance_id: u64,
     ) -> (GenerationState, RecordingWriter, Receiver<DataPayload>) {
@@ -1476,11 +1539,14 @@ mod tests {
         let (writes, write_rx) = mpsc::sync_channel(LOCAL_WRITE_QUEUE_CAPACITY);
         let control = Arc::new(RecordingControl::default());
         let erased_control: Arc<dyn ConnectionControl> = control;
+        let write_deadline =
+            WriteDeadline::start(Arc::clone(&erased_control), Duration::from_secs(1)).unwrap();
         let stream_control = Arc::new(RecordingControl::default());
         let erased_stream_control: Arc<dyn ConnectionControl> = stream_control;
         let state = GenerationState {
             generation: 1,
             writer: Box::new(writer.clone()),
+            write_deadline,
             control: erased_control,
             local_opens,
             inputs,
@@ -1505,6 +1571,21 @@ mod tests {
             next_ping_nonce: 1,
         };
         (state, writer, write_rx)
+    }
+
+    #[test]
+    fn cloud_write_deadline_closes_an_unresponsive_connection() {
+        let control = Arc::new(RecordingControl::default());
+        let erased_control: Arc<dyn ConnectionControl> = control.clone();
+        let deadline = WriteDeadline::start(erased_control, Duration::from_millis(20)).unwrap();
+        let mut writer = DeadlineBlockingWriter(control.clone());
+
+        let error = deadline
+            .write(&mut writer, &Envelope::new(Message::Ping(Heartbeat { nonce: 1 })))
+            .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        assert!(control.0.load(Ordering::Acquire));
     }
 
     #[test]
@@ -1789,6 +1870,62 @@ mod tests {
                 while !*released {
                     released = available.wait(released).unwrap();
                 }
+            }
+            self.streams
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionRefused, "no fake session"))
+        }
+    }
+
+    struct SaturatingLocal {
+        streams: Mutex<VecDeque<DuplexConnection>>,
+        opens: AtomicUsize,
+        started: (Mutex<()>, Condvar),
+        released: (Mutex<bool>, Condvar),
+    }
+
+    impl SaturatingLocal {
+        fn new(streams: Vec<DuplexConnection>) -> Arc<Self> {
+            Arc::new(Self {
+                streams: Mutex::new(streams.into()),
+                opens: AtomicUsize::new(0),
+                started: (Mutex::new(()), Condvar::new()),
+                released: (Mutex::new(false), Condvar::new()),
+            })
+        }
+
+        fn wait_until_started(&self, expected: usize) {
+            let (started, available) = &self.started;
+            let mut started = started.lock().unwrap();
+            while self.opens.load(Ordering::Acquire) < expected {
+                started = available.wait(started).unwrap();
+            }
+        }
+
+        fn release(&self) {
+            let (released, available) = &self.released;
+            *released.lock().unwrap() = true;
+            available.notify_all();
+        }
+    }
+
+    impl LocalSessionConnector for SaturatingLocal {
+        fn verify_protocol(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn open(&self) -> io::Result<DuplexConnection> {
+            let started = self.started.0.lock().unwrap();
+            self.opens.fetch_add(1, Ordering::Release);
+            self.started.1.notify_all();
+            drop(started);
+
+            let (released, available) = &self.released;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = available.wait(released).unwrap();
             }
             self.streams
                 .lock()
@@ -2187,6 +2324,65 @@ mod tests {
         cloud_server.reader.get_ref().set_read_timeout(None).unwrap();
         stop.stop();
         cloud_server.shutdown();
+        agent_thread.join().unwrap();
+    }
+
+    #[test]
+    fn blocked_local_open_workers_remain_bounded_across_reconnects() {
+        let (cloud, mut cloud_servers) = QueueCloud::new();
+        let mut first = WirePeer::new(cloud_servers.remove(0));
+        let mut second = WirePeer::new(cloud_servers.remove(0));
+        let mut local_clients = Vec::new();
+        let mut _local_servers = Vec::new();
+        for _ in 0..=LOCAL_OPEN_CONCURRENCY {
+            let (client, server) = UnixStream::pair().unwrap();
+            local_clients.push(duplex_from_unix_stream(client).unwrap());
+            _local_servers.push(server);
+        }
+        let local = SaturatingLocal::new(local_clients);
+        let stop = AtomicStop::new();
+        let agent = MachineAgent::new(
+            identity(),
+            SessionName::new("agents").unwrap(),
+            cloud,
+            local.clone(),
+            Arc::new(TestReporter::default()),
+            Arc::new(TestWait),
+            stop.clone(),
+        );
+        let agent_thread = thread::spawn(move || agent.run().unwrap());
+
+        assert!(matches!(first.read().message, Message::Hello(_)));
+        first.write(registered(1, None));
+        for stream_id in 1..=LOCAL_OPEN_CONCURRENCY as u32 {
+            first.write(Message::Open(OpenStream {
+                stream_id,
+                open_id: OpaqueId::new(format!("blocked-{stream_id}")).unwrap(),
+                initial_window: 4,
+            }));
+        }
+        local.wait_until_started(LOCAL_OPEN_CONCURRENCY);
+        first.shutdown();
+
+        assert!(matches!(second.read().message, Message::Hello(_)));
+        second.write(registered(2, None));
+        second.write(Message::Open(OpenStream {
+            stream_id: 9,
+            open_id: OpaqueId::new("next-generation-open").unwrap(),
+            initial_window: 4,
+        }));
+        thread::sleep(Duration::from_millis(50));
+        assert_eq!(local.opens.load(Ordering::Acquire), LOCAL_OPEN_CONCURRENCY);
+
+        local.release();
+        second.reader.get_ref().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        assert!(matches!(
+            second.read().message,
+            Message::Opened(StreamOpened { stream_id: 9, .. })
+        ));
+        second.reader.get_ref().set_read_timeout(None).unwrap();
+        stop.stop();
+        second.shutdown();
         agent_thread.join().unwrap();
     }
 

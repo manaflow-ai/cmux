@@ -5,6 +5,7 @@ mod protocol_io;
 mod runtime;
 mod transport;
 
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::fd::AsRawFd;
@@ -52,15 +53,43 @@ impl ArgsError {
     }
 }
 
-pub(super) fn run(raw_args: &[String]) -> anyhow::Result<()> {
+#[derive(Debug)]
+pub(super) struct RunError {
+    message: String,
+    show_help: bool,
+}
+
+impl RunError {
+    fn arguments(message: String) -> Self {
+        Self { message, show_help: true }
+    }
+
+    fn runtime(error: anyhow::Error) -> Self {
+        Self { message: error.to_string(), show_help: false }
+    }
+
+    pub(super) fn show_help(&self) -> bool {
+        self.show_help
+    }
+}
+
+impl fmt::Display for RunError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for RunError {}
+
+pub(super) fn run(raw_args: &[String]) -> Result<(), RunError> {
     let messages = &crate::localization::catalog().machine_agent;
     let args =
-        parse_args(raw_args).map_err(|error| anyhow::Error::msg(error.localized(messages)))?;
+        parse_args(raw_args).map_err(|error| RunError::arguments(error.localized(messages)))?;
     if args.help {
         print!("{}", messages.help);
         return Ok(());
     }
-    run_agent(args)
+    run_agent(args).map_err(RunError::runtime)
 }
 
 fn run_agent(args: Args) -> anyhow::Result<()> {

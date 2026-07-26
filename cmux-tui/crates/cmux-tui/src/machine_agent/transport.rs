@@ -90,6 +90,7 @@ impl SshCloudConnector {
             || self.options.host.clone(),
             |user| format!("{user}@{}", self.options.host),
         );
+        args.push(OsString::from("--"));
         args.push(OsString::from(destination));
         // This is the complete and immutable server exec contract. User input
         // never contributes a remote command token.
@@ -291,8 +292,14 @@ mod tests {
         .unwrap();
         let args = connector.command_args();
         assert_eq!(
-            &args[args.len() - 3..],
-            [OsStr::new("cmux"), OsStr::new("machine"), OsStr::new("register")]
+            &args[args.len() - 5..],
+            [
+                OsStr::new("--"),
+                OsStr::new("lawrence@cmux.cloud"),
+                OsStr::new("cmux"),
+                OsStr::new("machine"),
+                OsStr::new("register"),
+            ]
         );
         assert!(args.contains(&OsString::from("lawrence@cmux.cloud")));
         assert!(args.contains(&OsString::from("IdentitiesOnly=yes")));

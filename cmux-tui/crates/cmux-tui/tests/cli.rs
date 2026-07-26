@@ -348,18 +348,18 @@ fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
 
 #[cfg(unix)]
 #[test]
-fn machine_agent_runtime_failures_are_stable_and_localized() {
+fn machine_agent_argument_failures_are_stable_and_localized() {
     let output = Command::new(bin())
         .env("LC_ALL", "ja_JP.UTF-8")
         .env("LC_MESSAGES", "ja_JP.UTF-8")
         .env("LANG", "ja_JP.UTF-8")
-        .args(["machine-agent", "--session", ""])
+        .args(["machine-agent", "--cloud-port", "invalid"])
         .output()
         .unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("machine-agent を開始または続行できませんでした"));
-    assert!(!stderr.contains("session name"));
+    assert!(stderr.contains("--cloud-port の値が無効です: invalid"));
+    assert!(!stderr.contains("machine-agent を開始または続行できませんでした"));
 }
 
 #[cfg(unix)]
