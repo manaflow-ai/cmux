@@ -3163,13 +3163,10 @@ final class WindowBrowserPortal: NSObject {
                 anchorView.window == nil &&
                 anchorView.superview != nil
             if isOffWindowReparent {
-                if preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch.offWindow") {
-                    return
-                }
-                if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
-                    hideContainerView(reason: "anchorWindowMismatch")
-                    return
-                }
+                // A drag reparent can remain off-window beyond the retry budget. Exhaustion
+                // stops polling but must not hide the last valid presentation before rebind.
+                _ = preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch.offWindow")
+                return
             }
             if preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch") {
                 return
